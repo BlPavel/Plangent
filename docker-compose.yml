@@ -1,0 +1,12 @@
+services:
+  plangent:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/app/data          # persist database and skills
+      - /var/run/docker.sock:/var/run/docker.sock  # optional
+    environment:
+      - PORT=3000
+      - NODE_ENV=production
+    restart: unless-stopped

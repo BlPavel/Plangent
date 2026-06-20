@@ -1,0 +1,465 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:3000/api/projects/4d70ebbf-184c-472d-976f-83a672174488/tasks/fccacf00-eabc-494b-b6f1-ef778a120371/runs/0206c39e-ee91-476a-8fe8-47a8887d6b45/agent-stopped\" -H \"Content-Type: application/json\" -d '{\"runId\":\"0206c39e-ee91-476a-8fe8-47a8887d6b45\"}' || true"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:3000/api/projects/4d70ebbf-184c-472d-976f-83a672174488/tasks/fccacf00-eabc-494b-b6f1-ef778a120371/runs/e964bbd2-7d5d-42c7-93fb-74c741e3790e/agent-stopped\" -H \"Content-Type: application/json\" -d '{\"runId\":\"e964bbd2-7d5d-42c7-93fb-74c741e3790e\"}' || true"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:3000/api/projects/4d70ebbf-184c-472d-976f-83a672174488/tasks/1bb087d0-a689-4376-a2a0-bbc3ff567b5b/runs/0dacc7e1-8611-48ab-9a0d-6c8fe5ca3ba8/agent-stopped\" -H \"Content-Type: application/json\" -d '{\"runId\":\"0dacc7e1-8611-48ab-9a0d-6c8fe5ca3ba8\"}' || true"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:3000/api/projects/4d70ebbf-184c-472d-976f-83a672174488/tasks/919aa7cd-bceb-4de0-93d5-2dd0612c24e7/runs/3ba1c0a8-cf04-43c0-ab7a-9b9328ea3110/agent-stopped\" -H \"Content-Type: application/json\" -d '{\"runId\":\"3ba1c0a8-cf04-43c0-ab7a-9b9328ea3110\"}' || true"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:3000/api/projects/$PLANGENT_PROJECT_ID/tasks/$PLANGENT_TASK_ID/runs/$PLANGENT_RUN_ID/agent-stopped\" -H \"Content-Type: application/json\" -d \"{\\\"runId\\\":\\\"$PLANGENT_RUN_ID\\\"}\" || true"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:3000/api/projects/$PLANGENT_PROJECT_ID/tasks/$PLANGENT_TASK_ID/runs/$PLANGENT_RUN_ID/agent-stopped\" -H \"Content-Type: application/json\" -d \"{\\\"runId\\\":\\\"$PLANGENT_RUN_ID\\\"}\" || true"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:3000/api/projects/$PLANGENT_PROJECT_ID/tasks/$PLANGENT_TASK_ID/runs/$PLANGENT_RUN_ID/agent-stopped\" -H \"Content-Type: application/json\" -d \"{\\\"runId\\\":\\\"$PLANGENT_RUN_ID\\\"}\" || true"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:3000/api/projects/$PLANGENT_PROJECT_ID/tasks/$PLANGENT_TASK_ID/runs/$PLANGENT_RUN_ID/agent-stopped\" -H \"Content-Type: application/json\" -d \"{\\\"runId\\\":\\\"$PLANGENT_RUN_ID\\\"}\" || true"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:3000/api/projects/$PLANGENT_PROJECT_ID/tasks/$PLANGENT_TASK_ID/runs/$PLANGENT_RUN_ID/agent-stopped\" -H \"Content-Type: application/json\" -d \"{\\\"runId\\\":\\\"$PLANGENT_RUN_ID\\\"}\" || true"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:3000/api/projects/$PLANGENT_PROJECT_ID/tasks/$PLANGENT_TASK_ID/runs/$PLANGENT_RUN_ID/agent-stopped\" -H \"Content-Type: application/json\" -d \"{\\\"runId\\\":\\\"$PLANGENT_RUN_ID\\\"}\" || true"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:3000/api/projects/$PLANGENT_PROJECT_ID/tasks/$PLANGENT_TASK_ID/runs/$PLANGENT_RUN_ID/agent-stopped\" -H \"Content-Type: application/json\" -d \"{\\\"runId\\\":\\\"$PLANGENT_RUN_ID\\\"}\" || true"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:3000/api/projects/$PLANGENT_PROJECT_ID/tasks/$PLANGENT_TASK_ID/runs/$PLANGENT_RUN_ID/agent-stopped\" -H \"Content-Type: application/json\" -d \"{\\\"runId\\\":\\\"$PLANGENT_RUN_ID\\\"}\" || true"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:3000/api/projects/$PLANGENT_PROJECT_ID/tasks/$PLANGENT_TASK_ID/runs/$PLANGENT_RUN_ID/agent-stopped\" -H \"Content-Type: application/json\" -d \"{\\\"runId\\\":\\\"$PLANGENT_RUN_ID\\\"}\" || true"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:3000/api/projects/$PLANGENT_PROJECT_ID/tasks/$PLANGENT_TASK_ID/runs/$PLANGENT_RUN_ID/agent-stopped\" -H \"Content-Type: application/json\" -d \"{\\\"runId\\\":\\\"$PLANGENT_RUN_ID\\\"}\" || true"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:3000/api/projects/$PLANGENT_PROJECT_ID/tasks/$PLANGENT_TASK_ID/runs/$PLANGENT_RUN_ID/agent-stopped\" -H \"Content-Type: application/json\" -d \"{\\\"runId\\\":\\\"$PLANGENT_RUN_ID\\\"}\" || true"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:3000/api/projects/$PLANGENT_PROJECT_ID/tasks/$PLANGENT_TASK_ID/runs/$PLANGENT_RUN_ID/agent-stopped\" -H \"Content-Type: application/json\" -d \"{\\\"runId\\\":\\\"$PLANGENT_RUN_ID\\\"}\" || true"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:3000/api/projects/$PLANGENT_PROJECT_ID/tasks/$PLANGENT_TASK_ID/runs/$PLANGENT_RUN_ID/agent-stopped\" -H \"Content-Type: application/json\" -d \"{\\\"runId\\\":\\\"$PLANGENT_RUN_ID\\\"}\" || true"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:3000/api/projects/$PLANGENT_PROJECT_ID/tasks/$PLANGENT_TASK_ID/runs/$PLANGENT_RUN_ID/agent-stopped\" -H \"Content-Type: application/json\" -d \"{\\\"runId\\\":\\\"$PLANGENT_RUN_ID\\\"}\" || true"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:3000/api/projects/$PLANGENT_PROJECT_ID/tasks/$PLANGENT_TASK_ID/runs/$PLANGENT_RUN_ID/agent-stopped\" -H \"Content-Type: application/json\" -d \"{\\\"runId\\\":\\\"$PLANGENT_RUN_ID\\\"}\" || true"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:3000/api/projects/$PLANGENT_PROJECT_ID/tasks/$PLANGENT_TASK_ID/runs/$PLANGENT_RUN_ID/agent-stopped\" -H \"Content-Type: application/json\" -d \"{\\\"runId\\\":\\\"$PLANGENT_RUN_ID\\\"}\" || true"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:3000/api/projects/$PLANGENT_PROJECT_ID/tasks/$PLANGENT_TASK_ID/runs/$PLANGENT_RUN_ID/agent-stopped\" -H \"Content-Type: application/json\" -d \"{\\\"runId\\\":\\\"$PLANGENT_RUN_ID\\\"}\" || true"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:3000/api/projects/$PLANGENT_PROJECT_ID/tasks/$PLANGENT_TASK_ID/runs/$PLANGENT_RUN_ID/agent-stopped\" -H \"Content-Type: application/json\" -d \"{\\\"runId\\\":\\\"$PLANGENT_RUN_ID\\\"}\" || true"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:3000/api/projects/$PLANGENT_PROJECT_ID/tasks/$PLANGENT_TASK_ID/runs/$PLANGENT_RUN_ID/agent-stopped\" -H \"Content-Type: application/json\" -d \"{\\\"runId\\\":\\\"$PLANGENT_RUN_ID\\\"}\" || true"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:3000/api/projects/$PLANGENT_PROJECT_ID/tasks/$PLANGENT_TASK_ID/runs/$PLANGENT_RUN_ID/agent-stopped\" -H \"Content-Type: application/json\" -d \"{\\\"runId\\\":\\\"$PLANGENT_RUN_ID\\\"}\" || true"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:3000/api/projects/$PLANGENT_PROJECT_ID/tasks/$PLANGENT_TASK_ID/runs/$PLANGENT_RUN_ID/agent-stopped\" -H \"Content-Type: application/json\" -d \"{\\\"runId\\\":\\\"$PLANGENT_RUN_ID\\\"}\" || true"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:3000/api/projects/$PLANGENT_PROJECT_ID/tasks/$PLANGENT_TASK_ID/runs/$PLANGENT_RUN_ID/agent-stopped\" -H \"Content-Type: application/json\" -d \"{\\\"runId\\\":\\\"$PLANGENT_RUN_ID\\\"}\" || true"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:3000/api/projects/$PLANGENT_PROJECT_ID/tasks/$PLANGENT_TASK_ID/runs/$PLANGENT_RUN_ID/agent-stopped\" -H \"Content-Type: application/json\" -d \"{\\\"runId\\\":\\\"$PLANGENT_RUN_ID\\\"}\" || true"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:3000/api/projects/$PLANGENT_PROJECT_ID/tasks/$PLANGENT_TASK_ID/runs/$PLANGENT_RUN_ID/agent-stopped\" -H \"Content-Type: application/json\" -d \"{\\\"runId\\\":\\\"$PLANGENT_RUN_ID\\\"}\" || true"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:3000/api/projects/$PLANGENT_PROJECT_ID/tasks/$PLANGENT_TASK_ID/runs/$PLANGENT_RUN_ID/agent-stopped\" -H \"Content-Type: application/json\" -d \"{\\\"runId\\\":\\\"$PLANGENT_RUN_ID\\\"}\" || true"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:3000/api/projects/$PLANGENT_PROJECT_ID/tasks/$PLANGENT_TASK_ID/runs/$PLANGENT_RUN_ID/agent-stopped\" -H \"Content-Type: application/json\" -d \"{\\\"runId\\\":\\\"$PLANGENT_RUN_ID\\\"}\" || true"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:3000/api/projects/$PLANGENT_PROJECT_ID/tasks/$PLANGENT_TASK_ID/runs/$PLANGENT_RUN_ID/agent-stopped\" -H \"Content-Type: application/json\" -d \"{\\\"runId\\\":\\\"$PLANGENT_RUN_ID\\\"}\" || true"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:3000/api/projects/$PLANGENT_PROJECT_ID/tasks/$PLANGENT_TASK_ID/runs/$PLANGENT_RUN_ID/agent-stopped\" -H \"Content-Type: application/json\" -d \"{\\\"runId\\\":\\\"$PLANGENT_RUN_ID\\\"}\" || true"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:3000/api/projects/$PLANGENT_PROJECT_ID/tasks/$PLANGENT_TASK_ID/runs/$PLANGENT_RUN_ID/agent-stopped\" -H \"Content-Type: application/json\" -d \"{\\\"runId\\\":\\\"$PLANGENT_RUN_ID\\\"}\" || true"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:3000/api/projects/$PLANGENT_PROJECT_ID/tasks/$PLANGENT_TASK_ID/runs/$PLANGENT_RUN_ID/agent-stopped\" -H \"Content-Type: application/json\" -d \"{\\\"runId\\\":\\\"$PLANGENT_RUN_ID\\\"}\" || true"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:3000/api/projects/$PLANGENT_PROJECT_ID/tasks/$PLANGENT_TASK_ID/runs/$PLANGENT_RUN_ID/agent-stopped\" -H \"Content-Type: application/json\" -d \"{\\\"runId\\\":\\\"$PLANGENT_RUN_ID\\\"}\" || true"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:3000/api/projects/$PLANGENT_PROJECT_ID/tasks/$PLANGENT_TASK_ID/runs/$PLANGENT_RUN_ID/agent-stopped\" -H \"Content-Type: application/json\" -d \"{\\\"runId\\\":\\\"$PLANGENT_RUN_ID\\\"}\" || true"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:3000/api/projects/$PLANGENT_PROJECT_ID/tasks/$PLANGENT_TASK_ID/runs/$PLANGENT_RUN_ID/agent-stopped\" -H \"Content-Type: application/json\" -d \"{\\\"runId\\\":\\\"$PLANGENT_RUN_ID\\\"}\" || true"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:3000/api/projects/$PLANGENT_PROJECT_ID/tasks/$PLANGENT_TASK_ID/runs/$PLANGENT_RUN_ID/agent-stopped\" -H \"Content-Type: application/json\" -d \"{\\\"runId\\\":\\\"$PLANGENT_RUN_ID\\\"}\" || true"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:3000/api/projects/$PLANGENT_PROJECT_ID/tasks/$PLANGENT_TASK_ID/runs/$PLANGENT_RUN_ID/agent-stopped\" -H \"Content-Type: application/json\" -d \"{\\\"runId\\\":\\\"$PLANGENT_RUN_ID\\\"}\" || true"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:3000/api/projects/$PLANGENT_PROJECT_ID/tasks/$PLANGENT_TASK_ID/runs/$PLANGENT_RUN_ID/agent-stopped\" -H \"Content-Type: application/json\" -d \"{\\\"runId\\\":\\\"$PLANGENT_RUN_ID\\\"}\" || true"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:3000/api/projects/$PLANGENT_PROJECT_ID/tasks/$PLANGENT_TASK_ID/runs/$PLANGENT_RUN_ID/agent-stopped\" -H \"Content-Type: application/json\" -d \"{\\\"runId\\\":\\\"$PLANGENT_RUN_ID\\\"}\" || true"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:3000/api/projects/$PLANGENT_PROJECT_ID/tasks/$PLANGENT_TASK_ID/runs/$PLANGENT_RUN_ID/agent-stopped\" -H \"Content-Type: application/json\" -d \"{\\\"runId\\\":\\\"$PLANGENT_RUN_ID\\\"}\" || true"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:3000/api/projects/$PLANGENT_PROJECT_ID/tasks/$PLANGENT_TASK_ID/runs/$PLANGENT_RUN_ID/agent-stopped\" -H \"Content-Type: application/json\" -d \"{\\\"runId\\\":\\\"$PLANGENT_RUN_ID\\\"}\" || true"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:3000/api/projects/$PLANGENT_PROJECT_ID/tasks/$PLANGENT_TASK_ID/runs/$PLANGENT_RUN_ID/agent-stopped\" -H \"Content-Type: application/json\" -d \"{\\\"runId\\\":\\\"$PLANGENT_RUN_ID\\\"}\" || true"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:3000/api/projects/$PLANGENT_PROJECT_ID/tasks/$PLANGENT_TASK_ID/runs/$PLANGENT_RUN_ID/agent-stopped\" -H \"Content-Type: application/json\" -d \"{\\\"runId\\\":\\\"$PLANGENT_RUN_ID\\\"}\" || true"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:3000/api/projects/$PLANGENT_PROJECT_ID/tasks/$PLANGENT_TASK_ID/runs/$PLANGENT_RUN_ID/agent-stopped\" -H \"Content-Type: application/json\" -d \"{\\\"runId\\\":\\\"$PLANGENT_RUN_ID\\\"}\" || true"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:3000/api/projects/$PLANGENT_PROJECT_ID/tasks/$PLANGENT_TASK_ID/runs/$PLANGENT_RUN_ID/agent-stopped\" -H \"Content-Type: application/json\" -d \"{\\\"runId\\\":\\\"$PLANGENT_RUN_ID\\\"}\" || true"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:3000/api/projects/$PLANGENT_PROJECT_ID/tasks/$PLANGENT_TASK_ID/runs/$PLANGENT_RUN_ID/agent-stopped\" -H \"Content-Type: application/json\" -d \"{\\\"runId\\\":\\\"$PLANGENT_RUN_ID\\\"}\" || true"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:3000/api/projects/$PLANGENT_PROJECT_ID/tasks/$PLANGENT_TASK_ID/runs/$PLANGENT_RUN_ID/agent-stopped\" -H \"Content-Type: application/json\" -d \"{\\\"runId\\\":\\\"$PLANGENT_RUN_ID\\\"}\" || true"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:3000/api/projects/$PLANGENT_PROJECT_ID/tasks/$PLANGENT_TASK_ID/runs/$PLANGENT_RUN_ID/agent-stopped\" -H \"Content-Type: application/json\" -d \"{\\\"runId\\\":\\\"$PLANGENT_RUN_ID\\\"}\" || true"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:3000/api/projects/$PLANGENT_PROJECT_ID/tasks/$PLANGENT_TASK_ID/runs/$PLANGENT_RUN_ID/agent-stopped\" -H \"Content-Type: application/json\" -d \"{\\\"runId\\\":\\\"$PLANGENT_RUN_ID\\\"}\" || true"
+          }
+        ]
+      }
+    ]
+  }
+}

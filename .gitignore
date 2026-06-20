@@ -1,0 +1,26 @@
+node_modules/
+
+# Build output
+server/dist/
+electron/dist/
+client/dist/
+dist/
+dist-electron/
+release/
+
+# Runtime data (SQLite db, generated per-project state)
+data/plangent.db
+data/plangent.db-wal
+data/plangent.db-shm
+data/skills/projects/
+data/library/
+data/plans/
+data/projects/
+data/runs/
+
+# Plangent's own local runtime state (this repo also runs as a Plangent project)
+.agents/
+.plangent/
+
+# macOS
+.DS_Store
