@@ -1,0 +1,9 @@
+node_modules/
+dist/
+dist-electron/
+client/dist/
+release/
+data/plangent.db
+data/plangent.db-wal
+data/plangent.db-shm
+data/skills/projects/

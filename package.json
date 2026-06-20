@@ -1,0 +1,62 @@
+{
+  "name": "plangent",
+  "version": "0.1.0",
+  "description": "AI agent orchestrator — plan-driven development",
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "concurrently -n server,client -c blue,green \"tsx watch server/index.ts\" \"vite --config client/vite.config.ts\"",
+    "build": "tsc -p tsconfig.server.json && vite build --config client/vite.config.ts",
+    "start": "node dist/index.js",
+    "postinstall": "chmod +x node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper 2>/dev/null || true",
+    "electron:dev": "tsc -p tsconfig.electron.json && concurrently -n server,client,electron -c blue,green,cyan \"tsx watch server/index.ts\" \"vite --config client/vite.config.ts\" \"wait-on http://localhost:5173 && electron .\"",
+    "electron:build": "npm run build && tsc -p tsconfig.electron.json && npx @electron/rebuild && electron-builder"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.0.0",
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "node-pty": "^1.0.0",
+    "uuid": "^11.0.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^4.0.4",
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.5.12",
+    "@vitejs/plugin-vue": "^5.0.5",
+    "@vue/tsconfig": "^0.5.1",
+    "concurrently": "^9.0.0",
+    "electron": "^42.4.1",
+    "electron-builder": "^26.15.3",
+    "pinia": "^2.2.0",
+    "tsx": "^4.16.2",
+    "typescript": "^5.5.3",
+    "vite": "^5.4.0",
+    "vue": "^3.4.0",
+    "vue-router": "^4.4.0",
+    "wait-on": "^9.0.10",
+    "xterm": "^5.3.0",
+    "xterm-addon-fit": "^0.8.0"
+  },
+  "build": {
+    "appId": "com.plangent.app",
+    "productName": "Plangent",
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "icon": "assets/icon.icns"
+    },
+    "files": [
+      "dist/**",
+      "dist-electron/**",
+      "client/dist/**",
+      "node_modules/**",
+      "!node_modules/.cache"
+    ],
+    "extraResources": [
+      { "from": "data", "to": "data" }
+    ]
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "jsx": "preserve",
+    "jsxImportSource": "vue",
+    "lib": ["ESNext", "DOM"],
+    "paths": { "@/*": ["./src/*"] },
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": ["src/**/*", "vite.config.ts"]
+}
