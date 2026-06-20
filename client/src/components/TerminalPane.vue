@@ -7,7 +7,7 @@
     @drop.prevent="onDrop"
   >
     <div class="terminal-header">
-      <span class="session-label">{{ sessionId }}</span>
+      <span class="session-label">{{ label || sessionId }}</span>
       <div class="actions">
         <button class="btn btn-ghost btn-sm" @click="$emit('detach')">Свернуть</button>
         <button class="btn btn-danger btn-sm" @click="$emit('kill')">Завершить</button>
@@ -27,12 +27,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { Terminal } from 'xterm'
 import { FitAddon } from 'xterm-addon-fit'
 import 'xterm/css/xterm.css'
 
-const props = defineProps<{ sessionId: string }>()
+const props = defineProps<{ sessionId: string; label?: string; visible?: boolean }>()
 const emit = defineEmits<{ detach: []; kill: []; input: [text: string] }>()
 
 const wrapEl = ref<HTMLElement>()
@@ -96,6 +96,7 @@ function insertPaths(paths: string[]) {
 
 function syncSize() {
   if (!term || !fitAddon) return
+  if (!termEl.value || termEl.value.clientWidth === 0) return
   fitAddon.fit()
   if (ws?.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }))
@@ -142,8 +143,9 @@ function initTerminal() {
   term.loadAddon(fitAddon)
   term.open(termEl.value)
 
-  // Fit BEFORE connecting so we have the real size ready
-  fitAddon.fit()
+  // Fit only if visible — if mounted while hidden (v-show=false), skip and let
+  // the visible watcher handle it when the panel is shown for the first time.
+  if (termEl.value.clientWidth > 0) fitAddon.fit()
 
   // Keyboard input goes straight to PTY — this is how @ and all native features work
   term.onData(data => sendRaw(data))
@@ -281,6 +283,11 @@ watch(() => props.sessionId, () => {
   ws?.close()
   term?.clear()
   connectWs()
+})
+
+// When becoming visible after being hidden, re-fit so xterm has the correct size.
+watch(() => props.visible, (v) => {
+  if (v) nextTick(syncSize)
 })
 </script>
 

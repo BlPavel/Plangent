@@ -88,12 +88,21 @@
       </section>
     </div>
 
-    <!-- Terminal -->
-    <div v-if="activeSession" class="terminal-section">
+    <!-- Minimized session bars -->
+    <div v-for="s in minimizedSessions" :key="s.id" class="terminal-minimized">
+      <span class="terminal-minimized-label">{{ s.label }}</span>
+      <button class="btn btn-ghost btn-sm" @click="activeSessionId = s.id">Развернуть</button>
+      <button class="btn btn-danger btn-sm" @click="killSession(s.id)">Завершить</button>
+    </div>
+
+    <!-- Terminal panes — all mounted, only active visible -->
+    <div v-for="s in sessions" :key="s.id" v-show="s.id === activeSessionId" class="terminal-section">
       <TerminalPane
-        :session-id="activeSession"
-        @detach="activeSession = null"
-        @kill="killCurrentRun"
+        :session-id="s.id"
+        :label="s.label"
+        :visible="s.id === activeSessionId"
+        @detach="activeSessionId = null"
+        @kill="killSession(s.id)"
         @input="sendInput"
       />
     </div>
@@ -122,8 +131,11 @@ const selectedAgentId = ref(appStore.currentProject?.default_agent_id ?? '')
 const launching = ref(false)
 const editingPlan = ref(false)
 const planContent = ref('')
-const activeSession = ref<string | null>(null)
-const activeRunId = ref<string | null>(null)
+interface TaskSession { id: string; label: string; runId: string }
+const sessions = ref<TaskSession[]>([])
+const activeSessionId = ref<string | null>(null)
+const activeSession = computed(() => sessions.value.find(s => s.id === activeSessionId.value) ?? null)
+const minimizedSessions = computed(() => sessions.value.filter(s => s.id !== activeSessionId.value))
 
 const doneCount = computed(() => plan.value?.steps.filter(s => s.done).length ?? 0)
 const progressPct = computed(() => {
@@ -162,7 +174,8 @@ onMounted(async () => {
 })
 
 function goBack() {
-  activeSession.value = null
+  sessions.value = []
+  activeSessionId.value = null
   router.push('/')
 }
 
@@ -174,9 +187,13 @@ async function launchAgent() {
       `/projects/${pid.value}/tasks/${tid.value}/runs`,
       { agent_id: selectedAgentId.value },
     )
+    const agent = agents.value.find(a => a.id === selectedAgentId.value)
     appStore.toast(`Агент запущен (${result.mode}: ${result.session_id})`, 'success')
-    activeSession.value = result.session_id
-    activeRunId.value = result.run.id
+    const agentName = agent?.name ?? result.session_id
+    const sameCount = sessions.value.filter(s => s.label.startsWith(agentName)).length + 1
+    const label = `${agentName} #${sameCount} — ${task.value?.key ?? ''}`
+    sessions.value.push({ id: result.session_id, label, runId: result.run.id })
+    activeSessionId.value = result.session_id
 
     // Create PTY session via API if in PTY mode
     if (result.mode === 'pty') {
@@ -204,27 +221,35 @@ async function attachRun(runId: string) {
   if (!pid.value || !tid.value) return
   const run = runs.value.find(r => r.id === runId)
   if (!run) return
+  // If we already have this run in sessions, just activate it
+  const existing = sessions.value.find(s => s.runId === runId)
+  if (existing) { activeSessionId.value = existing.id; return }
   const sessionId = `plangent-${task.value!.key.replace(/[^a-zA-Z0-9]/g, '-')}-${runId.slice(0, 8)}`
-  activeSession.value = sessionId
-  activeRunId.value = runId
+  const label = `${run.agent_name} — ${task.value?.key ?? ''}`
+  sessions.value.push({ id: sessionId, label, runId })
+  activeSessionId.value = sessionId
 }
 
-async function killCurrentRun() {
-  if (!pid.value || !tid.value || !activeRunId.value) return
+async function killSession(id: string) {
+  const s = sessions.value.find(sess => sess.id === id)
+  if (!s || !pid.value || !tid.value) return
   if (!confirm('Завершить сессию агента?')) return
   try {
-    await api.post(`/projects/${pid.value}/tasks/${tid.value}/runs/${activeRunId.value}/kill`, {})
-    activeSession.value = null
-    activeRunId.value = null
-    await loadRuns()
-    await loadPlan()
+    await api.post(`/projects/${pid.value}/tasks/${tid.value}/runs/${s.runId}/kill`, {})
     appStore.toast('Агент остановлен')
   } catch (e: unknown) { appStore.toast(String(e), 'error') }
+  sessions.value = sessions.value.filter(sess => sess.id !== id)
+  if (activeSessionId.value === id) {
+    activeSessionId.value = sessions.value[sessions.value.length - 1]?.id ?? null
+  }
+  await loadRuns()
+  await loadPlan()
 }
 
 async function sendInput(text: string) {
-  if (!pid.value || !tid.value || !activeRunId.value) return
-  await api.post(`/projects/${pid.value}/tasks/${tid.value}/runs/${activeRunId.value}/input`, { text })
+  const s = activeSession.value
+  if (!pid.value || !tid.value || !s) return
+  await api.post(`/projects/${pid.value}/tasks/${tid.value}/runs/${s.runId}/input`, { text })
 }
 
 // Plan editing
@@ -377,5 +402,23 @@ function fmtDate(iso: string) {
   border-top: 1px solid var(--border);
   height: 40vh;
   flex-shrink: 0;
+}
+
+.terminal-minimized {
+  border-top: 1px solid var(--border);
+  padding: 6px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--bg2);
+  flex-shrink: 0;
+}
+.terminal-minimized-label {
+  flex: 1;
+  font-size: 12px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>
