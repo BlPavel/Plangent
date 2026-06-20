@@ -57,11 +57,21 @@
             </button>
           </div>
 
-          <div v-if="quickSession" class="ql-terminal">
+          <div class="ql-sessions">
+            <div v-for="s in minimizedSessions" :key="s.id" class="ql-minimized">
+              <span class="ql-minimized-label">{{ s.label }}</span>
+              <button class="btn btn-ghost btn-sm" @click="activeSessionId = s.id">Развернуть</button>
+              <button class="btn btn-danger btn-sm" @click="killSession(s.id)">Завершить</button>
+            </div>
+          </div>
+
+          <div v-for="s in sessions" :key="s.id" v-show="s.id === activeSessionId" class="ql-terminal">
             <TerminalPane
-              :session-id="quickSession"
-              @detach="quickSession = null"
-              @kill="killQuick"
+              :session-id="s.id"
+              :label="s.label"
+              :visible="s.id === activeSessionId"
+              @detach="activeSessionId = null"
+              @kill="killSession(s.id)"
               @input="sendQuickInput"
             />
           </div>
@@ -125,7 +135,12 @@ const projectForm = ref({ name: '', repo_path: '', default_agent_id: '' })
 
 const quickAgentId = ref('')
 const quickLaunching = ref(false)
-const quickSession = ref<string | null>(null)
+
+interface QuickSession { id: string; label: string }
+const sessions = ref<QuickSession[]>([])
+const activeSessionId = ref<string | null>(null)
+
+const minimizedSessions = computed(() => sessions.value.filter(s => s.id !== activeSessionId.value))
 
 // Resize state
 const bodyEl = ref<HTMLElement>()
@@ -179,7 +194,8 @@ onBeforeUnmount(() => {
 
 watch(currentProject, () => {
   loadTasks()
-  quickSession.value = null
+  sessions.value = []
+  activeSessionId.value = null
 }, { immediate: true })
 
 watch(agents, (list) => {
@@ -240,13 +256,18 @@ async function quickLaunch() {
   if (!currentProject.value || !quickAgentId.value) return
   quickLaunching.value = true
   const sessionId = `quick-${currentProject.value.id.slice(0, 8)}-${Date.now()}`
+  const agent = agents.value.find(a => a.id === quickAgentId.value)
   try {
     await api.post('/terminal/sessions', {
       id: sessionId,
       agentId: quickAgentId.value,
       projectId: currentProject.value.id,
     })
-    quickSession.value = sessionId
+    const agentName = agent?.name ?? sessionId
+    const sameCount = sessions.value.filter(s => s.label.startsWith(agentName)).length + 1
+    const label = `${agentName} #${sameCount} — ${currentProject.value.name}`
+    sessions.value.push({ id: sessionId, label })
+    activeSessionId.value = sessionId
     appStore.toast('Агент запущен', 'success')
   } catch (e: unknown) {
     appStore.toast(String(e), 'error')
@@ -255,18 +276,20 @@ async function quickLaunch() {
   }
 }
 
-async function killQuick() {
-  if (!quickSession.value) return
+async function killSession(id: string) {
   if (!confirm('Завершить сессию?')) return
   try {
-    await api.delete(`/terminal/sessions/${quickSession.value}`)
-    quickSession.value = null
+    await api.delete(`/terminal/sessions/${id}`)
   } catch {}
+  sessions.value = sessions.value.filter(s => s.id !== id)
+  if (activeSessionId.value === id) {
+    activeSessionId.value = sessions.value[sessions.value.length - 1]?.id ?? null
+  }
 }
 
 function sendQuickInput(text: string) {
-  if (!quickSession.value) return
-  api.post(`/terminal/sessions/${quickSession.value}/input`, { text }).catch(() => {})
+  if (!activeSessionId.value) return
+  api.post(`/terminal/sessions/${activeSessionId.value}/input`, { text }).catch(() => {})
 }
 </script>
 
@@ -373,6 +396,23 @@ function sendQuickInput(text: string) {
 }
 
 .ql-terminal { flex: 1; overflow: hidden; }
+
+.ql-minimized {
+  padding: 8px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--bg2);
+  border-top: 1px solid var(--border);
+}
+.ql-minimized-label {
+  flex: 1;
+  font-size: 12px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .form-field { display: flex; flex-direction: column; gap: 4px; }
 label { font-size: 12px; color: var(--text-muted); }
