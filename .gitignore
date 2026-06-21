@@ -7,3 +7,4 @@ data/plangent.db
 data/plangent.db-wal
 data/plangent.db-shm
 data/skills/projects/
+data/library/

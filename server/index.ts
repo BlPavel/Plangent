@@ -1,6 +1,6 @@
 import { createApp } from './api/server';
 import { getDb } from './db/schema';
-import { initDefaultSkills } from './skills/manager';
+import { syncAll } from './skills/syncer';
 
 process.on('uncaughtException', (err) => {
   console.error('[uncaughtException]', err.message);
@@ -13,7 +13,12 @@ const PORT = parseInt(process.env.PORT ?? '3000', 10);
 
 async function main() {
   getDb();
-  initDefaultSkills();
+
+  try {
+    syncAll();
+  } catch (e) {
+    console.error('[startup] syncAll failed:', e);
+  }
 
   const { server } = createApp();
 

@@ -16,6 +16,7 @@ export interface Project {
   repo_path: string
   default_agent_id: string | null
   config: { extra_env?: Record<string, string> }
+  hide_from_git?: boolean
   created_at: string
 }
 
@@ -57,6 +58,25 @@ export interface Run {
   notes?: string
   started_at: string
   finished_at?: string
+}
+
+export type LibraryItemType = 'skill' | 'command' | 'main'
+export type LibraryScope = 'global' | 'project'
+
+export interface LibraryItem {
+  id: string
+  type: LibraryItemType
+  slug: string
+  title: string
+  description: string
+  scope: LibraryScope
+  project_id: string | null
+  frontmatter: Record<string, unknown>
+  agent_filter: string[]
+  enabled: boolean
+  content?: string
+  created_at: string
+  updated_at: string
 }
 
 export interface RunStartResult {

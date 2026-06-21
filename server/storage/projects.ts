@@ -4,8 +4,9 @@ import { Project, ProjectConfig } from '../models/types';
 
 function parse(row: Record<string, unknown>): Project {
   return {
-    ...(row as Omit<Project, 'config'>),
+    ...(row as Omit<Project, 'config' | 'hide_from_git'>),
     config: JSON.parse(row.config as string || '{}'),
+    hide_from_git: Boolean(row.hide_from_git),
   };
 }
 
@@ -18,11 +19,11 @@ export function getProject(id: string): Project | null {
   return row ? parse(row) : null;
 }
 
-export function createProject(data: { name: string; repo_path: string; default_agent_id?: string; config?: ProjectConfig }): Project {
+export function createProject(data: { name: string; repo_path: string; default_agent_id?: string; config?: ProjectConfig; hide_from_git?: boolean }): Project {
   const id = uuidv4();
   getDb().prepare(`
-    INSERT INTO projects (id, name, repo_path, default_agent_id, config) VALUES (?, ?, ?, ?, ?)
-  `).run(id, data.name, data.repo_path, data.default_agent_id ?? null, JSON.stringify(data.config ?? {}));
+    INSERT INTO projects (id, name, repo_path, default_agent_id, config, hide_from_git) VALUES (?, ?, ?, ?, ?, ?)
+  `).run(id, data.name, data.repo_path, data.default_agent_id ?? null, JSON.stringify(data.config ?? {}), data.hide_from_git === false ? 0 : 1);
   return getProject(id)!;
 }
 
@@ -31,8 +32,8 @@ export function updateProject(id: string, data: Partial<Omit<Project, 'id' | 'cr
   if (!current) return null;
   const u = { ...current, ...data, config: data.config ?? current.config };
   getDb().prepare(`
-    UPDATE projects SET name=?, repo_path=?, default_agent_id=?, config=? WHERE id=?
-  `).run(u.name, u.repo_path, u.default_agent_id ?? null, JSON.stringify(u.config), id);
+    UPDATE projects SET name=?, repo_path=?, default_agent_id=?, config=?, hide_from_git=? WHERE id=?
+  `).run(u.name, u.repo_path, u.default_agent_id ?? null, JSON.stringify(u.config), u.hide_from_git ? 1 : 0, id);
   return getProject(id);
 }
 

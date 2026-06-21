@@ -4,15 +4,13 @@ import { getTask } from '../../storage/tasks';
 import { getProject } from '../../storage/projects';
 import { getLatestPlan } from '../../storage/plans';
 import { getAgent } from '../../storage/agents';
-import { readCommonSkills, readProjectSkills } from '../../skills/manager';
-import { buildPrompt, launchAgent, sendToAgent, killAgent, deploySkillsToProject, cleanupSkillsFromProject } from '../../adapters/generic';
+import { buildPrompt, launchAgent, sendToAgent, killAgent } from '../../adapters/generic';
 import { TmuxManager } from '../../terminal/tmux';
 import { getPtySession } from '../../terminal/pty-manager';
 
 export const runsRouter = Router({ mergeParams: true });
 
-// In-memory map: runId → { sessionId, mode, skillsFile }
-const activeSessions = new Map<string, { sessionId: string; mode: 'tmux' | 'pty'; skillsFile: string | null }>();
+const activeSessions = new Map<string, { sessionId: string; mode: 'tmux' | 'pty' }>();
 
 runsRouter.get('/', (req: Request, res: Response) => {
   const t = getTask(req.params.taskId);
@@ -54,14 +52,6 @@ runsRouter.post('/', async (req: Request, res: Response) => {
       .map(r => ({ agent: r.agent_name, date: r.started_at, completed: r.completed_steps, notes: r.notes })),
   });
 
-  // Deploy skills to project directory
-  const skillsFile = deploySkillsToProject(
-    agent,
-    project.repo_path,
-    readCommonSkills(),
-    readProjectSkills(projectId),
-  );
-
   // Create run record
   const run = createRun({ task_id: task.id, plan_id: latestPlan?.id, agent_id: agent.id, agent_name: agent.name });
   const sessionId = `plangent-${task.key.replace(/[^a-zA-Z0-9]/g, '-')}-${run.id.slice(0, 8)}`;
@@ -72,7 +62,7 @@ runsRouter.post('/', async (req: Request, res: Response) => {
     // Send prompt after agent starts (give it time to initialise)
     setTimeout(() => sendToAgent(sessionId, result.mode, prompt), 3000);
 
-    activeSessions.set(run.id, { sessionId, mode: result.mode, skillsFile });
+    activeSessions.set(run.id, { sessionId, mode: result.mode });
 
     res.status(201).json({
       run,
@@ -81,7 +71,6 @@ runsRouter.post('/', async (req: Request, res: Response) => {
       prompt,
     });
   } catch (err) {
-    if (skillsFile) cleanupSkillsFromProject(skillsFile);
     finishRun(run.id, 'failed', String(err));
     res.status(500).json({ error: 'Failed to start agent', detail: String(err) });
   }
@@ -105,9 +94,6 @@ runsRouter.post('/:runId/finish', async (req: Request, res: Response) => {
   const { status, notes } = req.body;
   if (!status) return res.status(400).json({ error: 'status required' });
 
-  // Cleanup skills file
-  const session = activeSessions.get(req.params.runId);
-  if (session?.skillsFile) cleanupSkillsFromProject(session.skillsFile);
   activeSessions.delete(req.params.runId);
 
   const r = finishRun(req.params.runId, status, notes);
@@ -150,7 +136,6 @@ runsRouter.post('/:runId/kill', async (req: Request, res: Response) => {
   const session = activeSessions.get(req.params.runId);
   if (session) {
     await killAgent(session.sessionId, session.mode);
-    if (session.skillsFile) cleanupSkillsFromProject(session.skillsFile);
     activeSessions.delete(req.params.runId);
   }
   finishRun(req.params.runId, 'interrupted', 'Прерван пользователем');

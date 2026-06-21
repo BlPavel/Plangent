@@ -27,6 +27,7 @@ function migrate(db: Database.Database): void {
       env TEXT NOT NULL DEFAULT '{}',
       skills_dir TEXT NOT NULL DEFAULT '',
       skills_filename TEXT NOT NULL DEFAULT 'plangent-skills.md',
+      layout_profile TEXT,
       active INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -37,6 +38,7 @@ function migrate(db: Database.Database): void {
       repo_path TEXT NOT NULL,
       default_agent_id TEXT REFERENCES agents(id),
       config TEXT NOT NULL DEFAULT '{}',
+      hide_from_git INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -74,18 +76,57 @@ function migrate(db: Database.Database): void {
       started_at TEXT NOT NULL DEFAULT (datetime('now')),
       finished_at TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS library_items (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL,
+      slug TEXT NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      scope TEXT NOT NULL DEFAULT 'global',
+      project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+      frontmatter TEXT NOT NULL DEFAULT '{}',
+      agent_filter TEXT NOT NULL DEFAULT '[]',
+      enabled INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(type, slug, scope, project_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS library_overrides (
+      item_id TEXT NOT NULL REFERENCES library_items(id) ON DELETE CASCADE,
+      agent_type TEXT NOT NULL,
+      file_path TEXT NOT NULL,
+      PRIMARY KEY (item_id, agent_type)
+    );
   `);
+
+  // Add columns that may be missing on existing DBs (idempotent)
+  try { db.exec(`ALTER TABLE agents ADD COLUMN layout_profile TEXT`); } catch { /* already exists */ }
+  try { db.exec(`ALTER TABLE projects ADD COLUMN hide_from_git INTEGER NOT NULL DEFAULT 1`); } catch { /* already exists */ }
 
   seedDefaultAgents(db);
   migrateData(db);
 }
+
+const LAYOUT_CLAUDE = JSON.stringify({
+  skills: { dir: '.claude/skills', global: '~/.claude/skills', file: 'plangent-<slug>/SKILL.md' },
+  commands: { dir: '.claude/commands', global: '~/.claude/commands', file: 'plangent-<slug>.md' },
+  main: { file: 'CLAUDE.md', global: '~/.claude/CLAUDE.md' },
+});
+
+const LAYOUT_CODEX = JSON.stringify({
+  skills: { dir: '.agents/skills', global: '~/.agents/skills', file: 'plangent-<slug>/SKILL.md' },
+  commands: { dir: '.agents/skills', global: '~/.agents/skills', file: 'plangent-<slug>/SKILL.md', asSkill: true },
+  main: { file: 'AGENTS.md', global: '~/.codex/AGENTS.md' },
+});
 
 function seedDefaultAgents(db: Database.Database): void {
   const existing = db.prepare('SELECT COUNT(*) as cnt FROM agents').get() as { cnt: number };
   if (existing.cnt > 0) return;
 
   db.prepare(`
-    INSERT INTO agents (id, name, command, args, env, skills_dir, skills_filename) VALUES
+    INSERT INTO agents (id, name, command, args, env, skills_dir, skills_filename, layout_profile) VALUES
     (
       'agent-claude',
       'Claude Code',
@@ -93,7 +134,8 @@ function seedDefaultAgents(db: Database.Database): void {
       '["--dangerously-skip-permissions"]',
       '{}',
       '.claude/commands',
-      'plangent.md'
+      'plangent.md',
+      ?
     ),
     (
       'agent-codex',
@@ -102,9 +144,10 @@ function seedDefaultAgents(db: Database.Database): void {
       '["--dangerously-bypass-approvals-and-sandbox"]',
       '{}',
       '',
-      'AGENTS.md'
+      'AGENTS.md',
+      ?
     )
-  `).run();
+  `).run(LAYOUT_CLAUDE, LAYOUT_CODEX);
 }
 
 function migrateData(db: Database.Database): void {
@@ -112,5 +155,62 @@ function migrateData(db: Database.Database): void {
   const codex = db.prepare(`SELECT args FROM agents WHERE id = 'agent-codex'`).get() as { args: string } | undefined;
   if (codex && codex.args === '[]') {
     db.prepare(`UPDATE agents SET args = '["--dangerously-bypass-approvals-and-sandbox"]' WHERE id = 'agent-codex'`).run();
+  }
+
+  // Backfill layout_profile for existing agents that were seeded before this column existed
+  const claudeNoLayout = db.prepare(`SELECT id FROM agents WHERE id = 'agent-claude' AND layout_profile IS NULL`).get();
+  if (claudeNoLayout) {
+    db.prepare(`UPDATE agents SET layout_profile = ? WHERE id = 'agent-claude'`).run(LAYOUT_CLAUDE);
+  }
+  const codexNoLayout = db.prepare(`SELECT id FROM agents WHERE id = 'agent-codex' AND layout_profile IS NULL`).get();
+  if (codexNoLayout) {
+    db.prepare(`UPDATE agents SET layout_profile = ? WHERE id = 'agent-codex'`).run(LAYOUT_CODEX);
+  }
+
+  // Migrate old common skills → global library item
+  migrateOldSkills(db);
+}
+
+function migrateOldSkills(db: Database.Database): void {
+  const alreadyMigrated = db.prepare(`SELECT COUNT(*) as cnt FROM library_items WHERE slug LIKE 'migrated-%'`).get() as { cnt: number };
+  if (alreadyMigrated.cnt > 0) return;
+
+  const commonPath = path.join(process.cwd(), 'data', 'skills', 'common.md');
+  if (fs.existsSync(commonPath)) {
+    const content = fs.readFileSync(commonPath, 'utf-8');
+    if (content.trim()) {
+      const { v4: uuidv4 } = require('uuid');
+      const id = uuidv4();
+      db.prepare(`
+        INSERT OR IGNORE INTO library_items (id, type, slug, title, description, scope, project_id, frontmatter, agent_filter, enabled)
+        VALUES (?, 'skill', 'migrated-common', 'Общие инструкции (мигрировано)', 'Мигрировано из common.md', 'global', NULL, '{}', '[]', 1)
+      `).run(id);
+
+      const libDir = path.join(process.cwd(), 'data', 'library', 'skills', 'migrated-common');
+      fs.mkdirSync(libDir, { recursive: true });
+      fs.writeFileSync(path.join(libDir, 'SKILL.md'), content);
+    }
+  }
+
+  const projectsDir = path.join(process.cwd(), 'data', 'skills', 'projects');
+  if (fs.existsSync(projectsDir)) {
+    const { v4: uuidv4 } = require('uuid');
+    for (const file of fs.readdirSync(projectsDir)) {
+      if (!file.endsWith('.md')) continue;
+      const projectId = file.replace('.md', '');
+      const content = fs.readFileSync(path.join(projectsDir, file), 'utf-8');
+      if (!content.trim()) continue;
+
+      const slug = `migrated-${projectId}`;
+      const id = uuidv4();
+      db.prepare(`
+        INSERT OR IGNORE INTO library_items (id, type, slug, title, description, scope, project_id, frontmatter, agent_filter, enabled)
+        VALUES (?, 'skill', ?, 'Инструкции проекта (мигрировано)', 'Мигрировано из projects/', 'project', ?, '{}', '[]', 1)
+      `).run(id, slug, projectId);
+
+      const libDir = path.join(process.cwd(), 'data', 'library', 'skills', slug);
+      fs.mkdirSync(libDir, { recursive: true });
+      fs.writeFileSync(path.join(libDir, 'SKILL.md'), content);
+    }
   }
 }

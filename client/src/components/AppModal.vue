@@ -2,7 +2,7 @@
   <Teleport to="body">
     <Transition name="modal">
       <div v-if="modelValue" class="overlay" @click.self="$emit('update:modelValue', false)">
-        <div class="modal">
+        <div class="modal" :class="size === 'large' ? 'modal--large' : ''">
           <h2 class="modal-title">{{ title }}</h2>
           <div class="modal-body">
             <slot />
@@ -22,6 +22,7 @@ defineProps<{
   modelValue: boolean
   title: string
   confirmLabel?: string
+  size?: 'default' | 'large'
 }>()
 defineEmits<{
   'update:modelValue': [v: boolean]
@@ -53,6 +54,7 @@ defineEmits<{
 .modal-title { font-size: 16px; }
 .modal-body { display: flex; flex-direction: column; gap: 12px; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.modal--large { width: 720px; }
 .modal-enter-active, .modal-leave-active { transition: opacity 0.15s; }
 .modal-enter-from, .modal-leave-to { opacity: 0; }
 </style>

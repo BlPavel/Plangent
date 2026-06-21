@@ -9,6 +9,7 @@ import { plansRouter } from './routes/plans';
 import { runsRouter } from './routes/runs';
 import { terminalRouter } from './routes/terminal';
 import { skillsRouter } from './routes/skills';
+import { libraryRouter } from './routes/library';
 import { agentsRouter } from './routes/agents';
 import { browseRouter } from './routes/browse';
 import { uploadRouter } from './routes/upload';
@@ -32,6 +33,7 @@ export function createApp() {
   app.use('/api/projects/:projectId/tasks/:taskId/runs', runsRouter);
   app.use('/api/terminal', terminalRouter);
   app.use('/api/skills', skillsRouter);
+  app.use('/api/library', libraryRouter);
   app.use('/api/browse', browseRouter);
   app.use('/api/upload-temp', uploadRouter);
   app.use('/api/clipboard', clipboardRouter);

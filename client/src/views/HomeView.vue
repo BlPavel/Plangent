@@ -5,20 +5,79 @@
     </div>
 
     <div v-else class="project-area">
+      <!-- Project header -->
       <div class="project-header">
         <div>
           <h1>{{ currentProject.name }}</h1>
           <span class="muted">{{ currentProject.repo_path }}</span>
         </div>
-        <div class="actions">
-          <button class="btn btn-primary" @click="openCreateTask">+ Задача</button>
-          <button class="btn btn-ghost" @click="openEditProject">Настройки</button>
+        <button class="btn btn-ghost btn-sm" @click="openEditProject">Настройки проекта</button>
+      </div>
+
+      <!-- Tab bar -->
+      <div class="tab-bar">
+        <button
+          v-for="t in tabs"
+          :key="t.id"
+          class="tab-btn"
+          :class="{ active: activeTab === t.id, disabled: t.disabled }"
+          :disabled="t.disabled"
+          @click="activeTab = t.id"
+        >{{ t.label }}</button>
+      </div>
+
+      <!-- Tab: Терминал -->
+      <div v-show="activeTab === 'terminal'" class="tab-content terminal-tab">
+        <div class="ql-controls">
+          <select v-model="quickAgentId" class="agent-select">
+            <option value="">— агент —</option>
+            <option v-for="a in agents" :key="a.id" :value="a.id">{{ a.name }}</option>
+          </select>
+          <button
+            class="btn btn-primary btn-sm"
+            :disabled="!quickAgentId || quickLaunching"
+            @click="quickLaunch"
+          >{{ quickLaunching ? 'Запуск...' : '▶ Запустить' }}</button>
+        </div>
+
+        <!-- Minimized sessions -->
+        <div v-if="minimizedSessions.length" class="minimized-bar">
+          <div v-for="s in minimizedSessions" :key="s.id" class="minimized-item">
+            <span class="minimized-label">{{ s.label }}</span>
+            <button class="btn btn-ghost btn-sm" @click="termStore.setActive(s.id)">Развернуть</button>
+            <button class="btn btn-danger btn-sm" @click="killSession(s.id)">Завершить</button>
+          </div>
+        </div>
+
+        <!-- No sessions placeholder -->
+        <div v-if="!projectSessions.length" class="terminal-empty">
+          Выберите агента и нажмите «Запустить»
+        </div>
+
+        <!-- Terminal panes — all mounted, switched with v-show -->
+        <div
+          v-for="s in projectSessions"
+          :key="s.id"
+          v-show="s.id === termStore.activeSessionId"
+          class="terminal-slot"
+        >
+          <TerminalPane
+            :session-id="s.id"
+            :label="s.label"
+            :visible="s.id === termStore.activeSessionId && activeTab === 'terminal'"
+            @detach="termStore.setActive(null)"
+            @kill="killSession(s.id)"
+            @input="sendInput(s.id, $event)"
+          />
         </div>
       </div>
 
-      <div class="project-body" ref="bodyEl">
-        <!-- Task list -->
-        <div class="task-list" :style="{ width: leftWidth + 'px' }">
+      <!-- Tab: Задачи -->
+      <div v-show="activeTab === 'tasks'" class="tab-content tasks-tab">
+        <div class="task-actions">
+          <button class="btn btn-primary btn-sm" @click="openCreateTask">+ Задача</button>
+        </div>
+        <div class="task-list">
           <div v-if="!tasks.length" class="empty-state small">
             Нет задач. Создайте первую.
           </div>
@@ -33,48 +92,28 @@
             <span class="task-status" :class="t.status">{{ statusLabel(t.status) }}</span>
           </div>
         </div>
+      </div>
 
-        <!-- Resize handle -->
-        <div class="resize-handle" @mousedown="startResize" />
+      <!-- Tab: Инструкции -->
+      <div v-show="activeTab === 'instructions'" class="tab-content instructions-tab">
+        <SkillsManager v-if="currentProject" scope="project" :project-id="currentProject.id" />
+      </div>
 
-        <!-- Quick launch panel -->
-        <div class="quick-launch">
-          <div class="ql-header">
-            <h3>Быстрый запуск</h3>
-            <span class="ql-hint">Запустить агента без задачи</span>
-          </div>
-          <div class="ql-controls">
-            <select v-model="quickAgentId" class="agent-select">
-              <option value="">— агент —</option>
-              <option v-for="a in agents" :key="a.id" :value="a.id">{{ a.name }}</option>
-            </select>
-            <button
-              class="btn btn-primary btn-sm"
-              :disabled="!quickAgentId || quickLaunching"
-              @click="quickLaunch"
-            >
-              {{ quickLaunching ? 'Запуск...' : '▶ Запустить' }}
-            </button>
-          </div>
+      <!-- Tab: Интеграции (disabled placeholder) -->
+      <div v-show="activeTab === 'integrations'" class="tab-content placeholder-tab">
+        <div class="placeholder">
+          <div class="placeholder-icon">🔗</div>
+          <div class="placeholder-title">Интеграции</div>
+          <div class="placeholder-text">Jira, GitHub Issues, Linear — скоро</div>
+        </div>
+      </div>
 
-          <div class="ql-sessions">
-            <div v-for="s in minimizedSessions" :key="s.id" class="ql-minimized">
-              <span class="ql-minimized-label">{{ s.label }}</span>
-              <button class="btn btn-ghost btn-sm" @click="activeSessionId = s.id">Развернуть</button>
-              <button class="btn btn-danger btn-sm" @click="killSession(s.id)">Завершить</button>
-            </div>
-          </div>
-
-          <div v-for="s in sessions" :key="s.id" v-show="s.id === activeSessionId" class="ql-terminal">
-            <TerminalPane
-              :session-id="s.id"
-              :label="s.label"
-              :visible="s.id === activeSessionId"
-              @detach="activeSessionId = null"
-              @kill="killSession(s.id)"
-              @input="sendQuickInput"
-            />
-          </div>
+      <!-- Tab: Доки (disabled placeholder) -->
+      <div v-show="activeTab === 'docs'" class="tab-content placeholder-tab">
+        <div class="placeholder">
+          <div class="placeholder-icon">📄</div>
+          <div class="placeholder-title">Документация</div>
+          <div class="placeholder-text">Скоро</div>
         </div>
       </div>
     </div>
@@ -93,11 +132,7 @@
         <label>Путь к репозиторию</label>
         <FolderPicker v-model="projectForm.repo_path" />
       </div>
-      <FormField
-        v-model="projectForm.default_agent_id"
-        label="Агент по умолчанию"
-        type="select"
-      >
+      <FormField v-model="projectForm.default_agent_id" label="Агент по умолчанию" type="select">
         <option value="">— выбрать —</option>
         <option v-for="a in agents" :key="a.id" :value="a.id">{{ a.name }}</option>
       </FormField>
@@ -106,97 +141,57 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '@/stores/app'
 import { useProjectsStore } from '@/stores/projects'
 import { useAgentsStore } from '@/stores/agents'
+import { useTerminalStore } from '@/stores/terminal'
 import { api } from '@/api'
 import type { Task } from '@/api/types'
 import AppModal from '@/components/AppModal.vue'
 import FormField from '@/components/FormField.vue'
 import FolderPicker from '@/components/FolderPicker.vue'
 import TerminalPane from '@/components/TerminalPane.vue'
+import SkillsManager from '@/components/SkillsManager.vue'
 
 const router = useRouter()
 const appStore = useAppStore()
 const projectsStore = useProjectsStore()
 const agentsStore = useAgentsStore()
+const termStore = useTerminalStore()
 
 const currentProject = computed(() => appStore.currentProject)
 const agents = computed(() => agentsStore.agents)
 const tasks = ref<Task[]>([])
 
+const activeTab = ref<'terminal' | 'tasks' | 'instructions' | 'integrations' | 'docs'>('tasks')
+const tabs = [
+  { id: 'terminal', label: 'Терминал', disabled: false },
+  { id: 'tasks', label: 'Задачи', disabled: false },
+  { id: 'instructions', label: 'Инструкции', disabled: false },
+  { id: 'integrations', label: 'Интеграции', disabled: true },
+  { id: 'docs', label: 'Доки', disabled: true },
+] as const
+
+const projectSessions = computed(() =>
+  termStore.sessions.filter(s => s.projectId === currentProject.value?.id)
+)
+const minimizedSessions = computed(() =>
+  projectSessions.value.filter(s => s.id !== termStore.activeSessionId)
+)
+
 const showTaskModal = ref(false)
 const showProjectModal = ref(false)
-
 const taskForm = ref({ key: '', title: '', description: '' })
 const projectForm = ref({ name: '', repo_path: '', default_agent_id: '' })
 
 const quickAgentId = ref('')
 const quickLaunching = ref(false)
 
-interface QuickSession { id: string; label: string }
-const sessions = ref<QuickSession[]>([])
-const activeSessionId = ref<string | null>(null)
+onMounted(() => agentsStore.load())
 
-const minimizedSessions = computed(() => sessions.value.filter(s => s.id !== activeSessionId.value))
-
-// Resize state
-const bodyEl = ref<HTMLElement>()
-const leftWidth = ref(0)
-const MIN_LEFT = 200
-const MIN_RIGHT = 260
-
-let dragging = false
-let startX = 0
-let startWidth = 0
-
-function startResize(e: MouseEvent) {
-  dragging = true
-  startX = e.clientX
-  startWidth = leftWidth.value
-  document.body.style.cursor = 'col-resize'
-  document.body.style.userSelect = 'none'
-}
-
-function onMouseMove(e: MouseEvent) {
-  if (!dragging || !bodyEl.value) return
-  const totalWidth = bodyEl.value.clientWidth - 5 // handle width
-  const delta = e.clientX - startX
-  const newLeft = Math.max(MIN_LEFT, Math.min(totalWidth - MIN_RIGHT, startWidth + delta))
-  leftWidth.value = newLeft
-}
-
-function onMouseUp() {
-  if (!dragging) return
-  dragging = false
-  document.body.style.cursor = ''
-  document.body.style.userSelect = ''
-}
-
-onMounted(() => {
-  agentsStore.load()
-  document.addEventListener('mousemove', onMouseMove)
-  document.addEventListener('mouseup', onMouseUp)
-  // Set initial left width after mount
-  requestAnimationFrame(() => {
-    if (bodyEl.value) {
-      leftWidth.value = Math.round(bodyEl.value.clientWidth * 0.6)
-    }
-  })
-})
-
-onBeforeUnmount(() => {
-  document.removeEventListener('mousemove', onMouseMove)
-  document.removeEventListener('mouseup', onMouseUp)
-})
-
-watch(currentProject, () => {
-  loadTasks()
-  sessions.value = []
-  activeSessionId.value = null
-}, { immediate: true })
+watch(currentProject, () => { loadTasks() }, { immediate: true })
 
 watch(agents, (list) => {
   if (!quickAgentId.value && list.length) {
@@ -264,10 +259,9 @@ async function quickLaunch() {
       projectId: currentProject.value.id,
     })
     const agentName = agent?.name ?? sessionId
-    const sameCount = sessions.value.filter(s => s.label.startsWith(agentName)).length + 1
+    const sameCount = projectSessions.value.filter(s => s.label.startsWith(agentName)).length + 1
     const label = `${agentName} #${sameCount} — ${currentProject.value.name}`
-    sessions.value.push({ id: sessionId, label })
-    activeSessionId.value = sessionId
+    termStore.addSession({ id: sessionId, label, projectId: currentProject.value.id })
     appStore.toast('Агент запущен', 'success')
   } catch (e: unknown) {
     appStore.toast(String(e), 'error')
@@ -278,18 +272,12 @@ async function quickLaunch() {
 
 async function killSession(id: string) {
   if (!confirm('Завершить сессию?')) return
-  try {
-    await api.delete(`/terminal/sessions/${id}`)
-  } catch {}
-  sessions.value = sessions.value.filter(s => s.id !== id)
-  if (activeSessionId.value === id) {
-    activeSessionId.value = sessions.value[sessions.value.length - 1]?.id ?? null
-  }
+  try { await api.delete(`/terminal/sessions/${id}`) } catch {}
+  termStore.removeSession(id)
 }
 
-function sendQuickInput(text: string) {
-  if (!activeSessionId.value) return
-  api.post(`/terminal/sessions/${activeSessionId.value}/input`, { text }).catch(() => {})
+function sendInput(sessionId: string, text: string) {
+  api.post(`/terminal/sessions/${sessionId}/input`, { text }).catch(() => {})
 }
 </script>
 
@@ -301,40 +289,110 @@ function sendQuickInput(text: string) {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 20px 24px 16px;
+  padding: 16px 24px 12px;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
-.project-header h1 { font-size: 18px; }
+.project-header h1 { font-size: 16px; font-weight: 600; margin-bottom: 2px; }
 
-.project-body {
+/* Tab bar */
+.tab-bar {
   display: flex;
-  flex-direction: row;
+  gap: 0;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.tab-btn {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  padding: 10px 16px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.1s;
+  margin-bottom: -1px;
+}
+.tab-btn:hover:not(:disabled) { color: var(--text); }
+.tab-btn.active { color: var(--text); border-bottom-color: var(--blue); }
+.tab-btn.disabled, .tab-btn:disabled { opacity: 0.35; cursor: default; }
+
+/* Tab content panels */
+.tab-content {
   flex: 1;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Terminal tab */
+.terminal-tab { overflow: hidden; }
+
+.ql-controls {
+  display: flex;
+  gap: 8px;
+  padding: 12px 24px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+}
+.agent-select {
+  flex: 1;
+  max-width: 280px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  padding: 6px 10px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.minimized-bar { flex-shrink: 0; }
+.minimized-item {
+  padding: 6px 24px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+}
+.minimized-label {
+  flex: 1;
+  font-size: 12px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.terminal-slot { flex: 1; overflow: hidden; }
+
+/* Tasks tab */
+.tasks-tab { overflow: hidden; }
+
+.task-actions {
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
 }
 
 .task-list {
+  flex: 1;
   padding: 16px 24px;
   display: flex;
   flex-direction: column;
   gap: 8px;
   overflow-y: auto;
-  flex-shrink: 0;
-}
-
-/* Resize handle */
-.resize-handle {
-  width: 5px;
-  flex-shrink: 0;
-  background: var(--border);
-  cursor: col-resize;
-  transition: background 0.15s;
-  position: relative;
-}
-.resize-handle:hover,
-.resize-handle:active {
-  background: var(--blue);
 }
 
 .task-card {
@@ -362,57 +420,22 @@ function sendQuickInput(text: string) {
 .task-status.in_progress { border-color: #e3b341; color: #e3b341; }
 .task-status.done { border-color: var(--accent); color: var(--accent); }
 
-/* Quick launch */
-.quick-launch {
-  flex: 1;
+/* Placeholder tabs */
+.placeholder-tab {
+  align-items: center;
+  justify-content: center;
+}
+.placeholder {
   display: flex;
   flex-direction: column;
-  overflow: hidden;
-  min-width: 0;
-}
-.ql-header {
-  padding: 16px 16px 10px;
-  flex-shrink: 0;
-}
-.ql-header h3 { font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px; }
-.ql-hint { font-size: 11px; color: var(--text-muted); }
-
-.ql-controls {
-  padding: 0 16px 12px;
-  display: flex;
-  gap: 8px;
-  flex-shrink: 0;
-  border-bottom: 1px solid var(--border);
-}
-.agent-select {
-  flex: 1;
-  background: var(--bg3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--text);
-  padding: 6px 10px;
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.ql-terminal { flex: 1; overflow: hidden; }
-
-.ql-minimized {
-  padding: 8px 16px;
-  display: flex;
   align-items: center;
-  gap: 12px;
-  background: var(--bg2);
-  border-top: 1px solid var(--border);
-}
-.ql-minimized-label {
-  flex: 1;
-  font-size: 12px;
+  gap: 8px;
   color: var(--text-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
+.placeholder-icon { font-size: 32px; }
+.placeholder-title { font-size: 15px; font-weight: 600; color: var(--text); }
+.placeholder-text { font-size: 13px; }
+.instructions-tab { overflow-y: auto; }
 
 .form-field { display: flex; flex-direction: column; gap: 4px; }
 label { font-size: 12px; color: var(--text-muted); }

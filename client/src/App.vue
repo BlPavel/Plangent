@@ -3,19 +3,10 @@
     <aside class="sidebar">
       <div class="logo">⚡ Plangent</div>
 
-      <nav class="sidebar-nav">
-        <RouterLink to="/" class="nav-item" :class="{ active: $route.path === '/' }">
-          Проекты
-        </RouterLink>
-        <RouterLink to="/agents" class="nav-item" :class="{ active: $route.path === '/agents' }">
-          Агенты
-        </RouterLink>
-        <RouterLink to="/skills" class="nav-item" :class="{ active: $route.path === '/skills' }">
-          Скиллы
-        </RouterLink>
-      </nav>
+      <button class="btn btn-ghost new-project-btn" @click="showAddProject = true">
+        + Новый проект
+      </button>
 
-      <!-- Project list -->
       <div class="project-list">
         <div
           v-for="p in projectsStore.projects"
@@ -26,9 +17,9 @@
         >{{ p.name }}</div>
       </div>
 
-      <button class="btn btn-ghost sidebar-add" @click="showAddProject = true">
-        + Новый проект
-      </button>
+      <RouterLink to="/settings" class="sidebar-link" :class="{ active: $route.path === '/settings' }">
+        ⚙ Настройки
+      </RouterLink>
     </aside>
 
     <main class="content">
@@ -118,17 +109,14 @@ async function addProject() {
   flex-shrink: 0;
 }
 .logo { font-size: 16px; font-weight: 600; padding: 8px 8px 12px; }
-.sidebar-nav { display: flex; flex-direction: column; gap: 2px; margin-bottom: 12px; }
-.nav-item {
-  display: block;
-  padding: 6px 8px;
-  border-radius: var(--radius);
+
+.new-project-btn {
+  width: 100%;
+  justify-content: flex-start;
+  margin-bottom: 8px;
   font-size: 13px;
-  color: var(--text-muted);
-  text-decoration: none;
-  transition: all 0.1s;
 }
-.nav-item:hover, .nav-item.active { background: var(--bg3); color: var(--text); }
+
 .project-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
 .project-item {
   padding: 6px 8px;
@@ -142,7 +130,19 @@ async function addProject() {
   transition: all 0.1s;
 }
 .project-item:hover, .project-item.active { background: var(--bg3); color: var(--text); }
-.sidebar-add { margin-top: 8px; width: 100%; justify-content: flex-start; }
+
+.sidebar-link {
+  display: block;
+  margin-top: 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  color: var(--text-muted);
+  text-decoration: none;
+  transition: all 0.1s;
+}
+.settings-btn:hover, .settings-btn.active { background: var(--bg3); color: var(--text); }
+
 .content { flex: 1; overflow: hidden; }
 .form-field { display: flex; flex-direction: column; gap: 4px; }
 label { font-size: 12px; color: var(--text-muted); }
