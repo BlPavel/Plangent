@@ -102,12 +102,13 @@ export interface OrchestratorQueueSession {
   agentId: string
   parallelGroup: string | null
   status: OrchestratorSessionStatus
+  pauseAfter?: boolean
   runId?: string
   sessionId?: string
   mode?: 'tmux' | 'pty'
 }
 
-export type OrchestratorStatus = 'running' | 'waiting_for_developer' | 'finished' | 'failed'
+export type OrchestratorStatus = 'running' | 'paused' | 'waiting_for_developer' | 'finished' | 'failed'
 
 export interface OrchestratorState {
   id: string
@@ -136,6 +137,8 @@ export type OrchestratorEvent =
   | { type: 'session_failed'; taskId: string; sessionId: string; reason: string }
   | { type: 'session_no_signal'; taskId: string; sessionId: string; runId: string; message: string }
   | { type: 'queue_finished'; taskId: string }
+  | { type: 'queue_paused'; taskId: string; stepIndex: number }
+  | { type: 'queue_resumed'; taskId: string }
   | { type: 'run_failed'; taskId: string; reason: string }
   | { type: 'task_status'; taskId: string; status: Task['status'] }
   | { type: 'plan_updated'; taskId: string; content?: string; steps: PlanStep[] }

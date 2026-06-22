@@ -10,6 +10,15 @@ const watchers = new Map<string, fs.FSWatcher>();
 // Track writes made by Plangent to avoid echo on fs.watch
 const plangentWriteTimestamps = new Map<string, number>();
 
+// Notified after a plan file is synced from disk to the DB. The orchestrator
+// subscribes so it can complete a running session as soon as all its assigned
+// points are checked off — independent of any agent-specific stop signal.
+type PlanSyncListener = (taskId: string) => void;
+let planSyncListener: PlanSyncListener | null = null;
+export function setPlanSyncListener(fn: PlanSyncListener): void {
+  planSyncListener = fn;
+}
+
 export function getPlanFilePath(repoPath: string, taskKey: string): string {
   return path.join(repoPath, PLANGENT_DIR, `${taskKey}.plan.md`);
 }
@@ -42,19 +51,29 @@ function isPlangentWrite(filePath: string): boolean {
   return Date.now() - ts < 600;  // 600ms grace window
 }
 
-// Watch plan file for changes and sync them back to DB.
+// Watch the plan file for changes and sync them back to DB.
+//
+// We watch the .plangent/ DIRECTORY (filtering by filename) rather than the file
+// itself: agent file tools (and editors) often save atomically via a temp file +
+// rename, which silently kills a file-level fs.watch after the first change — that
+// caused only the first checked step to ever sync. A directory watch survives those
+// atomic replacements and keeps catching every subsequent edit.
 export function watchPlanFile(
   task: Task,
   planId: string,
   repoPath: string,
 ): void {
+  const dir = path.join(repoPath, PLANGENT_DIR);
   const filePath = getPlanFilePath(repoPath, task.key);
-  if (!fs.existsSync(filePath)) return;
+  const fileName = `${task.key}.plan.md`;
+  if (!fs.existsSync(dir)) return;
   stopWatchPlanFile(task.key);
 
   let debounce: NodeJS.Timeout | null = null;
 
-  const watcher = fs.watch(filePath, () => {
+  const watcher = fs.watch(dir, (_event, filename) => {
+    // Some platforms report the changed filename; when they do, ignore other files.
+    if (filename && filename !== fileName) return;
     if (isPlangentWrite(filePath)) return;
 
     if (debounce) clearTimeout(debounce);
@@ -86,6 +105,9 @@ export function watchPlanFile(
         content,
         steps: steps.map(s => ({ id: s.id, done: s.done, text: s.text, parallelGroup: s.parallelGroup })),
       });
+
+      // Let the orchestrator react (auto-complete finished sessions).
+      planSyncListener?.(task.id);
     }, 300);
   });
 
@@ -147,6 +169,7 @@ export function watchPlanDirForCreate(task: Task, repoPath: string): void {
       content: withIds,
       steps: steps.map(s => ({ id: s.id, done: s.done, text: s.text, parallelGroup: s.parallelGroup })),
     });
+    planSyncListener?.(task.id);
 
     watchPlanFile(task, newPlan.id, repoPath);
   };
