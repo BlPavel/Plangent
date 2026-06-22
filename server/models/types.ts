@@ -64,6 +64,45 @@ export interface PlanStep {
   text: string;
   done: boolean;
   index: number;
+  id?: string;            // stable (pN) id
+  parallelGroup?: string; // @parallel:<groupName>
+}
+
+export interface PlanFrontmatter {
+  plangent?: number;
+  key?: string;
+  title?: string;
+  status?: 'open' | 'in_progress' | 'done';
+}
+
+// Orchestrator types
+export type OrchestratorSessionStatus =
+  | 'queued'
+  | 'running'
+  | 'waiting_for_developer'
+  | 'complete'
+  | 'failed';
+
+export interface OrchestratorQueueSession {
+  id: string;
+  points: string[];           // point ids (pN)
+  agentId: string;
+  parallelGroup: string | null;
+  status: OrchestratorSessionStatus;
+  runId?: string;
+  sessionId?: string;
+  mode?: 'tmux' | 'pty';
+}
+
+export type OrchestratorStatus = 'running' | 'waiting_for_developer' | 'finished' | 'failed';
+
+export interface OrchestratorState {
+  id: string;
+  taskId: string;
+  projectId: string;
+  sessions: OrchestratorQueueSession[];
+  status: OrchestratorStatus;
+  startedAt: string;
 }
 
 export interface Run {

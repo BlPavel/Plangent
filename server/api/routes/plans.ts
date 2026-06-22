@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { getLatestPlan, listPlans, createPlan, updatePlan, parsePlanSteps, markStepDone } from '../../storage/plans';
+import { getLatestPlan, listPlans, createPlan, updatePlan, parsePlanSteps, markStepDone, getPlan } from '../../storage/plans';
 import { getTask } from '../../storage/tasks';
 
 export const plansRouter = Router({ mergeParams: true });
@@ -40,7 +40,6 @@ plansRouter.post('/:planId/step/:stepIndex/done', (req: Request, res: Response) 
   const idx = parseInt(stepIndex, 10);
   if (isNaN(idx)) return res.status(400).json({ error: 'Invalid step index' });
 
-  const { getPlan } = require('../../storage/plans');
   const plan = getPlan(planId);
   if (!plan) return res.status(404).json({ error: 'Not found' });
 

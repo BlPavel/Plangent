@@ -14,7 +14,9 @@ import { agentsRouter } from './routes/agents';
 import { browseRouter } from './routes/browse';
 import { uploadRouter } from './routes/upload';
 import { clipboardRouter } from './routes/clipboard';
+import { orchestratorRouter } from './routes/orchestrator';
 import { attachSocket } from '../terminal/pty-manager';
+import { addEventsClient } from '../services/events';
 
 const CLIENT_DIST = path.join(process.cwd(), 'client', 'dist');
 
@@ -31,6 +33,8 @@ export function createApp() {
   app.use('/api/projects/:projectId/tasks', tasksRouter);
   app.use('/api/projects/:projectId/tasks/:taskId/plans', plansRouter);
   app.use('/api/projects/:projectId/tasks/:taskId/runs', runsRouter);
+  // Orchestrator endpoints (execute, done, orchestrator state)
+  app.use('/api/projects/:projectId/tasks/:taskId', orchestratorRouter);
   app.use('/api/terminal', terminalRouter);
   app.use('/api/skills', skillsRouter);
   app.use('/api/library', libraryRouter);
@@ -48,17 +52,28 @@ export function createApp() {
 
   const server = createServer(app);
 
-  const wss = new WebSocketServer({ server, path: '/ws/pty' });
+  const wss = new WebSocketServer({ server });
+
   wss.on('connection', (ws: WebSocket, req) => {
     const url = new URL(req.url!, 'http://localhost');
-    const sessionId = url.searchParams.get('session');
-    if (!sessionId) { ws.close(1008, 'session required'); return; }
 
-    const ok = attachSocket(sessionId, ws);
-    if (!ok) {
-      ws.send(JSON.stringify({ type: 'error', message: `Session '${sessionId}' not found` }));
-      ws.close(1011, 'session not found');
+    if (url.pathname === '/ws/events') {
+      addEventsClient(ws);
+      return;
     }
+
+    if (url.pathname === '/ws/pty') {
+      const sessionId = url.searchParams.get('session');
+      if (!sessionId) { ws.close(1008, 'session required'); return; }
+      const ok = attachSocket(sessionId, ws);
+      if (!ok) {
+        ws.send(JSON.stringify({ type: 'error', message: `Session '${sessionId}' not found` }));
+        ws.close(1011, 'session not found');
+      }
+      return;
+    }
+
+    ws.close(1008, 'unknown path');
   });
 
   return { app, server };

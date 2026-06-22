@@ -1,6 +1,11 @@
 import { Router, Request, Response } from 'express';
 import { listTasks, getTask, createTask, updateTask, deleteTask } from '../../storage/tasks';
 import { getProject } from '../../storage/projects';
+import { listRuns } from '../../storage/runs';
+import { getOrchestrator, removeOrchestrator } from '../../orchestrator/orchestrator';
+import { getSession, removeSession } from '../../services/session-registry';
+import { killAgent } from '../../adapters/generic';
+import { deletePlanFile } from '../../services/plan-file';
 
 export const tasksRouter = Router({ mergeParams: true });
 
@@ -31,8 +36,27 @@ tasksRouter.patch('/:taskId', (req: Request, res: Response) => {
   res.json(t);
 });
 
-tasksRouter.delete('/:taskId', (req: Request, res: Response) => {
-  const ok = deleteTask(req.params.taskId);
-  if (!ok) return res.status(404).json({ error: 'Not found' });
+tasksRouter.delete('/:taskId', async (req: Request, res: Response) => {
+  const task = getTask(req.params.taskId);
+  if (!task) return res.status(404).json({ error: 'Not found' });
+  const project = getProject(task.project_id);
+
+  // Stop the orchestrator if a queue is running for this task.
+  const orch = getOrchestrator(task.id);
+  if (orch) { orch.fail('Task deleted'); removeOrchestrator(task.id); }
+
+  // Kill any live agent sessions tied to this task's runs.
+  for (const run of listRuns(task.id)) {
+    const session = getSession(run.id);
+    if (session) {
+      try { await killAgent(session.sessionId, session.mode); } catch { /* already gone */ }
+      removeSession(run.id);
+    }
+  }
+
+  // Remove the on-disk plan file (DB rows cascade via FK ON DELETE CASCADE).
+  if (project) { try { deletePlanFile(task, project.repo_path); } catch { /* ignore */ } }
+
+  deleteTask(task.id);
   res.status(204).end();
 });

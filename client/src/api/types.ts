@@ -36,6 +36,8 @@ export interface PlanStep {
   text: string
   done: boolean
   index: number
+  id?: string
+  parallelGroup?: string
 }
 
 export interface Plan {
@@ -85,3 +87,55 @@ export interface RunStartResult {
   mode: 'tmux' | 'pty'
   prompt: string
 }
+
+// Orchestrator types
+export type OrchestratorSessionStatus =
+  | 'queued'
+  | 'running'
+  | 'waiting_for_developer'
+  | 'complete'
+  | 'failed'
+
+export interface OrchestratorQueueSession {
+  id: string
+  points: string[]
+  agentId: string
+  parallelGroup: string | null
+  status: OrchestratorSessionStatus
+  runId?: string
+  sessionId?: string
+  mode?: 'tmux' | 'pty'
+}
+
+export type OrchestratorStatus = 'running' | 'waiting_for_developer' | 'finished' | 'failed'
+
+export interface OrchestratorState {
+  id: string
+  taskId: string
+  projectId: string
+  sessions: OrchestratorQueueSession[]
+  status: OrchestratorStatus
+  startedAt: string
+}
+
+export interface OrchestratorResponse {
+  active: boolean
+  state?: OrchestratorState
+}
+
+export interface ExecuteResponse {
+  orchestratorId: string
+  sessions: Pick<OrchestratorQueueSession, 'id' | 'points' | 'agentId' | 'status'>[]
+}
+
+// Orchestrator WS events
+export type OrchestratorEvent =
+  | { type: 'session_started'; taskId: string; sessionId: string; runId: string; terminalSessionId: string; mode: 'tmux' | 'pty'; points: string[] }
+  | { type: 'session_complete'; taskId: string; sessionId: string; runId?: string }
+  | { type: 'session_waiting'; taskId: string; sessionId: string; runId: string; terminalSessionId?: string; message: string }
+  | { type: 'session_failed'; taskId: string; sessionId: string; reason: string }
+  | { type: 'session_no_signal'; taskId: string; sessionId: string; runId: string; message: string }
+  | { type: 'queue_finished'; taskId: string }
+  | { type: 'run_failed'; taskId: string; reason: string }
+  | { type: 'task_status'; taskId: string; status: Task['status'] }
+  | { type: 'plan_updated'; taskId: string; content?: string; steps: PlanStep[] }

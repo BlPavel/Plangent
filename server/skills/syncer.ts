@@ -132,6 +132,7 @@ function applyGitExclude(project: Project): void {
     '.claude/skills/plangent-*',
     '.claude/commands/plangent-*',
     '.agents/skills/plangent-*',
+    '.plangent/',
   ];
 
   // Main files (CLAUDE.md / AGENTS.md) — hide them too, but only if this project

@@ -30,7 +30,7 @@
       <div v-show="activeTab === 'terminal'" class="tab-content terminal-tab">
         <div class="ql-controls">
           <select v-model="quickAgentId" class="agent-select">
-            <option value="">— агент —</option>
+            <option value="" disabled>Агент</option>
             <option v-for="a in agents" :key="a.id" :value="a.id">{{ a.name }}</option>
           </select>
           <button
@@ -90,6 +90,7 @@
             <code class="task-key">{{ t.key }}</code>
             <span class="task-title">{{ t.title || '—' }}</span>
             <span class="task-status" :class="t.status">{{ statusLabel(t.status) }}</span>
+            <button class="task-del" title="Удалить задачу" @click.stop="deleteTaskCard(t)">🗑</button>
           </div>
         </div>
       </div>
@@ -122,7 +123,6 @@
     <AppModal v-model="showTaskModal" title="Новая задача" @confirm="createTask">
       <FormField v-model="taskForm.key" label="Ключ задачи" placeholder="PROJ-123" />
       <FormField v-model="taskForm.title" label="Название" placeholder="Добавить авторизацию" />
-      <FormField v-model="taskForm.description" label="Описание" type="textarea" :rows="4" placeholder="Что нужно сделать..." />
     </AppModal>
 
     <!-- Edit project modal -->
@@ -183,7 +183,7 @@ const minimizedSessions = computed(() =>
 
 const showTaskModal = ref(false)
 const showProjectModal = ref(false)
-const taskForm = ref({ key: '', title: '', description: '' })
+const taskForm = ref({ key: '', title: '' })
 const projectForm = ref({ name: '', repo_path: '', default_agent_id: '' })
 
 const quickAgentId = ref('')
@@ -209,12 +209,17 @@ function statusLabel(s: string) {
 }
 
 function openCreateTask() {
-  taskForm.value = { key: '', title: '', description: '' }
+  taskForm.value = { key: '', title: '' }
   showTaskModal.value = true
 }
 
 async function createTask() {
   if (!currentProject.value || !taskForm.value.key) return
+  const duplicate = tasks.value.some(t => t.key === taskForm.value.key)
+  if (duplicate) {
+    appStore.toast(`Ключ «${taskForm.value.key}» уже занят`, 'error')
+    return
+  }
   try {
     const t = await api.post<Task>(`/projects/${currentProject.value.id}/tasks`, taskForm.value)
     tasks.value.unshift(t)
@@ -245,6 +250,18 @@ async function saveProject() {
 function openTask(t: Task) {
   appStore.currentTask = t
   router.push(`/task/${t.id}`)
+}
+
+async function deleteTaskCard(t: Task) {
+  if (!currentProject.value) return
+  if (!confirm(`Удалить задачу «${t.key}»? Действие необратимо.`)) return
+  try {
+    await api.delete(`/projects/${currentProject.value.id}/tasks/${t.id}`)
+    tasks.value = tasks.value.filter(x => x.id !== t.id)
+    appStore.toast('Задача удалена', 'success')
+  } catch (e: unknown) {
+    appStore.toast(String(e), 'error')
+  }
 }
 
 async function quickLaunch() {
@@ -419,6 +436,20 @@ function sendInput(sessionId: string, text: string) {
 .task-status.open { border-color: var(--blue); color: var(--blue); }
 .task-status.in_progress { border-color: #e3b341; color: #e3b341; }
 .task-status.done { border-color: var(--accent); color: var(--accent); }
+
+.task-del {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 2px 6px;
+  border-radius: var(--radius);
+  opacity: 0;
+  transition: opacity 0.1s, color 0.1s;
+}
+.task-card:hover .task-del { opacity: 0.6; }
+.task-del:hover { opacity: 1; color: var(--danger); background: var(--bg3); }
 
 /* Placeholder tabs */
 .placeholder-tab {

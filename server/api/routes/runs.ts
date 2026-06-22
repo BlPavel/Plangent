@@ -7,10 +7,11 @@ import { getAgent } from '../../storage/agents';
 import { buildPrompt, launchAgent, sendToAgent, killAgent } from '../../adapters/generic';
 import { TmuxManager } from '../../terminal/tmux';
 import { getPtySession } from '../../terminal/pty-manager';
+import { registerSession, getSession, removeSession } from '../../services/session-registry';
+import { getPlanFilePath, materializePlanFile, watchPlanFile, watchPlanDirForCreate } from '../../services/plan-file';
+import { getOrchestrator } from '../../orchestrator/orchestrator';
 
 export const runsRouter = Router({ mergeParams: true });
-
-const activeSessions = new Map<string, { sessionId: string; mode: 'tmux' | 'pty' }>();
 
 runsRouter.get('/', (req: Request, res: Response) => {
   const t = getTask(req.params.taskId);
@@ -24,7 +25,7 @@ runsRouter.get('/:runId', (req: Request, res: Response) => {
   res.json(r);
 });
 
-// POST — start new agent run
+// POST — start new agent run (direct, without orchestrator)
 runsRouter.post('/', async (req: Request, res: Response) => {
   const { projectId, taskId } = req.params;
 
@@ -38,8 +39,10 @@ runsRouter.post('/', async (req: Request, res: Response) => {
   const agent = getAgent(agentId);
   if (!agent) return res.status(400).json({ error: `Agent not found: ${agentId}` });
 
+  const purpose: 'plan' | 'execute' = req.body.purpose === 'plan' ? 'plan' : 'execute';
   const latestPlan = getLatestPlan(task.id);
   const previousRuns = listRuns(task.id);
+  const planFilePath = getPlanFilePath(project.repo_path, task.key);
 
   const prompt = buildPrompt({
     projectName: project.name,
@@ -47,22 +50,29 @@ runsRouter.post('/', async (req: Request, res: Response) => {
     taskTitle: task.title ?? undefined,
     taskDescription: task.description ?? undefined,
     planContent: latestPlan?.content,
+    planFilePath,
+    purpose,
     runHistory: previousRuns
       .filter(r => r.status === 'completed' || r.status === 'interrupted')
       .map(r => ({ agent: r.agent_name, date: r.started_at, completed: r.completed_steps, notes: r.notes })),
   });
 
-  // Create run record
   const run = createRun({ task_id: task.id, plan_id: latestPlan?.id, agent_id: agent.id, agent_name: agent.name });
   const sessionId = `plangent-${task.key.replace(/[^a-zA-Z0-9]/g, '-')}-${run.id.slice(0, 8)}`;
 
+  // Wire plan-file watching
+  if (purpose === 'plan') {
+    if (latestPlan) {
+      materializePlanFile(task, latestPlan, project.repo_path);
+      watchPlanFile(task, latestPlan.id, project.repo_path);
+    } else {
+      watchPlanDirForCreate(task, project.repo_path);
+    }
+  }
+
   try {
-    const result = await launchAgent(agent, project.repo_path, sessionId, project.config.extra_env);
-
-    // Send prompt after agent starts (give it time to initialise)
-    setTimeout(() => sendToAgent(sessionId, result.mode, prompt), 3000);
-
-    activeSessions.set(run.id, { sessionId, mode: result.mode });
+    const result = await launchAgent(agent, project.repo_path, sessionId, project.config.extra_env, prompt);
+    registerSession(run.id, { sessionId, mode: result.mode, projectId, taskId });
 
     res.status(201).json({
       run,
@@ -93,20 +103,32 @@ runsRouter.post('/:runId/step', (req: Request, res: Response) => {
 runsRouter.post('/:runId/finish', async (req: Request, res: Response) => {
   const { status, notes } = req.body;
   if (!status) return res.status(400).json({ error: 'status required' });
-
-  activeSessions.delete(req.params.runId);
-
+  removeSession(req.params.runId);
   const r = finishRun(req.params.runId, status, notes);
   if (!r) return res.status(404).json({ error: 'Not found' });
   res.json(r);
 });
 
+// Hook callback — called by the agent (Claude Code Stop hook / Codex notify)
+runsRouter.post('/:runId/agent-stopped', async (req: Request, res: Response) => {
+  const { runId, taskId } = req.params;
+  res.json({ ok: true });  // respond immediately so curl doesn't block the hook
+
+  // Notify orchestrator if one is running for this task
+  const orchestrator = getOrchestrator(taskId);
+  if (orchestrator) {
+    try {
+      await orchestrator.onAgentStopped(runId);
+    } catch (e) {
+      console.error('[runs] orchestrator.onAgentStopped error:', e);
+    }
+  }
+});
+
 // GET session status / output
 runsRouter.get('/:runId/session', async (req: Request, res: Response) => {
-  const session = activeSessions.get(req.params.runId);
-  if (!session) {
-    return res.json({ running: false });
-  }
+  const session = getSession(req.params.runId);
+  if (!session) return res.json({ running: false });
 
   if (session.mode === 'tmux') {
     const tmux = new TmuxManager(session.sessionId);
@@ -124,7 +146,7 @@ runsRouter.post('/:runId/input', async (req: Request, res: Response) => {
   const { text } = req.body;
   if (!text) return res.status(400).json({ error: 'text required' });
 
-  const session = activeSessions.get(req.params.runId);
+  const session = getSession(req.params.runId);
   if (!session) return res.status(400).json({ error: 'No active session' });
 
   await sendToAgent(session.sessionId, session.mode, text);
@@ -133,10 +155,10 @@ runsRouter.post('/:runId/input', async (req: Request, res: Response) => {
 
 // POST kill agent
 runsRouter.post('/:runId/kill', async (req: Request, res: Response) => {
-  const session = activeSessions.get(req.params.runId);
+  const session = getSession(req.params.runId);
   if (session) {
     await killAgent(session.sessionId, session.mode);
-    activeSessions.delete(req.params.runId);
+    removeSession(req.params.runId);
   }
   finishRun(req.params.runId, 'interrupted', 'Прерван пользователем');
   res.json({ ok: true });
