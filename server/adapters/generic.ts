@@ -283,12 +283,13 @@ export function cleanupSkillsFromProject(filePath: string): void {
 }
 
 // Deploy a Stop hook for Claude Code so it calls back to Plangent when the agent stops.
+// The command is generic: it reads PLANGENT_PROJECT_ID / PLANGENT_TASK_ID /
+// PLANGENT_RUN_ID from the agent's own environment (exported before launch), so a
+// single hook serves every run in this repo — sequential or parallel — and one run
+// stopping never tears down the hook for its siblings.
 export function deployClaudeStopHook(
   repoCwd: string,
   callbackUrl: string,
-  projectId: string,
-  taskId: string,
-  runId: string,
 ): void {
   const settingsDir = path.join(repoCwd, '.claude');
   const settingsPath = path.join(settingsDir, 'settings.json');
@@ -299,7 +300,7 @@ export function deployClaudeStopHook(
     try { existing = JSON.parse(fs.readFileSync(settingsPath, 'utf-8')); } catch {}
   }
 
-  const hookCmd = `curl -s -X POST "${callbackUrl}/api/projects/${projectId}/tasks/${taskId}/runs/${runId}/agent-stopped" -H "Content-Type: application/json" -d '{"runId":"${runId}"}' || true`;
+  const hookCmd = `curl -s -X POST "${callbackUrl}/api/projects/$PLANGENT_PROJECT_ID/tasks/$PLANGENT_TASK_ID/runs/$PLANGENT_RUN_ID/agent-stopped" -H "Content-Type: application/json" -d "{\\"runId\\":\\"$PLANGENT_RUN_ID\\"}" || true`;
 
   const hookEntry = {
     matcher: '',

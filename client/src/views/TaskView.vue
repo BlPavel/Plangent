@@ -184,6 +184,14 @@
             <span class="queue-agent">{{ agentName(s.agentId) }}</span>
             <span class="queue-points">{{ s.points.join(', ') }}</span>
             <span v-if="s.parallelGroup" class="parallel-badge">⟂ {{ s.parallelGroup }}</span>
+            <button
+              v-if="s.status === 'queued'"
+              class="pause-pill"
+              :class="{ active: s.pauseAfter }"
+              @click="s.pauseAfter = !s.pauseAfter"
+              :title="s.pauseAfter ? 'Очередь остановится после этой сессии — нажмите, чтобы убрать паузу' : 'Остановить очередь после этой сессии для ревью'"
+            >⏸ пауза после</button>
+            <span v-else-if="s.pauseAfter" class="pause-badge" title="Очередь остановится после этой сессии">⏸ ревью</span>
             <span class="queue-status-chip" :class="s.status">{{ sessionStatusLabel(s.status) }}</span>
             <button
               v-if="s.status === 'waiting_for_developer'"
@@ -191,13 +199,32 @@
               @click="advanceSession(s.id)"
             >Продолжить →</button>
             <button
+              v-if="s.status === 'running'"
+              class="btn btn-ghost btn-sm"
+              @click="advanceSession(s.id)"
+              title="Считать сессию завершённой и идти дальше"
+            >✓ Завершить</button>
+            <button
+              v-if="s.status === 'running' || s.status === 'waiting_for_developer'"
+              class="btn btn-ghost btn-xs danger"
+              @click="cancelSession(s.id)"
+              title="Остановить агента и снять блокировку очереди"
+            >✕ Остановить</button>
+            <button
               v-if="s.status === 'queued'"
               class="btn btn-ghost btn-xs danger"
               @click="removeQueueSession(i)"
             >✕</button>
           </div>
         </div>
-        <div class="queue-actions" v-if="queueSessions.some(s => s.status === 'queued') && task?.status !== 'done'">
+
+        <!-- Pause checkpoint banner -->
+        <div v-if="queuePaused" class="queue-paused-banner">
+          <span>⏸ Очередь на паузе — ревью перед следующим шагом.</span>
+          <button class="btn btn-primary btn-sm" @click="resumeQueue">▶ Продолжить очередь</button>
+        </div>
+
+        <div class="queue-actions" v-if="!executing && queueSessions.some(s => s.status === 'queued') && task?.status !== 'done'">
           <button
             class="btn btn-primary"
             :disabled="executing || queueSessions.filter(s => s.status === 'queued').length === 0"
@@ -294,6 +321,7 @@ const builderAgentId = ref(appStore.currentProject?.default_agent_id ?? '')
 const builderParallelGroup = ref('')
 const selectedStepIds = ref<Set<string>>(new Set())
 const queueSessions = ref<OrchestratorQueueSession[]>([])
+const queuePaused = ref(false)
 
 interface TaskSession { id: string; label: string; runId: string }
 const sessions = ref<TaskSession[]>([])
@@ -360,12 +388,26 @@ async function handleOrchestratorEvent(event: OrchestratorEvent) {
     case 'session_failed': {
       const queueSess = queueSessions.value.find(s => s.id === event.sessionId)
       if (queueSess) queueSess.status = 'failed'
-      appStore.toast(`Сессия завершилась с ошибкой: ${event.reason}`, 'error')
-      executing.value = false
+      appStore.toast(`Сессия остановлена: ${event.reason}`, 'warning')
+      break
+    }
+    case 'queue_paused': {
+      queuePaused.value = true
+      // Keep `executing` true: the orchestrator is still active (just waiting),
+      // so the "Запустить очередь" button stays disabled and only the
+      // "Продолжить очередь" action is offered.
+      executing.value = true
+      appStore.toast('Очередь на паузе — проведите ревью и нажмите «Продолжить очередь».', 'warning')
+      break
+    }
+    case 'queue_resumed': {
+      queuePaused.value = false
+      executing.value = true
       break
     }
     case 'queue_finished': {
       executing.value = false
+      queuePaused.value = false
       appStore.toast('Очередь выполнена. Проверьте изменения и закоммитьте.', 'success')
       loadRuns()
       loadPlan()
@@ -432,7 +474,27 @@ async function loadOrchestratorState() {
     const resp = await api.get<OrchestratorResponse>(`/projects/${pid.value}/tasks/${tid.value}/orchestrator`)
     if (resp.active && resp.state) {
       queueSessions.value = resp.state.sessions
-      executing.value = resp.state.status === 'running'
+      executing.value = resp.state.status === 'running' || resp.state.status === 'paused'
+      queuePaused.value = resp.state.status === 'paused'
+      // Re-attach terminals for any still-live session. The agent's PTY keeps
+      // running server-side across navigation, so we rebuild the panes from the
+      // orchestrator state — even if the session_started WS event fired while we
+      // were on another route (or the page was reloaded).
+      for (const s of resp.state.sessions) {
+        if ((s.status === 'running' || s.status === 'waiting_for_developer') && s.sessionId && s.runId) {
+          if (!sessions.value.some(ts => ts.id === s.sessionId)) {
+            sessions.value.push({
+              id: s.sessionId,
+              label: `Session — ${task.value?.key ?? ''}`,
+              runId: s.runId,
+            })
+          }
+          if (s.status === 'waiting_for_developer') waitingSessionIds.value.add(s.sessionId)
+        }
+      }
+      if (!activeSessionId.value && sessions.value.length) {
+        activeSessionId.value = sessions.value[sessions.value.length - 1].id
+      }
     }
   } catch {}
 }
@@ -509,6 +571,7 @@ function addQueueSession() {
     points: [...selectedStepIds.value],
     agentId: builderAgentId.value,
     parallelGroup: builderParallelGroup.value.trim() || null,
+    pauseAfter: false,
     status: 'queued',
   })
   selectedStepIds.value = new Set()
@@ -536,6 +599,7 @@ async function runQueue() {
           points: s.points,
           agentId: s.agentId,
           parallelGroup: s.parallelGroup,
+          pauseAfter: s.pauseAfter ?? false,
         })),
       },
     )
@@ -551,6 +615,26 @@ async function advanceSession(sessionId: string) {
   if (!pid.value || !tid.value) return
   try {
     await api.post(`/projects/${pid.value}/tasks/${tid.value}/sessions/${sessionId}/advance`, {})
+  } catch (e: unknown) {
+    appStore.toast(String(e), 'error')
+  }
+}
+
+async function cancelSession(sessionId: string) {
+  if (!pid.value || !tid.value) return
+  if (!confirm('Остановить эту сессию? Агент будет завершён, очередь продолжит выполнение.')) return
+  try {
+    await api.post(`/projects/${pid.value}/tasks/${tid.value}/sessions/${sessionId}/cancel`, {})
+  } catch (e: unknown) {
+    appStore.toast(String(e), 'error')
+  }
+}
+
+async function resumeQueue() {
+  if (!pid.value || !tid.value) return
+  try {
+    await api.post(`/projects/${pid.value}/tasks/${tid.value}/orchestrator/resume`, {})
+    queuePaused.value = false
   } catch (e: unknown) {
     appStore.toast(String(e), 'error')
   }
@@ -959,6 +1043,49 @@ function fmtDate(iso: string) {
 .parallel-input:focus { outline: none; border-color: var(--blue); }
 .selection-hint { font-size: 11px; color: var(--text-muted); }
 .selection-hint.muted { opacity: 0.6; }
+
+.pause-badge {
+  font-size: 10px;
+  color: #d29922;
+  background: rgba(210, 153, 34, 0.12);
+  padding: 1px 6px;
+  border-radius: 8px;
+  white-space: nowrap;
+}
+
+/* Per-session pause toggle, lives on the queued card so it belongs to that session */
+.pause-pill {
+  font-size: 10px;
+  white-space: nowrap;
+  padding: 2px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  border: 1px dashed var(--border);
+  background: none;
+  color: var(--text-muted);
+  transition: all 0.1s;
+}
+.pause-pill:hover { border-color: #d29922; color: #d29922; }
+.pause-pill.active {
+  border-style: solid;
+  border-color: #d29922;
+  color: #d29922;
+  background: rgba(210, 153, 34, 0.12);
+}
+
+.queue-paused-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  margin-top: 4px;
+  font-size: 12px;
+  color: #d29922;
+  background: rgba(210, 153, 34, 0.1);
+  border: 1px solid #d29922;
+  border-radius: var(--radius);
+}
 
 .queue-list { display: flex; flex-direction: column; gap: 4px; }
 .queue-item {

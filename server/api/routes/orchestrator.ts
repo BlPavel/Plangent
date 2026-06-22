@@ -46,6 +46,7 @@ orchestratorRouter.post('/execute', async (req: Request, res: Response) => {
     points: s.points,
     agentId: s.agentId,
     parallelGroup: s.parallelGroup,
+    pauseAfter: s.pauseAfter ?? false,
     status: 'queued' as const,
   }));
 
@@ -97,11 +98,31 @@ orchestratorRouter.get('/orchestrator', (req: Request, res: Response) => {
 });
 
 // POST /projects/:projectId/tasks/:taskId/sessions/:sessionId/advance
-// Manually advance a waiting session
+// Manually mark a session done (waiting OR stuck-running) and advance the queue.
 orchestratorRouter.post('/sessions/:sessionId/advance', async (req: Request, res: Response) => {
   const { taskId, sessionId } = req.params;
   const orch = getOrchestrator(taskId);
   if (!orch) return res.status(404).json({ error: 'No active orchestrator' });
-  await orch.manualAdvance(sessionId);
+  await orch.manualComplete(sessionId);
+  res.json({ ok: true });
+});
+
+// POST /projects/:projectId/tasks/:taskId/sessions/:sessionId/cancel
+// Stop a session (queued/running/waiting) and free the queue to advance.
+orchestratorRouter.post('/sessions/:sessionId/cancel', async (req: Request, res: Response) => {
+  const { taskId, sessionId } = req.params;
+  const orch = getOrchestrator(taskId);
+  if (!orch) return res.status(404).json({ error: 'No active orchestrator' });
+  await orch.cancelSession(sessionId);
+  res.json({ ok: true });
+});
+
+// POST /projects/:projectId/tasks/:taskId/orchestrator/resume
+// Resume the queue after a pauseAfter review checkpoint.
+orchestratorRouter.post('/orchestrator/resume', async (req: Request, res: Response) => {
+  const { taskId } = req.params;
+  const orch = getOrchestrator(taskId);
+  if (!orch) return res.status(404).json({ error: 'No active orchestrator' });
+  await orch.resume();
   res.json({ ok: true });
 });

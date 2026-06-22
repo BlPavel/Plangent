@@ -89,12 +89,15 @@ export interface OrchestratorQueueSession {
   agentId: string;
   parallelGroup: string | null;
   status: OrchestratorSessionStatus;
+  // When true the orchestrator pauses after this session's step completes,
+  // so the developer can review before the next step starts.
+  pauseAfter?: boolean;
   runId?: string;
   sessionId?: string;
   mode?: 'tmux' | 'pty';
 }
 
-export type OrchestratorStatus = 'running' | 'waiting_for_developer' | 'finished' | 'failed';
+export type OrchestratorStatus = 'running' | 'paused' | 'waiting_for_developer' | 'finished' | 'failed';
 
 export interface OrchestratorState {
   id: string;

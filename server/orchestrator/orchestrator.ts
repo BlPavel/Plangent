@@ -10,9 +10,9 @@ import { getAgent } from '../storage/agents';
 import { getLatestPlan, createPlan, parsePlanSteps } from '../storage/plans';
 import { createRun, finishRun } from '../storage/runs';
 import { updateTask } from '../storage/tasks';
-import { launchAgent, buildPrompt, deployClaudeStopHook, cleanupClaudeStopHook } from '../adapters/generic';
-import { materializePlanFile, watchPlanFile, stopWatchPlanFile } from '../services/plan-file';
-import { registerSession, removeSession } from '../services/session-registry';
+import { launchAgent, buildPrompt, deployClaudeStopHook, cleanupClaudeStopHook, killAgent } from '../adapters/generic';
+import { materializePlanFile, watchPlanFile, stopWatchPlanFile, setPlanSyncListener } from '../services/plan-file';
+import { registerSession, removeSession, getSession } from '../services/session-registry';
 import { broadcast } from '../services/events';
 import path from 'path';
 
@@ -20,6 +20,7 @@ export interface QueueSessionInput {
   points: string[];
   agentId: string;
   parallelGroup: string | null;
+  pauseAfter?: boolean;
 }
 
 // Group sequential sessions into "steps" (parallel group = run concurrently)
@@ -57,12 +58,23 @@ export function removeOrchestrator(taskId: string): void {
   active.delete(taskId);
 }
 
+// When a plan file is synced to the DB, let the matching orchestrator check whether
+// any running session has now completed all its assigned points.
+setPlanSyncListener((taskId: string) => {
+  const orch = active.get(taskId);
+  if (orch) {
+    orch.onPlanUpdated().catch(e => console.error('[orchestrator] onPlanUpdated error:', e));
+  }
+});
+
 export class Orchestrator {
   readonly state: OrchestratorState;
   private steps: OrchestratorQueueSession[][];
   private stepIndex = 0;
-  // Track hook cleanup paths keyed by runId
-  private hookPaths = new Map<string, string>();
+  // Repo path where the (generic, env-driven) Claude Stop hook was deployed.
+  // The hook is shared by every run in this repo, so it is cleaned up once when
+  // the queue finishes — not per run.
+  private hookRepoPath: string | null = null;
 
   constructor(taskId: string, projectId: string, sessions: OrchestratorQueueSession[]) {
     this.state = {
@@ -86,7 +98,7 @@ export class Orchestrator {
 
   private async executeStep(): Promise<void> {
     if (this.stepIndex >= this.steps.length) {
-      this.finish();
+      await this.finish();
       return;
     }
     const step = this.steps[this.stepIndex];
@@ -144,11 +156,13 @@ export class Orchestrator {
       PLANGENT_CALLBACK_URL: CALLBACK_URL,
     };
 
-    // Deploy Stop hook for Claude Code
+    // Deploy Stop hook for Claude Code. The hook command is generic (it reads
+    // $PLANGENT_RUN_ID etc. from the agent's env), so a single hook serves every
+    // run in this repo — including parallel sessions — without clobbering.
     if (agent.id === 'agent-claude') {
       try {
-        deployClaudeStopHook(project.repo_path, CALLBACK_URL, projectId, taskId, run.id);
-        this.hookPaths.set(run.id, project.repo_path);
+        deployClaudeStopHook(project.repo_path, CALLBACK_URL);
+        this.hookRepoPath = project.repo_path;
       } catch (e) {
         console.warn('[orchestrator] Could not deploy stop hook:', e);
       }
@@ -197,39 +211,46 @@ export class Orchestrator {
     }
   }
 
-  // Called by the agent-stopped endpoint
+  // True when every point assigned to this session is checked off in the plan.
+  private sessionPointsDone(session: OrchestratorQueueSession): boolean {
+    const plan = getLatestPlan(this.state.taskId);
+    const steps = plan ? parsePlanSteps(plan.content) : [];
+    return session.points.length > 0 &&
+      session.points.every(pid => steps.some(s => s.id === pid && s.done));
+  }
+
+  // Mark a running session complete and advance the queue. The agent process is
+  // intentionally kept ALIVE here — it is only torn down when the queue actually
+  // moves past this step (see maybeAdvance / resume). That lets the developer open
+  // the session's terminal during a review pause and tell the agent what to fix.
+  private async completeSession(session: OrchestratorQueueSession): Promise<void> {
+    if (session.status !== 'running') return;
+    session.status = 'complete';
+    if (session.runId) finishRun(session.runId, 'completed');
+    broadcast({ type: 'session_complete', taskId: this.state.taskId, sessionId: session.id, runId: session.runId });
+    await this.maybeAdvance();
+  }
+
+  // Primary completion path: the plan file changed. If a running session has all of
+  // its assigned points checked off, it's done — regardless of any stop signal.
+  async onPlanUpdated(): Promise<void> {
+    if (this.state.status !== 'running') return;
+    for (const session of this.state.sessions) {
+      if (session.status === 'running' && this.sessionPointsDone(session)) {
+        await this.completeSession(session);
+      }
+    }
+  }
+
+  // Secondary signal: the agent reported it stopped. If its points are all done we
+  // complete it; otherwise it stopped early — ask the developer to review/continue.
   async onAgentStopped(runId: string): Promise<void> {
     const session = this.state.sessions.find(s => s.runId === runId);
     if (!session || session.status !== 'running') return;
 
-    const { taskId, projectId } = this.state;
-    const task = getTask(taskId);
-    const project = getProject(projectId);
-    if (!task || !project) return;
-
-    // Cleanup hook
-    if (this.hookPaths.has(runId)) {
-      try { cleanupClaudeStopHook(project.repo_path); } catch {}
-      this.hookPaths.delete(runId);
-    }
-
-    // Re-read plan to check point completion
-    const plan = getLatestPlan(taskId);
-    const steps = plan ? parsePlanSteps(plan.content) : [];
-    const allDone = session.points.every(pid => steps.some(s => s.id === pid && s.done));
-
-    if (allDone) {
-      session.status = 'complete';
-      finishRun(runId, 'completed');
-      removeSession(runId);
-      broadcast({ type: 'session_complete', taskId, sessionId: session.id, runId });
-
-      // Advance if all sessions in current step are done
-      const step = this.steps[this.stepIndex];
-      if (step.every(s => s.status === 'complete')) {
-        this.stepIndex++;
-        await this.executeStep();
-      }
+    const { taskId } = this.state;
+    if (this.sessionPointsDone(session)) {
+      await this.completeSession(session);
     } else {
       session.status = 'waiting_for_developer';
       broadcast({
@@ -243,26 +264,102 @@ export class Orchestrator {
     }
   }
 
-  // Manual advance by developer (when session is waiting_for_developer)
-  async manualAdvance(sessionId: string): Promise<void> {
-    const session = this.state.sessions.find(s => s.id === sessionId);
-    if (!session || session.status !== 'waiting_for_developer') return;
-    session.status = 'complete';
-    if (session.runId) {
-      finishRun(session.runId, 'completed');
+  // Kill the live agent process for a session (if still running) without touching its
+  // run record. Used to tear down agents once the queue moves past their step.
+  private async killSessionProcess(session: OrchestratorQueueSession): Promise<void> {
+    if (!session.runId) return;
+    const live = getSession(session.runId);
+    if (live) {
+      try { await killAgent(live.sessionId, live.mode); } catch {}
       removeSession(session.runId);
-    }
-    broadcast({ type: 'session_complete', taskId: this.state.taskId, sessionId: session.id, runId: session.runId });
-
-    const step = this.steps[this.stepIndex];
-    if (step.every(s => s.status === 'complete')) {
-      this.stepIndex++;
-      await this.executeStep();
     }
   }
 
-  private finish(): void {
+  private async killStepAgents(step: OrchestratorQueueSession[]): Promise<void> {
+    for (const s of step) await this.killSessionProcess(s);
+  }
+
+  private async killAllAgents(): Promise<void> {
+    for (const s of this.state.sessions) await this.killSessionProcess(s);
+  }
+
+  // Developer marks a session as done (from either `running` or `waiting_for_developer`).
+  // Used both to continue a session that stopped without checking every box, and to
+  // rescue a session stuck in `running` (e.g. no completion signal arrived). The agent
+  // stays alive (same as auto-completion) so a review pause can still talk to it.
+  async manualComplete(sessionId: string): Promise<void> {
+    const session = this.state.sessions.find(s => s.id === sessionId);
+    if (!session) return;
+    if (session.status === 'complete' || session.status === 'failed') return;
+    session.status = 'complete';
+    if (session.runId) finishRun(session.runId, 'completed');
+    broadcast({ type: 'session_complete', taskId: this.state.taskId, sessionId: session.id, runId: session.runId });
+    await this.maybeAdvance();
+  }
+
+  // Backwards-compatible alias for the existing /advance endpoint.
+  async manualAdvance(sessionId: string): Promise<void> {
+    return this.manualComplete(sessionId);
+  }
+
+  // Developer cancels a session (queued, running or waiting). Frees the queue so the
+  // step can advance instead of hanging forever on the cancelled session.
+  async cancelSession(sessionId: string): Promise<void> {
+    const session = this.state.sessions.find(s => s.id === sessionId);
+    if (!session) return;
+    if (session.status === 'complete' || session.status === 'failed') return;
+    await this.killSessionProcess(session);
+    if (session.runId) finishRun(session.runId, 'interrupted');
+    session.status = 'failed';
+    broadcast({ type: 'session_failed', taskId: this.state.taskId, sessionId: session.id, reason: 'Остановлена разработчиком' });
+    await this.maybeAdvance();
+  }
+
+  // Resume after a pauseAfter checkpoint. The reviewed step's agents are kept alive
+  // during the pause (for review); now that we move on, tear them down and launch
+  // the next step.
+  async resume(): Promise<void> {
+    if (this.state.status !== 'paused') return;
+    this.state.status = 'running';
+    const reviewed = this.steps[this.stepIndex];
+    if (reviewed) await this.killStepAgents(reviewed);
+    this.stepIndex++;
+    broadcast({ type: 'queue_resumed', taskId: this.state.taskId });
+    await this.executeStep();
+  }
+
+  // Advance to the next step once every session in the current step has reached a
+  // terminal state. Honors per-session `pauseAfter` review checkpoints.
+  private async maybeAdvance(): Promise<void> {
+    const step = this.steps[this.stepIndex];
+    if (!step) return;
+    const stepDone = step.every(s => s.status === 'complete' || s.status === 'failed');
+    if (!stepDone) return;
+
+    if (step.some(s => s.pauseAfter)) {
+      // Keep this step's agents alive so the developer can interact with them
+      // during review; they are torn down on resume().
+      this.state.status = 'paused';
+      broadcast({ type: 'queue_paused', taskId: this.state.taskId, stepIndex: this.stepIndex });
+      return;
+    }
+    // Auto-advancing: the finished agents won't be reviewed, so free them now.
+    await this.killStepAgents(step);
+    this.stepIndex++;
+    await this.executeStep();
+  }
+
+  private cleanupHook(): void {
+    if (this.hookRepoPath) {
+      try { cleanupClaudeStopHook(this.hookRepoPath); } catch {}
+      this.hookRepoPath = null;
+    }
+  }
+
+  private async finish(): Promise<void> {
     this.state.status = 'finished';
+    await this.killAllAgents();
+    this.cleanupHook();
     // Stop watcher keyed by task.key
     const task = getTask(this.state.taskId);
     if (task) stopWatchPlanFile(task.key);
@@ -272,6 +369,8 @@ export class Orchestrator {
 
   fail(reason: string): void {
     this.state.status = 'failed';
+    void this.killAllAgents();
+    this.cleanupHook();
     broadcast({ type: 'run_failed', taskId: this.state.taskId, reason });
     active.delete(this.state.taskId);
   }
