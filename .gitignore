@@ -1,6 +1,6 @@
 node_modules/
-dist/
-dist-electron/
+server/dist/
+electron/dist/
 client/dist/
 release/
 data/plangent.db
