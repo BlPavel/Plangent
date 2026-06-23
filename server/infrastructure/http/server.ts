@@ -8,7 +8,6 @@ import { tasksRouter } from './routes/tasks';
 import { plansRouter } from './routes/plans';
 import { runsRouter } from './routes/runs';
 import { terminalRouter } from './routes/terminal';
-import { skillsRouter } from './routes/skills';
 import { libraryRouter } from './routes/library';
 import { agentsRouter } from './routes/agents';
 import { browseRouter } from './routes/browse';
@@ -36,7 +35,6 @@ export function createApp() {
   // Orchestrator endpoints (execute, done, orchestrator state)
   app.use('/api/projects/:projectId/tasks/:taskId', orchestratorRouter);
   app.use('/api/terminal', terminalRouter);
-  app.use('/api/skills', skillsRouter);
   app.use('/api/library', libraryRouter);
   app.use('/api/browse', browseRouter);
   app.use('/api/upload-temp', uploadRouter);
