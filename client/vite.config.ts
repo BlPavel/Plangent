@@ -10,7 +10,11 @@ export default defineConfig({
     emptyOutDir: true,
   },
   resolve: {
-    alias: { '@': path.resolve(__dirname, 'src') },
+    alias: {
+      '@core': path.resolve(__dirname, 'src/core'),
+      '@shared': path.resolve(__dirname, 'src/shared'),
+      '@features': path.resolve(__dirname, 'src/features'),
+    },
   },
   server: {
     port: 5173,

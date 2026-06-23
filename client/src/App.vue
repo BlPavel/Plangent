@@ -46,14 +46,14 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { useAppStore } from '@/stores/app'
-import { useProjectsStore } from '@/stores/projects'
-import { useAgentsStore } from '@/stores/agents'
-import type { Project } from '@/api/types'
-import AppToast from '@/components/AppToast.vue'
-import AppModal from '@/components/AppModal.vue'
-import FormField from '@/components/FormField.vue'
-import FolderPicker from '@/components/FolderPicker.vue'
+import { useAppStore } from '@core/stores/app'
+import { useProjectsStore } from '@features/projects'
+import { useAgentsStore } from '@features/agents'
+import type { Project } from '@core/models'
+import AppToast from '@shared/ui/AppToast.vue'
+import AppModal from '@shared/ui/AppModal.vue'
+import FormField from '@shared/ui/FormField.vue'
+import FolderPicker from '@shared/ui/FolderPicker.vue'
 
 const router = useRouter()
 const appStore = useAppStore()
