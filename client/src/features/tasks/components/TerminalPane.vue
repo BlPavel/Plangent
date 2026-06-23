@@ -14,7 +14,7 @@
       </div>
     </div>
 
-    <div class="terminal-body" ref="termEl" @click="term?.focus()" />
+    <div class="terminal-body" ref="termEl" @click="focusTerm" />
 
     <!-- Drop overlay -->
     <div v-if="dragging" class="drop-overlay">
@@ -31,6 +31,7 @@ import { ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { Terminal } from 'xterm'
 import { FitAddon } from 'xterm-addon-fit'
 import 'xterm/css/xterm.css'
+import { platform } from '@core/platform'
 
 const props = defineProps<{ sessionId: string; label?: string; visible?: boolean }>()
 const emit = defineEmits<{ detach: []; kill: []; input: [text: string] }>()
@@ -53,6 +54,11 @@ function trackBracketedPaste(data: string) {
   const on = data.lastIndexOf('\x1b[?2004h')
   const off = data.lastIndexOf('\x1b[?2004l')
   if (on !== -1 || off !== -1) bracketedPaste = on > off
+}
+
+// Focus the terminal when its body is clicked.
+function focusTerm() {
+  term?.focus()
 }
 
 // Send text directly into the running PTY
@@ -190,14 +196,9 @@ async function onPaste(e: ClipboardEvent) {
     // 1. Real filesystem path of the copied file, from the native pasteboard.
     //    webUtils.getPathForFile returns '' for clipboard pastes, and the macOS
     //    icon-thumbnail is what makes the agent see a placeholder — so we resolve
-    //    the actual path first. Falls back to the server route in browser mode.
-    let paths: string[] = []
-    if (window.electronAPI?.getClipboardFilePaths) {
-      paths = await window.electronAPI.getClipboardFilePaths()
-    } else {
-      const res = await fetch('/api/clipboard/paths')
-      paths = (await res.json() as { paths: string[] }).paths ?? []
-    }
+    //    the actual path first. The platform bridge handles Electron vs. the
+    //    server-route fallback in plain-browser mode.
+    const paths = await platform.getClipboardFilePaths()
     if (paths.length > 0) {
       insertPaths(paths)
       return
@@ -236,9 +237,9 @@ async function onDrop(e: DragEvent) {
   dragging.value = false
   const files = Array.from(e.dataTransfer?.files ?? [])
 
-  // Electron: real filesystem paths via webUtils
-  if (window.electronAPI && files.length > 0) {
-    const paths = files.map(f => window.electronAPI!.getFilePath(f)).filter(Boolean)
+  // Native: real filesystem paths (null in plain browser → falls through to uri-list)
+  if (files.length > 0) {
+    const paths = files.map(f => platform.getFilePath(f)).filter((p): p is string => !!p)
     if (paths.length > 0) {
       insertPaths(paths)
       return
