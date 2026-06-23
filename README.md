@@ -54,3 +54,47 @@ state lives in `core/stores`.
 Path aliases are part of the architecture and must stay synchronized between
 `client/vite.config.ts` and `client/tsconfig.json`: `@core`, `@shared`, and
 `@features`.
+
+## Server Architecture
+
+The server in `server/` uses a pragmatic modular monolith layout:
+
+```text
+server/
+  models/
+  core/
+    agents/
+    library/
+    orchestration/
+    projects/
+    runs/
+    sessions/
+    shared/
+    tasks/
+  infrastructure/
+    adapters/
+    db/
+    http/
+      routes/
+    terminal/
+  index.ts
+```
+
+`models` is the shared kernel for TypeScript types and interfaces only. It does
+not import from `core` or `infrastructure`.
+
+`core` contains domain behavior grouped by product area. Domain modules are
+transport-agnostic and own their thin repository functions. They may use shared
+core services and model types. Repository modules use the shared database
+connection directly by choice; there are no repository interfaces or DI
+containers.
+
+`infrastructure` contains delivery and external runtime code: Express routes and
+server assembly in `infrastructure/http`, SQLite schema/connection setup in
+`infrastructure/db`, PTY/tmux integration in `infrastructure/terminal`, and
+agent CLI adapters in `infrastructure/adapters`.
+
+Dependency direction is one-way at the module boundary: infrastructure calls
+core, and core points toward models. Core code must not import HTTP routes,
+terminal sessions, or CLI adapters; runtime integrations are wired from
+`server/index.ts`.

@@ -1,6 +1,22 @@
-import { createApp } from './api/server';
-import { getDb } from './db/schema';
-import { syncAll } from './skills/syncer';
+import { createApp } from './infrastructure/http/server';
+import { getDb } from './infrastructure/db/schema';
+import { syncAll } from './core/library/syncer';
+import { configureAgentRuntime } from './core/orchestration/agent-runtime';
+import {
+  buildPrompt,
+  cleanupClaudeStopHook,
+  deployClaudeStopHook,
+  killAgent,
+  launchAgent,
+} from './infrastructure/adapters/generic';
+
+configureAgentRuntime({
+  buildPrompt,
+  launchAgent,
+  killAgent,
+  deployClaudeStopHook,
+  cleanupClaudeStopHook,
+});
 
 process.on('uncaughtException', (err) => {
   console.error('[uncaughtException]', err.message);
