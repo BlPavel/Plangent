@@ -1,6 +1,6 @@
 {
   "name": "plangent",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "AI agent orchestrator — plan-driven development",
   "main": "electron/dist/main.js",
   "scripts": {
