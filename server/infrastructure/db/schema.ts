@@ -29,6 +29,10 @@ function migrate(db: Database.Database): void {
       skills_dir TEXT NOT NULL DEFAULT '',
       skills_filename TEXT NOT NULL DEFAULT 'plangent-skills.md',
       layout_profile TEXT,
+      model TEXT NOT NULL DEFAULT '',
+      reasoning_effort TEXT NOT NULL DEFAULT '',
+      model_options TEXT NOT NULL DEFAULT '[]',
+      reasoning_options TEXT NOT NULL DEFAULT '[]',
       active INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -104,6 +108,10 @@ function migrate(db: Database.Database): void {
 
   // Add columns that may be missing on existing DBs (idempotent)
   try { db.exec(`ALTER TABLE agents ADD COLUMN layout_profile TEXT`); } catch { /* already exists */ }
+  try { db.exec(`ALTER TABLE agents ADD COLUMN model TEXT NOT NULL DEFAULT ''`); } catch { /* already exists */ }
+  try { db.exec(`ALTER TABLE agents ADD COLUMN reasoning_effort TEXT NOT NULL DEFAULT ''`); } catch { /* already exists */ }
+  try { db.exec(`ALTER TABLE agents ADD COLUMN model_options TEXT NOT NULL DEFAULT '[]'`); } catch { /* already exists */ }
+  try { db.exec(`ALTER TABLE agents ADD COLUMN reasoning_options TEXT NOT NULL DEFAULT '[]'`); } catch { /* already exists */ }
   try { db.exec(`ALTER TABLE projects ADD COLUMN hide_from_git INTEGER NOT NULL DEFAULT 1`); } catch { /* already exists */ }
 
   seedDefaultAgents(db);
@@ -127,28 +135,68 @@ function seedDefaultAgents(db: Database.Database): void {
   if (existing.cnt > 0) return;
 
   db.prepare(`
-    INSERT INTO agents (id, name, command, args, env, skills_dir, skills_filename, layout_profile) VALUES
+    INSERT INTO agents (id, name, command, args, env, skills_dir, skills_filename, layout_profile, model_options, reasoning_options) VALUES
     (
       'agent-claude',
       'Claude Code',
       'claude',
-      '["--dangerously-skip-permissions"]',
+      '["--dangerously-skip-permissions", "--model", "{model}", "--effort", "{reasoning}"]',
       '{}',
       '.claude/commands',
       'plangent.md',
+      ?,
+      ?,
       ?
     ),
     (
       'agent-codex',
       'Codex CLI',
       'codex',
-      '["--dangerously-bypass-approvals-and-sandbox"]',
+      '["--dangerously-bypass-approvals-and-sandbox", "--model", "{model}", "-c", "model_reasoning_effort={reasoning}"]',
       '{}',
       '',
       'AGENTS.md',
+      ?,
+      ?,
       ?
     )
-  `).run(LAYOUT_CLAUDE, LAYOUT_CODEX);
+  `).run(
+    LAYOUT_CLAUDE, CLAUDE_MODEL_OPTIONS, CLAUDE_REASONING_OPTIONS,
+    LAYOUT_CODEX, CODEX_MODEL_OPTIONS, CODEX_REASONING_OPTIONS,
+  );
+}
+
+// Suggested starting values for the two built-in agents' model/reasoning-effort
+// pickers — the developer can freely add, edit, or delete entries in Settings.
+const CLAUDE_MODEL_OPTIONS = JSON.stringify(['sonnet', 'opus', 'haiku', 'fable']);
+const CLAUDE_REASONING_OPTIONS = JSON.stringify(['low', 'medium', 'high', 'xhigh']);
+const CODEX_MODEL_OPTIONS = JSON.stringify([
+  'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex-spark',
+]);
+const CODEX_REASONING_OPTIONS = JSON.stringify(['minimal', 'low', 'medium', 'high', 'xhigh']);
+
+// Add --model/--effort placeholder flags to a default agent's args if the
+// developer hasn't already customized them (no {model}/{reasoning} present).
+function addModelEffortArgs(db: Database.Database, agentId: string, extraArgs: string[]): void {
+  const row = db.prepare(`SELECT args FROM agents WHERE id = ?`).get(agentId) as { args: string } | undefined;
+  if (!row) return;
+  const args: string[] = JSON.parse(row.args || '[]');
+  if (args.some(a => a.includes('{model}') || a.includes('{reasoning}'))) return;
+  db.prepare(`UPDATE agents SET args = ? WHERE id = ?`).run(JSON.stringify([...args, ...extraArgs]), agentId);
+}
+
+// Backfill model/reasoning option lists for installs that already had these
+// two agents seeded before model_options/reasoning_options existed.
+function seedOptionsIfEmpty(db: Database.Database, agentId: string, modelOptions: string, reasoningOptions: string): void {
+  const row = db.prepare(`SELECT model_options, reasoning_options FROM agents WHERE id = ?`).get(agentId) as
+    { model_options: string; reasoning_options: string } | undefined;
+  if (!row) return;
+  if (row.model_options === '[]') {
+    db.prepare(`UPDATE agents SET model_options = ? WHERE id = ?`).run(modelOptions, agentId);
+  }
+  if (row.reasoning_options === '[]') {
+    db.prepare(`UPDATE agents SET reasoning_options = ? WHERE id = ?`).run(reasoningOptions, agentId);
+  }
 }
 
 function migrateData(db: Database.Database): void {
@@ -167,6 +215,11 @@ function migrateData(db: Database.Database): void {
   if (codexNoLayout) {
     db.prepare(`UPDATE agents SET layout_profile = ? WHERE id = 'agent-codex'`).run(LAYOUT_CODEX);
   }
+
+  addModelEffortArgs(db, 'agent-claude', ['--model', '{model}', '--effort', '{reasoning}']);
+  addModelEffortArgs(db, 'agent-codex', ['--model', '{model}', '-c', 'model_reasoning_effort={reasoning}']);
+  seedOptionsIfEmpty(db, 'agent-claude', CLAUDE_MODEL_OPTIONS, CLAUDE_REASONING_OPTIONS);
+  seedOptionsIfEmpty(db, 'agent-codex', CODEX_MODEL_OPTIONS, CODEX_REASONING_OPTIONS);
 
   // Legacy common plan protocol is now runtime instructions, not a user-facing global skill.
   removeLegacyGlobalRuntimeInstructions(db);

@@ -205,6 +205,34 @@ function promptArgCommand(command: string, args: string[], tmpFile: string): str
   return `${shellCommand(command, args)} "$(cat ${shQuote(tmpFile)})"`;
 }
 
+// Substitutes {model}/{reasoning}-style placeholders in an agent's args template.
+// When a placeholder's value is empty, the token is dropped entirely, along with
+// the preceding flag token if that token looks like a separate `--flag value` pair
+// (e.g. ["--model", "{model}"] -> both removed; "-c foo={reasoning}" -> both removed;
+// but a value embedded with other literal text is only dropped if that text resolves empty).
+function applyAgentPlaceholders(args: string[], values: Record<string, string>): string[] {
+  const result: string[] = [];
+  for (const arg of args) {
+    let substituted = arg;
+    let missing = false;
+    for (const [key, val] of Object.entries(values)) {
+      const placeholder = `{${key}}`;
+      if (substituted.includes(placeholder)) {
+        if (!val) missing = true;
+        substituted = substituted.split(placeholder).join(val);
+      }
+    }
+    if (missing) {
+      if (result.length && result[result.length - 1].startsWith('-') && !arg.startsWith('-')) {
+        result.pop();
+      }
+      continue;
+    }
+    result.push(substituted);
+  }
+  return result;
+}
+
 function defaultShell(): { command: string; args: string[] } {
   if (isWindows) {
     return { command: process.env.SHELL || 'powershell.exe', args: ['-NoLogo'] };
@@ -226,7 +254,10 @@ export async function launchAgent(
 
   // Build the agent launch command, injecting prompt as a positional arg via temp file
   const baseCommand = agent.command;
-  const baseArgs = [...agent.args];
+  const baseArgs = applyAgentPlaceholders(agent.args, {
+    model: agent.model ?? '',
+    reasoning: agent.reasoning_effort ?? '',
+  });
 
   if (TmuxManager.isTmuxAvailable()) {
     const tmux = new TmuxManager(sessionId);

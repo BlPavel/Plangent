@@ -50,13 +50,14 @@ defineEmits<{
   padding: 24px;
   width: 500px;
   max-width: 92vw;
+  max-height: 85vh;
   display: flex;
   flex-direction: column;
   gap: var(--sp-5);
 }
-.modal-title { font-size: 17px; font-weight: 700; letter-spacing: -0.01em; }
-.modal-body { display: flex; flex-direction: column; gap: var(--sp-3); }
-.modal-actions { display: flex; justify-content: flex-end; gap: var(--sp-2); }
+.modal-title { font-size: 17px; font-weight: 700; letter-spacing: -0.01em; flex-shrink: 0; }
+.modal-body { display: flex; flex-direction: column; gap: var(--sp-3); overflow-y: auto; min-height: 0; }
+.modal-actions { display: flex; justify-content: flex-end; gap: var(--sp-2); flex-shrink: 0; }
 .modal--large { width: 720px; }
 .modal-enter-active, .modal-leave-active { transition: opacity 0.15s; }
 .modal-enter-active .modal, .modal-leave-active .modal { transition: transform 0.15s ease, opacity 0.15s; }

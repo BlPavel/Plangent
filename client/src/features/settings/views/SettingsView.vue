@@ -64,21 +64,51 @@
     >
       <FormField v-model="agentForm.name" label="Название" placeholder="Claude Code" />
       <FormField v-model="agentForm.command" label="Команда" placeholder="claude" hint="Имя команды или полный путь" />
-      <FormField v-model="agentForm.args" label="Аргументы (через пробел)" placeholder="--dangerously-skip-permissions" hint="Добавляются к команде при каждом запуске" />
+      <FormField v-model="agentForm.args" label="Аргументы (через пробел)" placeholder="--dangerously-skip-permissions --model {model} --effort {reasoning}" hint="Добавляются к команде при каждом запуске. {model} и {reasoning} — точки подстановки для полей ниже" />
       <FormField v-model="agentForm.env" label="Переменные окружения (JSON)" type="textarea" :rows="3" placeholder='{"OPENAI_API_KEY": "sk-..."}' hint="Все переменные, включая прокси и ключи API" />
       <FormField v-model="agentForm.skills_dir" label="Папка для скиллов (относительно проекта)" placeholder=".claude/commands" hint="Оставь пустым — скиллы в корень проекта" />
       <FormField v-model="agentForm.skills_filename" label="Имя файла скиллов" placeholder="plangent.md" hint="Файл создаётся перед запуском и удаляется после" />
+
+      <template v-if="hasModelPlaceholder">
+        <TagListEditor
+          v-model="agentForm.model_options"
+          label="Доступные модели"
+          placeholder="opus"
+          hint="Список моделей, из которых можно будет выбирать при запуске агента"
+        />
+        <div v-if="modelChoices.length" class="select-field">
+          <label>Модель по умолчанию</label>
+          <AppSelect v-model="agentForm.model" :options="modelDefaultOptions" placeholder="(не задано)" />
+          <span class="hint">Подставляется автоматически, если не выбрать другую при запуске</span>
+        </div>
+      </template>
+
+      <template v-if="hasReasoningPlaceholder">
+        <TagListEditor
+          v-model="agentForm.reasoning_options"
+          label="Доступные уровни рассуждений"
+          placeholder="high"
+          hint="Список уровней, из которых можно будет выбирать при запуске агента"
+        />
+        <div v-if="reasoningChoices.length" class="select-field">
+          <label>Уровень рассуждений по умолчанию</label>
+          <AppSelect v-model="agentForm.reasoning_effort" :options="reasoningDefaultOptions" placeholder="(не задано)" />
+          <span class="hint">Подставляется автоматически, если не выбрать другой при запуске</span>
+        </div>
+      </template>
     </AppModal>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useAppStore } from '@core/stores/app'
 import { useAgentsStore } from '@features/agents'
 import type { Agent } from '@core/models'
 import AppModal from '@shared/ui/AppModal.vue'
 import FormField from '@shared/ui/FormField.vue'
+import AppSelect from '@shared/ui/AppSelect.vue'
+import TagListEditor from '@shared/ui/TagListEditor.vue'
 import AppButton from '@shared/ui/AppButton.vue'
 import IconTrash from '@shared/ui/IconTrash.vue'
 import { PlanTemplateEditor, SkillsManager } from '@features/library'
@@ -95,8 +125,23 @@ const editAgent = ref<Agent | null>(null)
 
 const defaultAgentForm = () => ({
   name: '', command: '', args: '', env: '{}', skills_dir: '', skills_filename: 'plangent.md',
+  model: '', reasoning_effort: '', model_options: [] as string[], reasoning_options: [] as string[],
 })
 const agentForm = ref(defaultAgentForm())
+
+// Model/reasoning-effort pickers only appear once the developer has wired the
+// corresponding {model}/{reasoning} placeholder into the args template themselves —
+// see generic.ts launchAgent(), which substitutes them (or drops the flag if unset).
+// The developer builds the list of choices themselves (TagListEditor); the "default"
+// select just picks which one gets substituted automatically when nothing is
+// overridden at launch time.
+const hasModelPlaceholder = computed(() => agentForm.value.args.includes('{model}'))
+const hasReasoningPlaceholder = computed(() => agentForm.value.args.includes('{reasoning}'))
+
+const modelChoices = computed(() => [...new Set(agentForm.value.model_options.map(v => v.trim()).filter(Boolean))])
+const reasoningChoices = computed(() => [...new Set(agentForm.value.reasoning_options.map(v => v.trim()).filter(Boolean))])
+const modelDefaultOptions = computed(() => [{ value: '', label: '(не задано)' }, ...modelChoices.value.map(m => ({ value: m, label: m }))])
+const reasoningDefaultOptions = computed(() => [{ value: '', label: '(не задано)' }, ...reasoningChoices.value.map(r => ({ value: r, label: r }))])
 
 function openCreate() {
   editAgent.value = null
@@ -113,6 +158,10 @@ function openEdit(a: Agent) {
     env: JSON.stringify(a.env, null, 2),
     skills_dir: a.skills_dir,
     skills_filename: a.skills_filename,
+    model: a.model ?? '',
+    reasoning_effort: a.reasoning_effort ?? '',
+    model_options: [...(a.model_options ?? [])],
+    reasoning_options: [...(a.reasoning_options ?? [])],
   }
   showAgentModal.value = true
 }
@@ -129,6 +178,10 @@ async function saveAgent() {
     env: envParsed,
     skills_dir: agentForm.value.skills_dir.trim(),
     skills_filename: agentForm.value.skills_filename.trim(),
+    model: agentForm.value.model.trim(),
+    reasoning_effort: agentForm.value.reasoning_effort.trim(),
+    model_options: modelChoices.value,
+    reasoning_options: reasoningChoices.value,
   }
   try {
     if (editAgent.value) {
@@ -223,4 +276,8 @@ onMounted(() => { agentsStore.load() })
 .agent-meta { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--text-muted); }
 
 .hint { font-size: 12px; color: var(--text-muted); }
+
+.select-field { display: flex; flex-direction: column; gap: 6px; }
+.select-field > label { font-size: 12px; font-weight: 500; color: var(--text-muted); }
+.select-field .hint { font-size: 11px; color: var(--text-faint); }
 </style>

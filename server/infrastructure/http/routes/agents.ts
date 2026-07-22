@@ -14,9 +14,9 @@ agentsRouter.get('/:id', (req: Request, res: Response) => {
 });
 
 agentsRouter.post('/', (req: Request, res: Response) => {
-  const { name, command, args, env, skills_dir, skills_filename } = req.body;
+  const { name, command, args, env, skills_dir, skills_filename, model, reasoning_effort, model_options, reasoning_options } = req.body;
   if (!name || !command) return res.status(400).json({ error: 'name and command required' });
-  const a = createAgent({ name, command, args, env, skills_dir, skills_filename });
+  const a = createAgent({ name, command, args, env, skills_dir, skills_filename, model, reasoning_effort, model_options, reasoning_options });
   res.status(201).json(a);
 });
 

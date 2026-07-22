@@ -95,6 +95,10 @@ const defaultForm = () => ({
   env: '{}',
   skills_dir: '',
   skills_filename: 'plangent.md',
+  model: '',
+  reasoning_effort: '',
+  model_options: [] as string[],
+  reasoning_options: [] as string[],
 })
 const form = ref(defaultForm())
 
@@ -115,6 +119,10 @@ function openEdit(a: Agent) {
     env: JSON.stringify(a.env, null, 2),
     skills_dir: a.skills_dir,
     skills_filename: a.skills_filename,
+    model: a.model ?? '',
+    reasoning_effort: a.reasoning_effort ?? '',
+    model_options: [...(a.model_options ?? [])],
+    reasoning_options: [...(a.reasoning_options ?? [])],
   }
   showModal.value = true
 }
@@ -135,6 +143,10 @@ async function save() {
     env: envParsed,
     skills_dir: form.value.skills_dir.trim(),
     skills_filename: form.value.skills_filename.trim(),
+    model: form.value.model.trim(),
+    reasoning_effort: form.value.reasoning_effort.trim(),
+    model_options: form.value.model_options.map(v => v.trim()).filter(Boolean),
+    reasoning_options: form.value.reasoning_options.map(v => v.trim()).filter(Boolean),
   }
 
   try {

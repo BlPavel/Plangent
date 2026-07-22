@@ -4,10 +4,12 @@ import { Agent } from '../../models';
 
 function parse(row: Record<string, unknown>): Agent {
   return {
-    ...(row as Omit<Agent, 'args' | 'env' | 'layout_profile' | 'active'>),
+    ...(row as Omit<Agent, 'args' | 'env' | 'layout_profile' | 'model_options' | 'reasoning_options' | 'active'>),
     args: JSON.parse(row.args as string || '[]'),
     env: JSON.parse(row.env as string || '{}'),
     layout_profile: row.layout_profile ? JSON.parse(row.layout_profile as string) : null,
+    model_options: JSON.parse(row.model_options as string || '[]'),
+    reasoning_options: JSON.parse(row.reasoning_options as string || '[]'),
     active: Boolean(row.active),
   };
 }
@@ -32,11 +34,15 @@ export function createAgent(data: {
   skills_dir?: string;
   skills_filename?: string;
   layout_profile?: object | null;
+  model?: string;
+  reasoning_effort?: string;
+  model_options?: string[];
+  reasoning_options?: string[];
 }): Agent {
   const id = uuidv4();
   getDb().prepare(`
-    INSERT INTO agents (id, name, command, args, env, skills_dir, skills_filename, layout_profile)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO agents (id, name, command, args, env, skills_dir, skills_filename, layout_profile, model, reasoning_effort, model_options, reasoning_options)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
     data.name,
@@ -46,6 +52,10 @@ export function createAgent(data: {
     data.skills_dir ?? '',
     data.skills_filename ?? 'plangent-skills.md',
     data.layout_profile ? JSON.stringify(data.layout_profile) : null,
+    data.model ?? '',
+    data.reasoning_effort ?? '',
+    JSON.stringify(data.model_options ?? []),
+    JSON.stringify(data.reasoning_options ?? []),
   );
   return getAgent(id)!;
 }
@@ -59,13 +69,17 @@ export function updateAgent(id: string, data: Partial<Omit<Agent, 'id' | 'create
     args: data.args ?? current.args,
     env: data.env ?? current.env,
     layout_profile: data.layout_profile !== undefined ? data.layout_profile : current.layout_profile,
+    model_options: data.model_options ?? current.model_options,
+    reasoning_options: data.reasoning_options ?? current.reasoning_options,
   };
   getDb().prepare(`
-    UPDATE agents SET name=?, command=?, args=?, env=?, skills_dir=?, skills_filename=?, layout_profile=?, active=? WHERE id=?
+    UPDATE agents SET name=?, command=?, args=?, env=?, skills_dir=?, skills_filename=?, layout_profile=?, model=?, reasoning_effort=?, model_options=?, reasoning_options=?, active=? WHERE id=?
   `).run(
     u.name, u.command, JSON.stringify(u.args), JSON.stringify(u.env),
     u.skills_dir, u.skills_filename,
     u.layout_profile ? JSON.stringify(u.layout_profile) : null,
+    u.model, u.reasoning_effort,
+    JSON.stringify(u.model_options), JSON.stringify(u.reasoning_options),
     u.active ? 1 : 0, id,
   );
   return getAgent(id);

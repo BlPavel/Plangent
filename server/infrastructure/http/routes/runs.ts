@@ -37,8 +37,13 @@ runsRouter.post('/', async (req: Request, res: Response) => {
   if (!task) return res.status(404).json({ error: 'Task not found' });
 
   const agentId: string = req.body.agent_id ?? project.default_agent_id ?? '';
-  const agent = getAgent(agentId);
-  if (!agent) return res.status(400).json({ error: `Agent not found: ${agentId}` });
+  const baseAgent = getAgent(agentId);
+  if (!baseAgent) return res.status(400).json({ error: `Agent not found: ${agentId}` });
+  const agent = {
+    ...baseAgent,
+    model: req.body.model || baseAgent.model,
+    reasoning_effort: req.body.reasoning_effort || baseAgent.reasoning_effort,
+  };
 
   const purpose: 'plan' | 'execute' | 'preflight' =
     req.body.purpose === 'plan' ? 'plan' : req.body.purpose === 'preflight' ? 'preflight' : 'execute';

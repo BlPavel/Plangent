@@ -31,14 +31,19 @@ terminalRouter.get('/sessions', (_req: Request, res: Response) => {
 // Otherwise falls back to explicit cmd/args/cwd/env.
 terminalRouter.post('/sessions', async (req: Request, res: Response) => {
   const defaults = defaultTerminalOptions();
-  const { id, agentId, projectId, cmd = defaults.cmd, args = defaults.args, cwd = defaults.cwd, env } = req.body;
+  const { id, agentId, projectId, cmd = defaults.cmd, args = defaults.args, cwd = defaults.cwd, env, model, reasoning_effort } = req.body;
   if (!id) return res.status(400).json({ error: 'id required' });
   if (getPtySession(id)) return res.status(409).json({ error: 'Session already exists' });
 
   try {
     if (agentId && projectId) {
-      const agent = getAgent(agentId);
-      if (!agent) return res.status(400).json({ error: `Agent not found: ${agentId}` });
+      const baseAgent = getAgent(agentId);
+      if (!baseAgent) return res.status(400).json({ error: `Agent not found: ${agentId}` });
+      const agent = {
+        ...baseAgent,
+        model: model || baseAgent.model,
+        reasoning_effort: reasoning_effort || baseAgent.reasoning_effort,
+      };
 
       const project = getProject(projectId);
       if (!project) return res.status(400).json({ error: `Project not found: ${projectId}` });

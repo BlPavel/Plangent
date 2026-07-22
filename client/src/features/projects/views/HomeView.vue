@@ -30,6 +30,8 @@
       <div v-show="activeTab === 'terminal'" class="tab-content terminal-tab">
         <div class="ql-controls">
           <AppSelect v-model="quickAgentId" :options="agentOptions" placeholder="Агент" class="ql-select" />
+          <AppSelect v-if="quickModelChoices.length" v-model="quickModel" :options="quickModelChoices" placeholder="Модель" class="ql-select" />
+          <AppSelect v-if="quickReasoningChoices.length" v-model="quickReasoning" :options="quickReasoningChoices" placeholder="Рассуждения" class="ql-select" />
           <AppButton
             variant="primary"
             :disabled="!quickAgentId || quickLaunching"
@@ -157,6 +159,7 @@ import AppSelect from '@shared/ui/AppSelect.vue'
 import IconTrash from '@shared/ui/IconTrash.vue'
 import { TerminalPane } from '@features/tasks'
 import { SkillsManager } from '@features/library'
+import { hasPlaceholder } from '@shared/agent-placeholders'
 
 const router = useRouter()
 const appStore = useAppStore()
@@ -191,7 +194,31 @@ const taskForm = ref({ key: '', title: '' })
 const projectForm = ref({ name: '', repo_path: '', default_agent_id: '' })
 
 const quickAgentId = ref('')
+const quickModelOverride = ref<string | null>(null)
+const quickReasoningOverride = ref<string | null>(null)
 const quickLaunching = ref(false)
+
+// Per-run model/reasoning-effort override — only exposed once the selected agent's
+// own args template has a {model}/{reasoning} placeholder AND the developer has
+// defined at least one choice for it in Settings (Agent.model_options/reasoning_options).
+const quickAgent = computed(() => agents.value.find(a => a.id === quickAgentId.value) ?? null)
+const quickModelChoices = computed(() =>
+  (hasPlaceholder(quickAgent.value?.args, '{model}') ? quickAgent.value!.model_options : [])
+    .map(v => ({ value: v, label: v })),
+)
+const quickReasoningChoices = computed(() =>
+  (hasPlaceholder(quickAgent.value?.args, '{reasoning}') ? quickAgent.value!.reasoning_options : [])
+    .map(v => ({ value: v, label: v })),
+)
+const quickModel = computed({
+  get: () => quickModelOverride.value ?? quickAgent.value?.model ?? '',
+  set: v => { quickModelOverride.value = v },
+})
+const quickReasoning = computed({
+  get: () => quickReasoningOverride.value ?? quickAgent.value?.reasoning_effort ?? '',
+  set: v => { quickReasoningOverride.value = v },
+})
+watch(quickAgentId, () => { quickModelOverride.value = null; quickReasoningOverride.value = null })
 
 onMounted(() => agentsStore.load())
 
@@ -278,6 +305,8 @@ async function quickLaunch() {
       id: sessionId,
       agentId: quickAgentId.value,
       projectId: currentProject.value.id,
+      model: quickModel.value || undefined,
+      reasoning_effort: quickReasoning.value || undefined,
     })
     const agentName = agent?.name ?? sessionId
     const sameCount = projectSessions.value.filter(s => s.label.startsWith(agentName)).length + 1

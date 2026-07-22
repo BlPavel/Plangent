@@ -21,6 +21,12 @@ export interface Agent {
   skills_dir: string;
   skills_filename: string;
   layout_profile: LayoutProfile | null;
+  model: string;
+  reasoning_effort: string;
+  // Developer-defined lists the model/reasoning_effort pickers (Settings, and the
+  // per-run override in the task view) draw their options from.
+  model_options: string[];
+  reasoning_options: string[];
   active: boolean;
   created_at: string;
 }
@@ -97,6 +103,10 @@ export interface OrchestratorQueueSession {
   // When true the orchestrator pauses after this session's step completes,
   // so the developer can review before the next step starts.
   pauseAfter?: boolean;
+  // Per-run override of the agent's configured model/reasoning_effort
+  // (see Agent.model / Agent.reasoning_effort) — leave unset to use the agent's default.
+  model?: string;
+  reasoningEffort?: string;
   runId?: string;
   sessionId?: string;
   mode?: 'tmux' | 'pty';

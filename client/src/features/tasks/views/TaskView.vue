@@ -68,6 +68,8 @@
           <div class="progress-line"><span>Плана пока нет</span></div>
           <div class="plan-header-actions">
             <AppSelect v-model="planningAgentId" :options="agentOptions" placeholder="Агент" size="sm" />
+            <AppSelect v-if="planningModelChoices.length" v-model="planningModel" :options="planningModelChoices" placeholder="Модель" size="sm" />
+            <AppSelect v-if="planningReasoningChoices.length" v-model="planningReasoning" :options="planningReasoningChoices" placeholder="Рассуждения" size="sm" />
             <AppButton
               variant="primary"
               size="sm"
@@ -108,6 +110,8 @@
           </div>
           <div class="plan-header-actions">
             <AppSelect v-model="planningAgentId" :options="agentOptions" placeholder="Агент" size="sm" />
+            <AppSelect v-if="planningModelChoices.length" v-model="planningModel" :options="planningModelChoices" placeholder="Модель" size="sm" />
+            <AppSelect v-if="planningReasoningChoices.length" v-model="planningReasoning" :options="planningReasoningChoices" placeholder="Рассуждения" size="sm" />
             <AppButton
               variant="ghost"
               size="sm"
@@ -167,6 +171,8 @@
               </span>
             </div>
             <AppSelect v-model="builderAgentId" :options="agentOptions" placeholder="Агент" size="sm" />
+            <AppSelect v-if="builderModelChoices.length" v-model="builderModel" :options="builderModelChoices" placeholder="Модель" size="sm" />
+            <AppSelect v-if="builderReasoningChoices.length" v-model="builderReasoning" :options="builderReasoningChoices" placeholder="Рассуждения" size="sm" />
             <label class="inline-toggle" title="Соседние сессии с этой отметкой стартуют одновременно">
               <input type="checkbox" v-model="builderRunTogether" />
               <span>Запустить одновременно</span>
@@ -317,6 +323,7 @@ import StatusBadge from '@shared/ui/StatusBadge.vue'
 import AppButton from '@shared/ui/AppButton.vue'
 import AppSelect from '@shared/ui/AppSelect.vue'
 import IconTrash from '@shared/ui/IconTrash.vue'
+import { hasPlaceholder } from '@shared/agent-placeholders'
 
 const route = useRoute()
 const router = useRouter()
@@ -337,6 +344,8 @@ const activeTab = ref<'plan' | 'exec'>('plan')
 
 // Planning launch state
 const planningAgentId = ref(appStore.currentProject?.default_agent_id ?? '')
+const planningModelOverride = ref<string | null>(null)
+const planningReasoningOverride = ref<string | null>(null)
 const planningLaunching = ref(false)
 const planningActive = ref(false)
 const planningRunId = ref<string | null>(null)
@@ -344,7 +353,53 @@ const planningSessionId = ref<string | null>(null)
 
 // Queue builder state
 const builderAgentId = ref(appStore.currentProject?.default_agent_id ?? '')
+const builderModelOverride = ref<string | null>(null)
+const builderReasoningOverride = ref<string | null>(null)
 const builderRunTogether = ref(false)
+
+// Per-run model/reasoning-effort override — only exposed once the selected agent's
+// own args template has a {model}/{reasoning} placeholder AND the developer has
+// defined at least one choice for it in Settings (Agent.model_options/reasoning_options).
+// Left untouched, the picker shows (and a launch sends) the agent's own configured
+// default (Agent.model/reasoning_effort); picking a value overrides it for this run only.
+const planningAgent = computed(() => agents.value.find(a => a.id === planningAgentId.value) ?? null)
+const planningModelChoices = computed(() =>
+  (hasPlaceholder(planningAgent.value?.args, '{model}') ? planningAgent.value!.model_options : [])
+    .map(v => ({ value: v, label: v })),
+)
+const planningReasoningChoices = computed(() =>
+  (hasPlaceholder(planningAgent.value?.args, '{reasoning}') ? planningAgent.value!.reasoning_options : [])
+    .map(v => ({ value: v, label: v })),
+)
+const planningModel = computed({
+  get: () => planningModelOverride.value ?? planningAgent.value?.model ?? '',
+  set: v => { planningModelOverride.value = v },
+})
+const planningReasoning = computed({
+  get: () => planningReasoningOverride.value ?? planningAgent.value?.reasoning_effort ?? '',
+  set: v => { planningReasoningOverride.value = v },
+})
+
+const builderAgent = computed(() => agents.value.find(a => a.id === builderAgentId.value) ?? null)
+const builderModelChoices = computed(() =>
+  (hasPlaceholder(builderAgent.value?.args, '{model}') ? builderAgent.value!.model_options : [])
+    .map(v => ({ value: v, label: v })),
+)
+const builderReasoningChoices = computed(() =>
+  (hasPlaceholder(builderAgent.value?.args, '{reasoning}') ? builderAgent.value!.reasoning_options : [])
+    .map(v => ({ value: v, label: v })),
+)
+const builderModel = computed({
+  get: () => builderModelOverride.value ?? builderAgent.value?.model ?? '',
+  set: v => { builderModelOverride.value = v },
+})
+const builderReasoning = computed({
+  get: () => builderReasoningOverride.value ?? builderAgent.value?.reasoning_effort ?? '',
+  set: v => { builderReasoningOverride.value = v },
+})
+
+watch(planningAgentId, () => { planningModelOverride.value = null; planningReasoningOverride.value = null })
+watch(builderAgentId, () => { builderModelOverride.value = null; builderReasoningOverride.value = null })
 const selectedStepIds = ref<Set<string>>(new Set())
 const queueSessions = ref<OrchestratorQueueSession[]>([])
 const queuePaused = ref(false)
@@ -838,6 +893,8 @@ function addQueueSession(queueMode: QueueSessionMode) {
 	    parallelGroup: builderRunTogether.value ? 'together' : null,
 	    queueMode,
 	    pauseAfter: false,
+	    model: builderModel.value || undefined,
+	    reasoningEffort: builderReasoning.value || undefined,
     status: 'queued',
   })
   clearSelection()
@@ -866,6 +923,8 @@ async function runQueue() {
 	          parallelGroup: s.parallelGroup,
 	          queueMode: s.queueMode ?? 'execute',
 	          pauseAfter: s.pauseAfter ?? false,
+	          model: s.model,
+	          reasoningEffort: s.reasoningEffort,
         })),
       },
     )
@@ -922,7 +981,12 @@ async function launchPlanning() {
   try {
     const result = await api.post<RunStartResult>(
       `/projects/${pid.value}/tasks/${tid.value}/runs`,
-      { agent_id: planningAgentId.value, purpose: 'plan' },
+      {
+        agent_id: planningAgentId.value,
+        purpose: 'plan',
+        model: planningModel.value || undefined,
+        reasoning_effort: planningReasoning.value || undefined,
+      },
     )
     const agent = agents.value.find(a => a.id === planningAgentId.value)
     const agentName = agent?.name ?? result.session_id

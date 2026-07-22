@@ -22,6 +22,10 @@ export interface QueueSessionInput {
   parallelGroup: string | null;
   queueMode?: 'execute' | 'review_first';
   pauseAfter?: boolean;
+  // Per-run override of the agent's configured model/reasoning_effort — leave
+  // unset to use whatever the Agent row (server/core/agents) is configured with.
+  model?: string;
+  reasoningEffort?: string;
 }
 
 // Group queued sessions into execution steps. A filled parallelGroup means
@@ -111,7 +115,12 @@ export class Orchestrator {
     const { taskId, projectId } = this.state;
     const task = getTask(taskId);
     const project = getProject(projectId);
-    const agent = getAgent(session.agentId);
+    const baseAgent = getAgent(session.agentId);
+    const agent = baseAgent && {
+      ...baseAgent,
+      model: session.model || baseAgent.model,
+      reasoning_effort: session.reasoningEffort || baseAgent.reasoning_effort,
+    };
 
     if (!task || !project || !agent) {
       session.status = 'failed';

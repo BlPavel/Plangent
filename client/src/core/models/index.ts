@@ -6,6 +6,10 @@ export interface Agent {
   env: Record<string, string>
   skills_dir: string
   skills_filename: string
+  model: string
+  reasoning_effort: string
+  model_options: string[]
+  reasoning_options: string[]
   active: boolean
   created_at: string
 }
@@ -111,6 +115,8 @@ export interface OrchestratorQueueSession {
   runId?: string
   sessionId?: string
   mode?: 'tmux' | 'pty'
+  model?: string
+  reasoningEffort?: string
 }
 
 export type OrchestratorStatus = 'running' | 'paused' | 'waiting_for_developer' | 'finished' | 'failed'

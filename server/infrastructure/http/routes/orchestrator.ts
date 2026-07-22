@@ -49,6 +49,8 @@ orchestratorRouter.post('/execute', async (req: Request, res: Response) => {
 	    parallelGroup: s.parallelGroup,
 	    queueMode: s.queueMode === 'review_first' ? 'review_first' : 'execute',
 	    pauseAfter: s.pauseAfter ?? false,
+	    model: s.model,
+	    reasoningEffort: s.reasoningEffort,
 	    status: 'queued' as const,
 	  }));
 
