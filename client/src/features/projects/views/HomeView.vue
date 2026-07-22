@@ -41,7 +41,7 @@
         <div v-if="minimizedSessions.length" class="minimized-bar">
           <div v-for="s in minimizedSessions" :key="s.id" class="minimized-item">
             <span class="minimized-label">{{ s.label }}</span>
-            <AppButton variant="ghost" size="sm" @click="termStore.setActive(s.id)">Развернуть</AppButton>
+            <AppButton class="terminal-toggle-btn" variant="ghost" size="sm" @click="termStore.setActive(s.id)">Развернуть</AppButton>
             <AppButton variant="danger" size="sm" @click="killSession(s.id)">Завершить</AppButton>
           </div>
         </div>
@@ -387,6 +387,9 @@ function sendInput(sessionId: string, text: string) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.terminal-toggle-btn {
+  min-width: 96px;
 }
 
 .terminal-empty {

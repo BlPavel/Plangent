@@ -230,6 +230,7 @@
               >Подключиться</AppButton>
               <AppButton
                 v-if="row.terminalSession && activeSessionId === row.terminalSession.id"
+                class="terminal-toggle-btn"
                 variant="ghost"
                 size="sm"
                 @click="activeSessionId = null"
@@ -1522,6 +1523,9 @@ function markRunActivity(runId: string | undefined, activity: SessionActivity) {
 .queue-status-chip.waiting_for_developer { color: #d29922; border-color: #d29922; }
 
 .queue-actions { display: flex; gap: 8px; align-items: center; }
+.terminal-toggle-btn {
+  min-width: 96px;
+}
 
 .terminal-inline,
 .planning-terminal {

@@ -9,7 +9,7 @@
     <div v-if="props.showHeader" class="terminal-header">
       <span class="session-label">{{ label || sessionId }}</span>
       <div class="actions">
-        <button class="btn btn-ghost btn-sm" @click="$emit('detach')">Свернуть</button>
+        <button class="btn btn-ghost btn-sm terminal-action-btn" @click="$emit('detach')">Свернуть</button>
         <button class="btn btn-danger btn-sm" @click="$emit('kill')">Завершить</button>
       </div>
     </div>
@@ -78,6 +78,51 @@ function sendRaw(text: string) {
     ws.send(JSON.stringify({ type: 'input', data: text }))
   } else {
     emit('input', text)
+  }
+}
+
+function pasteText(text: string) {
+  if (!text) return
+  term?.paste(text)
+  term?.focus()
+}
+
+function textClipboardIsAvailable() {
+  return typeof navigator !== 'undefined' && !!navigator.clipboard
+}
+
+async function copySelection() {
+  if (!term?.hasSelection()) return false
+  const selection = term.getSelection()
+  if (!selection) return false
+
+  if (textClipboardIsAvailable()) {
+    await navigator.clipboard.writeText(selection)
+  }
+  term.clearSelection()
+  term.focus()
+  return true
+}
+
+function isCopyShortcut(e: KeyboardEvent) {
+  return (e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'c'
+}
+
+function onTerminalKeydown(e: KeyboardEvent) {
+  if (!term) return
+
+  if (isCopyShortcut(e)) {
+    if (!term.hasSelection()) return
+    e.preventDefault()
+    e.stopPropagation()
+    copySelection().catch(() => {})
+    return
+  }
+
+  if (e.key === 'Enter' && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+    e.preventDefault()
+    e.stopPropagation()
+    pasteText('\n')
   }
 }
 
@@ -153,7 +198,8 @@ function initTerminal() {
     fontFamily: '"Cascadia Code", "JetBrains Mono", "Menlo", monospace',
     fontSize: 13,
     lineHeight: 1.2,
-    cursorBlink: true,
+    cursorBlink: false,
+    cursorInactiveStyle: 'none',
     scrollback: 10000,
     // Don't set cols/rows here — FitAddon will calculate the right values
   })
@@ -168,6 +214,12 @@ function initTerminal() {
 
   // Keyboard input goes straight to PTY — this is how @ and all native features work
   term.onData(data => sendRaw(data))
+  term.attachCustomKeyEventHandler((e) => {
+    if (e.type !== 'keydown') return true
+    if (isCopyShortcut(e) && term?.hasSelection()) return false
+    if (e.key === 'Enter' && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) return false
+    return true
+  })
 
   // ResizeObserver handles panel drag resize (window.resize misses those)
   resizeObserver = new ResizeObserver(() => syncSize())
@@ -180,6 +232,8 @@ function initTerminal() {
   // stopPropagation() — so a bubbling listener on wrapEl never fires. Capture runs
   // top-down (wrapEl before the textarea), letting us see the paste first.
   wrapEl.value?.addEventListener('paste', onPaste, true)
+  wrapEl.value?.addEventListener('copy', onCopy, true)
+  wrapEl.value?.addEventListener('keydown', onTerminalKeydown, true)
 }
 
 // ── Paste from Finder (Cmd+C → Cmd+V) ───────────────────────────────────────
@@ -197,8 +251,13 @@ async function onPaste(e: ClipboardEvent) {
   const looksLikeFile =
     (cd.files && cd.files.length > 0) || hasImageItem || cd.types.includes('Files')
 
-  // Plain text paste → let xterm deliver it to the PTY untouched.
-  if (!looksLikeFile) return
+  const text = cd.getData('text/plain')
+  if (!looksLikeFile) {
+    e.preventDefault()
+    e.stopPropagation()
+    pasteText(text)
+    return
+  }
 
   // Stop the default paste NOW (before any await) so xterm doesn't also dump the
   // clipboard's text/icon into the prompt.
@@ -229,6 +288,17 @@ async function onPaste(e: ClipboardEvent) {
   } finally {
     uploading.value = false
   }
+}
+
+function onCopy(e: ClipboardEvent) {
+  if (!term?.hasSelection()) return
+  const selection = term.getSelection()
+  if (!selection) return
+  e.clipboardData?.setData('text/plain', selection)
+  e.preventDefault()
+  e.stopPropagation()
+  term.clearSelection()
+  term.focus()
 }
 
 // Upload a real clipboard image (screenshot) to a temp file and insert its path.
@@ -284,6 +354,8 @@ function fileToBase64(file: File): Promise<string> {
 function dispose() {
   resizeObserver?.disconnect()
   wrapEl.value?.removeEventListener('paste', onPaste, true)
+  wrapEl.value?.removeEventListener('copy', onCopy, true)
+  wrapEl.value?.removeEventListener('keydown', onTerminalKeydown, true)
   ws?.close()
   ws = null
   term?.dispose()
@@ -326,6 +398,9 @@ watch(() => props.visible, (v) => {
   background: var(--bg2);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
+}
+.terminal-action-btn {
+  min-width: 96px;
 }
 .session-label {
   font-family: monospace;
