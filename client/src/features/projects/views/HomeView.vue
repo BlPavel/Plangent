@@ -258,7 +258,7 @@ function openTask(t: Task) {
 
 async function deleteTaskCard(t: Task) {
   if (!currentProject.value) return
-  if (!confirm(`Удалить задачу «${t.key}»? Действие необратимо.`)) return
+  if (!(await appStore.confirm(`Удалить задачу «${t.key}»? Действие необратимо.`))) return
   try {
     await api.delete(`/projects/${currentProject.value.id}/tasks/${t.id}`)
     tasks.value = tasks.value.filter(x => x.id !== t.id)
@@ -292,7 +292,7 @@ async function quickLaunch() {
 }
 
 async function killSession(id: string) {
-  if (!confirm('Завершить сессию?')) return
+  if (!(await appStore.confirm('Завершить сессию?', { confirmLabel: 'Завершить' }))) return
   try { await api.delete(`/terminal/sessions/${id}`) } catch {}
   termStore.removeSession(id)
 }

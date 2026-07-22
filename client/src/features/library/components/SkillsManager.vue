@@ -158,7 +158,7 @@ async function toggleEnabled(item: LibraryItem) {
 }
 
 async function removeItem(id: string) {
-  if (!confirm('Удалить?')) return
+  if (!(await appStore.confirm('Удалить?'))) return
   try { await store.remove(id); appStore.toast('Удалено', 'success') }
   catch (e: unknown) { appStore.toast(String(e), 'error') }
 }

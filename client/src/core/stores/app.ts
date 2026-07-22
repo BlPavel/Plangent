@@ -14,5 +14,28 @@ export const useAppStore = defineStore('app', () => {
     setTimeout(() => { toasts.value = toasts.value.filter(t => t.id !== id) }, 4000)
   }
 
-  return { currentProject, currentTask, toasts, toast }
+  interface ConfirmOptions {
+    title?: string
+    confirmLabel?: string
+    cancelLabel?: string
+    danger?: boolean
+  }
+  const confirmState = ref<(ConfirmOptions & { message: string }) | null>(null)
+  let confirmResolve: ((v: boolean) => void) | null = null
+
+  function confirm(message: string, opts: ConfirmOptions = {}): Promise<boolean> {
+    return new Promise((resolve) => {
+      confirmResolve?.(false)
+      confirmState.value = { message, ...opts }
+      confirmResolve = resolve
+    })
+  }
+
+  function resolveConfirm(result: boolean) {
+    confirmResolve?.(result)
+    confirmResolve = null
+    confirmState.value = null
+  }
+
+  return { currentProject, currentTask, toasts, toast, confirmState, confirm, resolveConfirm }
 })

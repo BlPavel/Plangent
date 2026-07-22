@@ -152,7 +152,7 @@ async function save() {
 }
 
 async function remove(id: string) {
-  if (!confirm('Удалить агента?')) return
+  if (!(await app.confirm('Удалить агента?'))) return
   try {
     await agentsStore.remove(id)
     app.toast('Удалён')

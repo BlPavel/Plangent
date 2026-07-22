@@ -998,7 +998,7 @@ async function attachRun(runId: string) {
 async function killSession(id: string) {
   const s = sessions.value.find(sess => sess.id === id)
 	  if (!s || !pid.value || !tid.value) return
-	  if (!confirm('Завершить сессию агента?')) return
+	  if (!(await appStore.confirm('Завершить сессию агента?', { confirmLabel: 'Завершить' }))) return
 	  try {
 	    const queueSession = queueSessions.value.find(q => q.runId === s.runId)
 	    if (queueSession) {
@@ -1031,7 +1031,7 @@ async function sendInput(text: string) {
 
 async function markDoneTask() {
   if (!pid.value || !tid.value) return
-  if (!confirm('Отметить задачу выполненной? Плановый файл будет удалён.')) return
+  if (!(await appStore.confirm('Отметить задачу выполненной? Плановый файл будет удалён.', { confirmLabel: 'Отметить выполненной', danger: false }))) return
   try {
     await api.post(`/projects/${pid.value}/tasks/${tid.value}/done`, {})
     appStore.toast('Задача завершена', 'success')
@@ -1041,7 +1041,7 @@ async function markDoneTask() {
 
 async function deleteCurrentTask() {
   if (!pid.value || !tid.value) return
-  if (!confirm(`Удалить задачу «${task.value?.key}»? Действие необратимо — план, запуски и сессии будут удалены.`)) return
+  if (!(await appStore.confirm(`Удалить задачу «${task.value?.key}»? Действие необратимо — план, запуски и сессии будут удалены.`))) return
   const id = tid.value
   try {
     await api.delete(`/projects/${pid.value}/tasks/${id}`)

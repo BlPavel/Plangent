@@ -33,6 +33,7 @@
     </main>
 
     <AppToast />
+    <AppConfirm />
 
     <!-- Add project modal -->
     <AppModal v-model="showAddProject" title="Новый проект" confirm-label="Создать" @confirm="addProject">
@@ -58,6 +59,7 @@ import { useAgentsStore } from '@features/agents'
 import type { Project } from '@core/models'
 import { api } from '@core/api'
 import AppToast from '@shared/ui/AppToast.vue'
+import AppConfirm from '@shared/ui/AppConfirm.vue'
 import AppModal from '@shared/ui/AppModal.vue'
 import FormField from '@shared/ui/FormField.vue'
 import FolderPicker from '@shared/ui/FolderPicker.vue'
