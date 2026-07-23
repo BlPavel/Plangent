@@ -24,6 +24,7 @@ function migrate(db: Database.Database): void {
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL UNIQUE,
       command TEXT NOT NULL,
+      update_command TEXT NOT NULL DEFAULT '',
       args TEXT NOT NULL DEFAULT '[]',
       env TEXT NOT NULL DEFAULT '{}',
       skills_dir TEXT NOT NULL DEFAULT '',
@@ -112,6 +113,7 @@ function migrate(db: Database.Database): void {
   try { db.exec(`ALTER TABLE agents ADD COLUMN reasoning_effort TEXT NOT NULL DEFAULT ''`); } catch { /* already exists */ }
   try { db.exec(`ALTER TABLE agents ADD COLUMN model_options TEXT NOT NULL DEFAULT '[]'`); } catch { /* already exists */ }
   try { db.exec(`ALTER TABLE agents ADD COLUMN reasoning_options TEXT NOT NULL DEFAULT '[]'`); } catch { /* already exists */ }
+  try { db.exec(`ALTER TABLE agents ADD COLUMN update_command TEXT NOT NULL DEFAULT ''`); } catch { /* already exists */ }
   try { db.exec(`ALTER TABLE projects ADD COLUMN hide_from_git INTEGER NOT NULL DEFAULT 1`); } catch { /* already exists */ }
 
   seedDefaultAgents(db);
@@ -135,11 +137,12 @@ function seedDefaultAgents(db: Database.Database): void {
   if (existing.cnt > 0) return;
 
   db.prepare(`
-    INSERT INTO agents (id, name, command, args, env, skills_dir, skills_filename, layout_profile, model_options, reasoning_options) VALUES
+    INSERT INTO agents (id, name, command, update_command, args, env, skills_dir, skills_filename, layout_profile, model_options, reasoning_options) VALUES
     (
       'agent-claude',
       'Claude Code',
       'claude',
+      'npm update -g @anthropic-ai/claude-code',
       '["--dangerously-skip-permissions", "--model", "{model}", "--effort", "{reasoning}"]',
       '{}',
       '.claude/commands',
@@ -152,6 +155,7 @@ function seedDefaultAgents(db: Database.Database): void {
       'agent-codex',
       'Codex CLI',
       'codex',
+      'npm install -g @openai/codex@latest',
       '["--dangerously-bypass-approvals-and-sandbox", "--model", "{model}", "-c", "model_reasoning_effort={reasoning}"]',
       '{}',
       '',
@@ -199,6 +203,14 @@ function seedOptionsIfEmpty(db: Database.Database, agentId: string, modelOptions
   }
 }
 
+function seedUpdateCommandIfEmpty(db: Database.Database, agentId: string, updateCommand: string): void {
+  const row = db.prepare(`SELECT update_command FROM agents WHERE id = ?`).get(agentId) as
+    { update_command: string } | undefined;
+  if (row && !row.update_command.trim()) {
+    db.prepare(`UPDATE agents SET update_command = ? WHERE id = ?`).run(updateCommand, agentId);
+  }
+}
+
 function migrateData(db: Database.Database): void {
   // Fix codex args if they were seeded with empty array
   const codex = db.prepare(`SELECT args FROM agents WHERE id = 'agent-codex'`).get() as { args: string } | undefined;
@@ -220,6 +232,8 @@ function migrateData(db: Database.Database): void {
   addModelEffortArgs(db, 'agent-codex', ['--model', '{model}', '-c', 'model_reasoning_effort={reasoning}']);
   seedOptionsIfEmpty(db, 'agent-claude', CLAUDE_MODEL_OPTIONS, CLAUDE_REASONING_OPTIONS);
   seedOptionsIfEmpty(db, 'agent-codex', CODEX_MODEL_OPTIONS, CODEX_REASONING_OPTIONS);
+  seedUpdateCommandIfEmpty(db, 'agent-claude', 'npm update -g @anthropic-ai/claude-code');
+  seedUpdateCommandIfEmpty(db, 'agent-codex', 'npm install -g @openai/codex@latest');
 
   // Legacy common plan protocol is now runtime instructions, not a user-facing global skill.
   removeLegacyGlobalRuntimeInstructions(db);

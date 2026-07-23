@@ -28,6 +28,9 @@
               <code class="agent-cmd">{{ a.command }} {{ a.args.join(' ') }}</code>
             </div>
             <div class="actions">
+              <AppButton v-if="a.update_command" variant="ghost" size="sm" :disabled="updatingAgentId === a.id" @click="updateAgent(a)">
+                {{ updatingAgentId === a.id ? 'Обновление…' : 'Обновить' }}
+              </AppButton>
               <AppButton variant="ghost" size="sm" @click="openEdit(a)">Изменить</AppButton>
               <AppButton variant="danger-ghost" size="sm" @click="remove(a.id)">
                 <IconTrash /> Удалить
@@ -64,6 +67,7 @@
     >
       <FormField v-model="agentForm.name" label="Название" placeholder="Claude Code" />
       <FormField v-model="agentForm.command" label="Команда" placeholder="claude" hint="Имя команды или полный путь" />
+      <FormField v-model="agentForm.update_command" label="Команда обновления" placeholder="npm update -g @vendor/agent" hint="Выполняется локально по кнопке «Обновить». Оставьте пустым, если обновление не поддерживается." />
       <FormField v-model="agentForm.args" label="Аргументы (через пробел)" placeholder="--dangerously-skip-permissions --model {model} --effort {reasoning}" hint="Добавляются к команде при каждом запуске. {model} и {reasoning} — точки подстановки для полей ниже" />
       <FormField v-model="agentForm.env" label="Переменные окружения (JSON)" type="textarea" :rows="3" placeholder='{"OPENAI_API_KEY": "sk-..."}' hint="Все переменные, включая прокси и ключи API" />
       <FormField v-model="agentForm.skills_dir" label="Папка для скиллов (относительно проекта)" placeholder=".claude/commands" hint="Оставь пустым — скиллы в корень проекта" />
@@ -104,6 +108,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useAppStore } from '@core/stores/app'
 import { useAgentsStore } from '@features/agents'
+import { api } from '@core/api'
 import type { Agent } from '@core/models'
 import AppModal from '@shared/ui/AppModal.vue'
 import FormField from '@shared/ui/FormField.vue'
@@ -124,7 +129,7 @@ const showAgentModal = ref(false)
 const editAgent = ref<Agent | null>(null)
 
 const defaultAgentForm = () => ({
-  name: '', command: '', args: '', env: '{}', skills_dir: '', skills_filename: 'plangent.md',
+  name: '', command: '', update_command: '', args: '', env: '{}', skills_dir: '', skills_filename: 'plangent.md',
   model: '', reasoning_effort: '', model_options: [] as string[], reasoning_options: [] as string[],
 })
 const agentForm = ref(defaultAgentForm())
@@ -154,6 +159,7 @@ function openEdit(a: Agent) {
   agentForm.value = {
     name: a.name,
     command: a.command,
+    update_command: a.update_command ?? '',
     args: a.args.join(' '),
     env: JSON.stringify(a.env, null, 2),
     skills_dir: a.skills_dir,
@@ -174,6 +180,7 @@ async function saveAgent() {
   const data = {
     name: agentForm.value.name.trim(),
     command: agentForm.value.command.trim(),
+    update_command: agentForm.value.update_command.trim(),
     args: agentForm.value.args.trim() ? agentForm.value.args.trim().split(/\s+/) : [],
     env: envParsed,
     skills_dir: agentForm.value.skills_dir.trim(),
@@ -199,6 +206,21 @@ async function remove(id: string) {
   if (!(await appStore.confirm('Удалить агента?'))) return
   try { await agentsStore.remove(id); appStore.toast('Удалён') }
   catch (e: unknown) { appStore.toast(String(e), 'error') }
+}
+
+const updatingAgentId = ref<string | null>(null)
+
+async function updateAgent(agent: Agent) {
+  if (!agent.update_command) return
+  updatingAgentId.value = agent.id
+  try {
+    await api.post(`/agents/${agent.id}/update`)
+    appStore.toast(`${agent.name}: обновление завершено`, 'success')
+  } catch (e: unknown) {
+    appStore.toast(`${agent.name}: ${String(e)}`, 'error')
+  } finally {
+    updatingAgentId.value = null
+  }
 }
 
 onMounted(() => { agentsStore.load() })

@@ -2,6 +2,7 @@ export interface Agent {
   id: string
   name: string
   command: string
+  update_command: string
   args: string[]
   env: Record<string, string>
   skills_dir: string

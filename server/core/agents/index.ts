@@ -1,6 +1,10 @@
 import { v4 as uuidv4 } from 'uuid';
+import { exec } from 'child_process';
+import { promisify } from 'util';
 import { getDb } from '../../infrastructure/db/schema';
 import { Agent } from '../../models';
+
+const execAsync = promisify(exec);
 
 function parse(row: Record<string, unknown>): Agent {
   return {
@@ -29,6 +33,7 @@ export function getAgent(id: string): Agent | null {
 export function createAgent(data: {
   name: string;
   command: string;
+  update_command?: string;
   args?: string[];
   env?: Record<string, string>;
   skills_dir?: string;
@@ -41,12 +46,13 @@ export function createAgent(data: {
 }): Agent {
   const id = uuidv4();
   getDb().prepare(`
-    INSERT INTO agents (id, name, command, args, env, skills_dir, skills_filename, layout_profile, model, reasoning_effort, model_options, reasoning_options)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO agents (id, name, command, update_command, args, env, skills_dir, skills_filename, layout_profile, model, reasoning_effort, model_options, reasoning_options)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
     data.name,
     data.command,
+    data.update_command ?? '',
     JSON.stringify(data.args ?? []),
     JSON.stringify(data.env ?? {}),
     data.skills_dir ?? '',
@@ -73,9 +79,9 @@ export function updateAgent(id: string, data: Partial<Omit<Agent, 'id' | 'create
     reasoning_options: data.reasoning_options ?? current.reasoning_options,
   };
   getDb().prepare(`
-    UPDATE agents SET name=?, command=?, args=?, env=?, skills_dir=?, skills_filename=?, layout_profile=?, model=?, reasoning_effort=?, model_options=?, reasoning_options=?, active=? WHERE id=?
+    UPDATE agents SET name=?, command=?, update_command=?, args=?, env=?, skills_dir=?, skills_filename=?, layout_profile=?, model=?, reasoning_effort=?, model_options=?, reasoning_options=?, active=? WHERE id=?
   `).run(
-    u.name, u.command, JSON.stringify(u.args), JSON.stringify(u.env),
+    u.name, u.command, u.update_command, JSON.stringify(u.args), JSON.stringify(u.env),
     u.skills_dir, u.skills_filename,
     u.layout_profile ? JSON.stringify(u.layout_profile) : null,
     u.model, u.reasoning_effort,
@@ -87,4 +93,23 @@ export function updateAgent(id: string, data: Partial<Omit<Agent, 'id' | 'create
 
 export function deleteAgent(id: string): boolean {
   return getDb().prepare('DELETE FROM agents WHERE id = ?').run(id).changes > 0;
+}
+
+export async function updateAgentCli(id: string): Promise<{ output: string }> {
+  const agent = getAgent(id);
+  if (!agent) throw new Error('Agent not found');
+  if (!agent.update_command.trim()) throw new Error('Команда обновления не задана');
+
+  try {
+    const { stdout, stderr } = await execAsync(agent.update_command, {
+      cwd: process.cwd(),
+      timeout: 300_000,
+      maxBuffer: 1024 * 1024,
+      windowsHide: true,
+    });
+    return { output: [stdout, stderr].filter(Boolean).join('\n').trim() };
+  } catch (error: unknown) {
+    const e = error as { stderr?: string; stdout?: string; message: string };
+    throw new Error([e.message, e.stdout, e.stderr].filter(Boolean).join('\n').trim());
+  }
 }
