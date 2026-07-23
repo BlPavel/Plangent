@@ -394,13 +394,15 @@ watch(() => props.visible, (v) => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 12px;
+  /* Match minimized-session rows so their labels and action buttons share columns. */
+  padding: 6px 24px;
   background: var(--bg2);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
 .terminal-action-btn {
-  min-width: 96px;
+  width: 96px;
+  flex: 0 0 96px;
 }
 .session-label {
   font-family: monospace;

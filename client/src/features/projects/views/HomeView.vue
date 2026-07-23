@@ -418,7 +418,8 @@ function sendInput(sessionId: string, text: string) {
   white-space: nowrap;
 }
 .terminal-toggle-btn {
-  min-width: 96px;
+  width: 96px;
+  flex: 0 0 96px;
 }
 
 .terminal-empty {
