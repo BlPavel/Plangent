@@ -27,9 +27,10 @@ process.on('unhandledRejection', (reason) => {
   console.error('[unhandledRejection]', reason);
 });
 
-const PORT = parseInt(process.env.PORT ?? '3000', 10);
+const DEFAULT_PORT = parseInt(process.env.PORT ?? '3001', 10);
 
-async function main() {
+/** Starts the local API and returns the port actually assigned by the OS. */
+export async function startServer(port = DEFAULT_PORT): Promise<number> {
   getDb();
 
   try {
@@ -40,13 +41,27 @@ async function main() {
 
   const { server } = createApp();
 
-  server.listen(PORT, () => {
-    console.log(`Plangent running at http://localhost:${PORT}`);
-    console.log(`WebSocket PTY: ws://localhost:${PORT}/ws/pty?session=<id>`);
+  return new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(port, () => {
+      const address = server.address();
+      if (!address || typeof address === 'string') {
+        reject(new Error('Could not determine the server port'));
+        return;
+      }
+      const actualPort = address.port;
+      // The orchestration callback is passed to child agents after startup.
+      process.env.PLANGENT_URL = `http://127.0.0.1:${actualPort}`;
+      console.log(`Plangent running at http://localhost:${actualPort}`);
+      console.log(`WebSocket PTY: ws://localhost:${actualPort}/ws/pty?session=<id>`);
+      resolve(actualPort);
+    });
   });
 }
 
-main().catch(err => {
-  console.error('Fatal:', err);
-  process.exit(1);
-});
+if (require.main === module) {
+  startServer().catch(err => {
+    console.error('Fatal:', err);
+    process.exit(1);
+  });
+}

@@ -51,7 +51,11 @@ function buildSteps(sessions: OrchestratorQueueSession[]): OrchestratorQueueSess
   return steps;
 }
 
-const CALLBACK_URL = process.env.PLANGENT_URL ?? 'http://localhost:3000';
+function getCallbackUrl(): string {
+  // The packaged app receives a free ephemeral port at startup, so resolve this
+  // lazily when an agent run is launched rather than at module-import time.
+  return process.env.PLANGENT_URL ?? 'http://localhost:3001';
+}
 
 // Per-task orchestrator singleton
 const active = new Map<string, Orchestrator>();
@@ -168,7 +172,7 @@ export class Orchestrator {
       PLANGENT_RUN_ID: run.id,
       PLANGENT_PROJECT_ID: projectId,
       PLANGENT_TASK_ID: taskId,
-      PLANGENT_CALLBACK_URL: CALLBACK_URL,
+      PLANGENT_CALLBACK_URL: getCallbackUrl(),
     };
 
     // Deploy Stop hook for Claude Code. The hook command is generic (it reads
@@ -176,7 +180,7 @@ export class Orchestrator {
     // run in this repo — including parallel sessions — without clobbering.
     if (agent.id === 'agent-claude') {
       try {
-        deployClaudeStopHook(project.repo_path, CALLBACK_URL);
+        deployClaudeStopHook(project.repo_path, getCallbackUrl());
         this.hookRepoPath = project.repo_path;
       } catch (e) {
         console.warn('[orchestrator] Could not deploy stop hook:', e);

@@ -20,8 +20,8 @@ export default defineConfig({
     host: '127.0.0.1',
     port: 5173,
     proxy: {
-      '/api': { target: 'http://localhost:3000', changeOrigin: true },
-      '/ws': { target: 'ws://localhost:3000', ws: true },
+      '/api': { target: 'http://localhost:3001', changeOrigin: true },
+      '/ws': { target: 'ws://localhost:3001', ws: true },
     },
   },
 })
