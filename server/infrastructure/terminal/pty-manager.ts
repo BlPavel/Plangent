@@ -1,4 +1,4 @@
-import * as pty from 'node-pty';
+import type { IPty } from 'node-pty';
 import { WebSocket } from 'ws';
 import fs from 'fs';
 import path from 'path';
@@ -6,12 +6,20 @@ import { execSync } from 'child_process';
 
 export interface PtySession {
   id: string;
-  pty: pty.IPty;
+  pty: IPty;
   sockets: Set<WebSocket>;
   buffer: string;
 }
 
 const sessions = new Map<string, PtySession>();
+
+function loadPty(): typeof import('node-pty') {
+  try {
+    return require('node-pty') as typeof import('node-pty');
+  } catch {
+    throw new Error('The embedded terminal is unavailable in this build. Rebuild node-pty for the installed Electron version.');
+  }
+}
 
 function resolveCommand(cmd: string): string {
   if (path.isAbsolute(cmd)) return cmd;
@@ -36,7 +44,8 @@ export function createPtySession(id: string, cmd: string, args: string[], cwd: s
     ...env,
   };
 
-  let ptyProcess: pty.IPty;
+  const pty = loadPty();
+  let ptyProcess: IPty;
   try {
     ptyProcess = pty.spawn(resolvedCmd, args, {
       name: 'xterm-256color',
