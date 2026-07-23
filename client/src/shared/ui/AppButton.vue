@@ -12,7 +12,7 @@ import { computed } from 'vue'
  * stay consistent app-wide. Native button attributes (disabled, type, @click,
  * title…) fall through automatically.
  */
-type Variant = 'primary' | 'blue' | 'ghost' | 'subtle' | 'danger' | 'danger-ghost'
+type Variant = 'primary' | 'blue' | 'update' | 'ghost' | 'subtle' | 'danger' | 'danger-ghost'
 type Size = 'md' | 'sm' | 'xs'
 
 const props = withDefaults(defineProps<{

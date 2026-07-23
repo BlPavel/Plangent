@@ -110,6 +110,10 @@ body {
 .btn-blue { background: var(--blue); color: #fff; border-color: var(--blue); }
 .btn-blue:not(:disabled):hover { background: var(--blue-hover); border-color: var(--blue-hover); }
 
+/* Maintenance action: intentionally distinct from the green primary/success action. */
+.btn-update { background: var(--warning); color: #fff; border-color: var(--warning); }
+.btn-update:not(:disabled):hover { background: var(--warning-text); border-color: var(--warning-text); color: #1b1f23; }
+
 .btn-ghost { background: var(--bg3); color: var(--text); border-color: var(--border-strong); }
 .btn-ghost:not(:disabled):hover { background: var(--bg-hover); border-color: var(--text-faint); }
 

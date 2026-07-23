@@ -28,8 +28,8 @@
               <code class="agent-cmd">{{ a.command }} {{ a.args.join(' ') }}</code>
             </div>
             <div class="actions">
-              <AppButton v-if="a.update_command" variant="ghost" size="sm" :disabled="updatingAgentId === a.id" @click="updateAgent(a)">
-                {{ updatingAgentId === a.id ? 'Обновление…' : 'Обновить' }}
+              <AppButton v-if="a.update_command" variant="update" size="sm" :disabled="updatingAgentId === a.id" @click="updateAgent(a)">
+                {{ updatingAgentId === a.id ? 'Обновление…' : '⟳ Обновить' }}
               </AppButton>
               <AppButton variant="ghost" size="sm" @click="openEdit(a)">Изменить</AppButton>
               <AppButton variant="danger-ghost" size="sm" @click="remove(a.id)">
