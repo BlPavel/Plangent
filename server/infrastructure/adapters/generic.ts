@@ -296,9 +296,19 @@ export async function launchAgent(
       s.pty.write(`${cdCommand(cwd)}\r`);
 
       if (initialPrompt) {
-        const tmpFile = writePromptTempFile(initialPrompt, sessionId);
-        s.pty.write(`${promptArgCommand(baseCommand, baseArgs, tmpFile)}\r`);
-        setTimeout(() => { try { fs.unlinkSync(tmpFile); } catch {} }, 2000);
+        if (isWindows) {
+          // Expanding the prompt into argv exceeds Windows' command-line limit for
+          // larger plans. Keep stdin attached to the PTY for the interactive TUI:
+          // start the agent first, then paste the prompt into it as terminal input.
+          s.pty.write(`${shellCommand(baseCommand, baseArgs)}\r`);
+          setTimeout(() => {
+            void sendToAgent(sessionId, 'pty', initialPrompt);
+          }, 1500);
+        } else {
+          const tmpFile = writePromptTempFile(initialPrompt, sessionId);
+          s.pty.write(`${promptArgCommand(baseCommand, baseArgs, tmpFile)}\r`);
+          setTimeout(() => { try { fs.unlinkSync(tmpFile); } catch {} }, 2000);
+        }
       } else {
         s.pty.write(`${shellCommand(baseCommand, baseArgs)}\r`);
       }
