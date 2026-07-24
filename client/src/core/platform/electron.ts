@@ -7,6 +7,9 @@ interface ElectronAPI {
   isElectron: true
   getFilePath: (file: File) => string
   getClipboardFilePaths: () => Promise<string[]>
+  getClipboardImage: () => Promise<string | null>
+  getClipboardText: () => Promise<string>
+  setClipboardText: (text: string) => Promise<void>
 }
 
 // The ONLY place in the frontend that reaches for window.electronAPI.
@@ -21,5 +24,8 @@ export const isElectron = !!electronAPI
 export const electronBridge: PlatformBridge = {
   getFilePath: (file) => electronAPI!.getFilePath(file) || null,
   getClipboardFilePaths: () => electronAPI!.getClipboardFilePaths(),
+  getClipboardImage: () => electronAPI!.getClipboardImage(),
+  getClipboardText: () => electronAPI!.getClipboardText(),
+  setClipboardText: (text) => electronAPI!.setClipboardText(text),
   canAccessFiles: true,
 }
