@@ -39,6 +39,7 @@ const props = withDefaults(defineProps<{
   visible?: boolean
   showHeader?: boolean
 }>(), {
+  label: '',
   showHeader: true,
 })
 const emit = defineEmits<{ detach: []; kill: []; input: [text: string]; userInput: [] }>()
@@ -96,18 +97,12 @@ function pasteText(text: string) {
   term?.focus()
 }
 
-function textClipboardIsAvailable() {
-  return typeof navigator !== 'undefined' && !!navigator.clipboard
-}
-
 async function copySelection() {
   if (!term?.hasSelection()) return false
   const selection = term.getSelection()
   if (!selection) return false
 
-  if (textClipboardIsAvailable()) {
-    await navigator.clipboard.writeText(selection)
-  }
+  await platform.setClipboardText(selection)
   term.clearSelection()
   term.focus()
   return true
@@ -119,17 +114,24 @@ function hasPrimaryModifier(e: KeyboardEvent) {
 }
 
 function isCopyShortcut(e: KeyboardEvent) {
-  return hasPrimaryModifier(e) && !e.altKey && e.key.toLowerCase() === 'c'
+  // `key` contains the character produced by the active keyboard layout.
+  // On a Russian layout Ctrl+C/Ctrl+V therefore arrive as "с"/"м".
+  // `code` identifies the physical shortcut key and is layout-independent.
+  return hasPrimaryModifier(e) && !e.altKey && (e.code === 'KeyC' || e.key.toLowerCase() === 'c')
 }
 
 function isPasteShortcut(e: KeyboardEvent) {
-  return hasPrimaryModifier(e) && !e.altKey && e.key.toLowerCase() === 'v'
+  return hasPrimaryModifier(e) && !e.altKey && (e.code === 'KeyV' || e.key.toLowerCase() === 'v')
 }
 
-// Paste triggered without a native `paste` event (right-click, or as a keyboard
-// fallback). Resolves the clipboard directly: real file paths first (Finder
-// files), then plain text. Clipboard screenshots only arrive via the native
-// paste event, so those still go through onPaste (Ctrl/Cmd+V keeps that path).
+function isAtSignInput(e: KeyboardEvent) {
+  return !e.isComposing && e.key === '@'
+}
+
+// Paste triggered without a native `paste` event (right-click or keyboard).
+// Resolve native file paths first, then image pixels, then plain text. Keeping
+// the whole operation here gives Electron one reliable path regardless of
+// whether Chromium dispatches a ClipboardEvent to xterm's hidden textarea.
 async function doPaste() {
   try {
     const paths = await platform.getClipboardFilePaths()
@@ -140,9 +142,25 @@ async function doPaste() {
   } catch {
     // fall through to text
   }
-  if (!textClipboardIsAvailable()) return
+  let image: string | null = null
   try {
-    const text = await navigator.clipboard.readText()
+    image = await platform.getClipboardImage()
+  } catch {
+    // fall through to text
+  }
+  if (image) {
+    uploading.value = true
+    try {
+      await uploadImageDataAndInsert(image)
+    } catch {
+      term?.writeln('\r\n\x1b[31m[Не удалось вставить изображение]\x1b[0m')
+    } finally {
+      uploading.value = false
+    }
+    return
+  }
+  try {
+    const text = await platform.getClipboardText()
     if (text) pasteText(text)
   } catch {
     // clipboard read denied — nothing to paste
@@ -171,11 +189,38 @@ function onMouseDownCapture(e: MouseEvent) {
 function onTerminalKeydown(e: KeyboardEvent) {
   if (!term) return
 
-  if (isCopyShortcut(e)) {
-    if (!term.hasSelection()) return
+  if (isAtSignInput(e)) {
+    // Codex uses crossterm keyboard-enhancement modes. In an embedded xterm on
+    // Windows, especially with international layouts/AltGr, xterm can translate
+    // the already-resolved "@" back into a modified key sequence that Codex
+    // discards. Send the character itself to the PTY instead.
     e.preventDefault()
     e.stopPropagation()
-    copySelection().catch(() => {})
+    sendRaw('@')
+    return
+  }
+
+  if (isCopyShortcut(e)) {
+    if (term.hasSelection()) {
+      e.preventDefault()
+      e.stopPropagation()
+      copySelection().catch(() => {})
+    } else {
+      // Send ETX explicitly: Codex and other agent CLIs may use terminal modes
+      // that make xterm's shortcut mapping unreliable.
+      e.preventDefault()
+      e.stopPropagation()
+      sendRaw('\x03')
+    }
+    return
+  }
+
+  if (isPasteShortcut(e)) {
+    // Electron does not consistently dispatch `paste` to xterm's hidden
+    // textarea, so read the clipboard directly.
+    e.preventDefault()
+    e.stopPropagation()
+    doPaste().catch(() => {})
     return
   }
 
@@ -281,12 +326,9 @@ function initTerminal() {
   term.onData(data => sendRaw(data))
   term.attachCustomKeyEventHandler((e) => {
     if (e.type !== 'keydown') return true
-    // Copy only when there's a selection, so a bare Ctrl+C still sends SIGINT.
-    if (isCopyShortcut(e) && term?.hasSelection()) return false
-    // Paste: never let xterm process Ctrl/Cmd+V — it would send ^V (0x16) and
-    // preventDefault(), which kills the browser's native paste event. Returning
-    // false skips that, so the `paste` event fires and onPaste handles it.
-    if (isPasteShortcut(e)) return false
+    // The capture-phase wrapper owns @ and copy/paste. Returning false here is a
+    // defensive fallback in case xterm changes its DOM/event wiring.
+    if (isAtSignInput(e) || isCopyShortcut(e) || isPasteShortcut(e)) return false
     if (e.key === 'Enter' && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) return false
     return true
   })
@@ -375,14 +417,21 @@ function onCopy(e: ClipboardEvent) {
 
 // Upload a real clipboard image (screenshot) to a temp file and insert its path.
 async function uploadImageAndInsert(file: File) {
-  const ext = file.type.split('/')[1] ?? 'png'
   const base64 = await fileToBase64(file)
+  await uploadImageDataAndInsert(base64, file.type.split('/')[1] ?? 'png')
+}
+
+async function uploadImageDataAndInsert(data: string, ext = 'png') {
   const res = await fetch('/api/upload-temp', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ data: base64, name: `screenshot.${ext}` }),
+    body: JSON.stringify({ data, name: `screenshot.${ext}` }),
   })
-  const { path } = await res.json() as { path: string }
+  const payload = await res.json() as { path?: string; error?: string }
+  if (!res.ok || !payload.path) {
+    throw new Error(payload.error || `Image upload failed (${res.status})`)
+  }
+  const { path } = payload
   insertPaths([path])
 }
 

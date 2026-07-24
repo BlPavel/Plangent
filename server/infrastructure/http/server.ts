@@ -51,6 +51,9 @@ export function createApp() {
   const app = express();
 
   app.use(cors());
+  // Clipboard screenshots are sent as base64. Keep the larger parser scoped to
+  // this local-only endpoint; the default JSON limit remains in force elsewhere.
+  app.use('/api/upload-temp', express.json({ limit: '25mb' }), uploadRouter);
   app.use(express.json());
 
   app.use(express.static(CLIENT_DIST));
@@ -65,7 +68,6 @@ export function createApp() {
   app.use('/api/terminal', terminalRouter);
   app.use('/api/library', libraryRouter);
   app.use('/api/browse', browseRouter);
-  app.use('/api/upload-temp', uploadRouter);
   app.use('/api/clipboard', clipboardRouter);
 
   app.get('/api/health', (_req, res) => {

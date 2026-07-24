@@ -5,6 +5,7 @@ import { LaunchResult, RunContext } from '../../core/orchestration/agent-runtime
 import { PLAN_PROTOCOL_LOCKED } from '../../core/library/plan-template';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 
 // Planning-mode prompt: ONLY teaches how to write the plan and tells the agent to
 // wait for the developer to describe the task. It deliberately does NOT frame the
@@ -156,6 +157,14 @@ export function buildPrompt(ctx: RunContext): string {
   return lines.join('\n');
 }
 
+// Write prompt to a temp file and return its path.
+// Caller is responsible for deleting it after the agent starts.
+function writePromptTempFile(prompt: string, runId: string): string {
+  const tmpPath = path.join(os.tmpdir(), `plangent-prompt-${runId}.md`);
+  fs.writeFileSync(tmpPath, prompt, 'utf-8');
+  return tmpPath;
+}
+
 const isWindows = process.platform === 'win32';
 
 function shQuote(value: string): string {
@@ -187,6 +196,17 @@ function envAssignments(env: Record<string, string>, separator: string): string 
 
 function cdCommand(cwd: string): string {
   return isWindows ? `Set-Location -LiteralPath ${psQuote(cwd)}` : `cd ${shQuote(cwd)}`;
+}
+
+function promptArgCommand(command: string, args: string[], tmpFile: string): string {
+  if (isWindows) {
+    // Windows PowerShell's legacy native-argument passing splits the argument on any
+    // embedded literal `"` in the substituted content (it doesn't backslash-escape them
+    // for the child process's CommandLineToArgvW parser) — double quotes anywhere in the
+    // plan/task text would otherwise fragment the prompt into multiple stray argv tokens.
+    return `${shellCommand(command, args)} "$((Get-Content -Raw -Encoding UTF8 -LiteralPath ${psQuote(tmpFile)}) -replace '"','\\"')"`;
+  }
+  return `${shellCommand(command, args)} "$(cat ${shQuote(tmpFile)})"`;
 }
 
 // Substitutes {model}/{reasoning}-style placeholders in an agent's args template.
@@ -236,9 +256,7 @@ export async function launchAgent(
     ...(extraEnv ?? {}),
   };
 
-  // Start the agent first, then enter the initial prompt through its terminal input.
-  // Passing a prompt as a command-line argument exceeds Windows' command-length limit
-  // for sufficiently large plans or task descriptions.
+  // Build the agent launch command, injecting prompt as a positional arg via temp file
   const baseCommand = agent.command;
   const baseArgs = applyAgentPlaceholders(agent.args, {
     model: agent.model ?? '',
@@ -254,9 +272,11 @@ export async function launchAgent(
     await tmux.sendKeys(cdCommand(cwd));
 
     if (initialPrompt) {
-      await tmux.sendKeys(shellCommand(baseCommand, baseArgs));
-      // Give interactive CLIs time to initialize before writing to their stdin.
-      setTimeout(() => { void tmux.sendInput(initialPrompt); }, 1000);
+      // Write to temp file and clean up after a short delay
+      const tmpFile = writePromptTempFile(initialPrompt, sessionId);
+      await tmux.sendKeys(promptArgCommand(baseCommand, baseArgs, tmpFile));
+      // Clean up temp file after the shell expands it (give it 2s)
+      setTimeout(() => { try { fs.unlinkSync(tmpFile); } catch {} }, 2000);
     } else {
       await tmux.sendKeys(shellCommand(baseCommand, baseArgs));
     }
@@ -276,18 +296,9 @@ export async function launchAgent(
       s.pty.write(`${cdCommand(cwd)}\r`);
 
       if (initialPrompt) {
-        s.pty.write(`${shellCommand(baseCommand, baseArgs)}\r`);
-        // Write the prompt after the TUI is ready. Keep Enter separate because
-        // Claude Code and Codex treat it as a distinct terminal event.
-        setTimeout(() => {
-          const readySession = getPtySession(sessionId);
-          if (!readySession) return;
-          readySession.pty.write(initialPrompt);
-          setTimeout(() => {
-            const currentSession = getPtySession(sessionId);
-            if (currentSession) currentSession.pty.write('\r');
-          }, 900);
-        }, 1000);
+        const tmpFile = writePromptTempFile(initialPrompt, sessionId);
+        s.pty.write(`${promptArgCommand(baseCommand, baseArgs, tmpFile)}\r`);
+        setTimeout(() => { try { fs.unlinkSync(tmpFile); } catch {} }, 2000);
       } else {
         s.pty.write(`${shellCommand(baseCommand, baseArgs)}\r`);
       }
