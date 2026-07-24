@@ -9,7 +9,7 @@
     "lint": "eslint client/src",
     "start": "node server/dist/index.js",
     "postinstall": "node scripts/postinstall.js",
-    "electron:dev": "tsc -p tsconfig.electron.json && concurrently -n server,client,electron -c blue,green,cyan \"tsx watch server/index.ts\" \"vite --config client/vite.config.ts\" \"wait-on http://127.0.0.1:5173 && electron .\"",
+    "electron:dev": "npm rebuild better-sqlite3 && tsc -p tsconfig.electron.json && concurrently -n server,client,electron -c blue,green,cyan \"tsx watch server/index.ts\" \"vite --config client/vite.config.ts\" \"wait-on http://127.0.0.1:5173 && electron .\"",
     "electron:build": "npm run build && tsc -p tsconfig.electron.json && npx electron-rebuild --force --only better-sqlite3 && electron-builder",
     "electron:release": "npm run build && tsc -p tsconfig.electron.json && npx electron-rebuild --force --only better-sqlite3 && electron-builder --publish=always"
   },

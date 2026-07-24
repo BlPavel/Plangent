@@ -53,6 +53,15 @@ let fitAddon: FitAddon | null = null
 let ws: WebSocket | null = null
 let resizeObserver: ResizeObserver | null = null
 
+// Copy/paste shortcuts differ per platform: Cmd on macOS, Ctrl elsewhere.
+const IS_MAC =
+  typeof navigator !== 'undefined' &&
+  /Mac|iPod|iPhone|iPad/.test(
+    navigator.platform ||
+      (navigator as unknown as { userAgentData?: { platform?: string } }).userAgentData?.platform ||
+      navigator.userAgent,
+  )
+
 // Whether the running program (shell / agent CLI) has bracketed paste enabled.
 // We track it by watching the PTY output for the DECSET 2004 enable/disable codes.
 let bracketedPaste = false
@@ -104,8 +113,59 @@ async function copySelection() {
   return true
 }
 
+// The platform's primary modifier: Cmd on macOS, Ctrl on Windows/Linux.
+function hasPrimaryModifier(e: KeyboardEvent) {
+  return IS_MAC ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey
+}
+
 function isCopyShortcut(e: KeyboardEvent) {
-  return (e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'c'
+  return hasPrimaryModifier(e) && !e.altKey && e.key.toLowerCase() === 'c'
+}
+
+function isPasteShortcut(e: KeyboardEvent) {
+  return hasPrimaryModifier(e) && !e.altKey && e.key.toLowerCase() === 'v'
+}
+
+// Paste triggered without a native `paste` event (right-click, or as a keyboard
+// fallback). Resolves the clipboard directly: real file paths first (Finder
+// files), then plain text. Clipboard screenshots only arrive via the native
+// paste event, so those still go through onPaste (Ctrl/Cmd+V keeps that path).
+async function doPaste() {
+  try {
+    const paths = await platform.getClipboardFilePaths()
+    if (paths.length > 0) {
+      insertPaths(paths)
+      return
+    }
+  } catch {
+    // fall through to text
+  }
+  if (!textClipboardIsAvailable()) return
+  try {
+    const text = await navigator.clipboard.readText()
+    if (text) pasteText(text)
+  } catch {
+    // clipboard read denied — nothing to paste
+  }
+}
+
+// Right-click acts like a classic terminal: copy the selection if there is one,
+// otherwise paste. Works even when the running program (e.g. Codex) has mouse
+// reporting on and would otherwise swallow the click.
+function onContextMenu(e: MouseEvent) {
+  e.preventDefault()
+  e.stopPropagation()
+  if (term?.hasSelection()) copySelection().catch(() => {})
+  else doPaste().catch(() => {})
+}
+
+// Stop the right-button press from reaching xterm, so mouse-reporting programs
+// don't receive a stray button-3 event when we hijack right-click for paste.
+function onMouseDownCapture(e: MouseEvent) {
+  if (e.button === 2) {
+    e.preventDefault()
+    e.stopPropagation()
+  }
 }
 
 function onTerminalKeydown(e: KeyboardEvent) {
@@ -201,6 +261,11 @@ function initTerminal() {
     cursorBlink: false,
     cursorInactiveStyle: 'none',
     scrollback: 10000,
+    // Let users select text even when the program grabs the mouse (Codex turns
+    // on mouse reporting). On Win/Linux Shift+drag already forces a local
+    // selection; this adds Option+drag on macOS. We handle right-click ourselves.
+    macOptionClickForcesSelection: true,
+    rightClickSelectsWord: false,
     // Don't set cols/rows here — FitAddon will calculate the right values
   })
 
@@ -216,7 +281,12 @@ function initTerminal() {
   term.onData(data => sendRaw(data))
   term.attachCustomKeyEventHandler((e) => {
     if (e.type !== 'keydown') return true
+    // Copy only when there's a selection, so a bare Ctrl+C still sends SIGINT.
     if (isCopyShortcut(e) && term?.hasSelection()) return false
+    // Paste: never let xterm process Ctrl/Cmd+V — it would send ^V (0x16) and
+    // preventDefault(), which kills the browser's native paste event. Returning
+    // false skips that, so the `paste` event fires and onPaste handles it.
+    if (isPasteShortcut(e)) return false
     if (e.key === 'Enter' && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) return false
     return true
   })
@@ -234,6 +304,8 @@ function initTerminal() {
   wrapEl.value?.addEventListener('paste', onPaste, true)
   wrapEl.value?.addEventListener('copy', onCopy, true)
   wrapEl.value?.addEventListener('keydown', onTerminalKeydown, true)
+  wrapEl.value?.addEventListener('contextmenu', onContextMenu, true)
+  wrapEl.value?.addEventListener('mousedown', onMouseDownCapture, true)
 }
 
 // ── Paste from Finder (Cmd+C → Cmd+V) ───────────────────────────────────────
@@ -356,6 +428,8 @@ function dispose() {
   wrapEl.value?.removeEventListener('paste', onPaste, true)
   wrapEl.value?.removeEventListener('copy', onCopy, true)
   wrapEl.value?.removeEventListener('keydown', onTerminalKeydown, true)
+  wrapEl.value?.removeEventListener('contextmenu', onContextMenu, true)
+  wrapEl.value?.removeEventListener('mousedown', onMouseDownCapture, true)
   ws?.close()
   ws = null
   term?.dispose()
