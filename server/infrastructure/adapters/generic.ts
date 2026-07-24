@@ -157,8 +157,8 @@ export function buildPrompt(ctx: RunContext): string {
   return lines.join('\n');
 }
 
-// Write prompt to a temp file and return its path.
-// Caller is responsible for deleting it after the agent starts.
+// Write prompt to a temp file and return its path. On Windows promptArgCommand
+// removes it after reading; a long fallback TTL covers slow startup elsewhere.
 function writePromptTempFile(prompt: string, runId: string): string {
   const tmpPath = path.join(os.tmpdir(), `plangent-prompt-${runId}.md`);
   fs.writeFileSync(tmpPath, prompt, 'utf-8');
@@ -166,6 +166,22 @@ function writePromptTempFile(prompt: string, runId: string): string {
 }
 
 const isWindows = process.platform === 'win32';
+const WINDOWS_SAFE_PROMPT_COMMAND_LENGTH = 24_000;
+const PROMPT_TEMP_FILE_FALLBACK_TTL_MS = 60_000;
+const PTY_STARTUP_TIMEOUT_MS = 20_000;
+const PTY_STARTUP_MIN_WAIT_MS = 4_000;
+const PTY_OUTPUT_QUIET_MS = 1_200;
+
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function schedulePromptTempFileCleanup(tmpFile: string): void {
+  const timer = setTimeout(() => {
+    try { fs.unlinkSync(tmpFile); } catch {}
+  }, PROMPT_TEMP_FILE_FALLBACK_TTL_MS);
+  timer.unref();
+}
 
 function shQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
@@ -198,15 +214,76 @@ function cdCommand(cwd: string): string {
   return isWindows ? `Set-Location -LiteralPath ${psQuote(cwd)}` : `cd ${shQuote(cwd)}`;
 }
 
+// PowerShell 5 inherits the machine's legacy console code page by default.
+// Short prompts are protected by Get-Content -Encoding UTF8 below, but large
+// queue prompts are written through the PTY and therefore need the console
+// itself to use UTF-8 before the agent starts.
+export function shellUtf8Command(platform: NodeJS.Platform = process.platform): string | null {
+  if (platform !== 'win32') return null;
+  return [
+    '$plangentUtf8 = New-Object System.Text.UTF8Encoding $false',
+    '[Console]::InputEncoding = $plangentUtf8',
+    '[Console]::OutputEncoding = $plangentUtf8',
+    '$OutputEncoding = $plangentUtf8',
+  ].join('; ');
+}
+
 function promptArgCommand(command: string, args: string[], tmpFile: string): string {
   if (isWindows) {
     // Windows PowerShell's legacy native-argument passing splits the argument on any
     // embedded literal `"` in the substituted content (it doesn't backslash-escape them
     // for the child process's CommandLineToArgvW parser) — double quotes anywhere in the
     // plan/task text would otherwise fragment the prompt into multiple stray argv tokens.
-    return `${shellCommand(command, args)} "$((Get-Content -Raw -Encoding UTF8 -LiteralPath ${psQuote(tmpFile)}) -replace '"','\\"')"`;
+    return [
+      `$plangentInitialPrompt = ((Get-Content -Raw -Encoding UTF8 -LiteralPath ${psQuote(tmpFile)}) -replace '"','\\"')`,
+      `Remove-Item -Force -ErrorAction SilentlyContinue -LiteralPath ${psQuote(tmpFile)}`,
+      `${shellCommand(command, args)} "$plangentInitialPrompt"`,
+    ].join('; ');
   }
   return `${shellCommand(command, args)} "$(cat ${shQuote(tmpFile)})"`;
+}
+
+// Passing the prompt as argv is deterministic and should remain the normal path:
+// the CLI receives it before its TUI starts, so there is no startup race. Windows
+// has a much smaller command-line limit, though, so genuinely large prompts must be
+// pasted into the interactive PTY after the TUI has had time to initialize.
+export function shouldInjectPromptViaPty(
+  prompt: string,
+  command: string,
+  args: string[],
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  if (platform !== 'win32') return false;
+  const escapedPromptLength = prompt.replace(/"/g, '\\"').length;
+  return shellCommand(command, args).length + escapedPromptLength > WINDOWS_SAFE_PROMPT_COMMAND_LENGTH;
+}
+
+async function waitForPtyAgentStartup(sessionId: string, initialBufferLength: number): Promise<void> {
+  const startedAt = Date.now();
+  let lastLength = initialBufferLength;
+  let lastOutputAt = startedAt;
+  let sawAgentOutput = false;
+
+  while (Date.now() - startedAt < PTY_STARTUP_TIMEOUT_MS) {
+    await delay(100);
+    const session = getPtySession(sessionId);
+    if (!session) throw new Error(`Agent session exited before receiving its initial prompt: ${sessionId}`);
+
+    if (session.buffer.length !== lastLength) {
+      lastLength = session.buffer.length;
+      lastOutputAt = Date.now();
+      sawAgentOutput = true;
+    }
+
+    const elapsed = Date.now() - startedAt;
+    if (
+      sawAgentOutput &&
+      elapsed >= PTY_STARTUP_MIN_WAIT_MS &&
+      Date.now() - lastOutputAt >= PTY_OUTPUT_QUIET_MS
+    ) {
+      return;
+    }
+  }
 }
 
 // Substitutes {model}/{reasoning}-style placeholders in an agent's args template.
@@ -272,11 +349,9 @@ export async function launchAgent(
     await tmux.sendKeys(cdCommand(cwd));
 
     if (initialPrompt) {
-      // Write to temp file and clean up after a short delay
       const tmpFile = writePromptTempFile(initialPrompt, sessionId);
       await tmux.sendKeys(promptArgCommand(baseCommand, baseArgs, tmpFile));
-      // Clean up temp file after the shell expands it (give it 2s)
-      setTimeout(() => { try { fs.unlinkSync(tmpFile); } catch {} }, 2000);
+      schedulePromptTempFileCleanup(tmpFile);
     } else {
       await tmux.sendKeys(shellCommand(baseCommand, baseArgs));
     }
@@ -288,31 +363,35 @@ export async function launchAgent(
 
     const envExports = envAssignments(agentEnv, '\n');
 
-    setTimeout(() => {
-      const s = getPtySession(sessionId);
-      if (!s) return;
+    // Do not report a successful launch while startup and prompt delivery are
+    // still only scheduled timers. The orchestrator may advance a sequential
+    // queue immediately, and a slow TUI can otherwise discard the early paste.
+    await delay(500);
+    const s = getPtySession(sessionId);
+    if (!s) throw new Error(`Agent session exited during startup: ${sessionId}`);
 
-      if (envExports) s.pty.write(envExports + '\r');
-      s.pty.write(`${cdCommand(cwd)}\r`);
+    const utf8Setup = shellUtf8Command();
+    if (utf8Setup) s.pty.write(`${utf8Setup}\r`);
+    if (envExports) s.pty.write(envExports + '\r');
+    s.pty.write(`${cdCommand(cwd)}\r`);
 
-      if (initialPrompt) {
-        if (isWindows) {
-          // Expanding the prompt into argv exceeds Windows' command-line limit for
-          // larger plans. Keep stdin attached to the PTY for the interactive TUI:
-          // start the agent first, then paste the prompt into it as terminal input.
-          s.pty.write(`${shellCommand(baseCommand, baseArgs)}\r`);
-          setTimeout(() => {
-            void sendToAgent(sessionId, 'pty', initialPrompt);
-          }, 1500);
-        } else {
-          const tmpFile = writePromptTempFile(initialPrompt, sessionId);
-          s.pty.write(`${promptArgCommand(baseCommand, baseArgs, tmpFile)}\r`);
-          setTimeout(() => { try { fs.unlinkSync(tmpFile); } catch {} }, 2000);
+    if (initialPrompt) {
+      if (shouldInjectPromptViaPty(initialPrompt, baseCommand, baseArgs)) {
+        const initialBufferLength = s.buffer.length;
+        s.pty.write(`${shellCommand(baseCommand, baseArgs)}\r`);
+        await waitForPtyAgentStartup(sessionId, initialBufferLength);
+        await sendToAgent(sessionId, 'pty', initialPrompt);
+        if (!getPtySession(sessionId)) {
+          throw new Error(`Agent session exited while receiving its initial prompt: ${sessionId}`);
         }
       } else {
-        s.pty.write(`${shellCommand(baseCommand, baseArgs)}\r`);
+        const tmpFile = writePromptTempFile(initialPrompt, sessionId);
+        s.pty.write(`${promptArgCommand(baseCommand, baseArgs, tmpFile)}\r`);
+        schedulePromptTempFileCleanup(tmpFile);
       }
-    }, 500);
+    } else {
+      s.pty.write(`${shellCommand(baseCommand, baseArgs)}\r`);
+    }
 
     return { sessionId, mode: 'pty', pid: session.pty.pid };
   }
@@ -332,10 +411,9 @@ export async function sendToAgent(sessionId: string, mode: 'tmux' | 'pty', text:
     if (!s) return;
     s.pty.write(text);
     // Separate Enter after 900ms
-    setTimeout(() => {
-      const ss = getPtySession(sessionId);
-      if (ss) ss.pty.write('\r');
-    }, 900);
+    await delay(900);
+    const ss = getPtySession(sessionId);
+    if (ss) ss.pty.write('\r');
   }
 }
 
