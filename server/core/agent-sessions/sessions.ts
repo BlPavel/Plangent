@@ -76,6 +76,10 @@ export function history(id: string): SessionEvent[] {
   return (getDb().prepare('SELECT * FROM agent_session_events WHERE session_id=? ORDER BY seq').all(id) as (SessionEvent & { payload: string })[])
     .map(e => ({ ...e, payload: JSON.parse(e.payload) }));
 }
+export function deleteSession(id: string): void {
+  getDb().prepare('DELETE FROM agent_sessions WHERE id=?').run(id);
+  broadcast({ type: 'agent_session_deleted', sessionId: id });
+}
 export interface ReviewFinding { id: string; session_id: string; file: string; line: number; severity: 'low' | 'medium' | 'high' | 'critical'; message: string }
 export function findings(sessionId: string): ReviewFinding[] {
   getSession(sessionId);

@@ -2,14 +2,17 @@ import type * as ACP from '@agentclientprotocol/sdk';
 import { Readable, Writable } from 'stream';
 import spawn from 'cross-spawn';
 import { randomUUID } from 'crypto';
+import os from 'os';
 import { EventEmitter } from 'events';
 import { getAgent } from '../agents';
 import { getProject } from '../projects';
 import { broadcast } from '../shared/events';
-import { addEvent, getSession, updateSession } from './sessions';
+import { addEvent, getSession, history, updateSession } from './sessions';
+import { getAcpOptions, saveAcpOptions, type AcpOptions } from '../agents/acp-options';
 import { enqueue, queuedPrompts, editQueued } from './prompt-queue';
 import { permissionDecision } from './permissions';
 import type { AgentSession } from './types';
+import type { Agent } from '../../models';
 
 // Preserve native import when the Electron server is compiled as CommonJS.
 const loadSdk = new Function('return import("@agentclientprotocol/sdk")') as () => Promise<typeof ACP>;
@@ -38,6 +41,57 @@ export const adapterPresets = {
   codex: { command: 'npx', args: ['--yes', '@agentclientprotocol/codex-acp@1.13.1'] },
   gemini: { command: 'gemini', args: ['--experimental-acp'] },
 };
+function adapterCommand(agent: Agent): { command: string; args: string[] } {
+  const preset = agent.id === 'agent-claude' ? adapterPresets.claude : agent.id === 'agent-codex' ? adapterPresets.codex : null;
+  const command = agent.acp_command || preset?.command;
+  if (!command) throw new Error(`У агента «${agent.name}» не задана ACP-команда. Укажите её в настройках агента.`);
+  return { command, args: agent.acp_command ? agent.acp_args ?? [] : preset?.args ?? [] };
+}
+const probes = new Map<string, Promise<AcpOptions>>();
+/**
+ * Models, modes and reasoning levels the agent offers. Cached from real sessions; when nothing is cached
+ * yet, a throwaway session is opened just to read them (no prompt is sent, so nothing is spent).
+ */
+export function agentOptions(agentId: string, refresh = false): Promise<AcpOptions> {
+  const cached = getAcpOptions(agentId);
+  const stale = !cached || Date.now() - cached.at > 24 * 60 * 60_000;
+  if (cached && !refresh) { if (stale && !probes.has(agentId)) void probeAgent(agentId).catch(() => {}); return Promise.resolve(cached); }
+  return probeAgent(agentId);
+}
+function probeAgent(agentId: string): Promise<AcpOptions> {
+  if (probes.has(agentId)) return probes.get(agentId)!;
+  const job = (async () => {
+    const agent = getAgent(agentId);
+    if (!agent) throw new Error('Агент не найден');
+    const { command, args } = adapterCommand(agent);
+    const sdk = await loadSdk();
+    const child = spawn(command, args, { cwd: os.tmpdir(), env: { ...process.env, ...agent.env }, stdio: 'pipe', windowsHide: true, detached: process.platform !== 'win32' });
+    const connection = sdk.client({ name: 'Plangent' })
+      .onNotification('session/update', () => {})
+      .onRequest('session/request_permission', async () => ({ outcome: { outcome: 'cancelled' as const } }))
+      .connect(sdk.ndJsonStream(Writable.toWeb(child.stdin!) as WritableStream<Uint8Array>, Readable.toWeb(child.stdout!) as ReadableStream<Uint8Array>));
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        (async () => {
+          await connection.agent.request('initialize', { protocolVersion: sdk.PROTOCOL_VERSION, clientInfo: { name: 'Plangent', version: '0.1.6' }, clientCapabilities: {} });
+          return saveAcpOptions(agentId, await connection.agent.request('session/new', { cwd: os.tmpdir(), mcpServers: [] }));
+        })(),
+        new Promise<never>((_, reject) => { child.on('error', reject); timer = setTimeout(() => reject(new Error('Агент не ответил за 90 секунд')), 90_000); }),
+      ]);
+    } finally {
+      clearTimeout(timer);
+      connection.close();
+      await terminate(child.pid);
+    }
+  })().finally(() => probes.delete(agentId));
+  probes.set(agentId, job);
+  return job;
+}
+/** Chat transcript for an agent that lost its own memory of the conversation. */
+function transcript(id: string): string {
+  return history(id).filter(e => e.type === 'user' || e.type === 'assistant').map(e => `${e.type}: ${e.payload.text ?? ''}`).join('\n').slice(-60_000);
+}
 function flush(id: string, state: LiveSession): void {
   if (state.text) addEvent(id, state.textType, { text: state.text });
   state.text = '';
@@ -54,6 +108,12 @@ function update(id: string, notification: ACP.SessionNotification): void {
       state.text += event.content.text;
       broadcast({ type: 'agent_delta', sessionId: id, kind: type, text: event.content.text });
     } else addEvent(id, 'content', { content: event.content });
+  } else if (event.sessionUpdate === 'usage_update') {
+    // Status-bar data, not conversation: keep it in metadata and don't split the streamed message.
+    const session = getSession(id);
+    updateSession(id, { metadata: { ...session.metadata, usage: { used: event.used, size: event.size, cost: event.cost ?? (session.metadata.usage as { cost?: unknown } | undefined)?.cost } } });
+  } else if (event.sessionUpdate === 'current_mode_update') {
+    rememberMode(id, event.currentModeId);
   } else {
     flush(id, state);
     addEvent(id, event.sessionUpdate, event as unknown as Record<string, unknown>);
@@ -63,6 +123,15 @@ function update(id: string, notification: ACP.SessionNotification): void {
     }
   }
 }
+function rememberMode(id: string, modeId: string): void {
+  const session = getSession(id);
+  const modes = session.metadata.modes as ACP.SessionModeState | undefined;
+  const configOptions = (session.metadata.configOptions as ACP.SessionConfigOption[] | undefined)
+    ?.map(o => o.category === 'mode' ? { ...o, currentValue: modeId } as ACP.SessionConfigOption : o);
+  updateSession(id, { metadata: { ...session.metadata, ...(modes ? { modes: { ...modes, currentModeId: modeId } } : {}), ...(configOptions ? { configOptions } : {}) } });
+}
+/** Modes that skip permission prompts would bypass Plangent's own policy, so they are never offered. */
+export const isBypassMode = (modeId: string) => /bypass|full.?access|yolo|dangerous/i.test(modeId);
 async function permission(id: string, request: ACP.RequestPermissionRequest): Promise<ACP.RequestPermissionResponse> {
   const session = getSession(id);
   const state = live.get(id)!;
@@ -102,10 +171,7 @@ async function boot(id: string): Promise<LiveSession> {
   const project = getProject(session.project_id);
   if (!agent || !project) throw new Error('Агент или проект не найден');
   const sdk = await loadSdk();
-  const preset = agent.id === 'agent-claude' ? adapterPresets.claude : agent.id === 'agent-codex' ? adapterPresets.codex : null;
-  const command = agent.acp_command || preset?.command;
-  const args = agent.acp_command ? agent.acp_args ?? [] : preset?.args ?? [];
-  if (!command) throw new Error(`У агента «${agent.name}» не задана ACP-команда. Укажите её в настройках агента.`);
+  const { command, args } = adapterCommand(agent);
   updateSession(id, { status: 'starting', reason: '' });
   const child = spawn(command, args, { cwd: project.repo_path, env: { ...process.env, ...agent.env, ...project.config.extra_env },
     stdio: 'pipe', windowsHide: true, detached: process.platform !== 'win32' });
@@ -139,23 +205,52 @@ async function boot(id: string): Promise<LiveSession> {
     if (session.acp_session_id && !initialized.agentCapabilities?.loadSession) {
       throw new Error('Адаптер не поддерживает восстановление. Начните новый чат с контекстом.');
     }
-    const response = session.acp_session_id
-      ? await connection.agent.request('session/load', { sessionId: session.acp_session_id, cwd: project.repo_path, mcpServers })
-      : await connection.agent.request('session/new', { cwd: project.repo_path, mcpServers });
+    let response: ACP.NewSessionResponse | ACP.LoadSessionResponse;
+    if (session.acp_session_id) {
+      try {
+        response = await connection.agent.request('session/load', { sessionId: session.acp_session_id, cwd: project.repo_path, mcpServers });
+      } catch (error) {
+        if ((error as { code?: number }).code !== -32002 && !/resource not found/i.test(String(error))) throw error;
+        // The agent never persisted this conversation (no finished turn before a restart). Start fresh
+        // and hand it the chat transcript with the next prompt instead of failing forever.
+        response = await connection.agent.request('session/new', { cwd: project.repo_path, mcpServers });
+        const hasHistory = history(id).some(e => e.type === 'user' || e.type === 'assistant');
+        updateSession(id, { metadata: { ...getSession(id).metadata, needsContext: hasHistory } });
+        addEvent(id, 'notice', { text: hasHistory
+          ? 'Агент не нашёл прежнюю сессию, поэтому начата новая. История чата будет передана ему вместе со следующим сообщением.'
+          : 'Агент не нашёл прежнюю сессию, поэтому начата новая.' });
+      }
+    } else {
+      response = await connection.agent.request('session/new', { cwd: project.repo_path, mcpServers });
+      saveAcpOptions(agent.id, response);
+    }
     state.loading = false;
     updateSession(id, { acp_session_id: 'sessionId' in response ? String(response.sessionId) : session.acp_session_id,
       metadata: { ...getSession(id).metadata, ...response }, status: 'ready' });
     const modes = response.modes?.availableModes ?? [];
-    const safeMode = modes.find(m => session.policy === 'read-only' && m.id === 'plan')
+    // 'discuss' is chosen before the agent's own mode list is known; map it onto its plan/read-only mode.
+    const preferred = getSession(id).metadata.preferredMode as string | undefined;
+    const discuss = session.policy === 'read-only' || preferred === 'discuss';
+    const safeMode = (preferred && !isBypassMode(preferred) ? modes.find(m => m.id === preferred) : undefined)
+      ?? (discuss ? modes.find(m => /^plan$|read.?only/i.test(m.id)) : undefined)
       ?? modes.find(m => m.id === 'default') ?? modes.find(m => m.id === 'read-only');
-    if (safeMode) await connection.agent.request('session/set_mode', { sessionId: getSession(id).acp_session_id!, modeId: safeMode.id });
+    if (safeMode) {
+      await connection.agent.request('session/set_mode', { sessionId: getSession(id).acp_session_id!, modeId: safeMode.id });
+      rememberMode(id, safeMode.id);
+    }
     else if (modes.some(m => /bypass|full.access|auto/i.test(m.id)) && modes.length) {
       throw new Error('Адаптер не предлагает режим с запросами разрешений');
     }
     if (session.model) await setModel(id, session.model);
-    const effort = session.metadata.reasoningEffort || agent.reasoning_effort;
+    // Re-apply options chosen in the UI (reasoning depth, Codex "plan first", …); the agent's
+    // configured reasoning effort is only the fallback default.
+    const preferredConfig = { ...(getSession(id).metadata.preferredConfig as Record<string, string> | undefined) };
     const effortOption = response.configOptions?.find(o => o.category === 'thought_level');
-    if (effort && effortOption) await connection.agent.request('session/set_config_option', { sessionId: getSession(id).acp_session_id!, configId: effortOption.id, value: String(effort) });
+    const effort = session.metadata.reasoningEffort || agent.reasoning_effort;
+    if (effortOption && effort && !(effortOption.id in preferredConfig)) preferredConfig[effortOption.id] = String(effort);
+    for (const [configId, value] of Object.entries(preferredConfig)) {
+      if (response.configOptions?.some(o => o.id === configId && o.category !== 'model' && o.category !== 'mode')) await setConfig(id, configId, value);
+    }
     return state;
   } catch (error) {
     failed(String(error));
@@ -169,9 +264,36 @@ export async function setModel(id: string, model: string): Promise<void> {
   const session = getSession(id);
   const options = session.metadata.configOptions as ACP.SessionConfigOption[] | undefined;
   const option = options?.find(o => o.category === 'model');
-  if (option) await state.connection.agent.request('session/set_config_option', { sessionId: session.acp_session_id!, configId: option.id, value: model });
-  else await state.connection.agent.request('session/set_model', { sessionId: session.acp_session_id!, modelId: model });
+  if (option) {
+    const result = await state.connection.agent.request('session/set_config_option', { sessionId: session.acp_session_id!, configId: option.id, value: model });
+    if (result?.configOptions) updateSession(id, { metadata: { ...getSession(id).metadata, configOptions: result.configOptions } });
+  } else await state.connection.agent.request('session/set_model', { sessionId: session.acp_session_id!, modelId: model });
   updateSession(id, { model });
+}
+/** Any other agent option (reasoning depth, Codex collaboration mode, …); remembered so a restarted session keeps it. */
+export async function setConfig(id: string, configId: string, value: string): Promise<void> {
+  const session = getSession(id);
+  const option = (session.metadata.configOptions as ACP.SessionConfigOption[] | undefined)?.find(o => o.id === configId);
+  if (!option) throw new Error('Агент не поддерживает эту настройку');
+  if (option.category === 'mode') return setMode(id, value);
+  if (option.category === 'model') return setModel(id, value);
+  updateSession(id, { metadata: { ...session.metadata, preferredConfig: { ...(session.metadata.preferredConfig as Record<string, string> | undefined), [configId]: value } } });
+  const state = live.get(id);
+  if (!state || !session.acp_session_id) return; // applied when the session next starts
+  const result = await state.connection.agent.request('session/set_config_option', { sessionId: session.acp_session_id, configId, value });
+  if (result?.configOptions) updateSession(id, { metadata: { ...getSession(id).metadata, configOptions: result.configOptions } });
+}
+export async function setMode(id: string, modeId: string): Promise<void> {
+  if (isBypassMode(modeId)) throw new Error('Этот режим недоступен: он отключает запросы разрешений');
+  const session = getSession(id);
+  updateSession(id, { metadata: { ...session.metadata, preferredMode: modeId } });
+  const state = live.get(id);
+  if (state && !state.loading && !starting.has(id) && session.acp_session_id) {
+    const option = (session.metadata.configOptions as ACP.SessionConfigOption[] | undefined)?.find(o => o.category === 'mode');
+    if (option) await state.connection.agent.request('session/set_config_option', { sessionId: session.acp_session_id, configId: option.id, value: modeId });
+    else await state.connection.agent.request('session/set_mode', { sessionId: session.acp_session_id, modeId });
+  }
+  rememberMode(id, modeId); // otherwise applied when the session next starts
 }
 export async function enableExecution(id: string): Promise<void> {
   const state = await startSession(id);
@@ -190,8 +312,12 @@ export async function sendPrompt(id: string, content: ACP.ContentBlock[]): Promi
   const session = getSession(id);
   const text = content.filter(c => c.type === 'text').map(c => (c as ACP.TextContent).text).join('\n');
   updateSession(id, { status: 'thinking', reason: '', ...(session.title === 'Новый чат' ? { title: text.slice(0, 60) || 'Вложение' } : {}) });
+  const prompt = session.metadata.needsContext
+    ? [{ type: 'text' as const, text: `Контекст предыдущего разговора (может быть обрезан):\n${transcript(id)}\n\nНовое сообщение:` }, ...content]
+    : content;
+  if (session.metadata.needsContext) updateSession(id, { metadata: { ...getSession(id).metadata, needsContext: false } });
   addEvent(id, 'user', { content, text });
-  void state.connection.agent.request('session/prompt', { sessionId: session.acp_session_id!, prompt: content }).then(result => {
+  void state.connection.agent.request('session/prompt', { sessionId: session.acp_session_id!, prompt }).then(result => {
     flush(id, state);
     addEvent(id, 'turn_end', { stopReason: result.stopReason });
     const latest = getSession(id);

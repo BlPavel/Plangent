@@ -2,19 +2,22 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { api } from '@core/api'
 import { platform } from '@core/platform'
+import type { AgentOptionsSource } from '../utils/agent-options'
 export interface ChatSession {
   id: string; project_id: string; task_id: string | null; agent_id: string; model: string;
   title: string; status: string; reason: string; policy: string; role: string;
-  metadata: Record<string, unknown>;
+  metadata: Record<string, unknown>; created_at?: string; updated_at?: string;
 }
 export interface ChatPayload {
-  text?: string; toolCallId?: string; title?: string; status?: string; rawOutput?: unknown;
+  text?: string; toolCallId?: string; title?: string; status?: string; kind?: string; rawOutput?: unknown;
   content?: { type: string; path?: string; oldText?: string; newText?: string; content?: { text?: string } }[];
   entries?: { status: string; content: string }[];
   availableCommands?: { name: string; description: string }[];
   file?: string; line?: number; severity?: string; message?: string;
-  verdict?: string;
+  verdict?: string; summary?: string; question?: string; note?: string;
 }
+export interface LimitWindow { id: string; label: string; percent: number; resetsAt: number | null }
+export interface AgentLimits { agentId: string; at: number; windows: LimitWindow[]; error?: string }
 export interface ChatEvent { seq: number; session_id: string; type: string; payload: ChatPayload }
 export interface ChatSnapshot {
   session: ChatSession; events: ChatEvent[];
@@ -39,6 +42,14 @@ export const useChatStore = defineStore('agent-chat', () => {
     snapshots.value[id] = snap
     put(snap.session)
   }
+  function drop(id: string) {
+    sessions.value = sessions.value.filter(s => s.id !== id)
+    delete snapshots.value[id]
+  }
+  async function remove(id: string) {
+    await api.delete(`/agent-sessions/${id}`)
+    drop(id)
+  }
   async function connect() {
     if (connecting || socket) return
     connecting = true
@@ -52,6 +63,7 @@ export const useChatStore = defineStore('agent-chat', () => {
       socket.onmessage = message => {
         const event = JSON.parse(message.data)
         if (event.type === 'agent_session') put(event.session)
+        if (event.type === 'agent_session_deleted') drop(event.sessionId)
         const id = event.sessionId ?? event.event?.session_id ?? event.session?.id
         const snap = snapshots.value[id]
         if (!snap) return
@@ -69,9 +81,39 @@ export const useChatStore = defineStore('agent-chat', () => {
     } catch { setTimeout(() => void connect(), 2000) }
     finally { connecting = false }
   }
+  // Subscription limits are per account, so they live per agent, not per chat.
+  const limits = ref<Record<string, AgentLimits>>({})
+  const inflight = new Map<string, Promise<void>>()
+  function fetchLimits(agentId: string, force = false) {
+    if (!agentId) return Promise.resolve()
+    if (inflight.has(agentId)) return inflight.get(agentId)!
+    const job = api.get<AgentLimits>(`/agents/${agentId}/limits${force ? '?refresh=1' : ''}`)
+      .then(value => { limits.value[agentId] = value })
+      .catch(() => {})
+      .finally(() => inflight.delete(agentId))
+    inflight.set(agentId, job)
+    return job
+  }
+  // Models/modes/reasoning levels an agent offers, as it reported them (first fetch may take a few seconds).
+  const agentOptions = ref<Record<string, AgentOptionsSource | { error: string }>>({})
+  const optionJobs = new Map<string, Promise<void>>()
+  function fetchAgentOptions(agentId: string, refresh = false) {
+    if (!agentId) return Promise.resolve()
+    if (optionJobs.has(agentId)) return optionJobs.get(agentId)!
+    const job = api.get<AgentOptionsSource>(`/agents/${agentId}/acp-options${refresh ? '?refresh=1' : ''}`)
+      .then(value => { agentOptions.value[agentId] = value })
+      .catch(e => { agentOptions.value[agentId] = { error: e instanceof Error ? e.message : String(e) } })
+      .finally(() => optionJobs.delete(agentId))
+    optionJobs.set(agentId, job)
+    return job
+  }
   function waiting(projectId: string) { return sessions.value.filter(s => s.project_id === projectId && s.status === 'waiting').length }
-  return { sessions, snapshots, connect, load, put, waiting }
+  return { sessions, snapshots, limits, agentOptions, connect, load, put, remove, waiting, fetchLimits, fetchAgentOptions }
 })
 export function statusLabel(status: string) {
-  return ({ starting: 'Запускается', thinking: '● Думает', waiting: '! Ждёт вас', ready: '○ Готов', complete: '✓ Завершён', error: '✕ Ошибка' } as Record<string, string>)[status] ?? status
+  return ({ starting: 'Подключается', thinking: 'Думает', waiting: 'Ждёт вас', ready: 'Готов', complete: 'Завершён', error: 'Ошибка' } as Record<string, string>)[status] ?? status
+}
+/** Maps a session status onto the shared .status-badge colour classes. */
+export function statusTone(status: string) {
+  return ({ starting: 'neutral', thinking: 'open', waiting: 'progress', ready: 'done', complete: 'done', error: 'danger' } as Record<string, string>)[status] ?? 'neutral'
 }

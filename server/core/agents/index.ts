@@ -97,7 +97,13 @@ export function updateAgent(id: string, data: Partial<Omit<Agent, 'id' | 'create
 }
 
 export function deleteAgent(id: string): boolean {
-  return getDb().prepare('DELETE FROM agents WHERE id = ?').run(id).changes > 0;
+  const db = getDb();
+  const tx = db.transaction((agentId: string) => {
+    db.prepare('UPDATE projects SET default_agent_id = NULL WHERE default_agent_id = ?').run(agentId);
+    db.prepare('UPDATE runs SET agent_id = NULL WHERE agent_id = ?').run(agentId);
+    return db.prepare('DELETE FROM agents WHERE id = ?').run(agentId).changes > 0;
+  });
+  return tx(id);
 }
 
 export async function updateAgentCli(id: string): Promise<{ output: string }> {

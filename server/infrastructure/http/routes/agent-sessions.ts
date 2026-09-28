@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import type { ContentBlock } from '@agentclientprotocol/sdk';
-import { createSession, listSessions, getSession, updateSession, history, findings } from '../../../core/agent-sessions/sessions';
-import { startSession, sendPrompt, cancelSession, closeSession, answerPermission, setModel, snapshot, adapterPresets } from '../../../core/agent-sessions/acp-host';
+import { createSession, listSessions, getSession, updateSession, deleteSession, history, findings } from '../../../core/agent-sessions/sessions';
+import { startSession, sendPrompt, cancelSession, closeSession, answerPermission, setModel, setMode, setConfig, snapshot, adapterPresets } from '../../../core/agent-sessions/acp-host';
 import { editQueued } from '../../../core/agent-sessions/prompt-queue';
 import { getProject } from '../../../core/projects';
 import { getAgent } from '../../../core/agents';
@@ -12,9 +12,10 @@ agentSessionsRouter.get('/', (req, res) => res.json(listSessions(typeof req.quer
 agentSessionsRouter.get('/presets', (_req, res) => res.json(adapterPresets));
 agentSessionsRouter.post('/', async (req, res) => {
   try {
-    const { project_id, agent_id, model } = req.body;
+    const { project_id, agent_id, model, mode, config } = req.body;
+    const policy = ['ask', 'allow-edits', 'allow-all', 'read-only'].includes(req.body.policy) ? req.body.policy : 'ask';
     if (!getProject(project_id) || !getAgent(agent_id)) return res.status(400).json({ error: 'Проект или агент не найден' });
-    const session = createSession({ project_id, agent_id, model, role: 'chat', policy: 'ask' });
+    const session = createSession({ project_id, agent_id, model, role: 'chat', policy, metadata: { ...(typeof mode === 'string' && mode ? { preferredMode: mode } : {}), ...(config && typeof config === 'object' ? { preferredConfig: Object.fromEntries(Object.entries(config).map(([k, v]) => [k, String(v)])) } : {}) } });
     res.status(201).json(session);
     void startSession(session.id).catch(() => {});
   } catch (e) { res.status(400).json({ error: String(e) }); }
@@ -43,6 +44,8 @@ agentSessionsRouter.post('/:id/:action', async (req, res) => {
       case 'retry': await closeSession(id); await startSession(id); break;
       case 'permission': answerPermission(id, req.body.permissionId, req.body.optionId); break;
       case 'model': await setModel(id, req.body.model); break;
+      case 'mode': await setMode(id, String(req.body.mode)); break;
+      case 'config': await setConfig(id, String(req.body.configId), String(req.body.value)); break;
       case 'context': {
         const next = createSession({ project_id: session.project_id, agent_id: session.agent_id, role: 'chat', policy: 'ask' });
         const context = history(id).filter(e => ['user', 'assistant'].includes(e.type)).map(e => `${e.type}: ${e.payload.text ?? ''}`).join('\n').slice(-60_000);
@@ -53,6 +56,14 @@ agentSessionsRouter.post('/:id/:action', async (req, res) => {
     }
     res.json(snapshot(id));
   } catch (e) { res.status(400).json({ error: String(e) }); }
+});
+agentSessionsRouter.delete('/:id', async (req, res) => {
+  try {
+    getSession(req.params.id);
+    await closeSession(req.params.id).catch(() => {});
+    deleteSession(req.params.id);
+    res.status(204).end();
+  } catch (e) { res.status(404).json({ error: String(e) }); }
 });
 agentSessionsRouter.patch('/:id', async (req, res) => {
   try {
