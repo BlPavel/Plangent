@@ -1,7 +1,7 @@
 <template>
   <Teleport to="body">
     <Transition name="modal">
-      <div v-if="store.confirmState" class="overlay" @click.self="store.resolveConfirm(false)">
+      <div v-if="store.confirmState" class="overlay">
         <div class="modal">
           <h2 class="modal-title">{{ store.confirmState.title ?? 'Подтверждение' }}</h2>
           <p class="modal-message">{{ store.confirmState.message }}</p>

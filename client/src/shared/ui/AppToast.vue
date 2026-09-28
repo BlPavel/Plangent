@@ -6,6 +6,7 @@
         :key="t.id"
         class="toast"
         :class="t.type"
+        @click="store.dismissToast(t.id)"
       >{{ t.msg }}</div>
     </TransitionGroup>
   </div>
@@ -34,6 +35,7 @@ const store = useAppStore()
   font-size: 13px;
   max-width: 320px;
   word-break: break-word;
+  cursor: pointer;
 }
 .toast.error { border-color: var(--danger); }
 .toast.success { border-color: var(--accent); }
