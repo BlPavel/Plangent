@@ -28,9 +28,10 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
-import { Terminal } from 'xterm'
-import { FitAddon } from 'xterm-addon-fit'
-import 'xterm/css/xterm.css'
+import { Terminal } from '@xterm/xterm'
+import { FitAddon } from '@xterm/addon-fit'
+import '@xterm/xterm/css/xterm.css'
+import { WebglAddon } from '@xterm/addon-webgl'
 import { platform } from '@core/platform'
 
 const props = withDefaults(defineProps<{
@@ -317,6 +318,7 @@ function initTerminal() {
   fitAddon = new FitAddon()
   term.loadAddon(fitAddon)
   term.open(termEl.value)
+  try { const webgl = new WebglAddon(); webgl.onContextLoss(() => webgl.dispose()); term.loadAddon(webgl) } catch { /* canvas fallback */ }
 
   // Fit only if visible — if mounted while hidden (v-show=false), skip and let
   // the visible watcher handle it when the panel is shown for the first time.

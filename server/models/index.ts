@@ -13,6 +13,8 @@ export interface LayoutProfile {
 }
 
 export interface Agent {
+  acp_command?: string;
+  acp_args?: string[];
   id: string;
   name: string;
   command: string;
@@ -33,6 +35,7 @@ export interface Agent {
 }
 
 export interface ProjectConfig {
+  dangerous_commands?: string[];
   extra_env?: Record<string, string>;
 }
 
@@ -104,13 +107,18 @@ export interface OrchestratorQueueSession {
   // When true the orchestrator pauses after this session's step completes,
   // so the developer can review before the next step starts.
   pauseAfter?: boolean;
+  reviewerId?: string;
+  reviewSessionId?: string;
+  reviewRound?: number;
+  maxReviewRounds?: number;
+  reason?: string;
   // Per-run override of the agent's configured model/reasoning_effort
   // (see Agent.model / Agent.reasoning_effort) — leave unset to use the agent's default.
   model?: string;
   reasoningEffort?: string;
   runId?: string;
   sessionId?: string;
-  mode?: 'tmux' | 'pty';
+  mode?: 'acp';
 }
 
 type OrchestratorStatus = 'running' | 'paused' | 'waiting_for_developer' | 'finished' | 'failed';

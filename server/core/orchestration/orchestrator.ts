@@ -6,13 +6,14 @@ import {
 import { getTask } from '../tasks';
 import { getProject } from '../projects';
 import { getAgent } from '../agents';
-import { getLatestPlan, createPlan, parsePlanSteps } from './plans';
+import { getLatestPlan, createPlan, parsePlanSteps, setStepDone, updatePlan } from './plans';
 import { createRun, finishRun } from '../runs';
 import { updateTask } from '../tasks';
 import { resolvePlanTemplate } from '../library/plan-template';
-import { launchAgent, buildPrompt, deployClaudeStopHook, cleanupClaudeStopHook, killAgent, sendToAgent } from './agent-runtime';
-import { materializePlanFile, watchPlanFile, stopWatchPlanFile, setPlanSyncListener } from './plan-file';
-import { registerSession, removeSession, getSession } from '../sessions/session-registry';
+import { buildPrompt, EXECUTION_REPORT } from './prompts';
+import { createSession as createChat, getSession as getChat, updateSession as updateChat, history } from '../agent-sessions/sessions';
+import { sendPrompt, closeSession, cancelSession as cancelChat, enableExecution, sessionSignals } from '../agent-sessions/acp-host';
+import { materializePlanFile, watchPlanFile, stopWatchPlanFile } from './plan-file';
 import { broadcast } from '../../core/shared/events';
 import path from 'path';
 
@@ -26,6 +27,8 @@ export interface QueueSessionInput {
   // unset to use whatever the Agent row (server/core/agents) is configured with.
   model?: string;
   reasoningEffort?: string;
+  reviewerId?: string;
+  maxReviewRounds?: number;
 }
 
 // Group queued sessions into execution steps. A filled parallelGroup means
@@ -51,14 +54,22 @@ function buildSteps(sessions: OrchestratorQueueSession[]): OrchestratorQueueSess
   return steps;
 }
 
-function getCallbackUrl(): string {
-  // The packaged app receives a free ephemeral port at startup, so resolve this
-  // lazily when an agent run is launched rather than at module-import time.
-  return process.env.PLANGENT_URL ?? 'http://localhost:3001';
-}
 
 // Per-task orchestrator singleton
 const active = new Map<string, Orchestrator>();
+sessionSignals.on('turn_end', (id: string) => {
+  const chat = getChat(id);
+  if (chat.task_id) void active.get(chat.task_id)?.onChatTurnEnd(id).catch(e => active.get(chat.task_id!)?.fail(String(e)));
+});
+for (const signal of ['help', 'error-state']) sessionSignals.on(signal, (id: string, reason: string) => {
+  const chat = getChat(id);
+  const orch = chat.task_id ? active.get(chat.task_id) : undefined;
+  const session = orch?.state.sessions.find(s => s.sessionId === id || s.reviewSessionId === id);
+  if (session && !['complete', 'failed'].includes(session.status)) {
+    session.status = 'waiting_for_developer'; session.reason = reason;
+    broadcast({ type: 'session_waiting', taskId: chat.task_id, sessionId: session.id, message: reason });
+  }
+});
 
 export function getOrchestrator(taskId: string): Orchestrator | undefined {
   return active.get(taskId);
@@ -68,23 +79,52 @@ export function removeOrchestrator(taskId: string): void {
   active.delete(taskId);
 }
 
-// When a plan file is synced to the DB, let the matching orchestrator check whether
-// any running session has now completed all its assigned points.
-setPlanSyncListener((taskId: string) => {
-  const orch = active.get(taskId);
-  if (orch) {
-    orch.onPlanUpdated().catch(e => console.error('[orchestrator] onPlanUpdated error:', e));
-  }
-});
 
 export class Orchestrator {
+  async onChatTurnEnd(id: string): Promise<void> {
+    if (this.state.status === 'failed') return;
+    const session = this.state.sessions.find(s => s.sessionId === id || s.reviewSessionId === id);
+    if (!session || ['complete', 'failed'].includes(session.status)) return;
+    const chat = getChat(id);
+    if (session.reviewSessionId === id) {
+      if (chat.status === 'complete' && chat.reason === 'approved') {
+        session.status = 'running'; await this.completeSession(session); return;
+      }
+      if (chat.status === 'complete' && (session.reviewRound ?? 0) < (session.maxReviewRounds ?? 2)) {
+        const findings = history(id).filter(e => e.type === 'add_finding').map(e => e.payload);
+        updateChat(session.sessionId!, { status: 'ready' }); session.status = 'running';
+        await sendPrompt(session.sessionId!, [{ type: 'text', text: `Исправь замечания ревью:\n${JSON.stringify(findings)}${EXECUTION_REPORT}` }]); return;
+      }
+      session.status = 'waiting_for_developer'; session.reason = 'Ревью требует внимания: нет вердикта или достигнут предел кругов';
+      updateChat(session.sessionId!, { status: 'waiting', reason: session.reason });
+      broadcast({ type: 'session_waiting', taskId: this.state.taskId, sessionId: session.id, message: session.reason }); return;
+    }
+    if (chat.policy === 'read-only') { await this.markReadyForExecution(session.id); return; }
+    if (chat.status === 'complete' && session.reviewerId) {
+      const reviewer = createChat({ project_id: this.state.projectId, task_id: this.state.taskId,
+        agent_id: session.reviewerId, step_ids: session.points, role: 'reviewer', policy: 'read-only', title: `Ревью · ${session.points.join(', ')}` });
+      updateChat(reviewer.id, { metadata: { reviewContext: history(id).filter(e => ['assistant', 'complete_step'].includes(e.type)).map(e => e.payload) } });
+      session.reviewSessionId = reviewer.id; session.reviewRound = (session.reviewRound ?? 0) + 1; session.status = 'reviewing';
+      broadcast({ type: 'review_started', taskId: this.state.taskId, sessionId: session.id, reviewSessionId: reviewer.id });
+      await sendPrompt(reviewer.id, [{ type: 'text', text: `Review changes for steps ${session.points.join(', ')}. Do not edit files. Use get_review_context, inspect the files, report actionable findings using add_finding and finish with submit_review (approved or changes_requested).` }]); return;
+    }
+    if (chat.status === 'complete') { session.status = 'running'; await this.completeSession(session); }
+    else {
+      session.status = 'waiting_for_developer'; session.reason = chat.reason || 'Агент остановился без отчёта';
+      broadcast({ type: 'session_waiting', taskId: this.state.taskId, sessionId: session.id, message: session.reason });
+    }
+  }
+  async restartSession(id: string): Promise<void> {
+    const session = this.state.sessions.find(s => s.id === id);
+    if (!session || session.status === 'complete') return;
+    await this.killSessionProcess(session);
+    if (session.runId) finishRun(session.runId, 'interrupted');
+    session.reviewSessionId = undefined; session.reviewRound = 0;
+    await this.launchSession(session);
+  }
   readonly state: OrchestratorState;
   private steps: OrchestratorQueueSession[][];
   private stepIndex = 0;
-  // Repo path where the (generic, env-driven) Claude Stop hook was deployed.
-  // The hook is shared by every run in this repo, so it is cleaned up once when
-  // the queue finishes — not per run.
-  private hookRepoPath: string | null = null;
 
   constructor(taskId: string, projectId: string, sessions: OrchestratorQueueSession[]) {
     this.state = {
@@ -164,78 +204,22 @@ export class Orchestrator {
       agent_name: agent.name,
     });
 
-    const sessionId = `plangent-${task.key.replace(/[^a-zA-Z0-9]/g, '-')}-${run.id.slice(0, 8)}`;
-
-    // Extra env vars for callback
-    const extraEnv: Record<string, string> = {
-      ...(project.config.extra_env ?? {}),
-      PLANGENT_RUN_ID: run.id,
-      PLANGENT_PROJECT_ID: projectId,
-      PLANGENT_TASK_ID: taskId,
-      PLANGENT_CALLBACK_URL: getCallbackUrl(),
-    };
-
-    // Deploy Stop hook for Claude Code. The hook command is generic (it reads
-    // $PLANGENT_RUN_ID etc. from the agent's env), so a single hook serves every
-    // run in this repo — including parallel sessions — without clobbering.
-    if (agent.id === 'agent-claude') {
-      try {
-        deployClaudeStopHook(project.repo_path, getCallbackUrl());
-        this.hookRepoPath = project.repo_path;
-      } catch (e) {
-        console.warn('[orchestrator] Could not deploy stop hook:', e);
-      }
-    }
-
+    const chat = createChat({ project_id: projectId, task_id: taskId, run_id: run.id,
+      metadata: { reasoningEffort: agent.reasoning_effort },
+      agent_id: agent.id, model: agent.model, step_ids: session.points, role: 'executor',
+      policy: session.queueMode === 'review_first' ? 'read-only' : 'allow-all', title: task.key + ' ? ' + session.points.join(', ') });
+    session.runId = run.id;
+    session.sessionId = chat.id;
+    session.mode = 'acp';
+    session.status = session.queueMode === 'review_first' ? 'reviewing' : 'running';
+    broadcast({ type: 'session_started', taskId, sessionId: session.id, runId: run.id, terminalSessionId: chat.id, mode: 'acp', points: session.points });
     try {
-      const result = await launchAgent(agent, project.repo_path, sessionId, extraEnv, prompt);
-      session.runId = run.id;
-      session.sessionId = sessionId;
-      session.mode = result.mode;
-      session.status = session.queueMode === 'review_first' ? 'reviewing' : 'running';
-
-      registerSession(run.id, {
-        sessionId,
-        mode: result.mode,
-        projectId,
-        taskId,
-      });
-
-      broadcast({
-        type: 'session_started',
-        taskId,
-        sessionId: session.id,
-        runId: run.id,
-        terminalSessionId: sessionId,
-        mode: result.mode,
-        points: session.points,
-      });
-
-      // Fallback: if no Stop hook fires within 5 minutes, surface a warning
-      setTimeout(() => {
-        if (session.status === 'running' || session.status === 'reviewing') {
-          broadcast({
-            type: 'session_no_signal',
-            taskId,
-            sessionId: session.id,
-            runId: run.id,
-            message: 'No completion signal received yet — agent may still be working or needs input.',
-          });
-        }
-      }, 5 * 60 * 1000);
+      await sendPrompt(chat.id, [{ type: 'text', text: prompt + (session.queueMode === 'review_first' ? '' : EXECUTION_REPORT) }]);
     } catch (err) {
-      session.status = 'failed';
-      finishRun(run.id, 'failed', String(err));
-      broadcast({ type: 'session_failed', taskId, sessionId: session.id, reason: String(err) });
+      session.status = 'waiting_for_developer';
+      session.reason = String(err);
+      broadcast({ type: 'session_waiting', taskId, sessionId: session.id, message: String(err) });
     }
-  }
-
-  // True when every point assigned to this session is checked off in the plan.
-  private sessionPointsDone(session: OrchestratorQueueSession): boolean {
-    const plan = getLatestPlan(this.state.taskId);
-    const steps = plan ? parsePlanSteps(plan.content) : [];
-    return session.points.length > 0 &&
-      session.points.every(pid => steps.some(s => s.id === pid && s.done));
   }
 
   // Mark a running session complete and advance the queue. The agent process is
@@ -244,80 +228,23 @@ export class Orchestrator {
   private async completeSession(session: OrchestratorQueueSession): Promise<void> {
     if (session.status !== 'running') return;
     session.status = 'complete';
+    const plan = getLatestPlan(this.state.taskId), task = getTask(this.state.taskId), project = getProject(this.state.projectId);
+    if (plan && task && project) {
+      let content = plan.content;
+      for (const step of parsePlanSteps(content)) if (step.id && session.points.includes(step.id)) content = setStepDone(content, step.index, true);
+      materializePlanFile(task, updatePlan(plan.id, content)!, project.repo_path);
+      broadcast({ type: 'plan_updated', taskId: task.id });
+    }
     if (session.runId) finishRun(session.runId, 'completed');
     broadcast({ type: 'session_complete', taskId: this.state.taskId, sessionId: session.id, runId: session.runId });
     await this.maybeAdvance();
   }
 
-  // Primary completion path: the plan file changed. If a running session has all of
-  // its assigned points checked off, it's done — regardless of any stop signal.
-  async onPlanUpdated(): Promise<void> {
-    if (this.state.status !== 'running') return;
-    for (const session of this.state.sessions) {
-      if (session.status === 'running' && this.sessionPointsDone(session)) {
-        await this.completeSession(session);
-      }
-    }
-  }
-
-  // Secondary signal: the agent reported it stopped. If its points are all done we
-  // complete it; otherwise it stopped early — ask the developer to review/continue.
-  async onAgentStopped(runId: string): Promise<void> {
-    const session = this.state.sessions.find(s => s.runId === runId);
-    if (!session) return;
-
-    const { taskId } = this.state;
-    if (session.status === 'ready_for_execution' || session.status === 'waiting_for_developer') {
-      broadcast({
-        type: 'session_idle',
-        taskId,
-        sessionId: session.id,
-        runId,
-        terminalSessionId: session.sessionId,
-      });
-      return;
-    }
-
-    if (session.status !== 'running' && session.status !== 'reviewing') return;
-
-    if (session.queueMode === 'review_first' && session.status === 'reviewing') {
-      session.status = 'ready_for_execution';
-      this.state.status = 'paused';
-      broadcast({
-        type: 'session_ready_for_execution',
-        taskId,
-        sessionId: session.id,
-        runId,
-        terminalSessionId: session.sessionId,
-        message: 'Ознакомление завершено. Можно обсудить детали или запустить выполнение.',
-      });
-      return;
-    }
-
-    if (this.sessionPointsDone(session)) {
-      await this.completeSession(session);
-    } else {
-      session.status = 'waiting_for_developer';
-      broadcast({
-        type: 'session_waiting',
-        taskId,
-        sessionId: session.id,
-        runId,
-        terminalSessionId: session.sessionId,
-        message: 'Agent stopped but not all assigned steps are checked off. Please review and continue.',
-      });
-    }
-  }
-
   // Kill the live agent process for a session (if still running) without touching its
   // run record. Used to tear down agents once the queue moves past their step.
   private async killSessionProcess(session: OrchestratorQueueSession): Promise<void> {
-    if (!session.runId) return;
-    const live = getSession(session.runId);
-    if (live) {
-      try { await killAgent(live.sessionId, live.mode); } catch {}
-      removeSession(session.runId);
-    }
+    if (session.sessionId) await closeSession(session.sessionId);
+    if (session.reviewSessionId) await closeSession(session.reviewSessionId);
   }
 
   private async killStepAgents(step: OrchestratorQueueSession[]): Promise<void> {
@@ -336,6 +263,8 @@ export class Orchestrator {
     const session = this.state.sessions.find(s => s.id === sessionId);
     if (!session) return;
     if (session.status === 'complete' || session.status === 'failed') return;
+    if (session.sessionId) { await cancelChat(session.sessionId); updateChat(session.sessionId, { status: 'complete' }); }
+    if (session.reviewSessionId) await closeSession(session.reviewSessionId);
     session.status = 'complete';
     if (session.runId) finishRun(session.runId, 'completed');
     broadcast({ type: 'session_complete', taskId: this.state.taskId, sessionId: session.id, runId: session.runId });
@@ -369,7 +298,8 @@ export class Orchestrator {
     session.status = 'running';
     this.state.status = 'running';
     broadcast({ type: 'queue_resumed', taskId: this.state.taskId });
-    await sendToAgent(session.sessionId, session.mode, prompt);
+    await enableExecution(session.sessionId);
+    await sendPrompt(session.sessionId, [{ type: 'text', text: prompt + EXECUTION_REPORT }]);
   }
 
   async markReadyForExecution(sessionId: string): Promise<void> {
@@ -436,16 +366,9 @@ export class Orchestrator {
     await this.executeStep();
   }
 
-  private cleanupHook(): void {
-    if (this.hookRepoPath) {
-      try { cleanupClaudeStopHook(this.hookRepoPath); } catch {}
-      this.hookRepoPath = null;
-    }
-  }
 
   private async finish(): Promise<void> {
     this.state.status = 'finished';
-    this.cleanupHook();
     // Stop watcher keyed by task.key
     const task = getTask(this.state.taskId);
     if (task) stopWatchPlanFile(task.key);
@@ -456,7 +379,6 @@ export class Orchestrator {
   fail(reason: string): void {
     this.state.status = 'failed';
     void this.killAllAgents();
-    this.cleanupHook();
     broadcast({ type: 'run_failed', taskId: this.state.taskId, reason });
     active.delete(this.state.taskId);
   }

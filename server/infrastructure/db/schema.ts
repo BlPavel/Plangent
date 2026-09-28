@@ -3,7 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import os from 'os';
 
-const DATA_DIR = path.join(process.cwd(), 'data');
+const DATA_DIR = process.env.PLANGENT_DATA_DIR || path.join(process.cwd(), 'data');
 const DB_PATH = path.join(DATA_DIR, 'plangent.db');
 
 let _db: Database.Database | null = null;
@@ -116,6 +116,8 @@ function migrate(db: Database.Database): void {
   try { db.exec(`ALTER TABLE agents ADD COLUMN update_command TEXT NOT NULL DEFAULT ''`); } catch { /* already exists */ }
   try { db.exec(`ALTER TABLE projects ADD COLUMN hide_from_git INTEGER NOT NULL DEFAULT 1`); } catch { /* already exists */ }
 
+  try { db.exec(`ALTER TABLE agents ADD COLUMN acp_command TEXT NOT NULL DEFAULT ''`); } catch { /* exists */ }
+  try { db.exec(`ALTER TABLE agents ADD COLUMN acp_args TEXT NOT NULL DEFAULT '[]'`); } catch { /* exists */ }
   seedDefaultAgents(db);
   migrateData(db);
 }
@@ -143,7 +145,7 @@ function seedDefaultAgents(db: Database.Database): void {
       'Claude Code',
       'claude',
       'npm update -g @anthropic-ai/claude-code',
-      '["--dangerously-skip-permissions", "--model", "{model}", "--effort", "{reasoning}"]',
+      '["--model", "{model}", "--effort", "{reasoning}"]',
       '{}',
       '.claude/commands',
       'plangent.md',
@@ -156,7 +158,7 @@ function seedDefaultAgents(db: Database.Database): void {
       'Codex CLI',
       'codex',
       'npm install -g @openai/codex@latest',
-      '["--dangerously-bypass-approvals-and-sandbox", "--model", "{model}", "-c", "model_reasoning_effort={reasoning}"]',
+      '["--model", "{model}", "-c", "model_reasoning_effort={reasoning}"]',
       '{}',
       '',
       'AGENTS.md',
@@ -203,6 +205,14 @@ function seedOptionsIfEmpty(db: Database.Database, agentId: string, modelOptions
   }
 }
 
+function stripDeadArgs(db: Database.Database, agentId: string, deadFlags: string[]): void {
+  const row = db.prepare(`SELECT args FROM agents WHERE id = ?`).get(agentId) as { args: string } | undefined;
+  if (!row) return;
+  const args: string[] = JSON.parse(row.args || '[]');
+  if (!args.some(a => deadFlags.includes(a))) return;
+  db.prepare(`UPDATE agents SET args = ? WHERE id = ?`).run(JSON.stringify(args.filter(a => !deadFlags.includes(a))), agentId);
+}
+
 function seedUpdateCommandIfEmpty(db: Database.Database, agentId: string, updateCommand: string): void {
   const row = db.prepare(`SELECT update_command FROM agents WHERE id = ?`).get(agentId) as
     { update_command: string } | undefined;
@@ -215,8 +225,14 @@ function migrateData(db: Database.Database): void {
   // Fix codex args if they were seeded with empty array
   const codex = db.prepare(`SELECT args FROM agents WHERE id = 'agent-codex'`).get() as { args: string } | undefined;
   if (codex && codex.args === '[]') {
-    db.prepare(`UPDATE agents SET args = '["--dangerously-bypass-approvals-and-sandbox"]' WHERE id = 'agent-codex'`).run();
+    db.prepare(`UPDATE agents SET args = '[]' WHERE id = 'agent-codex'`).run();
   }
+
+  // ACP adapters run under an explicit permission policy (see agent-sessions/permissions.ts);
+  // the old PTY-era "skip all confirmations" CLI flags are dead weight now and only
+  // misleading if left in existing installs' agent args.
+  stripDeadArgs(db, 'agent-claude', ['--dangerously-skip-permissions']);
+  stripDeadArgs(db, 'agent-codex', ['--dangerously-bypass-approvals-and-sandbox']);
 
   // Backfill layout_profile for existing agents that were seeded before this column existed
   const claudeNoLayout = db.prepare(`SELECT id FROM agents WHERE id = 'agent-claude' AND layout_profile IS NULL`).get();
@@ -236,7 +252,7 @@ function migrateData(db: Database.Database): void {
   seedUpdateCommandIfEmpty(db, 'agent-codex', 'npm install -g @openai/codex@latest');
 
   // Legacy common plan protocol is now runtime instructions, not a user-facing global skill.
-  removeLegacyGlobalRuntimeInstructions(db);
+  // Historical filesystem cleanup is no longer performed at startup.
   migrateOldSkills(db);
 }
 

@@ -9,6 +9,7 @@ const execAsync = promisify(exec);
 function parse(row: Record<string, unknown>): Agent {
   return {
     ...(row as Omit<Agent, 'args' | 'env' | 'layout_profile' | 'model_options' | 'reasoning_options' | 'active'>),
+    acp_args: JSON.parse(row.acp_args as string || '[]'),
     args: JSON.parse(row.args as string || '[]'),
     env: JSON.parse(row.env as string || '{}'),
     layout_profile: row.layout_profile ? JSON.parse(row.layout_profile as string) : null,
@@ -31,6 +32,8 @@ export function getAgent(id: string): Agent | null {
 }
 
 export function createAgent(data: {
+  acp_command?: string;
+  acp_args?: string[];
   name: string;
   command: string;
   update_command?: string;
@@ -63,6 +66,7 @@ export function createAgent(data: {
     JSON.stringify(data.model_options ?? []),
     JSON.stringify(data.reasoning_options ?? []),
   );
+  if (data.acp_command) getDb().prepare('UPDATE agents SET acp_command=?, acp_args=? WHERE id=?').run(data.acp_command, JSON.stringify(data.acp_args ?? []), id);
   return getAgent(id)!;
 }
 
@@ -88,6 +92,7 @@ export function updateAgent(id: string, data: Partial<Omit<Agent, 'id' | 'create
     JSON.stringify(u.model_options), JSON.stringify(u.reasoning_options),
     u.active ? 1 : 0, id,
   );
+  getDb().prepare('UPDATE agents SET acp_command=?, acp_args=? WHERE id=?').run(u.acp_command ?? '', JSON.stringify(u.acp_args ?? []), id);
   return getAgent(id);
 }
 

@@ -1,3 +1,6 @@
+import { terminalsRouter } from './routes/terminals';
+import { agentSessionsRouter } from './routes/agent-sessions';
+import { mcpRouter } from '../mcp/server';
 import express from 'express';
 import cors from 'cors';
 import { createServer } from 'http';
@@ -8,7 +11,6 @@ import { projectsRouter } from './routes/projects';
 import { tasksRouter } from './routes/tasks';
 import { plansRouter } from './routes/plans';
 import { runsRouter } from './routes/runs';
-import { terminalRouter } from './routes/terminal';
 import { libraryRouter } from './routes/library';
 import { agentsRouter } from './routes/agents';
 import { browseRouter } from './routes/browse';
@@ -54,18 +56,20 @@ export function createApp() {
   // Clipboard screenshots are sent as base64. Keep the larger parser scoped to
   // this local-only endpoint; the default JSON limit remains in force elsewhere.
   app.use('/api/upload-temp', express.json({ limit: '25mb' }), uploadRouter);
-  app.use(express.json());
+  app.use(express.json({ limit: '25mb' }));
 
   app.use(express.static(CLIENT_DIST));
 
   app.use('/api/agents', agentsRouter);
+  app.use('/api/agent-sessions', agentSessionsRouter);
+  app.use('/mcp', mcpRouter);
   app.use('/api/projects', projectsRouter);
   app.use('/api/projects/:projectId/tasks', tasksRouter);
   app.use('/api/projects/:projectId/tasks/:taskId/plans', plansRouter);
   app.use('/api/projects/:projectId/tasks/:taskId/runs', runsRouter);
   // Orchestrator endpoints (execute, done, orchestrator state)
   app.use('/api/projects/:projectId/tasks/:taskId', orchestratorRouter);
-  app.use('/api/terminal', terminalRouter);
+  app.use('/api/terminals', terminalsRouter);
   app.use('/api/library', libraryRouter);
   app.use('/api/browse', browseRouter);
   app.use('/api/clipboard', clipboardRouter);

@@ -28,115 +28,33 @@
 
     <!-- Tab: План -->
     <div v-show="activeTab === 'plan'" class="tab-body">
-      <!-- Planning in progress (agent session live) -->
-      <div v-if="planningActive" class="plan-tab-content">
-        <div class="plan-panel-header">
-          <div class="planning-status">
-            <span class="planning-dot" />
-            Идёт планирование с агентом
-          </div>
-          <AppButton variant="primary" size="sm" @click="approvePlan">✓ Утвердить план</AppButton>
-        </div>
-        <p class="plan-empty-hint">
-          Опишите задачу агенту в терминале ниже — работают <code>@файлы</code>, перетаскивание и вставка.
-          План появится здесь по мере написания. Когда план готов — нажмите «Утвердить».
-        </p>
-        <textarea
-          v-if="plan?.content"
-          :value="plan.content"
-          class="plan-editor"
-          readonly
-        />
-        <div v-else class="plan-waiting">Ожидаем план от агента…</div>
-        <div v-if="planningTerminalSession" class="planning-terminal">
-          <TerminalPane
-            :session-id="planningTerminalSession.id"
-            :label="planningTerminalSession.label"
-            :visible="activeTab === 'plan'"
-            :show-header="false"
-            @detach="activeSessionId = null"
-            @kill="killSession(planningTerminalSession.id)"
-            @user-input="markRunActivity(planningTerminalSession.runId, 'thinking')"
-            @input="sendInput"
-          />
-        </div>
-      </div>
-
-      <!-- Empty state — no plan yet -->
-      <div v-else-if="!plan && !editingPlan" class="plan-tab-content">
-        <div class="plan-panel-header">
-          <div class="progress-line"><span>Плана пока нет</span></div>
-          <div class="plan-header-actions">
-            <AppSelect v-model="planningAgentId" :options="agentOptions" placeholder="Агент" size="sm" />
-            <AppSelect v-if="planningModelChoices.length" v-model="planningModel" :options="planningModelChoices" placeholder="Модель" size="sm" />
-            <AppSelect v-if="planningReasoningChoices.length" v-model="planningReasoning" :options="planningReasoningChoices" placeholder="Рассуждения" size="sm" />
-            <AppButton
-              variant="primary"
-              size="sm"
-              :disabled="!planningAgentId || planningLaunching"
-              @click="launchPlanning"
-            >{{ planningLaunching ? 'Запуск...' : '▸ Составить план с агентом' }}</AppButton>
-            <AppButton variant="ghost" size="sm" @click="startManualEdit">Написать вручную</AppButton>
-          </div>
-        </div>
-        <p class="plan-empty-hint">опишите задачу агенту в терминале — работают <code>@файлы</code>, перетаскивание и вставка файлов</p>
-      </div>
-
-      <!-- Plan editor (manual) -->
-      <div v-else-if="editingPlan" class="plan-tab-content">
-        <div class="plan-editor-wrap">
-          <textarea v-model="planContent" class="plan-editor" placeholder="---&#10;plangent: 1&#10;key: KEY&#10;title: Title&#10;status: open&#10;---&#10;&#10;- [ ] (p1) Step 1&#10;- [ ] (p2) Step 2" />
-          <div class="plan-editor-helper">
-            <span><code>[ ]</code> в начале строки = шаг очереди. Удалишь скобки - шаг пропадёт.</span>
-            <div v-if="checkboxLinePreviews.length" class="checkbox-preview">
-              <span v-for="line in checkboxLinePreviews" :key="line" class="checkbox-line"><code>{{ line.marker }}</code>{{ line.text }}</span>
-            </div>
-          </div>
-          <div class="plan-actions">
-            <AppButton variant="primary" size="sm" @click="savePlan">Сохранить</AppButton>
-            <AppButton variant="ghost" size="sm" @click="editingPlan = false">Отмена</AppButton>
-          </div>
-        </div>
-      </div>
-
-      <!-- Plan view -->
-      <div v-else class="plan-tab-content">
-        <div class="plan-panel-header">
-          <div class="progress-line">
-            <span>{{ doneCount }}/{{ plan!.steps.length }} шагов</span>
-            <div class="progress-bar">
-              <div class="progress-fill" :style="{ width: progressPct + '%' }" />
-            </div>
-          </div>
-          <div class="plan-header-actions">
-            <AppSelect v-model="planningAgentId" :options="agentOptions" placeholder="Агент" size="sm" />
-            <AppSelect v-if="planningModelChoices.length" v-model="planningModel" :options="planningModelChoices" placeholder="Модель" size="sm" />
-            <AppSelect v-if="planningReasoningChoices.length" v-model="planningReasoning" :options="planningReasoningChoices" placeholder="Рассуждения" size="sm" />
-            <AppButton
-              variant="ghost"
-              size="sm"
-              :disabled="!planningAgentId || planningLaunching"
-              @click="launchPlanning"
-            >{{ planningLaunching ? 'Запуск...' : '▸ Изменить план с агентом' }}</AppButton>
-            <AppButton variant="ghost" size="sm" @click="togglePlanEdit">Редактировать вручную</AppButton>
-          </div>
-        </div>
-        <div class="steps">
-          <div
-            v-for="s in plan!.steps"
-            :key="s.id ?? s.index"
-            class="step"
-            :class="{ done: s.done }"
-          >
-            <span class="step-check readonly" :class="{ done: s.done }">
-              {{ s.done ? '✓' : '' }}
-            </span>
-            <span class="step-id" v-if="s.id">{{ s.id }}</span>
-            <span class="step-text">{{ s.text }}</span>
-            <span v-if="s.parallelGroup" class="parallel-badge">параллельно: {{ s.parallelGroup }}</span>
-          </div>
-        </div>
-      </div>
+      <PlanPanel
+        :plan="plan"
+        :planning-active="planningActive"
+        :planning-session-id="planningSessionId"
+        :editing-plan="editingPlan"
+        :plan-content="planContent"
+        :checkbox-line-previews="checkboxLinePreviews"
+        :done-count="doneCount"
+        :progress-pct="progressPct"
+        :agent-options="agentOptions"
+        :planning-agent-id="planningAgentId"
+        :planning-model-choices="planningModelChoices"
+        :planning-model="planningModel"
+        :planning-reasoning-choices="planningReasoningChoices"
+        :planning-reasoning="planningReasoning"
+        :planning-launching="planningLaunching"
+        @approve-plan="approvePlan"
+        @launch-planning="launchPlanning"
+        @start-manual-edit="startManualEdit"
+        @toggle-plan-edit="togglePlanEdit"
+        @save-plan="savePlan"
+        @cancel-edit="editingPlan = false"
+        @update:plan-content="planContent = $event"
+        @update:planning-agent-id="planningAgentId = $event"
+        @update:planning-model="planningModel = $event"
+        @update:planning-reasoning="planningReasoning = $event"
+      />
     </div>
 
     <!-- Tab: Выполнение -->
@@ -214,92 +132,25 @@
 
       <!-- Queue list -->
       <div v-if="queueSessions.length > 0" class="exec-section">
-        <div class="queue-list">
-          <div
-            v-for="row in executionSessionRows"
-            :key="row.key"
-            class="queue-item"
-            :class="[row.queueSession?.status, { expanded: row.terminalSession && activeSessionId === row.terminalSession.id }]"
-          >
-            <div class="queue-row-main">
-	              <span class="queue-num">#{{ row.index }}</span>
-	              <span class="queue-agent">{{ row.agentName }}</span>
-	              <span class="queue-points">{{ row.pointsLabel }}</span>
-	              <span class="mode-badge" :class="row.queueSession?.queueMode">{{ row.modeLabel }}</span>
-	              <span v-if="row.queueSession?.parallelGroup" class="parallel-badge">одновременно</span>
-              <span class="queue-status-chip" :class="row.statusClass">{{ row.statusLabel }}</span>
-              <AppButton
-                v-if="row.canAttach && (!row.terminalSession || activeSessionId !== row.terminalSession.id)"
-                variant="ghost"
-                size="sm"
-                @click="attachRun(row.runId!)"
-              >Подключиться</AppButton>
-              <AppButton
-                v-if="row.terminalSession && activeSessionId === row.terminalSession.id"
-                class="terminal-toggle-btn"
-                variant="ghost"
-                size="sm"
-                @click="activeSessionId = null"
-              >Свернуть</AppButton>
-		              <button
-		                v-if="row.queueSession?.queueMode === 'review_first' && row.queueSession?.status !== 'queued' && row.queueSession?.status !== 'running' && row.queueSession?.status !== 'complete' && row.queueSession?.status !== 'failed'"
-		                class="btn btn-primary btn-sm"
-		                :disabled="!row.canExecuteReview"
-		                :title="row.executeTitle"
-		                @click="executeReadySession(row.queueSession.id)"
-		              >Выполнить</button>
-              <AppButton
-                v-if="row.terminalSession"
-                variant="danger-ghost"
-                size="sm"
-                @click="killSession(row.terminalSession.id)"
-              >Завершить</AppButton>
-            <button
-              v-if="row.queueSession?.status === 'queued'"
-              class="pause-pill"
-              :class="{ active: row.queueSession.pauseAfter }"
-              @click="row.queueSession.pauseAfter = !row.queueSession.pauseAfter"
-              :title="row.queueSession.pauseAfter ? 'Очередь остановится после этой сессии — нажмите, чтобы убрать паузу' : 'Остановить очередь после этой сессии для ревью'"
-            >⏸ пауза после</button>
-            <span v-else-if="row.queueSession?.pauseAfter" class="pause-badge" title="Очередь остановится после этой сессии">⏸ ревью</span>
-            <AppButton
-              v-if="row.queueSession?.status === 'queued'"
-              variant="danger-ghost"
-              size="xs"
-              @click="removeQueueSession(row.queueIndex!)"
-            >✕</AppButton>
-            </div>
-            <div v-if="row.terminalSession && activeSessionId === row.terminalSession.id" class="terminal-inline">
-              <TerminalPane
-                :session-id="row.terminalSession.id"
-                :label="row.terminalSession.label"
-                :visible="activeSessionId === row.terminalSession.id"
-                :show-header="false"
-                @detach="activeSessionId = null"
-                @kill="killSession(row.terminalSession.id)"
-                @user-input="markRunActivity(row.terminalSession.runId, 'thinking')"
-                @input="sendInput"
-              />
-            </div>
-          </div>
-        </div>
-
-        <!-- Pause checkpoint banner -->
-	        <div v-if="queuePaused" class="queue-paused-banner">
-	        <span>{{ readyForExecutionSessions.length ? 'Очередь на паузе — обсудите шаги или запустите выполнение.' : '⏸ Очередь на паузе — ревью перед следующим шагом.' }}</span>
-	          <AppButton v-if="!readyForExecutionSessions.length" variant="primary" size="sm" @click="resumeQueue">▶ Продолжить очередь</AppButton>
-	        </div>
-
-        <div class="queue-actions" v-if="!executing && queueSessions.some(s => s.status === 'queued') && task?.status !== 'done'">
-          <AppButton
-            variant="primary"
-            :disabled="executing || queueSessions.filter(s => s.status === 'queued').length === 0"
-            @click="runQueue"
-          >
-            {{ executing ? 'Выполняется...' : '▶ Запустить очередь' }}
-          </AppButton>
-          <AppButton variant="ghost" @click="clearQueuedSessions">Очистить</AppButton>
-        </div>
+        <ExecutionQueue
+          :rows="executionSessionRows"
+          :agents="agents"
+          v-model:active-session-id="activeSessionId"
+          :queue-paused="queuePaused"
+          :ready-for-execution-count="readyForExecutionSessions.length"
+          :executing="executing"
+          :has-queued-sessions="queueSessions.some(s => s.status === 'queued')"
+          :task-done="task?.status === 'done'"
+          @attach="attachRun"
+          @execute-review="executeReadySession"
+          @kill="killSession"
+          @remove="removeQueueSession"
+          @resume-queue="resumeQueue"
+          @run-queue="runQueue"
+          @clear-queued="clearQueuedSessions"
+        >
+          <template #detail><StepDetailPanel :session="queueSessions.find(s => s.sessionId === activeSessionId)" :project-id="pid ?? ''" :task-id="tid ?? ''" @changed="loadOrchestratorState()" /></template>
+        </ExecutionQueue>
       </div>
 
     </div>
@@ -318,7 +169,9 @@ import type {
 	  PlanStep, OrchestratorQueueSession, OrchestratorResponse,
 	  OrchestratorEvent, ExecuteResponse, QueueSessionMode,
 	} from '@core/models'
-import TerminalPane from '../components/TerminalPane.vue'
+import PlanPanel from '../components/PlanPanel.vue'
+import ExecutionQueue from '../components/ExecutionQueue.vue'
+import StepDetailPanel from '../components/StepDetailPanel.vue'
 import StatusBadge from '@shared/ui/StatusBadge.vue'
 import AppButton from '@shared/ui/AppButton.vue'
 import AppSelect from '@shared/ui/AppSelect.vue'
@@ -407,10 +260,6 @@ const queuePaused = ref(false)
 interface TaskSession { id: string; label: string; runId: string }
 const sessions = ref<TaskSession[]>([])
 const activeSessionId = ref<string | null>(null)
-const activeSession = computed(() => sessions.value.find(s => s.id === activeSessionId.value) ?? null)
-const planningTerminalSession = computed(() =>
-  planningSessionId.value ? sessions.value.find(s => s.id === planningSessionId.value) ?? null : null,
-)
 const waitingSessionIds = ref<Set<string>>(new Set())
 type SessionActivity = 'thinking' | 'idle' | 'waiting' | 'missing'
 const sessionActivityByRunId = ref<Record<string, SessionActivity>>({})
@@ -516,6 +365,7 @@ function connectEvents() {
 
 async function handleOrchestratorEvent(event: OrchestratorEvent) {
   switch (event.type) {
+    case 'review_started': await loadOrchestratorState(); break;
 	    case 'session_started': {
 	      executing.value = true
 	      const queueSess = queueSessions.value.find(s => s.id === event.sessionId)
@@ -633,9 +483,6 @@ function addTerminalSession(terminalSessionId: string, runId: string) {
   sessions.value.push({ id: terminalSessionId, label, runId })
 }
 
-function sessionIsWaiting(terminalSessionId: string): boolean {
-  return waitingSessionIds.value.has(terminalSessionId)
-}
 
 async function loadTask() {
   const taskId = route.params.id as string
@@ -656,9 +503,9 @@ async function loadRuns() {
   runs.value = await api.get<Run[]>(`/projects/${pid.value}/tasks/${tid.value}/runs`)
 }
 
-async function getRunSessionStatus(runId: string): Promise<{ running: boolean; session_id?: string; mode?: 'tmux' | 'pty'; output?: string }> {
+async function getRunSessionStatus(runId: string): Promise<{ running: boolean; session_id?: string; mode?: 'acp'; output?: string }> {
   if (!pid.value || !tid.value) return { running: false }
-  return api.get<{ running: boolean; session_id?: string; mode?: 'tmux' | 'pty'; output?: string }>(
+  return api.get<{ running: boolean; session_id?: string; mode?: 'acp'; output?: string }>(
     `/projects/${pid.value}/tasks/${tid.value}/runs/${runId}/session`,
   )
 }
@@ -925,6 +772,8 @@ async function runQueue() {
 	          pauseAfter: s.pauseAfter ?? false,
 	          model: s.model,
 	          reasoningEffort: s.reasoningEffort,
+          reviewerId: s.reviewerId,
+          maxReviewRounds: s.maxReviewRounds,
         })),
       },
     )
@@ -995,14 +844,6 @@ async function launchPlanning() {
     sessions.value.push({ id: result.session_id, label, runId: result.run.id })
     activeSessionId.value = result.session_id
 
-    if (result.mode === 'tmux') {
-      await api.post('/terminal/sessions', {
-        id: result.session_id,
-        cmd: 'tmux',
-        args: ['attach-session', '-t', result.session_id],
-        cwd: appStore.currentProject?.repo_path ?? '/',
-      }).catch(() => {})
-    }
 
     planningActive.value = true
     planningRunId.value = result.run.id
@@ -1085,12 +926,6 @@ async function killSession(id: string) {
   await loadPlan()
 }
 
-async function sendInput(text: string) {
-  const s = activeSession.value
-  if (!pid.value || !tid.value || !s) return
-  markRunActivity(s.runId, 'thinking')
-  await api.post(`/projects/${pid.value}/tasks/${tid.value}/runs/${s.runId}/input`, { text })
-}
 
 // ——— Mark task done ———
 
@@ -1176,9 +1011,6 @@ function agentName(id: string): string {
   return agents.value.find(a => a.id === id)?.name ?? id
 }
 
-function statusLabel(s: string) {
-  return { open: 'Открыта', in_progress: 'В работе', done: 'Завершена' }[s] ?? s
-}
 
 function sessionStatusLabel(session: OrchestratorQueueSession) {
   const activity = session.runId ? sessionActivityByRunId.value[session.runId] : undefined
@@ -1194,6 +1026,8 @@ function sessionStatusLabel(session: OrchestratorQueueSession) {
   if (session.status === 'running' && activity === 'thinking') return 'Выполняется'
   if (session.status === 'waiting_for_developer') return 'Ожидает ввода'
   return {
+    reviewing: 'Review',
+    ready_for_execution: 'Ready',
     queued: 'В очереди',
     running: 'Выполняется',
     complete: 'Готово',
@@ -1279,61 +1113,6 @@ function markRunActivity(runId: string | undefined, activity: SessionActivity) {
   gap: 16px;
 }
 
-/* Plan tab — empty state hint */
-.plan-empty-hint {
-  font-size: 12px;
-  color: var(--text-muted);
-  margin: 0;
-}
-
-/* Plan tab — content */
-.plan-tab-content {
-  flex: 1;
-  overflow-y: auto;
-  padding: 16px 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.plan-panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-.plan-header-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-
-.planning-status {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  font-weight: 600;
-  color: #e3b341;
-}
-.planning-dot {
-  width: 8px; height: 8px;
-  border-radius: 50%;
-  background: #e3b341;
-  animation: pulse 1.2s ease-in-out infinite;
-}
-@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
-
-.plan-waiting {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-muted);
-  font-size: 13px;
-  min-height: 120px;
-}
-
-.progress-line { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-muted); flex: 1; }
-.progress-bar { flex: 1; height: 4px; background: var(--bg3); border-radius: 2px; overflow: hidden; }
-.progress-fill { height: 100%; background: var(--accent); transition: width 0.3s; }
-
 .steps { display: flex; flex-direction: column; gap: 3px; }
 .step {
   display: flex;
@@ -1365,8 +1144,6 @@ function markRunActivity(runId: string | undefined, activity: SessionActivity) {
 }
 .step-check:not(.done):hover { border-color: var(--accent); background: var(--accent-soft); }
 .step-check.done { background: var(--accent); border-color: var(--accent); }
-.step-check.readonly { cursor: default; }
-.step-check.readonly:not(.done):hover { background: none; border-color: var(--border-strong); }
 .step-id { font-size: 10px; color: var(--text-muted); font-family: monospace; flex-shrink: 0; }
 .step-text { flex: 1; }
 .assigned-badge {
@@ -1385,64 +1162,6 @@ function markRunActivity(runId: string | undefined, activity: SessionActivity) {
   border-radius: 8px;
   white-space: nowrap;
 }
-
-.plan-editor-wrap { display: flex; flex-direction: column; gap: 8px; flex: 1; min-height: 0; }
-.plan-editor {
-  background: var(--bg3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--text);
-  font-family: 'Cascadia Code', 'JetBrains Mono', monospace;
-  font-size: 13px;
-  padding: 10px;
-  flex: 1;
-  min-height: 200px;
-  resize: none;
-}
-.plan-editor:focus { outline: none; border-color: var(--blue); }
-.plan-editor-helper {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.4;
-}
-.plan-editor-helper > span code,
-.plan-editor-helper code {
-  font-family: 'Cascadia Code', 'JetBrains Mono', monospace;
-  background: var(--bg3);
-  border: 1px solid var(--border-strong);
-  border-radius: 4px;
-  padding: 1px 5px;
-  color: var(--text);
-}
-.checkbox-preview {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-.checkbox-line {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  max-width: 100%;
-  padding: 4px 8px 4px 6px;
-  background: var(--bg2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.checkbox-line code {
-  flex-shrink: 0;
-  border-color: var(--blue);
-  color: var(--blue-hover);
-  background: var(--blue-soft);
-  font-weight: 600;
-}
-.plan-actions { display: flex; gap: 8px; }
 
 /* Exec tab */
 .exec-section { display: flex; flex-direction: column; gap: 8px; }
@@ -1492,104 +1211,6 @@ function markRunActivity(runId: string | undefined, activity: SessionActivity) {
 .inline-toggle input { margin: 0; }
 .selection-hint { font-size: 11px; color: var(--text-muted); }
 .selection-hint.muted { opacity: 0.6; }
-
-.pause-badge {
-  font-size: 10px;
-  color: #d29922;
-  background: rgba(210, 153, 34, 0.12);
-  padding: 1px 6px;
-  border-radius: 8px;
-  white-space: nowrap;
-}
-
-.mode-badge {
-  font-size: 10px;
-  padding: 1px 6px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  color: var(--text-muted);
-  white-space: nowrap;
-}
-.mode-badge.review_first {
-  color: #58a6ff;
-  border-color: #58a6ff;
-  background: rgba(88, 166, 255, 0.1);
-}
-
-/* Per-session pause toggle, lives on the queued card so it belongs to that session */
-.pause-pill {
-  font-size: 10px;
-  white-space: nowrap;
-  padding: 2px 8px;
-  border-radius: 8px;
-  cursor: pointer;
-  border: 1px dashed var(--border);
-  background: none;
-  color: var(--text-muted);
-  transition: all 0.1s;
-}
-.pause-pill:hover { border-color: #d29922; color: #d29922; }
-.pause-pill.active {
-  border-style: solid;
-  border-color: #d29922;
-  color: #d29922;
-  background: rgba(210, 153, 34, 0.12);
-}
-
-.queue-paused-banner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 8px 12px;
-  margin-top: 4px;
-  font-size: 12px;
-  color: #d29922;
-  background: rgba(210, 153, 34, 0.1);
-  border: 1px solid #d29922;
-  border-radius: var(--radius);
-}
-
-.queue-list { display: flex; flex-direction: column; gap: 4px; }
-.queue-item {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  font-size: 12px;
-  padding: 6px 10px;
-  background: var(--bg3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-}
-.queue-item.expanded { padding-bottom: 10px; }
-.queue-row-main {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 24px;
-}
-.queue-num { color: var(--text-muted); font-size: 11px; min-width: 20px; }
-.queue-agent { font-weight: 600; }
-.queue-points { color: var(--text-muted); font-family: monospace; font-size: 11px; flex: 1; }
-.queue-status-chip {
-  font-size: 10px;
-  padding: 1px 6px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  white-space: nowrap;
-}
-.queue-status-chip.running { color: #e3b341; border-color: #e3b341; }
-.queue-status-chip.reviewing { color: #58a6ff; border-color: #58a6ff; }
-.queue-status-chip.thinking { color: #e3b341; border-color: #e3b341; }
-.queue-status-chip.ready_for_execution { color: var(--accent); border-color: var(--accent); }
-.queue-status-chip.complete { color: var(--accent); border-color: var(--accent); }
-.queue-status-chip.failed { color: var(--danger); border-color: var(--danger); }
-.queue-status-chip.waiting_for_developer { color: #d29922; border-color: #d29922; }
-
-.queue-actions { display: flex; gap: 8px; align-items: center; }
-.terminal-toggle-btn {
-  min-width: 96px;
-}
 
 .terminal-inline,
 .planning-terminal {

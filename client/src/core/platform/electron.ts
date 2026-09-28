@@ -4,6 +4,7 @@ import type { PlatformBridge } from './types'
 // global Window augmentation) so the Electron contract never leaks into the rest
 // of the app's types.
 interface ElectronAPI {
+  notify: (title: string, body: string) => void
   isElectron: true
   getFilePath: (file: File) => string
   getClipboardFilePaths: () => Promise<string[]>
@@ -22,6 +23,7 @@ const electronAPI =
 export const isElectron = !!electronAPI
 
 export const electronBridge: PlatformBridge = {
+  notify: (title, body) => electronAPI!.notify(title, body),
   getFilePath: (file) => electronAPI!.getFilePath(file) || null,
   getClipboardFilePaths: () => electronAPI!.getClipboardFilePaths(),
   getClipboardImage: () => electronAPI!.getClipboardImage(),

@@ -51,6 +51,8 @@ orchestratorRouter.post('/execute', async (req: Request, res: Response) => {
 	    pauseAfter: s.pauseAfter ?? false,
 	    model: s.model,
 	    reasoningEffort: s.reasoningEffort,
+      reviewerId: s.reviewerId,
+      maxReviewRounds: Math.max(1, Math.min(10, s.maxReviewRounds ?? 2)),
 	    status: 'queued' as const,
 	  }));
 
@@ -149,4 +151,9 @@ orchestratorRouter.post('/orchestrator/resume', async (req: Request, res: Respon
   if (!orch) return res.status(404).json({ error: 'No active orchestrator' });
   await orch.resume();
   res.json({ ok: true });
+});
+
+orchestratorRouter.post('/sessions/:sessionId/restart', async (req: Request, res: Response) => {
+  try { const orch = getOrchestrator(req.params.taskId); if (!orch) return res.status(404).end(); await orch.restartSession(req.params.sessionId); res.json({ ok: true }); }
+  catch (e) { res.status(400).json({ error: String(e) }); }
 });

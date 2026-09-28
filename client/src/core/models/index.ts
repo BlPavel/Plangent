@@ -1,4 +1,6 @@
 export interface Agent {
+  acp_command?: string;
+  acp_args?: string[];
   id: string
   name: string
   command: string
@@ -20,7 +22,7 @@ export interface Project {
   name: string
   repo_path: string
   default_agent_id: string | null
-  config: { extra_env?: Record<string, string> }
+  config: { extra_env?: Record<string, string>; dangerous_commands?: string[] }
   hide_from_git?: boolean
   created_at: string
 }
@@ -89,7 +91,7 @@ export interface LibraryItem {
 export interface RunStartResult {
   run: Run
   session_id: string
-  mode: 'tmux' | 'pty'
+  mode: 'acp'
   prompt: string
 }
 
@@ -106,6 +108,11 @@ export type OrchestratorSessionStatus =
 export type QueueSessionMode = 'execute' | 'review_first'
 
 export interface OrchestratorQueueSession {
+  reviewerId?: string
+  reviewSessionId?: string
+  reviewRound?: number
+  maxReviewRounds?: number
+  reason?: string
   id: string
   points: string[]
   agentId: string
@@ -115,7 +122,7 @@ export interface OrchestratorQueueSession {
   pauseAfter?: boolean
   runId?: string
   sessionId?: string
-  mode?: 'tmux' | 'pty'
+  mode?: 'acp'
   model?: string
   reasoningEffort?: string
 }
@@ -143,7 +150,8 @@ export interface ExecuteResponse {
 
 // Orchestrator WS events
 export type OrchestratorEvent =
-  | { type: 'session_started'; taskId: string; sessionId: string; runId: string; terminalSessionId: string; mode: 'tmux' | 'pty'; points: string[] }
+  | { type: 'review_started'; taskId: string; sessionId: string; reviewSessionId: string }
+  | { type: 'session_started'; taskId: string; sessionId: string; runId: string; terminalSessionId: string; mode: 'acp'; points: string[] }
   | { type: 'session_idle'; taskId: string; sessionId: string; runId: string; terminalSessionId?: string }
   | { type: 'session_ready_for_execution'; taskId: string; sessionId: string; runId?: string; terminalSessionId?: string; message: string }
   | { type: 'session_complete'; taskId: string; sessionId: string; runId?: string }

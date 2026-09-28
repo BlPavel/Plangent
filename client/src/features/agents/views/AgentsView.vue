@@ -137,6 +137,7 @@ async function save() {
   }
 
   const data = {
+    update_command: '',
     name: form.value.name.trim(),
     command: form.value.command.trim(),
     args: form.value.args.trim() ? form.value.args.trim().split(/\s+/) : [],

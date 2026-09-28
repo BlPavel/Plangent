@@ -1,10 +1,9 @@
 import { Router, Request, Response } from 'express';
 import { listTasks, getTask, createTask, updateTask, deleteTask } from '../../../core/tasks';
 import { getProject } from '../../../core/projects';
-import { listRuns } from '../../../core/runs';
 import { getOrchestrator, removeOrchestrator } from '../../../core/orchestration/orchestrator';
-import { getSession, removeSession } from '../../../core/sessions/session-registry';
-import { killAgent } from '../../adapters/generic';
+import { listSessions } from '../../../core/agent-sessions/sessions';
+import { closeSession } from '../../../core/agent-sessions/acp-host';
 import { deletePlanFile } from '../../../core/orchestration/plan-file';
 
 export const tasksRouter = Router({ mergeParams: true });
@@ -46,13 +45,7 @@ tasksRouter.delete('/:taskId', async (req: Request, res: Response) => {
   if (orch) { orch.fail('Task deleted'); removeOrchestrator(task.id); }
 
   // Kill any live agent sessions tied to this task's runs.
-  for (const run of listRuns(task.id)) {
-    const session = getSession(run.id);
-    if (session) {
-      try { await killAgent(session.sessionId, session.mode); } catch { /* already gone */ }
-      removeSession(run.id);
-    }
-  }
+  for (const chat of listSessions(task.project_id).filter(s => s.task_id === task.id)) await closeSession(chat.id);
 
   // Remove the on-disk plan file (DB rows cascade via FK ON DELETE CASCADE).
   if (project) { try { deletePlanFile(task, project.repo_path); } catch { /* ignore */ } }

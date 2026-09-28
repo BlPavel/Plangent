@@ -66,6 +66,9 @@
       @confirm="saveAgent"
     >
       <FormField v-model="agentForm.name" label="Название" placeholder="Claude Code" />
+      <div class="actions"><button class="btn" type="button" @click="preset('claude')">Claude ACP</button><button class="btn" type="button" @click="preset('codex')">Codex ACP</button><button class="btn" type="button" @click="preset('gemini')">Gemini ACP</button></div>
+      <FormField v-model="agentForm.acp_command" label="Команда ACP-адаптера" placeholder="npx" hint="Для встроенных Claude и Codex можно оставить пустым — используется пресет." />
+      <FormField v-model="agentForm.acp_args" label="Аргументы ACP (JSON-массив)" placeholder='["--yes", "@agentclientprotocol/codex-acp@1.13.1"]' />
       <FormField v-model="agentForm.command" label="Команда" placeholder="claude" hint="Имя команды или полный путь" />
       <FormField v-model="agentForm.update_command" label="Команда обновления" placeholder="npm update -g @vendor/agent" hint="Выполняется локально по кнопке «Обновить». Оставьте пустым, если обновление не поддерживается." />
       <FormField v-model="agentForm.args" label="Аргументы (через пробел)" placeholder="--dangerously-skip-permissions --model {model} --effort {reasoning}" hint="Добавляются к команде при каждом запуске. {model} и {reasoning} — точки подстановки для полей ниже" />
@@ -129,6 +132,7 @@ const showAgentModal = ref(false)
 const editAgent = ref<Agent | null>(null)
 
 const defaultAgentForm = () => ({
+  acp_command: '', acp_args: '[]',
   name: '', command: '', update_command: '', args: '', env: '{}', skills_dir: '', skills_filename: 'plangent.md',
   model: '', reasoning_effort: '', model_options: [] as string[], reasoning_options: [] as string[],
 })
@@ -140,14 +144,21 @@ const agentForm = ref(defaultAgentForm())
 // The developer builds the list of choices themselves (TagListEditor); the "default"
 // select just picks which one gets substituted automatically when nothing is
 // overridden at launch time.
-const hasModelPlaceholder = computed(() => agentForm.value.args.includes('{model}'))
-const hasReasoningPlaceholder = computed(() => agentForm.value.args.includes('{reasoning}'))
+const hasModelPlaceholder = computed(() => true)
+const hasReasoningPlaceholder = computed(() => true)
 
 const modelChoices = computed(() => [...new Set(agentForm.value.model_options.map(v => v.trim()).filter(Boolean))])
 const reasoningChoices = computed(() => [...new Set(agentForm.value.reasoning_options.map(v => v.trim()).filter(Boolean))])
 const modelDefaultOptions = computed(() => [{ value: '', label: '(не задано)' }, ...modelChoices.value.map(m => ({ value: m, label: m }))])
 const reasoningDefaultOptions = computed(() => [{ value: '', label: '(не задано)' }, ...reasoningChoices.value.map(r => ({ value: r, label: r }))])
 
+async function preset(name: string) {
+  const presets = await api.get<Record<string, { command: string; args: string[] }>>('/agent-sessions/presets')
+  agentForm.value.acp_command = presets[name].command
+  agentForm.value.acp_args = JSON.stringify(presets[name].args)
+  if (!agentForm.value.command) agentForm.value.command = name
+  if (!agentForm.value.name) agentForm.value.name = name + ' ACP'
+}
 function openCreate() {
   editAgent.value = null
   agentForm.value = defaultAgentForm()
@@ -157,6 +168,7 @@ function openCreate() {
 function openEdit(a: Agent) {
   editAgent.value = a
   agentForm.value = {
+    acp_command: a.acp_command ?? '', acp_args: JSON.stringify(a.acp_args ?? []),
     name: a.name,
     command: a.command,
     update_command: a.update_command ?? '',
@@ -173,11 +185,15 @@ function openEdit(a: Agent) {
 }
 
 async function saveAgent() {
+  let acpArgs: string[]
+  try { acpArgs = JSON.parse(agentForm.value.acp_args); if (!Array.isArray(acpArgs) || acpArgs.some(a => typeof a !== 'string')) throw new Error() }
+  catch { appStore.toast('Аргументы ACP должны быть JSON-массивом строк', 'error'); return }
   let envParsed: Record<string, string> = {}
   try { envParsed = JSON.parse(agentForm.value.env || '{}') } catch {
     appStore.toast('Невалидный JSON в env', 'error'); return
   }
   const data = {
+    acp_command: agentForm.value.acp_command.trim(), acp_args: acpArgs,
     name: agentForm.value.name.trim(),
     command: agentForm.value.command.trim(),
     update_command: agentForm.value.update_command.trim(),

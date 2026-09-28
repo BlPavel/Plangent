@@ -15,7 +15,7 @@
           class="project-item app-no-drag"
           :class="{ active: !isSettingsRoute && appStore.currentProject?.id === p.id }"
           @click="selectProject(p)"
-        >{{ p.name }}</div>
+        >{{ p.name }} <small v-if="chatStore.waiting(p.id)"> ждёт вас: {{ chatStore.waiting(p.id) }}</small></div>
         <div v-if="!projectsStore.projects.length" class="project-empty">
           Пока нет проектов
         </div>
@@ -51,6 +51,7 @@
 </template>
 
 <script setup lang="ts">
+import { useChatStore } from '@features/agent-chat'
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAppStore } from '@core/stores/app'
@@ -64,6 +65,8 @@ import AppModal from '@shared/ui/AppModal.vue'
 import FormField from '@shared/ui/FormField.vue'
 import FolderPicker from '@shared/ui/FolderPicker.vue'
 
+const chatStore = useChatStore()
+void chatStore.connect()
 const router = useRouter()
 const route = useRoute()
 const appStore = useAppStore()
