@@ -1,20 +1,39 @@
+export interface LayoutSlot {
+  dir: string
+  global: string
+  file: string
+  asSkill?: boolean
+  asMerged?: boolean
+}
+
+export interface LayoutProfile {
+  skills?: LayoutSlot
+  commands?: LayoutSlot
+  main?: { file: string; global: string }
+}
+
 export interface Agent {
-  acp_command?: string;
-  acp_args?: string[];
   id: string
   name: string
+  acp_command: string
+  acp_args: string[]
+  env: Record<string, string>
   command: string
   update_command: string
-  args: string[]
-  env: Record<string, string>
-  skills_dir: string
-  skills_filename: string
+  layout_profile: LayoutProfile | null
   model: string
   reasoning_effort: string
-  model_options: string[]
-  reasoning_options: string[]
   active: boolean
   created_at: string
+}
+
+export interface AgentPreset {
+  name: string
+  acp_command: string
+  acp_args: string[]
+  command: string
+  update_command: string
+  layout_profile: LayoutProfile | null
 }
 
 export interface Project {
@@ -106,6 +125,7 @@ export type OrchestratorSessionStatus =
   | 'failed'
 
 export type QueueSessionMode = 'execute' | 'review_first'
+export type ExecutionPolicy = 'allow-all' | 'allow-edits' | 'ask'
 
 export interface OrchestratorQueueSession {
   reviewerId?: string
@@ -118,6 +138,7 @@ export interface OrchestratorQueueSession {
   agentId: string
   parallelGroup: string | null
   queueMode: QueueSessionMode
+  permissionPolicy?: ExecutionPolicy
   status: OrchestratorSessionStatus
   pauseAfter?: boolean
   runId?: string

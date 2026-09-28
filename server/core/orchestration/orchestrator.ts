@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import {
+  ExecutionPolicy,
   OrchestratorQueueSession,
   OrchestratorState,
 } from '../../models';
@@ -22,6 +23,7 @@ export interface QueueSessionInput {
   agentId: string;
   parallelGroup: string | null;
   queueMode?: 'execute' | 'review_first';
+  permissionPolicy?: ExecutionPolicy;
   pauseAfter?: boolean;
   // Per-run override of the agent's configured model/reasoning_effort — leave
   // unset to use whatever the Agent row (server/core/agents) is configured with.
@@ -207,7 +209,7 @@ export class Orchestrator {
     const chat = createChat({ project_id: projectId, task_id: taskId, run_id: run.id,
       metadata: { reasoningEffort: agent.reasoning_effort },
       agent_id: agent.id, model: agent.model, step_ids: session.points, role: 'executor',
-      policy: session.queueMode === 'review_first' ? 'read-only' : 'allow-all', title: task.key + ' ? ' + session.points.join(', ') });
+      policy: session.queueMode === 'review_first' ? 'read-only' : session.permissionPolicy, title: task.key + ' ? ' + session.points.join(', ') });
     session.runId = run.id;
     session.sessionId = chat.id;
     session.mode = 'acp';
@@ -298,7 +300,7 @@ export class Orchestrator {
     session.status = 'running';
     this.state.status = 'running';
     broadcast({ type: 'queue_resumed', taskId: this.state.taskId });
-    await enableExecution(session.sessionId);
+    await enableExecution(session.sessionId, session.permissionPolicy);
     await sendPrompt(session.sessionId, [{ type: 'text', text: prompt + EXECUTION_REPORT }]);
   }
 

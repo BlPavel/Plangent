@@ -7,6 +7,7 @@ import type { McpServer } from '@agentclientprotocol/sdk';
 import { getSession, addEvent, updateSession } from '../../core/agent-sessions/sessions';
 import type { AgentSession } from '../../core/agent-sessions/types';
 import { sessionSignals } from '../../core/agent-sessions/acp-host';
+import { plangentTools, type PlangentTool } from '../../core/agent-sessions/plangent-tools';
 import { getDb } from '../db/schema';
 import { getLatestPlan } from '../../core/orchestration/plans';
 import path from 'path';
@@ -20,15 +21,8 @@ export function sessionMcpConfig(session: AgentSession, http: boolean): McpServe
   return [{ name: 'plangent', command: process.execPath, args: [path.join(__dirname, 'stdio-proxy.cjs')],
     env: [{ name: 'ELECTRON_RUN_AS_NODE', value: '1' }, { name: 'PLANGENT_MCP_URL', value: url }, { name: 'PLANGENT_MCP_TOKEN', value: token }] }];
 }
-const tools = {
-  complete_step: { description: 'Finish all assigned steps with a summary.', fields: { summary: { type: 'string' } } },
-  request_help: { description: 'Ask the developer for help.', fields: { question: { type: 'string' } } },
-  report_progress: { description: 'Report progress.', fields: { note: { type: 'string' } } },
-  get_review_context: { description: 'Get assigned plan and executor context.', fields: {} },
-  add_finding: { description: 'Report a review finding.', fields: { file: { type: 'string' }, line: { type: 'integer', minimum: 1 }, severity: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] }, message: { type: 'string' } } },
-  submit_review: { description: 'Submit review verdict.', fields: { verdict: { type: 'string', enum: ['approved', 'changes_requested'] } } },
-};
-function allowed(session: AgentSession): (keyof typeof tools)[] {
+const tools = plangentTools;
+function allowed(session: AgentSession): PlangentTool[] {
   if (session.role === 'executor') return session.policy === 'read-only' ? ['request_help', 'report_progress'] : ['complete_step', 'request_help', 'report_progress'];
   if (session.role === 'reviewer') return ['get_review_context', 'add_finding', 'submit_review'];
   return [];

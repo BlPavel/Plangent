@@ -13,23 +13,20 @@ export interface LayoutProfile {
 }
 
 export interface Agent {
-  acp_command?: string;
-  acp_args?: string[];
   id: string;
   name: string;
+  // ACP adapter process; empty for the seeded agents, which fall back to their preset (core/agents/presets).
+  acp_command: string;
+  acp_args: string[];
+  env: Record<string, string>;
+  // Plain CLI: used to read usage limits; update_command updates it.
   command: string;
   update_command: string;
-  args: string[];
-  env: Record<string, string>;
-  skills_dir: string;
-  skills_filename: string;
+  // Where the library syncer writes instructions/skills for this agent.
   layout_profile: LayoutProfile | null;
+  // Defaults for new sessions, as values the agent itself reported (see agents/acp-options).
   model: string;
   reasoning_effort: string;
-  // Developer-defined lists the model/reasoning_effort pickers (Settings, and the
-  // per-run override in the task view) draw their options from.
-  model_options: string[];
-  reasoning_options: string[];
   active: boolean;
   created_at: string;
 }
@@ -96,6 +93,9 @@ type OrchestratorSessionStatus =
   | 'failed';
 
 export type QueueSessionMode = 'execute' | 'review_first';
+// How the executor's permission requests are answered (see agent-sessions/permissions.ts);
+// dangerous commands always go to the developer.
+export type ExecutionPolicy = 'allow-all' | 'allow-edits' | 'ask';
 
 export interface OrchestratorQueueSession {
   id: string;
@@ -103,6 +103,7 @@ export interface OrchestratorQueueSession {
   agentId: string;
   parallelGroup: string | null;
   queueMode: QueueSessionMode;
+  permissionPolicy: ExecutionPolicy;
   status: OrchestratorSessionStatus;
   // When true the orchestrator pauses after this session's step completes,
   // so the developer can review before the next step starts.

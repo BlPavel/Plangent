@@ -95,13 +95,15 @@ export const useChatStore = defineStore('agent-chat', () => {
     return job
   }
   // Models/modes/reasoning levels an agent offers, as it reported them (first fetch may take a few seconds).
+  // `refresh` starts the agent again; 'cached' only reads what is already known and never starts it.
   const agentOptions = ref<Record<string, AgentOptionsSource | { error: string }>>({})
   const optionJobs = new Map<string, Promise<void>>()
-  function fetchAgentOptions(agentId: string, refresh = false) {
+  function fetchAgentOptions(agentId: string, refresh: boolean | 'cached' = false) {
     if (!agentId) return Promise.resolve()
     if (optionJobs.has(agentId)) return optionJobs.get(agentId)!
-    const job = api.get<AgentOptionsSource>(`/agents/${agentId}/acp-options${refresh ? '?refresh=1' : ''}`)
-      .then(value => { agentOptions.value[agentId] = value })
+    const query = refresh === 'cached' ? '?cached=1' : refresh ? '?refresh=1' : ''
+    const job = api.get<AgentOptionsSource | null>(`/agents/${agentId}/acp-options${query}`)
+      .then(value => { if (value) agentOptions.value[agentId] = value })
       .catch(e => { agentOptions.value[agentId] = { error: e instanceof Error ? e.message : String(e) } })
       .finally(() => optionJobs.delete(agentId))
     optionJobs.set(agentId, job)

@@ -62,8 +62,8 @@ test('stdio ACP lifecycle persists coalesced messages, serializes queue, resolve
       const task = createTask({ project_id: project.id, key: 'ACP-TEST' });
       createPlan({ task_id: task.id, content: '- [ ] (p1) First\n- [ ] (p2) Second' });
       const orch = new Orchestrator(task.id, project.id, [
-        { id: 'q1', points: ['p1'], agentId: agent.id, reviewerId: agent.id, queueMode: 'execute', parallelGroup: null, status: 'queued' },
-        { id: 'q2', points: ['p2'], agentId: agent.id, queueMode: 'execute', parallelGroup: null, status: 'queued' },
+        { id: 'q1', points: ['p1'], agentId: agent.id, reviewerId: agent.id, queueMode: 'execute', permissionPolicy: 'allow-all', parallelGroup: null, status: 'queued' },
+        { id: 'q2', points: ['p2'], agentId: agent.id, queueMode: 'execute', permissionPolicy: 'allow-all', parallelGroup: null, status: 'queued' },
       ]);
       await orch.start();
       await until(() => orch.state.status === 'finished');

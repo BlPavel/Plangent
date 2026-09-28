@@ -3,19 +3,24 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import { getDb } from '../../infrastructure/db/schema';
 import { Agent } from '../../models';
+import { clearAcpOptions } from './acp-options';
 
 const execAsync = promisify(exec);
 
 function parse(row: Record<string, unknown>): Agent {
   return {
-    ...(row as Omit<Agent, 'args' | 'env' | 'layout_profile' | 'model_options' | 'reasoning_options' | 'active'>),
+    id: row.id as string,
+    name: row.name as string,
+    acp_command: (row.acp_command as string) ?? '',
     acp_args: JSON.parse(row.acp_args as string || '[]'),
-    args: JSON.parse(row.args as string || '[]'),
     env: JSON.parse(row.env as string || '{}'),
+    command: row.command as string,
+    update_command: row.update_command as string,
     layout_profile: row.layout_profile ? JSON.parse(row.layout_profile as string) : null,
-    model_options: JSON.parse(row.model_options as string || '[]'),
-    reasoning_options: JSON.parse(row.reasoning_options as string || '[]'),
+    model: row.model as string,
+    reasoning_effort: row.reasoning_effort as string,
     active: Boolean(row.active),
+    created_at: row.created_at as string,
   };
 }
 
@@ -31,68 +36,42 @@ export function getAgent(id: string): Agent | null {
   return row ? parse(row) : null;
 }
 
-export function createAgent(data: {
-  acp_command?: string;
-  acp_args?: string[];
-  name: string;
-  command: string;
-  update_command?: string;
-  args?: string[];
-  env?: Record<string, string>;
-  skills_dir?: string;
-  skills_filename?: string;
-  layout_profile?: object | null;
-  model?: string;
-  reasoning_effort?: string;
-  model_options?: string[];
-  reasoning_options?: string[];
-}): Agent {
+export type AgentInput = Partial<Omit<Agent, 'id' | 'created_at'>> & { name: string };
+
+export function createAgent(data: AgentInput): Agent {
   const id = uuidv4();
   getDb().prepare(`
-    INSERT INTO agents (id, name, command, update_command, args, env, skills_dir, skills_filename, layout_profile, model, reasoning_effort, model_options, reasoning_options)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO agents (id, name, acp_command, acp_args, env, command, update_command, layout_profile, model, reasoning_effort)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
     data.name,
-    data.command,
-    data.update_command ?? '',
-    JSON.stringify(data.args ?? []),
+    data.acp_command ?? '',
+    JSON.stringify(data.acp_args ?? []),
     JSON.stringify(data.env ?? {}),
-    data.skills_dir ?? '',
-    data.skills_filename ?? 'plangent-skills.md',
+    data.command ?? '',
+    data.update_command ?? '',
     data.layout_profile ? JSON.stringify(data.layout_profile) : null,
     data.model ?? '',
     data.reasoning_effort ?? '',
-    JSON.stringify(data.model_options ?? []),
-    JSON.stringify(data.reasoning_options ?? []),
   );
-  if (data.acp_command) getDb().prepare('UPDATE agents SET acp_command=?, acp_args=? WHERE id=?').run(data.acp_command, JSON.stringify(data.acp_args ?? []), id);
   return getAgent(id)!;
 }
 
 export function updateAgent(id: string, data: Partial<Omit<Agent, 'id' | 'created_at'>>): Agent | null {
   const current = getAgent(id);
   if (!current) return null;
-  const u = {
-    ...current,
-    ...data,
-    args: data.args ?? current.args,
-    env: data.env ?? current.env,
-    layout_profile: data.layout_profile !== undefined ? data.layout_profile : current.layout_profile,
-    model_options: data.model_options ?? current.model_options,
-    reasoning_options: data.reasoning_options ?? current.reasoning_options,
-  };
+  const u = { ...current, ...data, layout_profile: data.layout_profile !== undefined ? data.layout_profile : current.layout_profile };
   getDb().prepare(`
-    UPDATE agents SET name=?, command=?, update_command=?, args=?, env=?, skills_dir=?, skills_filename=?, layout_profile=?, model=?, reasoning_effort=?, model_options=?, reasoning_options=?, active=? WHERE id=?
+    UPDATE agents SET name=?, acp_command=?, acp_args=?, env=?, command=?, update_command=?, layout_profile=?, model=?, reasoning_effort=?, active=? WHERE id=?
   `).run(
-    u.name, u.command, u.update_command, JSON.stringify(u.args), JSON.stringify(u.env),
-    u.skills_dir, u.skills_filename,
+    u.name, u.acp_command, JSON.stringify(u.acp_args), JSON.stringify(u.env), u.command, u.update_command,
     u.layout_profile ? JSON.stringify(u.layout_profile) : null,
-    u.model, u.reasoning_effort,
-    JSON.stringify(u.model_options), JSON.stringify(u.reasoning_options),
-    u.active ? 1 : 0, id,
+    u.model, u.reasoning_effort, u.active ? 1 : 0, id,
   );
-  getDb().prepare('UPDATE agents SET acp_command=?, acp_args=? WHERE id=?').run(u.acp_command ?? '', JSON.stringify(u.acp_args ?? []), id);
+  // What the agent reported may differ once it is started differently.
+  const connection = (a: Agent) => JSON.stringify([a.acp_command, a.acp_args, a.env]);
+  if (connection(current) !== connection(u)) clearAcpOptions(id);
   return getAgent(id);
 }
 

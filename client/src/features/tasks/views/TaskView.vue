@@ -176,7 +176,7 @@ import StatusBadge from '@shared/ui/StatusBadge.vue'
 import AppButton from '@shared/ui/AppButton.vue'
 import AppSelect from '@shared/ui/AppSelect.vue'
 import IconTrash from '@shared/ui/IconTrash.vue'
-import { hasPlaceholder } from '@shared/agent-placeholders'
+import { useChatStore, modelAndEffort } from '@features/agent-chat'
 
 const route = useRoute()
 const router = useRouter()
@@ -210,20 +210,17 @@ const builderModelOverride = ref<string | null>(null)
 const builderReasoningOverride = ref<string | null>(null)
 const builderRunTogether = ref(false)
 
-// Per-run model/reasoning-effort override — only exposed once the selected agent's
-// own args template has a {model}/{reasoning} placeholder AND the developer has
-// defined at least one choice for it in Settings (Agent.model_options/reasoning_options).
-// Left untouched, the picker shows (and a launch sends) the agent's own configured
-// default (Agent.model/reasoning_effort); picking a value overrides it for this run only.
+// Per-run model/reasoning-effort override. Choices are what the agent itself reported over ACP.
+// Left untouched, the picker shows (and a launch sends) the agent's configured default
+// (Agent.model/reasoning_effort); picking a value overrides it for this run only.
+const chatStore = useChatStore()
+const reportedOptions = (agentId: string) => modelAndEffort(chatStore.agentOptions[agentId])
+watch([planningAgentId, builderAgentId], ids => {
+  for (const id of ids) if (id && !chatStore.agentOptions[id]) void chatStore.fetchAgentOptions(id)
+}, { immediate: true })
 const planningAgent = computed(() => agents.value.find(a => a.id === planningAgentId.value) ?? null)
-const planningModelChoices = computed(() =>
-  (hasPlaceholder(planningAgent.value?.args, '{model}') ? planningAgent.value!.model_options : [])
-    .map(v => ({ value: v, label: v })),
-)
-const planningReasoningChoices = computed(() =>
-  (hasPlaceholder(planningAgent.value?.args, '{reasoning}') ? planningAgent.value!.reasoning_options : [])
-    .map(v => ({ value: v, label: v })),
-)
+const planningModelChoices = computed(() => reportedOptions(planningAgentId.value).models)
+const planningReasoningChoices = computed(() => reportedOptions(planningAgentId.value).efforts)
 const planningModel = computed({
   get: () => planningModelOverride.value ?? planningAgent.value?.model ?? '',
   set: v => { planningModelOverride.value = v },
@@ -234,14 +231,8 @@ const planningReasoning = computed({
 })
 
 const builderAgent = computed(() => agents.value.find(a => a.id === builderAgentId.value) ?? null)
-const builderModelChoices = computed(() =>
-  (hasPlaceholder(builderAgent.value?.args, '{model}') ? builderAgent.value!.model_options : [])
-    .map(v => ({ value: v, label: v })),
-)
-const builderReasoningChoices = computed(() =>
-  (hasPlaceholder(builderAgent.value?.args, '{reasoning}') ? builderAgent.value!.reasoning_options : [])
-    .map(v => ({ value: v, label: v })),
-)
+const builderModelChoices = computed(() => reportedOptions(builderAgentId.value).models)
+const builderReasoningChoices = computed(() => reportedOptions(builderAgentId.value).efforts)
 const builderModel = computed({
   get: () => builderModelOverride.value ?? builderAgent.value?.model ?? '',
   set: v => { builderModelOverride.value = v },
@@ -739,6 +730,7 @@ function addQueueSession(queueMode: QueueSessionMode) {
 	    agentId: builderAgentId.value,
 	    parallelGroup: builderRunTogether.value ? 'together' : null,
 	    queueMode,
+	    permissionPolicy: 'allow-all',
 	    pauseAfter: false,
 	    model: builderModel.value || undefined,
 	    reasoningEffort: builderReasoning.value || undefined,
@@ -769,6 +761,7 @@ async function runQueue() {
           agentId: s.agentId,
 	          parallelGroup: s.parallelGroup,
 	          queueMode: s.queueMode ?? 'execute',
+	          permissionPolicy: s.permissionPolicy ?? 'allow-all',
 	          pauseAfter: s.pauseAfter ?? false,
 	          model: s.model,
 	          reasoningEffort: s.reasoningEffort,

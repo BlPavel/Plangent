@@ -11,7 +11,9 @@ import { addEvent, getSession, history, updateSession } from './sessions';
 import { getAcpOptions, saveAcpOptions, type AcpOptions } from '../agents/acp-options';
 import { enqueue, queuedPrompts, editQueued } from './prompt-queue';
 import { permissionDecision } from './permissions';
-import type { AgentSession } from './types';
+import { agentEnv } from './env';
+import { agentPresets, presetForAgentId } from '../agents/presets';
+import type { AgentSession, PermissionPolicy } from './types';
 import type { Agent } from '../../models';
 
 // Preserve native import when the Electron server is compiled as CommonJS.
@@ -36,16 +38,16 @@ export function configureSessionHost(config: { mcp: typeof mcpConfig; terminate:
   mcpConfig = config.mcp;
   terminate = config.terminate;
 }
-export const adapterPresets = {
-  claude: { command: 'npx', args: ['--yes', '@agentclientprotocol/claude-agent-acp@0.81.2'] },
-  codex: { command: 'npx', args: ['--yes', '@agentclientprotocol/codex-acp@1.13.1'] },
-  gemini: { command: 'gemini', args: ['--experimental-acp'] },
-};
 function adapterCommand(agent: Agent): { command: string; args: string[] } {
-  const preset = agent.id === 'agent-claude' ? adapterPresets.claude : agent.id === 'agent-codex' ? adapterPresets.codex : null;
-  const command = agent.acp_command || preset?.command;
+  const preset = agentPresets[presetForAgentId[agent.id]];
+  const command = agent.acp_command || preset?.acp_command;
   if (!command) throw new Error(`У агента «${agent.name}» не задана ACP-команда. Укажите её в настройках агента.`);
-  return { command, args: agent.acp_command ? agent.acp_args ?? [] : preset?.args ?? [] };
+  return { command, args: agent.acp_command ? agent.acp_args ?? [] : preset?.acp_args ?? [] };
+}
+/** Values the agent reported for a config option; empty when it reported none (then anything is tried). */
+function offered(options: ACP.SessionConfigOption[] | null | undefined, match: (o: ACP.SessionConfigOption) => boolean): string[] {
+  const option = options?.find(match) as { options?: { value: string; options?: { value: string }[] }[] } | undefined;
+  return (option?.options ?? []).flatMap(c => c.options ?? [c]).map(c => c.value);
 }
 const probes = new Map<string, Promise<AcpOptions>>();
 /**
@@ -65,7 +67,7 @@ function probeAgent(agentId: string): Promise<AcpOptions> {
     if (!agent) throw new Error('Агент не найден');
     const { command, args } = adapterCommand(agent);
     const sdk = await loadSdk();
-    const child = spawn(command, args, { cwd: os.tmpdir(), env: { ...process.env, ...agent.env }, stdio: 'pipe', windowsHide: true, detached: process.platform !== 'win32' });
+    const child = spawn(command, args, { cwd: os.tmpdir(), env: agentEnv(process.env, agent.env), stdio: 'pipe', windowsHide: true, detached: process.platform !== 'win32' });
     const connection = sdk.client({ name: 'Plangent' })
       .onNotification('session/update', () => {})
       .onRequest('session/request_permission', async () => ({ outcome: { outcome: 'cancelled' as const } }))
@@ -74,8 +76,8 @@ function probeAgent(agentId: string): Promise<AcpOptions> {
     try {
       return await Promise.race([
         (async () => {
-          await connection.agent.request('initialize', { protocolVersion: sdk.PROTOCOL_VERSION, clientInfo: { name: 'Plangent', version: '0.1.6' }, clientCapabilities: {} });
-          return saveAcpOptions(agentId, await connection.agent.request('session/new', { cwd: os.tmpdir(), mcpServers: [] }));
+          const init = await connection.agent.request('initialize', { protocolVersion: sdk.PROTOCOL_VERSION, clientInfo: { name: 'Plangent', version: '0.1.6' }, clientCapabilities: {} });
+          return saveAcpOptions(agentId, await connection.agent.request('session/new', { cwd: os.tmpdir(), mcpServers: [] }), init);
         })(),
         new Promise<never>((_, reject) => { child.on('error', reject); timer = setTimeout(() => reject(new Error('Агент не ответил за 90 секунд')), 90_000); }),
       ]);
@@ -137,7 +139,7 @@ async function permission(id: string, request: ACP.RequestPermissionRequest): Pr
   const state = live.get(id)!;
   if (state.cancelled || state.stopping) return { outcome: { outcome: 'cancelled' } };
   const project = getProject(session.project_id);
-  const decision = permissionDecision(session.policy, request, project?.config.dangerous_commands);
+  const decision = permissionDecision(session.policy, request, project?.config.dangerous_commands, project?.repo_path);
   const option = request.options.find(o => o.kind === (decision === 'allow' ? 'allow_once' : 'reject_once'));
   if (decision !== 'ask' && option) {
     addEvent(id, 'permission_result', { title: request.toolCall.title, decision });
@@ -173,7 +175,7 @@ async function boot(id: string): Promise<LiveSession> {
   const sdk = await loadSdk();
   const { command, args } = adapterCommand(agent);
   updateSession(id, { status: 'starting', reason: '' });
-  const child = spawn(command, args, { cwd: project.repo_path, env: { ...process.env, ...agent.env, ...project.config.extra_env },
+  const child = spawn(command, args, { cwd: project.repo_path, env: agentEnv(process.env, agent.env, project.config.extra_env),
     stdio: 'pipe', windowsHide: true, detached: process.platform !== 'win32' });
   const connection = sdk.client({ name: 'Plangent' })
     .onNotification('session/update', p => update(id, p.params))
@@ -222,7 +224,7 @@ async function boot(id: string): Promise<LiveSession> {
       }
     } else {
       response = await connection.agent.request('session/new', { cwd: project.repo_path, mcpServers });
-      saveAcpOptions(agent.id, response);
+      saveAcpOptions(agent.id, response, initialized);
     }
     state.loading = false;
     updateSession(id, { acp_session_id: 'sessionId' in response ? String(response.sessionId) : session.acp_session_id,
@@ -241,13 +243,17 @@ async function boot(id: string): Promise<LiveSession> {
     else if (modes.some(m => /bypass|full.access|auto/i.test(m.id)) && modes.length) {
       throw new Error('Адаптер не предлагает режим с запросами разрешений');
     }
-    if (session.model) await setModel(id, session.model);
+    // A default saved before the agent changed its lineup must not break the start: skip unknown values.
+    const models = offered(response.configOptions, o => o.category === 'model');
+    if (session.model && (!models.length || models.includes(session.model))) await setModel(id, session.model);
+    else if (session.model) addEvent(id, 'notice', { text: `Агент больше не предлагает модель «${session.model}», используется его модель по умолчанию.` });
     // Re-apply options chosen in the UI (reasoning depth, Codex "plan first", …); the agent's
     // configured reasoning effort is only the fallback default.
     const preferredConfig = { ...(getSession(id).metadata.preferredConfig as Record<string, string> | undefined) };
     const effortOption = response.configOptions?.find(o => o.category === 'thought_level');
-    const effort = session.metadata.reasoningEffort || agent.reasoning_effort;
-    if (effortOption && effort && !(effortOption.id in preferredConfig)) preferredConfig[effortOption.id] = String(effort);
+    const effort = String(session.metadata.reasoningEffort || agent.reasoning_effort || '');
+    const efforts = offered(response.configOptions, o => o.category === 'thought_level');
+    if (effortOption && effort && efforts.includes(effort) && !(effortOption.id in preferredConfig)) preferredConfig[effortOption.id] = effort;
     for (const [configId, value] of Object.entries(preferredConfig)) {
       if (response.configOptions?.some(o => o.id === configId && o.category !== 'model' && o.category !== 'mode')) await setConfig(id, configId, value);
     }
@@ -295,14 +301,14 @@ export async function setMode(id: string, modeId: string): Promise<void> {
   }
   rememberMode(id, modeId); // otherwise applied when the session next starts
 }
-export async function enableExecution(id: string): Promise<void> {
+export async function enableExecution(id: string, policy: PermissionPolicy = 'allow-all'): Promise<void> {
   const state = await startSession(id);
   if (state.busy) throw new Error('Дождитесь окончания обсуждения');
   const session = getSession(id);
   const modes = (session.metadata.modes as ACP.SessionModeState | undefined)?.availableModes ?? [];
   const mode = modes.find(m => m.id === 'default') ?? modes.find(m => m.id === 'read-only');
   if (mode) await state.connection.agent.request('session/set_mode', { sessionId: session.acp_session_id!, modeId: mode.id });
-  updateSession(id, { policy: 'allow-all', status: 'ready', reason: '' });
+  updateSession(id, { policy, status: 'ready', reason: '' });
 }
 export async function sendPrompt(id: string, content: ACP.ContentBlock[]): Promise<void> {
   const state = await startSession(id);

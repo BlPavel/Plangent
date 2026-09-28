@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import type { ContentBlock } from '@agentclientprotocol/sdk';
 import { createSession, listSessions, getSession, updateSession, deleteSession, history, findings } from '../../../core/agent-sessions/sessions';
-import { startSession, sendPrompt, cancelSession, closeSession, answerPermission, setModel, setMode, setConfig, snapshot, adapterPresets } from '../../../core/agent-sessions/acp-host';
+import { startSession, sendPrompt, cancelSession, closeSession, answerPermission, setModel, setMode, setConfig, snapshot } from '../../../core/agent-sessions/acp-host';
 import { editQueued } from '../../../core/agent-sessions/prompt-queue';
 import { getProject } from '../../../core/projects';
 import { getAgent } from '../../../core/agents';
@@ -9,7 +9,6 @@ import { broadcast } from '../../../core/shared/events';
 
 export const agentSessionsRouter = Router();
 agentSessionsRouter.get('/', (req, res) => res.json(listSessions(typeof req.query.projectId === 'string' ? req.query.projectId : undefined)));
-agentSessionsRouter.get('/presets', (_req, res) => res.json(adapterPresets));
 agentSessionsRouter.post('/', async (req, res) => {
   try {
     const { project_id, agent_id, model, mode, config } = req.body;

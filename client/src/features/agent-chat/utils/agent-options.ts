@@ -85,6 +85,15 @@ export function agentSelects(source: AgentOptionsSource | null | undefined): Age
   return selects.sort((a, b) => (order.indexOf(a.category) + 1 || 9) - (order.indexOf(b.category) + 1 || 9))
 }
 
+/** Model and reasoning-depth choices, for pickers that only set these two (task queue, agent defaults). */
+export function modelAndEffort(source: AgentOptionsSource | { error: string } | null | undefined): { models: SelectOption[]; efforts: SelectOption[] } {
+  const selects = source && !('error' in source) ? agentSelects(source) : []
+  return {
+    models: selects.find(s => s.kind === 'model')?.options ?? [],
+    efforts: selects.find(s => s.category === 'thought_level')?.options ?? [],
+  }
+}
+
 export interface PlanToggle { select: AgentSelect; active: boolean; off: string }
 
 /**

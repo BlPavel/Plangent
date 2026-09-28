@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
+import { agentPresets } from '../../core/agents/presets';
 
 const DATA_DIR = process.env.PLANGENT_DATA_DIR || path.join(process.cwd(), 'data');
 const DB_PATH = path.join(DATA_DIR, 'plangent.db');
@@ -122,134 +123,26 @@ function migrate(db: Database.Database): void {
   migrateData(db);
 }
 
-const LAYOUT_CLAUDE = JSON.stringify({
-  skills: { dir: '.claude/skills', global: '~/.claude/skills', file: 'plangent-<slug>/SKILL.md' },
-  commands: { dir: '.claude/commands', global: '~/.claude/commands', file: 'plangent-<slug>.md' },
-  main: { file: 'CLAUDE.md', global: '~/.claude/CLAUDE.md' },
-});
-
-const LAYOUT_CODEX = JSON.stringify({
-  skills: { dir: '.agents/skills', global: '~/.agents/skills', file: 'plangent-<slug>/SKILL.md' },
-  commands: { dir: '.agents/skills', global: '~/.agents/skills', file: 'plangent-<slug>/SKILL.md', asSkill: true },
-  main: { file: 'AGENTS.md', global: '~/.codex/AGENTS.md' },
-});
+// Built-in agents, created on first start from their presets (core/agents/presets).
+const SEEDED: [string, string][] = [['agent-claude', 'claude'], ['agent-codex', 'codex']];
 
 function seedDefaultAgents(db: Database.Database): void {
   const existing = db.prepare('SELECT COUNT(*) as cnt FROM agents').get() as { cnt: number };
   if (existing.cnt > 0) return;
-
-  db.prepare(`
-    INSERT INTO agents (id, name, command, update_command, args, env, skills_dir, skills_filename, layout_profile, model_options, reasoning_options) VALUES
-    (
-      'agent-claude',
-      'Claude Code',
-      'claude',
-      'npm update -g @anthropic-ai/claude-code',
-      '["--model", "{model}", "--effort", "{reasoning}"]',
-      '{}',
-      '.claude/commands',
-      'plangent.md',
-      ?,
-      ?,
-      ?
-    ),
-    (
-      'agent-codex',
-      'Codex CLI',
-      'codex',
-      'npm install -g @openai/codex@latest',
-      '["--model", "{model}", "-c", "model_reasoning_effort={reasoning}"]',
-      '{}',
-      '',
-      'AGENTS.md',
-      ?,
-      ?,
-      ?
-    )
-  `).run(
-    LAYOUT_CLAUDE, CLAUDE_MODEL_OPTIONS, CLAUDE_REASONING_OPTIONS,
-    LAYOUT_CODEX, CODEX_MODEL_OPTIONS, CODEX_REASONING_OPTIONS,
-  );
-}
-
-// Suggested starting values for the two built-in agents' model/reasoning-effort
-// pickers — the developer can freely add, edit, or delete entries in Settings.
-const CLAUDE_MODEL_OPTIONS = JSON.stringify(['sonnet', 'opus', 'haiku', 'fable']);
-const CLAUDE_REASONING_OPTIONS = JSON.stringify(['low', 'medium', 'high', 'xhigh']);
-const CODEX_MODEL_OPTIONS = JSON.stringify([
-  'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex-spark',
-]);
-const CODEX_REASONING_OPTIONS = JSON.stringify(['minimal', 'low', 'medium', 'high', 'xhigh']);
-
-// Add --model/--effort placeholder flags to a default agent's args if the
-// developer hasn't already customized them (no {model}/{reasoning} present).
-function addModelEffortArgs(db: Database.Database, agentId: string, extraArgs: string[]): void {
-  const row = db.prepare(`SELECT args FROM agents WHERE id = ?`).get(agentId) as { args: string } | undefined;
-  if (!row) return;
-  const args: string[] = JSON.parse(row.args || '[]');
-  if (args.some(a => a.includes('{model}') || a.includes('{reasoning}'))) return;
-  db.prepare(`UPDATE agents SET args = ? WHERE id = ?`).run(JSON.stringify([...args, ...extraArgs]), agentId);
-}
-
-// Backfill model/reasoning option lists for installs that already had these
-// two agents seeded before model_options/reasoning_options existed.
-function seedOptionsIfEmpty(db: Database.Database, agentId: string, modelOptions: string, reasoningOptions: string): void {
-  const row = db.prepare(`SELECT model_options, reasoning_options FROM agents WHERE id = ?`).get(agentId) as
-    { model_options: string; reasoning_options: string } | undefined;
-  if (!row) return;
-  if (row.model_options === '[]') {
-    db.prepare(`UPDATE agents SET model_options = ? WHERE id = ?`).run(modelOptions, agentId);
-  }
-  if (row.reasoning_options === '[]') {
-    db.prepare(`UPDATE agents SET reasoning_options = ? WHERE id = ?`).run(reasoningOptions, agentId);
-  }
-}
-
-function stripDeadArgs(db: Database.Database, agentId: string, deadFlags: string[]): void {
-  const row = db.prepare(`SELECT args FROM agents WHERE id = ?`).get(agentId) as { args: string } | undefined;
-  if (!row) return;
-  const args: string[] = JSON.parse(row.args || '[]');
-  if (!args.some(a => deadFlags.includes(a))) return;
-  db.prepare(`UPDATE agents SET args = ? WHERE id = ?`).run(JSON.stringify(args.filter(a => !deadFlags.includes(a))), agentId);
-}
-
-function seedUpdateCommandIfEmpty(db: Database.Database, agentId: string, updateCommand: string): void {
-  const row = db.prepare(`SELECT update_command FROM agents WHERE id = ?`).get(agentId) as
-    { update_command: string } | undefined;
-  if (row && !row.update_command.trim()) {
-    db.prepare(`UPDATE agents SET update_command = ? WHERE id = ?`).run(updateCommand, agentId);
+  const insert = db.prepare(`INSERT INTO agents (id, name, command, update_command, layout_profile) VALUES (?, ?, ?, ?, ?)`);
+  for (const [id, key] of SEEDED) {
+    const p = agentPresets[key];
+    insert.run(id, p.name, p.command, p.update_command, JSON.stringify(p.layout_profile));
   }
 }
 
 function migrateData(db: Database.Database): void {
-  // Fix codex args if they were seeded with empty array
-  const codex = db.prepare(`SELECT args FROM agents WHERE id = 'agent-codex'`).get() as { args: string } | undefined;
-  if (codex && codex.args === '[]') {
-    db.prepare(`UPDATE agents SET args = '[]' WHERE id = 'agent-codex'`).run();
+  // Built-in agents from installs that predate layout_profile / update_command.
+  for (const [id, key] of SEEDED) {
+    const p = agentPresets[key];
+    db.prepare(`UPDATE agents SET layout_profile = ? WHERE id = ? AND layout_profile IS NULL`).run(JSON.stringify(p.layout_profile), id);
+    db.prepare(`UPDATE agents SET update_command = ? WHERE id = ? AND trim(update_command) = ''`).run(p.update_command, id);
   }
-
-  // ACP adapters run under an explicit permission policy (see agent-sessions/permissions.ts);
-  // the old PTY-era "skip all confirmations" CLI flags are dead weight now and only
-  // misleading if left in existing installs' agent args.
-  stripDeadArgs(db, 'agent-claude', ['--dangerously-skip-permissions']);
-  stripDeadArgs(db, 'agent-codex', ['--dangerously-bypass-approvals-and-sandbox']);
-
-  // Backfill layout_profile for existing agents that were seeded before this column existed
-  const claudeNoLayout = db.prepare(`SELECT id FROM agents WHERE id = 'agent-claude' AND layout_profile IS NULL`).get();
-  if (claudeNoLayout) {
-    db.prepare(`UPDATE agents SET layout_profile = ? WHERE id = 'agent-claude'`).run(LAYOUT_CLAUDE);
-  }
-  const codexNoLayout = db.prepare(`SELECT id FROM agents WHERE id = 'agent-codex' AND layout_profile IS NULL`).get();
-  if (codexNoLayout) {
-    db.prepare(`UPDATE agents SET layout_profile = ? WHERE id = 'agent-codex'`).run(LAYOUT_CODEX);
-  }
-
-  addModelEffortArgs(db, 'agent-claude', ['--model', '{model}', '--effort', '{reasoning}']);
-  addModelEffortArgs(db, 'agent-codex', ['--model', '{model}', '-c', 'model_reasoning_effort={reasoning}']);
-  seedOptionsIfEmpty(db, 'agent-claude', CLAUDE_MODEL_OPTIONS, CLAUDE_REASONING_OPTIONS);
-  seedOptionsIfEmpty(db, 'agent-codex', CODEX_MODEL_OPTIONS, CODEX_REASONING_OPTIONS);
-  seedUpdateCommandIfEmpty(db, 'agent-claude', 'npm update -g @anthropic-ai/claude-code');
-  seedUpdateCommandIfEmpty(db, 'agent-codex', 'npm install -g @openai/codex@latest');
 
   // Legacy common plan protocol is now runtime instructions, not a user-facing global skill.
   // Historical filesystem cleanup is no longer performed at startup.

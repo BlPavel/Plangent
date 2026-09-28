@@ -19,6 +19,19 @@
               <option :value="undefined">Без ревью</option>
               <option v-for="a in agents" :key="a.id" :value="a.id">Ревью: {{ a.name }}</option>
             </select>
+            <select
+              v-if="row.queueSession?.status === 'queued'"
+              v-model="row.queueSession.permissionPolicy"
+              title="Как отвечать на запросы разрешений агента. Опасные команды (rm -rf, git push --force, список проекта) всегда спрашиваются."
+              @click.stop
+            >
+              <option value="allow-all">Автономно</option>
+              <option value="allow-edits">Только правки</option>
+              <option value="ask">Спрашивать всё</option>
+            </select>
+            <span v-else-if="row.queueSession?.permissionPolicy === 'allow-edits' || row.queueSession?.permissionPolicy === 'ask'" class="policy-badge">
+              {{ row.queueSession.permissionPolicy === 'ask' ? 'спрашивает всё' : 'только правки' }}
+            </span>
             <span class="queue-status-chip" :class="row.statusClass">{{ row.statusLabel }}</span>
             <AppButton
               v-if="row.canAttach && (!row.terminalSession || activeSessionId !== row.terminalSession.id)"
@@ -184,6 +197,14 @@ defineEmits<{
   white-space: nowrap;
 }
 
+.policy-badge {
+  font-size: 10px;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  padding: 1px 6px;
+  border-radius: 8px;
+  white-space: nowrap;
+}
 .pause-badge {
   font-size: 10px;
   color: #d29922;

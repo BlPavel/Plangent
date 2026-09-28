@@ -9,8 +9,12 @@ export interface AcpOptions {
   configOptions?: ACP.SessionConfigOption[] | null;
   modes?: ACP.SessionModeState | null;
   models?: unknown;
+  /** From `initialize`: who answered and what it can do. */
+  agent?: { name?: string; title?: string | null; version?: string } | null;
+  capabilities?: { loadSession: boolean; mcpHttp: boolean } | null;
   at: number;
 }
+type Initialized = Pick<ACP.InitializeResponse, 'agentInfo' | 'agentCapabilities'>;
 
 let ready = false;
 function db() {
@@ -27,9 +31,17 @@ export function getAcpOptions(agentId: string): AcpOptions | null {
   return row ? JSON.parse(row.options) : null;
 }
 
+/** Forget what the agent reported, e.g. after its adapter command changed. */
+export function clearAcpOptions(agentId: string): void {
+  db().prepare('DELETE FROM agent_acp_options WHERE agent_id=?').run(agentId);
+}
+
 /** Only call with a brand-new session's response: its current values are the agent's defaults. */
-export function saveAcpOptions(agentId: string, response: { configOptions?: ACP.SessionConfigOption[] | null; modes?: ACP.SessionModeState | null; models?: unknown }): AcpOptions {
-  const options: AcpOptions = { configOptions: response.configOptions ?? null, modes: response.modes ?? null, models: response.models ?? null, at: Date.now() };
+export function saveAcpOptions(agentId: string, response: { configOptions?: ACP.SessionConfigOption[] | null; modes?: ACP.SessionModeState | null; models?: unknown }, init?: Initialized): AcpOptions {
+  const options: AcpOptions = { configOptions: response.configOptions ?? null, modes: response.modes ?? null, models: response.models ?? null,
+    agent: init?.agentInfo ?? null,
+    capabilities: init ? { loadSession: !!init.agentCapabilities?.loadSession, mcpHttp: !!init.agentCapabilities?.mcpCapabilities?.http } : null,
+    at: Date.now() };
   db().prepare('INSERT INTO agent_acp_options(agent_id, options, updated_at) VALUES (?,?,?) ON CONFLICT(agent_id) DO UPDATE SET options=excluded.options, updated_at=excluded.updated_at')
     .run(agentId, JSON.stringify(options), options.at);
   return options;

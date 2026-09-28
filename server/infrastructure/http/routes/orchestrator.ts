@@ -48,6 +48,7 @@ orchestratorRouter.post('/execute', async (req: Request, res: Response) => {
 	    agentId: s.agentId,
 	    parallelGroup: s.parallelGroup,
 	    queueMode: s.queueMode === 'review_first' ? 'review_first' : 'execute',
+	    permissionPolicy: s.permissionPolicy === 'allow-edits' || s.permissionPolicy === 'ask' ? s.permissionPolicy : 'allow-all',
 	    pauseAfter: s.pauseAfter ?? false,
 	    model: s.model,
 	    reasoningEffort: s.reasoningEffort,
