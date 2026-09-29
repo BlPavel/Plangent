@@ -7,7 +7,7 @@ import { getAgent } from '../../../core/agents';
 import { resolvePlanTemplate } from '../../../core/library/plan-template';
 import { buildPrompt, EXECUTION_REPORT } from '../../../core/orchestration/prompts';
 import { createSession as createChat, listSessions as listChats, getSession as getChat } from '../../../core/agent-sessions/sessions';
-import { sendPrompt, closeSession } from '../../../core/agent-sessions/acp-host';
+import { sendPrompt, closeSession, startSession } from '../../../core/agent-sessions/acp-host';
 import { getPlanFilePath, materializePlanFile, watchPlanFile, watchPlanDirForCreate } from '../../../core/orchestration/plan-file';
 import { getOrchestrator } from '../../../core/orchestration/orchestrator';
 
@@ -67,20 +67,30 @@ runsRouter.post('/', async (req: Request, res: Response) => {
   const run = createRun({ task_id: task.id, plan_id: latestPlan?.id, agent_id: agent.id, agent_name: agent.name });
   const sessionId = `plangent-${task.key.replace(/[^a-zA-Z0-9]/g, '-')}-${run.id.slice(0, 8)}`;
 
-  // Wire plan-file watching
+  // Wire plan-file watching. The planner saves through submit_plan, which writes the file itself.
   if (purpose === 'plan' || purpose === 'preflight') {
     if (latestPlan) {
       materializePlanFile(task, latestPlan, project.repo_path);
       watchPlanFile(task, latestPlan.id, project.repo_path);
-    } else {
+    } else if (purpose === 'preflight') {
       watchPlanDirForCreate(task, project.repo_path);
     }
   }
 
   try {
+    if (purpose === 'plan') {
+      // Nothing is sent yet: the briefing goes out, hidden, with the developer's first message.
+      const { mode, config } = req.body;
+      const chat = createChat({ project_id: projectId, task_id: taskId, run_id: run.id, agent_id: agent.id, role: 'planner', policy: 'read-only',
+        model: agent.model, title: task.key + ' · Планирование', metadata: { briefing: prompt, reasoningEffort: agent.reasoning_effort,
+          ...(typeof mode === 'string' && mode ? { preferredMode: mode } : {}),
+          ...(config && typeof config === 'object' ? { preferredConfig: Object.fromEntries(Object.entries(config).map(([k, v]) => [k, String(v)])) } : {}) } });
+      void startSession(chat.id).catch(() => {});
+      return res.status(201).json({ run, session_id: chat.id, mode: 'acp' });
+    }
     const chat = createChat({ project_id: projectId, task_id: taskId, run_id: run.id, agent_id: agent.id,
-      role: purpose === 'plan' ? 'planner' : 'executor', policy: purpose === 'preflight' ? 'read-only' : purpose === 'plan' ? 'ask' : 'allow-all',
-      model: agent.model, title: task.key + (purpose === 'plan' ? ' · Планирование' : ' · Выполнение') });
+      role: 'executor', policy: purpose === 'preflight' ? 'read-only' : 'allow-all',
+      model: agent.model, title: task.key + ' · Выполнение' });
     await sendPrompt(chat.id, [{ type: 'text', text: prompt + (purpose === 'execute' ? EXECUTION_REPORT : '') }]);
     res.status(201).json({ run, session_id: chat.id, mode: 'acp', prompt });
   } catch (err) {

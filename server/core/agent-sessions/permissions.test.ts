@@ -27,6 +27,9 @@ test("Plangent's own tools pass under every policy, lookalikes do not", () => {
   assert.equal(permissionDecision('ask', args({ summary: 'x', command: 'rm' })), 'ask');
   assert.equal(permissionDecision('ask', args({ summary: 'x' }, 'Run shell')), 'ask');
   assert.equal(permissionDecision('read-only', { sessionId: 's', options: [], toolCall: { toolCallId: 't', kind: 'execute', title: '{"summary":"x"}', rawInput: { summary: 'x' } } }), 'deny');
+  // Codex names MCP calls "mcp.<server>.<tool>" with { server, tool, arguments } as input.
+  assert.equal(permissionDecision('read-only', { sessionId: 's', options: [], toolCall: { toolCallId: 't', kind: 'execute', title: 'mcp.plangent.get_plan', rawInput: { server: 'plangent', tool: 'get_plan', arguments: {} } } }), 'allow');
+  assert.equal(permissionDecision('read-only', { sessionId: 's', options: [], toolCall: { toolCallId: 't', kind: 'execute', rawInput: { server: 'other', tool: 'submit_plan', arguments: {} } } }), 'deny');
 });
 test('automatic approval stops at the project folder', () => {
   const root = path.resolve('repo');

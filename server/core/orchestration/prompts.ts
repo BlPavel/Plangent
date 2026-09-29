@@ -17,43 +17,34 @@ export interface RunContext {
   }>;
 }
 
+/**
+ * Planner briefing. It travels with the developer's first message and is hidden in the chat, so it
+ * stays short: the plan, template and format rules come from the get_plan tool, and submit_plan
+ * checks the format instead of the prompt spelling it out.
+ */
 function buildPlanningPrompt(ctx: RunContext): string {
-  const lines: string[] = [];
-  const planPath = ctx.planFilePath ? `\`${ctx.planFilePath}\`` : 'the plan file';
-  const template = (ctx.planTemplate ?? '').trim();
+  return [
+    `[Plangent] You are the planner for task \`${ctx.taskKey}\`${ctx.taskTitle ? ` (${ctx.taskTitle})` : ''} in project ${ctx.projectName}.`,
+    'Your job is a plan, not the implementation: read the code as much as you need, but do not edit files or run commands that change anything.',
+    ctx.planContent
+      ? 'A plan already exists. Call the Plangent tool get_plan to read it, then change it as the developer asks below.'
+      : 'Call the Plangent tool get_plan for the plan template and format, then plan the task the developer describes below.',
+    'Save the plan only with the Plangent tool submit_plan (the full plan every time) - never write the plan file yourself.',
+    'After submitting, summarize the plan in a few lines and wait for the developer\'s feedback. Do not start executing.',
+    '',
+    'Developer\'s message:',
+  ].join('\n');
+}
 
-  if (template) {
-    lines.push(template);
-    lines.push('');
-    lines.push('---');
-    lines.push('');
-  }
-  lines.push(PLAN_PROTOCOL_LOCKED.trim());
-  lines.push('');
-  lines.push('## You are in PLANNING mode');
-  lines.push(
-    `Task key: \`${ctx.taskKey}\`${ctx.taskTitle ? ` — ${ctx.taskTitle}` : ''} ` +
-    '(context only — do NOT infer the task from this).',
-  );
-  lines.push('');
-  lines.push('**Do NOT write code, run commands, or execute anything.** In this session your only job is to produce a plan.');
-  lines.push('');
-
-  if (ctx.planContent) {
-    lines.push(`A plan already exists in ${planPath}. Wait for the developer to tell you, in this chat, what to change. Then update the plan file per the protocol above, keeping existing \`(pN)\` ids.`);
-    lines.push('');
-    lines.push('Current plan:');
-    lines.push('```');
-    lines.push(ctx.planContent);
-    lines.push('```');
-  } else {
-    lines.push('Wait for the developer to describe the task in this chat. When they have, write the plan into ' + planPath + ' per the protocol above:');
-    lines.push('- break the work into clear checkbox steps `- [ ] text` (ids are assigned automatically — leave them out);');
-    lines.push('- you may add any prose, headings or notes around the steps — only the checkboxes become tracked steps;');
-    lines.push('- after writing the plan, STOP and wait for review. Do NOT start executing.');
-  }
-  lines.push('');
-  return lines.join('\n');
+/** What get_plan returns to the planner. */
+export function planningToolContext(ctx: RunContext): Record<string, unknown> {
+  return {
+    task: { key: ctx.taskKey, title: ctx.taskTitle ?? '', description: ctx.taskDescription ?? '' },
+    project: ctx.projectName,
+    currentPlan: ctx.planContent || null,
+    template: ctx.planTemplate?.trim() || null,
+    format: PLAN_PROTOCOL_LOCKED.trim(),
+  };
 }
 
 function buildPreflightPrompt(ctx: RunContext): string {

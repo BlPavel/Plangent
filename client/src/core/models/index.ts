@@ -184,4 +184,5 @@ export type OrchestratorEvent =
   | { type: 'queue_resumed'; taskId: string }
   | { type: 'run_failed'; taskId: string; reason: string }
   | { type: 'task_status'; taskId: string; status: Task['status'] }
-  | { type: 'plan_updated'; taskId: string; content?: string; steps: PlanStep[] }
+  // idMap: old → new step ids when the planner's plan was renumbered in order.
+  | { type: 'plan_updated'; taskId: string; content?: string; steps: PlanStep[]; idMap?: Record<string, string> }

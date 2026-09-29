@@ -8,6 +8,12 @@ export const plangentTools = {
   get_review_context: { description: 'Get assigned plan and executor context.', fields: {} },
   add_finding: { description: 'Report a review finding.', fields: { file: { type: 'string' }, line: { type: 'integer', minimum: 1 }, severity: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] }, message: { type: 'string' } } },
   submit_review: { description: 'Submit review verdict.', fields: { verdict: { type: 'string', enum: ['approved', 'changes_requested'] } } },
+  get_plan: { description: 'Get the task, its current plan (if any), the plan template and the plan format rules. Call it before writing a plan.', fields: {} },
+  submit_plan: {
+    description: 'Save the whole plan (markdown). Every tracked step is its own line "- [ ] step text"; everything else (headings, notes) is free text. ' +
+      'Keep existing "(pN)" ids of steps you keep; leave ids out for new steps - Plangent numbers them. Call again with the full plan after every change.',
+    fields: { content: { type: 'string' } },
+  },
 };
 export type PlangentTool = keyof typeof plangentTools;
 
@@ -23,6 +29,9 @@ export function isPlangentToolCall(tool: Pick<ToolCallUpdate, 'title' | 'kind' |
   const title = tool.title ?? '';
   if (/plangent/i.test(title) && Object.keys(plangentTools).some(name => title.includes(name))) return true;
   const input = tool.rawInput;
+  // Codex: { server: 'plangent', tool: 'submit_plan', arguments: {...} }
+  const mcp = input as { server?: unknown; tool?: unknown } | undefined;
+  if (mcp?.server === 'plangent' && typeof mcp.tool === 'string' && mcp.tool in plangentTools) return true;
   if ((tool.kind ?? 'other') !== 'other' || !input || typeof input !== 'object' || Array.isArray(input)) return false;
   if (title !== JSON.stringify(input)) return false;
   return signatures.includes(Object.keys(input).sort().join(','));

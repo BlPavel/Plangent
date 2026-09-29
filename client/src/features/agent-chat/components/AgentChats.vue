@@ -37,25 +37,16 @@
         :initial-content="initial?.id === selected ? initial.content : undefined"
         @session="selected = $event"
       />
-      <div v-else class="new-chat">
-        <div class="new-chat-center">
-          <h2 class="new-chat-title">Новый чат</h2>
-          <p class="new-chat-text">Выберите агента и опишите задачу. Агент работает в папке проекта; модель, режим и остальное можно поменять и во время чата.</p>
-          <div class="new-chat-options">
-            <AppSelect v-model="agentId" :options="agentList" placeholder="Агент" />
-          </div>
-        </div>
-        <div class="new-chat-dock">
-          <ChatComposer :project-id="projectId" :disabled="!agentId || creating" @send="create" @error="error = $event">
-            <template #status><UsageMeter v-if="agentId" :agent-id="agentId" /></template>
-          </ChatComposer>
-          <AgentSettingsBar :policy="policy" :selects="resolvedSelects" @policy="policy = $event" @change="(select, value) => (choices[select.configId] = value)">
-            <span v-if="optionsState === 'loading'" class="options-note">Загружаю модели агента…</span>
-            <span v-else-if="optionsState" class="options-note" :title="optionsState">Не удалось получить настройки агента · <button type="button" @click="store.fetchAgentOptions(agentId, true)">повторить</button></span>
-          </AgentSettingsBar>
-          <div v-if="error" class="new-chat-error">{{ error }}</div>
-        </div>
-      </div>
+      <NewChatPanel
+        v-else
+        :project-id="projectId"
+        :default-agent-id="defaultAgentId"
+        title="Новый чат"
+        text="Выберите агента и опишите задачу. Агент работает в папке проекта; модель, режим и остальное можно поменять и во время чата."
+        :busy="creating"
+        :error="error"
+        @start="create"
+      />
     </main>
 
     <AppModal :model-value="!!renameId" title="Название чата" @update:model-value="renameId = ''" @confirm="rename"><FormField v-model="title" label="Название" /></AppModal>
@@ -69,54 +60,30 @@ import { useAgentsStore } from '@features/agents'
 import { useAppStore } from '@core/stores/app'
 import AppButton from '@shared/ui/AppButton.vue'
 import AppModal from '@shared/ui/AppModal.vue'
-import AppSelect from '@shared/ui/AppSelect.vue'
 import FormField from '@shared/ui/FormField.vue'
 import IconTrash from '@shared/ui/IconTrash.vue'
 import ChatView from './ChatView.vue'
-import ChatComposer, { type ContentBlock } from './ChatComposer.vue'
-import UsageMeter from './UsageMeter.vue'
-import AgentSettingsBar from './AgentSettingsBar.vue'
-import { agentSelects, type AgentSelect } from '../utils/agent-options'
+import type { ContentBlock } from './ChatComposer.vue'
+import NewChatPanel, { type NewChatRequest } from './NewChatPanel.vue'
 import { useChatStore, type ChatSession } from '../stores/sessions'
 
 const props = defineProps<{ projectId: string; defaultAgentId?: string | null }>()
 const store = useChatStore(), agents = useAgentsStore(), app = useAppStore()
-const agentId = ref(''), policy = ref('ask'), selected = ref(''), error = ref(''), creating = ref(false), renameId = ref(''), title = ref('')
-const choices = ref<Record<string, string>>({})
+const selected = ref(''), error = ref(''), creating = ref(false), renameId = ref(''), title = ref('')
 const initial = ref<{ id: string; content: ContentBlock[] } | null>(null)
 
 const sessions = computed(() => store.sessions.filter(s => s.project_id === props.projectId && s.role === 'chat'))
-const agentList = computed(() => agents.agents.map(a => ({ value: a.id, label: a.name })))
-// The agent reports its own models/modes/levels; the first fetch opens a throwaway session (a few seconds).
-const reported = computed(() => store.agentOptions[agentId.value])
-const selects = computed(() => (reported.value && !('error' in reported.value) ? agentSelects(reported.value) : []))
-const optionsState = computed(() => (!agentId.value ? '' : !reported.value ? 'loading' : 'error' in reported.value ? reported.value.error : ''))
-/** What the chat will start with: the user's pick, else what Plangent applies on start (mode: "default"), else the agent's default. */
-const resolvedSelects = computed(() => selects.value.map(s => ({ ...s, current: choice(s) })))
-function choice(select: AgentSelect) {
-  if (choices.value[select.configId]) return choices.value[select.configId]
-  if (select.kind === 'mode') return ['default', 'read-only'].find(v => select.options.some(o => o.value === v)) ?? select.current
-  return select.current
-}
 const agentName = (id: string) => agents.agents.find(a => a.id === id)?.name ?? ''
 
-watch(() => props.projectId, () => { selected.value = ''; agentId.value = props.defaultAgentId || agents.agents[0]?.id || ''; void store.connect() }, { immediate: true })
-watch(() => agents.agents.length, () => { if (!agentId.value) agentId.value = props.defaultAgentId || agents.agents[0]?.id || '' })
-watch(agentId, id => { choices.value = {}; if (id && !store.agentOptions[id]) void store.fetchAgentOptions(id) }, { immediate: true })
+watch(() => props.projectId, () => { selected.value = ''; void store.connect() }, { immediate: true })
 // The first message is handed to ChatView once; never resend it when the chat is reopened.
 watch(selected, id => { if (initial.value && initial.value.id !== id) initial.value = null })
 
-async function create(content: ContentBlock[]) {
+async function create({ content, ...options }: NewChatRequest) {
   creating.value = true
   error.value = ''
-  const modelSelect = selects.value.find(s => s.kind === 'model'), modeSelect = selects.value.find(s => s.kind === 'mode')
   try {
-    const session = await api.post<ChatSession>('/agent-sessions', {
-      project_id: props.projectId, agent_id: agentId.value, policy: policy.value,
-      model: modelSelect && choice(modelSelect) !== modelSelect.current ? choice(modelSelect) : '',
-      mode: modeSelect ? choice(modeSelect) : '',
-      config: Object.fromEntries(selects.value.filter(s => s.kind === 'config' && choice(s) !== s.current).map(s => [s.configId, choice(s)])),
-    })
+    const session = await api.post<ChatSession>('/agent-sessions', { project_id: props.projectId, ...options })
     store.put(session)
     initial.value = { id: session.id, content }
     selected.value = session.id
@@ -169,15 +136,4 @@ function ago(timestamp: string) {
 @keyframes pulse { 50% { opacity: 0.35; } }
 
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-
-.new-chat { flex: 1; display: flex; flex-direction: column; min-height: 0; }
-.new-chat-center { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--sp-2); padding: var(--sp-6); text-align: center; }
-.new-chat-title { font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
-.new-chat-text { font-size: 13px; color: var(--text-muted); max-width: 420px; }
-.new-chat-options { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--sp-2); margin-top: var(--sp-3); }
-.new-chat-options .select { min-width: 200px; }
-.new-chat-dock { width: 100%; max-width: 820px; margin: 0 auto; padding: 0 var(--sp-5) var(--sp-4); }
-.options-note { font-size: 12px; color: var(--text-faint); padding: 0 6px; white-space: nowrap; }
-.options-note button { background: none; border: none; padding: 0; color: var(--blue-hover); font: inherit; cursor: pointer; }
-.new-chat-error { margin-top: 6px; font-size: 12px; color: var(--danger-hover); }
 </style>

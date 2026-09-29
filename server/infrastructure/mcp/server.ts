@@ -10,6 +10,12 @@ import { sessionSignals } from '../../core/agent-sessions/acp-host';
 import { plangentTools, type PlangentTool } from '../../core/agent-sessions/plangent-tools';
 import { getDb } from '../db/schema';
 import { getLatestPlan } from '../../core/orchestration/plans';
+import { submitPlan } from '../../core/orchestration/plan-file';
+import { getOrchestrator } from '../../core/orchestration/orchestrator';
+import { planningToolContext } from '../../core/orchestration/prompts';
+import { resolvePlanTemplate } from '../../core/library/plan-template';
+import { getTask } from '../../core/tasks';
+import { getProject } from '../../core/projects';
 import path from 'path';
 
 const tokens = new Map<string, string>();
@@ -25,7 +31,24 @@ const tools = plangentTools;
 function allowed(session: AgentSession): PlangentTool[] {
   if (session.role === 'executor') return session.policy === 'read-only' ? ['request_help', 'report_progress'] : ['complete_step', 'request_help', 'report_progress'];
   if (session.role === 'reviewer') return ['get_review_context', 'add_finding', 'submit_review'];
+  if (session.role === 'planner') return ['get_plan', 'submit_plan'];
   return [];
+}
+function planTask(session: AgentSession) {
+  const task = session.task_id ? getTask(session.task_id) : null;
+  const project = getProject(session.project_id);
+  if (!task || !project) throw new Error('Task not found');
+  return { task, project };
+}
+function planResult(name: 'get_plan' | 'submit_plan', session: AgentSession, args: Record<string, unknown>): unknown {
+  const { task, project } = planTask(session);
+  if (name === 'submit_plan') {
+    const executing = ['running', 'paused'].includes(getOrchestrator(task.id)?.state.status ?? '');
+    const { steps, removed } = submitPlan(task, project.repo_path, String(args.content), !executing);
+    return { saved: true, steps, ...(removed.length ? { removedSteps: removed } : {}) };
+  }
+  return planningToolContext({ projectName: project.name, taskKey: task.key, taskTitle: task.title ?? undefined,
+    taskDescription: task.description ?? undefined, planContent: getLatestPlan(task.id)?.content, planTemplate: resolvePlanTemplate(project.id), runHistory: [] });
 }
 export const mcpRouter = Router();
 mcpRouter.post('/', async (req, res) => {
@@ -54,6 +77,14 @@ mcpRouter.post('/', async (req, res) => {
     if (name === 'submit_review') {
       if (!['approved', 'changes_requested'].includes(String(args.verdict))) throw new Error('Invalid verdict');
       updateSession(id, { status: 'complete', reason: String(args.verdict) }); sessionSignals.emit('review', id, args.verdict);
+    }
+    if (name === 'get_plan' || name === 'submit_plan') {
+      // Format problems go back to the agent as a tool error it can fix, not as a protocol failure.
+      let result: unknown;
+      try { result = planResult(name, session, args); }
+      catch (e) { return { isError: true, content: [{ type: 'text', text: e instanceof Error ? e.message : String(e) }] }; }
+      if (name === 'submit_plan') addEvent(id, name, { summary: `План сохранён: шагов — ${(result as { steps: string[] }).steps.length}` });
+      return { content: [{ type: 'text', text: JSON.stringify(result) }] };
     }
     addEvent(id, name, args);
     const result = name === 'get_review_context' ? { steps: session.step_ids, plan: session.task_id ? getLatestPlan(session.task_id)?.content : '', context: session.metadata.reviewContext } : { ok: true };

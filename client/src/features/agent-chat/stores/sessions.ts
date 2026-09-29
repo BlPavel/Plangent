@@ -15,6 +15,8 @@ export interface ChatPayload {
   availableCommands?: { name: string; description: string }[];
   file?: string; line?: number; severity?: string; message?: string;
   verdict?: string; summary?: string; question?: string; note?: string;
+  /** The user message also carried Plangent's hidden briefing. */
+  briefing?: boolean;
 }
 export interface LimitWindow { id: string; label: string; percent: number; resetsAt: number | null }
 export interface AgentLimits { agentId: string; at: number; windows: LimitWindow[]; error?: string }

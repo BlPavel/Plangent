@@ -107,6 +107,21 @@ export function assignMissingIds(content: string): { content: string; changed: b
   return { content: result.join('\n'), changed };
 }
 
+/**
+ * Numbers every step by its position (p1, p2, …), so a step inserted in the middle doesn't read
+ * "p1 p2 p3 p5 p4". Only safe while no execution refers to the old ids; `idMap` maps old → new.
+ */
+export function renumberSteps(content: string): { content: string; idMap: Record<string, string> } {
+  const idMap: Record<string, string> = {};
+  let n = 0;
+  const result = content.split('\n').map(line => line.replace(/^(\s*-\s*\[[ x]\]\s+)(?:\((p\d+)\)\s+)?/i, (_m, head: string, old?: string) => {
+    const id = `p${++n}`;
+    if (old && old.toLowerCase() !== id) idMap[old.toLowerCase()] = id;
+    return `${head}(${id}) `;
+  }));
+  return { content: result.join('\n'), idMap };
+}
+
 export function setStepDone(content: string, stepIndex: number, done: boolean): string {
   const { body } = parseFrontmatter(content);
   const frontmatterLen = content.length - body.length;

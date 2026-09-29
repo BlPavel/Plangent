@@ -139,17 +139,20 @@ async function permission(id: string, request: ACP.RequestPermissionRequest): Pr
   const state = live.get(id)!;
   if (state.cancelled || state.stopping) return { outcome: { outcome: 'cancelled' } };
   const project = getProject(session.project_id);
-  const decision = permissionDecision(session.policy, request, project?.config.dangerous_commands, project?.repo_path);
+  // Codex asks with little more than the toolCallId; what the call is was sent in the earlier tool_call update.
+  const announced = history(id).filter(e => e.type === 'tool_call' && e.payload.toolCallId === request.toolCall.toolCallId).pop()?.payload;
+  const toolCall = { ...(announced as Partial<ACP.ToolCallUpdate> | undefined), ...Object.fromEntries(Object.entries(request.toolCall).filter(([, v]) => v != null)) } as ACP.ToolCallUpdate;
+  const decision = permissionDecision(session.policy, { ...request, toolCall }, project?.config.dangerous_commands, project?.repo_path);
   const option = request.options.find(o => o.kind === (decision === 'allow' ? 'allow_once' : 'reject_once'));
   if (decision !== 'ask' && option) {
-    addEvent(id, 'permission_result', { title: request.toolCall.title, decision });
+    addEvent(id, 'permission_result', { title: toolCall.title, decision });
     return { outcome: { outcome: 'selected', optionId: option.optionId } };
   }
   if (decision === 'deny') return { outcome: { outcome: 'cancelled' } };
   const permissionId = randomUUID();
-  addEvent(id, 'permission', { permissionId, ...request });
-  updateSession(id, { status: 'waiting', reason: request.toolCall.title ?? 'Запрос разрешения' });
-  return new Promise(resolve => state.permissions.set(permissionId, { request, resolve }));
+  addEvent(id, 'permission', { permissionId, ...request, toolCall });
+  updateSession(id, { status: 'waiting', reason: toolCall.title ?? 'Запрос разрешения' });
+  return new Promise(resolve => state.permissions.set(permissionId, { request: { ...request, toolCall }, resolve }));
 }
 export function answerPermission(id: string, permissionId: string, optionId: string): void {
   const state = live.get(id);
@@ -232,7 +235,8 @@ async function boot(id: string): Promise<LiveSession> {
     const modes = response.modes?.availableModes ?? [];
     // 'discuss' is chosen before the agent's own mode list is known; map it onto its plan/read-only mode.
     const preferred = getSession(id).metadata.preferredMode as string | undefined;
-    const discuss = session.policy === 'read-only' || preferred === 'discuss';
+    // A planner is read-only too, but the agent's own plan mode would fight submit_plan (Claude ends it with ExitPlanMode).
+  const discuss = (session.policy === 'read-only' && session.role !== 'planner') || preferred === 'discuss';
     const safeMode = (preferred && !isBypassMode(preferred) ? modes.find(m => m.id === preferred) : undefined)
       ?? (discuss ? modes.find(m => /^plan$|read.?only/i.test(m.id)) : undefined)
       ?? modes.find(m => m.id === 'default') ?? modes.find(m => m.id === 'read-only');
@@ -318,11 +322,17 @@ export async function sendPrompt(id: string, content: ACP.ContentBlock[]): Promi
   const session = getSession(id);
   const text = content.filter(c => c.type === 'text').map(c => (c as ACP.TextContent).text).join('\n');
   updateSession(id, { status: 'thinking', reason: '', ...(session.title === 'Новый чат' ? { title: text.slice(0, 60) || 'Вложение' } : {}) });
-  const prompt = session.metadata.needsContext
-    ? [{ type: 'text' as const, text: `Контекст предыдущего разговора (может быть обрезан):\n${transcript(id)}\n\nНовое сообщение:` }, ...content]
-    : content;
-  if (session.metadata.needsContext) updateSession(id, { metadata: { ...getSession(id).metadata, needsContext: false } });
-  addEvent(id, 'user', { content, text });
+  // `briefing` is Plangent's instructions for the session: sent with the first message (and again if the
+  // agent lost the conversation) but never shown as something the developer wrote.
+  const briefing = typeof session.metadata.briefing === 'string' ? session.metadata.briefing : '';
+  const withBriefing = briefing && (!session.metadata.briefed || session.metadata.needsContext);
+  const prompt: ACP.ContentBlock[] = [
+    ...(withBriefing ? [{ type: 'text' as const, text: briefing }] : []),
+    ...(session.metadata.needsContext ? [{ type: 'text' as const, text: `Контекст предыдущего разговора (может быть обрезан):\n${transcript(id)}\n\nНовое сообщение:` }] : []),
+    ...content,
+  ];
+  if (session.metadata.needsContext || withBriefing) updateSession(id, { metadata: { ...getSession(id).metadata, needsContext: false, ...(briefing ? { briefed: true } : {}) } });
+  addEvent(id, 'user', { content, text, ...(withBriefing ? { briefing: true } : {}) });
   void state.connection.agent.request('session/prompt', { sessionId: session.acp_session_id!, prompt }).then(result => {
     flush(id, state);
     addEvent(id, 'turn_end', { stopReason: result.stopReason });

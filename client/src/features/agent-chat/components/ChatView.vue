@@ -151,7 +151,7 @@ const pending = ref<{ id: number; text: string }[]>([])
 let follow = true
 let pendingId = 0
 
-const NOTICES: Record<string, string> = { notice: 'Сессия перезапущена', complete_step: 'Шаг завершён', request_help: 'Агенту нужна помощь', report_progress: 'Прогресс' }
+const NOTICES: Record<string, string> = { notice: 'Сессия перезапущена', complete_step: 'Шаг завершён', request_help: 'Агенту нужна помощь', report_progress: 'Прогресс', submit_plan: 'План' }
 const severityLabel = (severity: string) => ({ low: 'Низкая', medium: 'Средняя', high: 'Высокая', critical: 'Критично' }[severity] ?? severity)
 
 const agentName = computed(() => agents.agents.find(a => a.id === snap.value?.session.agent_id)?.name ?? '')
@@ -200,7 +200,8 @@ function withMentions(text: string) {
 }
 function extras(row: Row) {
   const content = (row.payload as { content?: { type: string; name?: string; resource?: { uri?: string } }[] }).content ?? []
-  return content.flatMap(c => c.type === 'image' ? ['🖼 изображение'] : c.type === 'resource' ? ['📎 ' + decodeURIComponent(c.resource?.uri?.split('/').pop() ?? 'файл')] : [])
+  const files = content.flatMap(c => c.type === 'image' ? ['🖼 изображение'] : c.type === 'resource' ? ['📎 ' + decodeURIComponent(c.resource?.uri?.split('/').pop() ?? 'файл')] : [])
+  return row.payload.briefing ? ['📋 контекст задачи', ...files] : files
 }
 
 // ── Scrolling: stick to the bottom while the user hasn't scrolled up ───────

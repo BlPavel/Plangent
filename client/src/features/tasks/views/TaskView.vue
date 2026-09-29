@@ -30,30 +30,28 @@
     <div v-show="activeTab === 'plan'" class="tab-body">
       <PlanPanel
         :plan="plan"
+        :project-id="pid ?? ''"
+        :default-agent-id="appStore.currentProject?.default_agent_id"
         :planning-active="planningActive"
+        :planning-draft="planningDraft"
         :planning-session-id="planningSessionId"
+        :planning-initial="planningInitial"
+        :planning-launching="planningLaunching"
+        :planning-error="planningError"
         :editing-plan="editingPlan"
         :plan-content="planContent"
         :checkbox-line-previews="checkboxLinePreviews"
         :done-count="doneCount"
         :progress-pct="progressPct"
-        :agent-options="agentOptions"
-        :planning-agent-id="planningAgentId"
-        :planning-model-choices="planningModelChoices"
-        :planning-model="planningModel"
-        :planning-reasoning-choices="planningReasoningChoices"
-        :planning-reasoning="planningReasoning"
-        :planning-launching="planningLaunching"
         @approve-plan="approvePlan"
+        @open-planning="planningDraft = true; planningError = ''"
+        @cancel-planning="planningDraft = false"
         @launch-planning="launchPlanning"
         @start-manual-edit="startManualEdit"
         @toggle-plan-edit="togglePlanEdit"
         @save-plan="savePlan"
         @cancel-edit="editingPlan = false"
         @update:plan-content="planContent = $event"
-        @update:planning-agent-id="planningAgentId = $event"
-        @update:planning-model="planningModel = $event"
-        @update:planning-reasoning="planningReasoning = $event"
       />
     </div>
 
@@ -176,7 +174,7 @@ import StatusBadge from '@shared/ui/StatusBadge.vue'
 import AppButton from '@shared/ui/AppButton.vue'
 import AppSelect from '@shared/ui/AppSelect.vue'
 import IconTrash from '@shared/ui/IconTrash.vue'
-import { useChatStore, modelAndEffort } from '@features/agent-chat'
+import { useChatStore, modelAndEffort, type NewChatRequest, type ContentBlock } from '@features/agent-chat'
 
 const route = useRoute()
 const router = useRouter()
@@ -195,10 +193,10 @@ const planContent = ref('')
 
 const activeTab = ref<'plan' | 'exec'>('plan')
 
-// Planning launch state
-const planningAgentId = ref(appStore.currentProject?.default_agent_id ?? '')
-const planningModelOverride = ref<string | null>(null)
-const planningReasoningOverride = ref<string | null>(null)
+// Planning state: a draft shows the agent picker next to the plan; active means a planner session exists.
+const planningDraft = ref(false)
+const planningInitial = ref<ContentBlock[] | undefined>()
+const planningError = ref('')
 const planningLaunching = ref(false)
 const planningActive = ref(false)
 const planningRunId = ref<string | null>(null)
@@ -215,20 +213,9 @@ const builderRunTogether = ref(false)
 // (Agent.model/reasoning_effort); picking a value overrides it for this run only.
 const chatStore = useChatStore()
 const reportedOptions = (agentId: string) => modelAndEffort(chatStore.agentOptions[agentId])
-watch([planningAgentId, builderAgentId], ids => {
-  for (const id of ids) if (id && !chatStore.agentOptions[id]) void chatStore.fetchAgentOptions(id)
+watch(builderAgentId, id => {
+  if (id && !chatStore.agentOptions[id]) void chatStore.fetchAgentOptions(id)
 }, { immediate: true })
-const planningAgent = computed(() => agents.value.find(a => a.id === planningAgentId.value) ?? null)
-const planningModelChoices = computed(() => reportedOptions(planningAgentId.value).models)
-const planningReasoningChoices = computed(() => reportedOptions(planningAgentId.value).efforts)
-const planningModel = computed({
-  get: () => planningModelOverride.value ?? planningAgent.value?.model ?? '',
-  set: v => { planningModelOverride.value = v },
-})
-const planningReasoning = computed({
-  get: () => planningReasoningOverride.value ?? planningAgent.value?.reasoning_effort ?? '',
-  set: v => { planningReasoningOverride.value = v },
-})
 
 const builderAgent = computed(() => agents.value.find(a => a.id === builderAgentId.value) ?? null)
 const builderModelChoices = computed(() => reportedOptions(builderAgentId.value).models)
@@ -242,7 +229,6 @@ const builderReasoning = computed({
   set: v => { builderReasoningOverride.value = v },
 })
 
-watch(planningAgentId, () => { planningModelOverride.value = null; planningReasoningOverride.value = null })
 watch(builderAgentId, () => { builderModelOverride.value = null; builderReasoningOverride.value = null })
 const selectedStepIds = ref<Set<string>>(new Set())
 const queueSessions = ref<OrchestratorQueueSession[]>([])
@@ -454,6 +440,12 @@ async function handleOrchestratorEvent(event: OrchestratorEvent) {
       break
     }
     case 'plan_updated': {
+      // Steps were renumbered in order: queued (not yet started) sessions follow their steps.
+      const idMap = event.idMap ?? {}
+      if (Object.keys(idMap).length) {
+        for (const s of queueSessions.value) if (s.status === 'queued') s.points = s.points.map(p => idMap[p] ?? p)
+        clearSelection()
+      }
       // During planning we need the full content live; reload to get content + steps.
       if (planningActive.value || !plan.value) {
         await loadPlan()
@@ -620,7 +612,6 @@ onMounted(async () => {
   restoreSessions()
   await Promise.all([loadPlan(), loadRuns(), agentsStore.load(), loadOrchestratorState()])
   await pruneDeadTerminalSessions()
-	  if (!planningAgentId.value && agents.value.length) planningAgentId.value = agents.value[0].id
 	  if (!builderAgentId.value && agents.value.length) builderAgentId.value = agents.value[0].id
 	  connectEvents()
 	  activityPollTimer = window.setInterval(() => { pollSessionActivity() }, 2500)
@@ -817,36 +808,32 @@ async function resumeQueue() {
 
 // ——— Planning launch ———
 
-async function launchPlanning() {
-  if (!pid.value || !tid.value || !planningAgentId.value) return
+// The planner session is created without a prompt; the developer's first message goes out
+// through the chat (ChatView), and the server attaches the hidden planning briefing to it.
+async function launchPlanning({ content, ...options }: NewChatRequest) {
+  if (!pid.value || !tid.value || !options.agent_id) return
   planningLaunching.value = true
+  planningError.value = ''
   try {
     const result = await api.post<RunStartResult>(
       `/projects/${pid.value}/tasks/${tid.value}/runs`,
-      {
-        agent_id: planningAgentId.value,
-        purpose: 'plan',
-        model: planningModel.value || undefined,
-        reasoning_effort: planningReasoning.value || undefined,
-      },
+      { purpose: 'plan', agent_id: options.agent_id, model: options.model || undefined, mode: options.mode, config: options.config },
     )
-    const agent = agents.value.find(a => a.id === planningAgentId.value)
-    const agentName = agent?.name ?? result.session_id
+    const agentName = agents.value.find(a => a.id === options.agent_id)?.name ?? result.session_id
     const sameCount = sessions.value.filter(s => s.label.startsWith(agentName)).length + 1
     const label = `${agentName} #${sameCount} — ${task.value?.key ?? ''} [план]`
     sessions.value.push({ id: result.session_id, label, runId: result.run.id })
     activeSessionId.value = result.session_id
 
-
+    planningInitial.value = content
+    planningDraft.value = false
     planningActive.value = true
     planningRunId.value = result.run.id
     planningSessionId.value = result.session_id
     activeTab.value = 'plan'
-
-    appStore.toast('Агент запущен для планирования', 'success')
     await loadRuns()
   } catch (e: unknown) {
-    appStore.toast(String(e), 'error')
+    planningError.value = String(e)
   } finally {
     planningLaunching.value = false
   }
@@ -867,6 +854,7 @@ async function approvePlan() {
   planningActive.value = false
   planningRunId.value = null
   planningSessionId.value = null
+  planningInitial.value = undefined
   await loadPlan()
   await loadRuns()
   appStore.toast('План утверждён', 'success')
@@ -914,6 +902,7 @@ async function killSession(id: string) {
     planningActive.value = false
     planningRunId.value = null
     planningSessionId.value = null
+    planningInitial.value = undefined
   }
   await loadRuns()
   await loadPlan()

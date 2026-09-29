@@ -59,6 +59,26 @@ test('stdio ACP lifecycle persists coalesced messages, serializes queue, resolve
       assert.deepEqual((await (await call(headers, 'tools/list')).json() as { result: { tools: unknown[] } }).result.tools, []);
       const denied = await (await call(headers, 'tools/call', { name: 'complete_step', arguments: { summary: 'bad' } })).json() as { error?: unknown; result?: { isError: boolean } };
       assert.ok(denied.error || denied.result?.isError);
+      const planTask = createTask({ project_id: project.id, key: 'PLAN-TEST' });
+      const planner = repository.createSession({ project_id: project.id, task_id: planTask.id, agent_id: agent.id, role: 'planner', policy: 'read-only', metadata: { briefing: 'BRIEFING' } });
+      await host.sendPrompt(planner.id, [{ type: 'text', text: 'plan it' }]);
+      const firstUser = repository.history(planner.id).find(e => e.type === 'user')!;
+      assert.equal(firstUser.payload.text, 'plan it');
+      assert.equal(firstUser.payload.briefing, true);
+      const plannerMcp = sessionMcpConfig(planner, true)[0] as { url: string; headers: { name: string; value: string }[] };
+      const plannerHeaders = Object.fromEntries(plannerMcp.headers.map(h => [h.name, h.value]));
+      const tools = (await (await call(plannerHeaders, 'tools/list')).json() as { result: { tools: { name: string }[] } }).result.tools.map(t => t.name);
+      assert.deepEqual(tools, ['get_plan', 'submit_plan']);
+      repository.updateSession(planner.id, { status: 'thinking' });
+      const empty = await (await call(plannerHeaders, 'tools/call', { name: 'submit_plan', arguments: { content: 'just prose' } })).json() as { result: { isError?: boolean } };
+      assert.equal(empty.result.isError, true);
+      await call(plannerHeaders, 'tools/call', { name: 'submit_plan', arguments: { content: '# Plan\n- [ ] (p7) Invented id\n- [ ] Second' } });
+      const { getLatestPlan } = await import('../orchestration/plans');
+      assert.match(getLatestPlan(planTask.id)!.content, /- \[ \] \(p1\) Invented id\n- \[ \] \(p2\) Second/);
+      assert.ok(fs.existsSync(path.join(temp, '.plangent', 'PLAN-TEST.plan.md')));
+      await call(plannerHeaders, 'tools/call', { name: 'submit_plan', arguments: { content: '- [ ] (p1) Invented id\n- [ ] Inserted\n- [x] (p2) Second' } });
+      assert.match(getLatestPlan(planTask.id)!.content, /\(p1\) Invented id\n- \[ \] \(p2\) Inserted\n- \[x\] \(p3\) Second/);
+      (await import('../orchestration/plan-file')).stopWatchPlanFile('PLAN-TEST');
       const task = createTask({ project_id: project.id, key: 'ACP-TEST' });
       createPlan({ task_id: task.id, content: '- [ ] (p1) First\n- [ ] (p2) Second' });
       const orch = new Orchestrator(task.id, project.id, [
