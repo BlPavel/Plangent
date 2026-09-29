@@ -1,4 +1,4 @@
-import type { PlatformBridge } from './types'
+import type { AppUpdates, PlatformBridge } from './types'
 
 // Shape of the bridge exposed by electron/preload.ts. Declared locally (not as a
 // global Window augmentation) so the Electron contract never leaks into the rest
@@ -12,6 +12,7 @@ interface ElectronAPI {
   getClipboardImage: () => Promise<string | null>
   getClipboardText: () => Promise<string>
   setClipboardText: (text: string) => Promise<void>
+  updates?: AppUpdates
 }
 
 // The ONLY place in the frontend that reaches for window.electronAPI.
@@ -33,4 +34,6 @@ export const electronBridge: PlatformBridge = {
   getClipboardText: () => electronAPI!.getClipboardText(),
   setClipboardText: (text) => electronAPI!.setClipboardText(text),
   canAccessFiles: true,
+  // Shells older than the updater don't expose it.
+  updates: electronAPI?.updates,
 }

@@ -6,4 +6,4 @@ import { webBridge } from './web'
 // After this line, no feature code references Electron or window.electronAPI.
 export const platform: PlatformBridge = isElectron ? electronBridge : webBridge
 
-export type { PlatformBridge } from './types'
+export type { PlatformBridge, UpdateState } from './types'

@@ -12,4 +12,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getClipboardImage: (): Promise<string | null> => ipcRenderer.invoke('clipboard:image'),
   getClipboardText: (): Promise<string> => ipcRenderer.invoke('clipboard:text'),
   setClipboardText: (text: string): Promise<void> => ipcRenderer.invoke('clipboard:write-text', text),
+  updates: {
+    getState: () => ipcRenderer.invoke('update:get-state'),
+    onState: (handler: (state: unknown) => void) => { ipcRenderer.on('update:state', (_event, state) => handler(state)); },
+    install: () => ipcRenderer.invoke('update:install'),
+    openRelease: () => ipcRenderer.send('update:open-release'),
+  },
 });

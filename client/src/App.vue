@@ -32,7 +32,7 @@
         <span class="sidebar-link-icon">⚙</span> Настройки
       </RouterLink>
 
-      <div class="sidebar-version app-no-drag">{{ appVersion ? `v${appVersion}` : '' }}</div>
+      <UpdateStatus :version="appVersion" />
     </aside>
 
     <main class="content">
@@ -68,6 +68,7 @@ import type { Project } from '@core/models'
 import { api } from '@core/api'
 import { platform } from '@core/platform'
 import { startQueueNotifications, useBlockedQueuesStore } from '@features/tasks'
+import { UpdateStatus } from '@features/updates'
 import AppToast from '@shared/ui/AppToast.vue'
 import AppConfirm from '@shared/ui/AppConfirm.vue'
 import AppModal from '@shared/ui/AppModal.vue'
@@ -224,13 +225,6 @@ async function addProject() {
 .sidebar-link-icon { font-size: 14px; }
 .sidebar-link:hover { background: var(--bg3); color: var(--text); }
 .sidebar-link.active { background: var(--bg3); color: var(--text); box-shadow: inset 2px 0 0 var(--blue); }
-
-.sidebar-version {
-  margin-top: var(--sp-3);
-  padding: 0 6px;
-  font-size: 11px;
-  color: var(--text-faint);
-}
 
 .content { flex: 1; overflow: hidden; }
 .form-field { display: flex; flex-direction: column; gap: 4px; }

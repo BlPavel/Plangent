@@ -3,7 +3,7 @@ import { getTask, updateTask } from '../../../core/tasks';
 import { getProject } from '../../../core/projects';
 import { getAgent } from '../../../core/agents';
 import { Orchestrator, getOrchestrator } from '../../../core/orchestration/orchestrator';
-import { getQueue, saveQueue, replaceStages, isFrozen, blockedQueues, StageInput } from '../../../core/orchestration/queue';
+import { getQueue, saveQueue, replaceStages, isFrozen, blockedQueues, activeQueues, StageInput } from '../../../core/orchestration/queue';
 import { deletePlanFile, materializePlanFile } from '../../../core/orchestration/plan-file';
 import { getLatestPlan, parsePlanSteps } from '../../../core/orchestration/plans';
 import { broadcast } from '../../../core/shared/events';
@@ -13,6 +13,8 @@ export const orchestratorRouter = Router({ mergeParams: true });
 // GET /api/queues/blocked — executing queues (of every project) that wait for the developer
 export const queuesRouter = Router();
 queuesRouter.get('/blocked', (_req: Request, res: Response) => res.json(blockedQueues()));
+// GET /api/queues/active — executing queues (of every project); a restart would stop them
+queuesRouter.get('/active', (_req: Request, res: Response) => res.json(activeQueues()));
 
 function taskQueue(req: Request, res: Response) {
   const { projectId, taskId } = req.params;

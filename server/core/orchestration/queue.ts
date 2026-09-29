@@ -62,6 +62,16 @@ export function archiveFinished(queue: TaskQueue): void {
   queue.history = [{ id: uuidv4(), finishedAt: new Date().toISOString(), stages: done }, ...(queue.history ?? [])].slice(0, 20);
 }
 
+export interface ActiveQueue { projectId: string; taskId: string; taskKey: string }
+
+/** Queues that are executing right now (running or paused) — a restart would stop them. */
+export function activeQueues(): ActiveQueue[] {
+  return allQueues().filter(isFrozen).flatMap(queue => {
+    const task = getTask(queue.taskId);
+    return task ? [{ projectId: queue.projectId, taskId: queue.taskId, taskKey: task.key }] : [];
+  });
+}
+
 export interface BlockedQueue { projectId: string; taskId: string; taskKey: string; reason: string }
 
 /**

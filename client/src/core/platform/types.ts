@@ -29,4 +29,26 @@ export interface PlatformBridge {
   // Use this instead of an `isElectron` check — it asks about a capability,
   // not about the environment.
   readonly canAccessFiles: boolean
+
+  // Self-update of the installed app; absent when the host can't update itself (browser).
+  readonly updates?: AppUpdates
+}
+
+// Keep in sync with UpdateState in electron/updater.ts.
+export type UpdateState =
+  | { status: 'idle' }
+  | { status: 'checking' }
+  | { status: 'up-to-date' }
+  | { status: 'downloading'; version: string; percent: number }
+  | { status: 'ready'; version: string }
+  // Can't be installed in place: the developer downloads it from the release page.
+  | { status: 'manual'; version: string; url: string }
+  | { status: 'error'; message: string }
+
+export interface AppUpdates {
+  getState(): Promise<UpdateState>
+  onState(handler: (state: UpdateState) => void): void
+  // Quits the app, installs the downloaded update and starts the new version.
+  install(): Promise<void>
+  openRelease(): void
 }
