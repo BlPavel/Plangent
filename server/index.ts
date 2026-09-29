@@ -1,4 +1,5 @@
 import { initSessions } from './core/agent-sessions/sessions';
+import { initQueues } from './core/orchestration/queue';
 import { configureSessionHost, shutdownSessions } from './core/agent-sessions/acp-host';
 import { sessionMcpConfig } from './infrastructure/mcp/server';
 import { killProcessTree } from './infrastructure/terminal/process-tree';
@@ -20,6 +21,7 @@ const DEFAULT_PORT = parseInt(process.env.PORT ?? '3001', 10);
 export async function startServer(port = DEFAULT_PORT): Promise<number> {
   getDb();
   initSessions();
+  initQueues();
   configureSessionHost({ mcp: sessionMcpConfig, terminate: killProcessTree });
 
   try {

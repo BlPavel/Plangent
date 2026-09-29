@@ -46,7 +46,9 @@ test('stdio ACP lifecycle persists coalesced messages, serializes queue, resolve
     const { sessionMcpConfig } = await import('../../infrastructure/mcp/server');
     const { createTask } = await import('../tasks');
     const { createPlan } = await import('../orchestration/plans');
-    const { Orchestrator } = await import('../orchestration/orchestrator');
+    const { Orchestrator, getOrchestrator } = await import('../orchestration/orchestrator');
+    const queues = await import('../orchestration/queue');
+    queues.initQueues();
     const { server } = createApp();
     await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
     process.env.PLANGENT_URL = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
@@ -81,14 +83,44 @@ test('stdio ACP lifecycle persists coalesced messages, serializes queue, resolve
       (await import('../orchestration/plan-file')).stopWatchPlanFile('PLAN-TEST');
       const task = createTask({ project_id: project.id, key: 'ACP-TEST' });
       createPlan({ task_id: task.id, content: '- [ ] (p1) First\n- [ ] (p2) Second' });
-      const orch = new Orchestrator(task.id, project.id, [
-        { id: 'q1', points: ['p1'], agentId: agent.id, reviewerId: agent.id, queueMode: 'execute', permissionPolicy: 'allow-all', parallelGroup: null, status: 'queued' },
-        { id: 'q2', points: ['p2'], agentId: agent.id, queueMode: 'execute', permissionPolicy: 'allow-all', parallelGroup: null, status: 'queued' },
-      ]);
+      const queue = queues.saveQueue(queues.replaceStages(queues.getQueue(task.id, project.id), [
+        { sessions: [{ points: ['p1'], agentId: agent.id, reviewerId: agent.id }] },
+        { sessions: [{ points: ['p2'], agentId: agent.id }] },
+      ]));
+      const orch = new Orchestrator(queue);
       await orch.start();
-      await until(() => orch.state.status === 'finished');
-      assert.deepEqual(orch.state.sessions.map(s => s.status), ['complete', 'complete']);
-      assert.equal(orch.state.sessions[0].reviewRound, 1);
+      await until(() => queue.status === 'finished');
+      // A finished run moves to the history; the queue is empty for the next one.
+      assert.equal(queue.stages.length, 0);
+      const ran = queue.history![0].stages.flatMap(st => st.sessions);
+      assert.deepEqual(ran.map(s => s.status), ['complete', 'complete']);
+      assert.equal(ran[0].reviewRound, 1);
+      // The protocol goes as a hidden briefing: the chat shows only the steps.
+      const executorFirst = repository.history(ran[0].sessionId!).find(e => e.type === 'user')!;
+      assert.equal(executorFirst.payload.briefing, true);
+      assert.match(String(executorFirst.payload.text), /^Выполни шаги:\n- p1\. First$/);
+      assert.equal(getOrchestrator(task.id), undefined);
+      assert.equal(queues.getQueue(task.id, project.id).status, 'finished');
+
+      // Stop keeps finished work and relaunching runs only what is left.
+      const stopTask = createTask({ project_id: project.id, key: 'STOP-TEST' });
+      createPlan({ task_id: stopTask.id, content: '- [x] (p1) Done\n- [ ] (p2) Pending\n- [ ] (p3) Later' });
+      const stopQueue = queues.saveQueue(queues.replaceStages(queues.getQueue(stopTask.id, project.id), [
+        { sessions: [{ points: ['p1'], agentId: agent.id }, { points: ['p2'], agentId: agent.id }] },
+        { sessions: [{ points: ['p3'], agentId: agent.id }] },
+      ]));
+      const stopping = new Orchestrator(stopQueue);
+      await stopping.start();
+      assert.equal(stopQueue.stages[0].sessions[0].status, 'complete');
+      await stopping.stop();
+      assert.equal(stopQueue.status, 'stopped');
+      assert.ok(['stopped', 'complete'].includes(stopQueue.stages[0].sessions[1].status));
+      assert.equal(stopQueue.stages[1].sessions[0].status, 'queued');
+      assert.equal(getOrchestrator(stopTask.id), undefined);
+      for (const s of stopQueue.stages.flatMap(st => st.sessions).filter(s => s.sessionId && s.status === 'stopped')) {
+        assert.ok(!['thinking', 'waiting', 'starting'].includes(repository.getSession(s.sessionId!).status));
+      }
+      (await import('../orchestration/plan-file')).stopWatchPlanFile('ACP-TEST');
     } finally { await host.shutdownSessions(); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
   } finally { await host.shutdownSessions(); getDb().close(); }
 });

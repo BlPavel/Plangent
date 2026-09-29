@@ -161,7 +161,10 @@ export function answerPermission(id: string, permissionId: string, optionId: str
   state!.permissions.delete(permissionId);
   pending.resolve({ outcome: { outcome: 'selected', optionId } });
   addEvent(id, 'permission_result', { permissionId, optionId });
-  if (!state!.permissions.size) updateSession(id, { status: state!.busy ? 'thinking' : 'ready', reason: '' });
+  if (!state!.permissions.size) {
+    updateSession(id, { status: state!.busy ? 'thinking' : 'ready', reason: '' });
+    if (state!.busy) sessionSignals.emit('thinking', id);
+  }
 }
 export async function startSession(id: string): Promise<LiveSession> {
   if (starting.has(id)) return starting.get(id)!;
@@ -322,6 +325,7 @@ export async function sendPrompt(id: string, content: ACP.ContentBlock[]): Promi
   const session = getSession(id);
   const text = content.filter(c => c.type === 'text').map(c => (c as ACP.TextContent).text).join('\n');
   updateSession(id, { status: 'thinking', reason: '', ...(session.title === 'Новый чат' ? { title: text.slice(0, 60) || 'Вложение' } : {}) });
+  sessionSignals.emit('thinking', id);
   // `briefing` is Plangent's instructions for the session: sent with the first message (and again if the
   // agent lost the conversation) but never shown as something the developer wrote.
   const briefing = typeof session.metadata.briefing === 'string' ? session.metadata.briefing : '';
@@ -337,7 +341,8 @@ export async function sendPrompt(id: string, content: ACP.ContentBlock[]): Promi
     flush(id, state);
     addEvent(id, 'turn_end', { stopReason: result.stopReason });
     const latest = getSession(id);
-    if (latest.status === 'thinking') updateSession(id, { status: latest.role === 'executor' || latest.role === 'reviewer' ? 'waiting' : 'ready',
+    // A session being shut down is not "waiting": whoever closes it sets the final status.
+    if (latest.status === 'thinking' && !state.stopping) updateSession(id, { status: latest.role === 'executor' || latest.role === 'reviewer' ? 'waiting' : 'ready',
       reason: latest.role === 'executor' ? (latest.policy === 'read-only' ? 'Обсуждение завершено' : 'Агент остановился без отчёта') : '' });
     sessionSignals.emit('turn_end', id);
   }).catch(error => {

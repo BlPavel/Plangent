@@ -9,7 +9,6 @@ import { buildPrompt, EXECUTION_REPORT } from '../../../core/orchestration/promp
 import { createSession as createChat, listSessions as listChats, getSession as getChat } from '../../../core/agent-sessions/sessions';
 import { sendPrompt, closeSession, startSession } from '../../../core/agent-sessions/acp-host';
 import { getPlanFilePath, materializePlanFile, watchPlanFile, watchPlanDirForCreate } from '../../../core/orchestration/plan-file';
-import { getOrchestrator } from '../../../core/orchestration/orchestrator';
 
 export const runsRouter = Router({ mergeParams: true });
 

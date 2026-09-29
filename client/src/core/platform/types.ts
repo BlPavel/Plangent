@@ -3,7 +3,12 @@
 // the only place that knows the actual runtime is ./index.ts, which picks an
 // implementation.
 export interface PlatformBridge {
-  notify?(title: string, body: string): void
+  // System notification, shown only while the app window is not focused.
+  // `target` is an app route opened when the notification is clicked (see onNotificationClick).
+  notify?(title: string, body: string, target?: string): void
+  onNotificationClick?(handler: (target: string) => void): void
+  // Ask for permission to show notifications; call from a user gesture.
+  requestNotifications?(): void
   // Real filesystem path for a File (e.g. drag-dropped from Finder), or null
   // when the platform can't resolve one (plain browser).
   getFilePath(file: File): string | null

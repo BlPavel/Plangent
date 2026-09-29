@@ -34,7 +34,12 @@ export const useChatStore = defineStore('agent-chat', () => {
   let connecting = false
   function put(session: ChatSession) {
     const index = sessions.value.findIndex(s => s.id === session.id)
-    if (session.status === 'waiting' && (index < 0 || sessions.value[index].status !== 'waiting')) platform.notify?.(session.title, session.reason || 'Агент ждёт вашего ответа')
+    const previous = index < 0 ? undefined : sessions.value[index].status
+    if ((session.status === 'waiting' || session.status === 'error') && previous !== session.status) {
+      // A task's chat opens on click right in that task (see features/tasks taskTarget).
+      const target = session.task_id ? `/task/${session.task_id}?project=${session.project_id}&session=${session.id}` : undefined
+      platform.notify?.(session.title, session.reason || (session.status === 'error' ? 'Агент завершился с ошибкой' : 'Агент ждёт вашего ответа'), target)
+    }
     if (index < 0) sessions.value.unshift(session)
     else sessions.value[index] = session
     if (snapshots.value[session.id]) snapshots.value[session.id].session = session
@@ -111,8 +116,7 @@ export const useChatStore = defineStore('agent-chat', () => {
     optionJobs.set(agentId, job)
     return job
   }
-  function waiting(projectId: string) { return sessions.value.filter(s => s.project_id === projectId && s.status === 'waiting').length }
-  return { sessions, snapshots, limits, agentOptions, connect, load, put, remove, waiting, fetchLimits, fetchAgentOptions }
+  return { sessions, snapshots, limits, agentOptions, connect, load, put, remove, fetchLimits, fetchAgentOptions }
 })
 export function statusLabel(status: string) {
   return ({ starting: 'Подключается', thinking: 'Думает', waiting: 'Ждёт вас', ready: 'Готов', complete: 'Завершён', error: 'Ошибка' } as Record<string, string>)[status] ?? status

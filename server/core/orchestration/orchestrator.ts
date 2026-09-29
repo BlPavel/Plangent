@@ -1,9 +1,4 @@
-import { v4 as uuidv4 } from 'uuid';
-import {
-  ExecutionPolicy,
-  OrchestratorQueueSession,
-  OrchestratorState,
-} from '../../models';
+import { OrchestratorQueueSession, TaskQueue } from '../../models';
 import { getTask } from '../tasks';
 import { getProject } from '../projects';
 import { getAgent } from '../agents';
@@ -11,53 +6,15 @@ import { getLatestPlan, createPlan, parsePlanSteps, setStepDone, updatePlan } fr
 import { createRun, finishRun } from '../runs';
 import { updateTask } from '../tasks';
 import { resolvePlanTemplate } from '../library/plan-template';
-import { buildPrompt, EXECUTION_REPORT } from './prompts';
+import { buildPrompt, EXECUTION_REPORT, REVIEW_BRIEFING, reviewFixMessage } from './prompts';
 import { createSession as createChat, getSession as getChat, updateSession as updateChat, history } from '../agent-sessions/sessions';
 import { sendPrompt, closeSession, cancelSession as cancelChat, enableExecution, sessionSignals } from '../agent-sessions/acp-host';
 import { materializePlanFile, watchPlanFile, stopWatchPlanFile } from './plan-file';
+import { archiveFinished, isActive, saveQueue } from './queue';
 import { broadcast } from '../../core/shared/events';
 import path from 'path';
 
-export interface QueueSessionInput {
-  points: string[];
-  agentId: string;
-  parallelGroup: string | null;
-  queueMode?: 'execute' | 'review_first';
-  permissionPolicy?: ExecutionPolicy;
-  pauseAfter?: boolean;
-  // Per-run override of the agent's configured model/reasoning_effort — leave
-  // unset to use whatever the Agent row (server/core/agents) is configured with.
-  model?: string;
-  reasoningEffort?: string;
-  reviewerId?: string;
-  maxReviewRounds?: number;
-}
-
-// Group queued sessions into execution steps. A filled parallelGroup means
-// "start this session together with the neighboring parallel sessions".
-function buildSteps(sessions: OrchestratorQueueSession[]): OrchestratorQueueSession[][] {
-  const steps: OrchestratorQueueSession[][] = [];
-  let i = 0;
-  while (i < sessions.length) {
-    const current = sessions[i];
-    if (!current.parallelGroup) {
-      steps.push([current]);
-      i++;
-    } else {
-      const group = [current];
-      i++;
-      while (i < sessions.length && sessions[i].parallelGroup) {
-        group.push(sessions[i]);
-        i++;
-      }
-      steps.push(group);
-    }
-  }
-  return steps;
-}
-
-
-// Per-task orchestrator singleton
+// Per-task orchestrator of a running (or paused) queue
 const active = new Map<string, Orchestrator>();
 sessionSignals.on('turn_end', (id: string) => {
   const chat = getChat(id);
@@ -66,27 +23,85 @@ sessionSignals.on('turn_end', (id: string) => {
 for (const signal of ['help', 'error-state']) sessionSignals.on(signal, (id: string, reason: string) => {
   const chat = getChat(id);
   const orch = chat.task_id ? active.get(chat.task_id) : undefined;
-  const session = orch?.state.sessions.find(s => s.sessionId === id || s.reviewSessionId === id);
-  if (session && !['complete', 'failed'].includes(session.status)) {
-    session.status = 'waiting_for_developer'; session.reason = reason;
-    broadcast({ type: 'session_waiting', taskId: chat.task_id, sessionId: session.id, message: reason });
-  }
+  const session = orch?.sessions().find(s => s.sessionId === id || s.reviewSessionId === id);
+  if (orch && session && isActive(session)) orch.waitForDeveloper(session, reason, false);
 });
+// The developer answered (message or permission): the session is working again.
+sessionSignals.on('thinking', (id: string) => {
+  const chat = getChat(id);
+  const orch = chat.task_id ? active.get(chat.task_id) : undefined;
+  const session = orch?.sessions().find(s => s.sessionId === id || s.reviewSessionId === id);
+  if (orch && session && (session.status === 'waiting_for_developer' || session.status === 'ready_for_execution')) orch.resumeWork(session, chat.policy === 'read-only');
+});
+
+// A queue session's agents were shut down on purpose: their chats must not keep showing
+// "thinking" or count as waiting for the developer.
+export function markChatsStopped(session: OrchestratorQueueSession, reason: string): void {
+  for (const id of [session.sessionId, session.reviewSessionId]) {
+    if (!id) continue;
+    try {
+      if (['starting', 'thinking', 'waiting', 'ready'].includes(getChat(id).status)) updateChat(id, { status: 'complete', reason });
+    } catch { /* chat deleted */ }
+  }
+}
 
 export function getOrchestrator(taskId: string): Orchestrator | undefined {
   return active.get(taskId);
 }
 
-export function removeOrchestrator(taskId: string): void {
-  active.delete(taskId);
-}
-
-
 export class Orchestrator {
+  constructor(readonly queue: TaskQueue) {
+    active.set(queue.taskId, this);
+  }
+
+  sessions(): OrchestratorQueueSession[] {
+    return this.queue.stages.flatMap(st => st.sessions);
+  }
+
+  private save(): void { saveQueue(this.queue); }
+
+  /** "- p2. Step text" lines for the visible chat messages. */
+  private stepList(points: string[]): string {
+    const steps = parsePlanSteps(getLatestPlan(this.queue.taskId)?.content ?? '');
+    return points.map(p => `- ${p}. ${steps.find(s => s.id === p)?.text ?? ''}`.trimEnd()).join('\n');
+  }
+
+  // Queue events carry the task key and project so the client can notify about any task, not only the open one.
+  private emit(event: { type: string; [key: string]: unknown }): void {
+    const { taskId, projectId } = this.queue;
+    broadcast({ ...event, taskId, projectId, taskKey: getTask(taskId)?.key });
+  }
+
+  // Launch the queue from its first unfinished stage. Sessions that were stopped or failed
+  // run again, but only for their points that are still not done in the plan.
+  async start(): Promise<void> {
+    const done = new Set(parsePlanSteps(getLatestPlan(this.queue.taskId)?.content ?? '').filter(s => s.done && s.id).map(s => s.id!));
+    for (const s of this.sessions()) {
+      if (s.status === 'complete') continue;
+      const pending = s.points.filter(p => !done.has(p));
+      if (!pending.length) { s.status = 'complete'; continue; }
+      Object.assign(s, { points: pending, status: 'queued', reason: undefined, reviewSessionId: undefined, reviewRound: 0 });
+    }
+    archiveFinished(this.queue);
+    Object.assign(this.queue, { status: 'running', stageIndex: 0, pauseRequested: false, reason: undefined });
+    updateTask(this.queue.taskId, { status: 'in_progress' });
+    this.emit({ type: 'task_status', status: 'in_progress' });
+    await this.runStage();
+  }
+
+  // Start every queued session of the current stage, skipping stages with nothing left to do.
+  private async runStage(): Promise<void> {
+    const { stages } = this.queue;
+    while (this.queue.stageIndex < stages.length && !stages[this.queue.stageIndex].sessions.some(s => s.status === 'queued')) this.queue.stageIndex++;
+    if (this.queue.stageIndex >= stages.length) return this.finish();
+    const stage = stages[this.queue.stageIndex];
+    this.save();
+    await Promise.all(stage.sessions.filter(s => s.status === 'queued').map(s => this.launchSession(s)));
+  }
+
   async onChatTurnEnd(id: string): Promise<void> {
-    if (this.state.status === 'failed') return;
-    const session = this.state.sessions.find(s => s.sessionId === id || s.reviewSessionId === id);
-    if (!session || ['complete', 'failed'].includes(session.status)) return;
+    const session = this.sessions().find(s => s.sessionId === id || s.reviewSessionId === id);
+    if (!session || !isActive(session)) return;
     const chat = getChat(id);
     if (session.reviewSessionId === id) {
       if (chat.status === 'complete' && chat.reason === 'approved') {
@@ -94,71 +109,51 @@ export class Orchestrator {
       }
       if (chat.status === 'complete' && (session.reviewRound ?? 0) < (session.maxReviewRounds ?? 2)) {
         const findings = history(id).filter(e => e.type === 'add_finding').map(e => e.payload);
-        updateChat(session.sessionId!, { status: 'ready' }); session.status = 'running';
-        await sendPrompt(session.sessionId!, [{ type: 'text', text: `Исправь замечания ревью:\n${JSON.stringify(findings)}${EXECUTION_REPORT}` }]); return;
+        updateChat(session.sessionId!, { status: 'ready' }); session.status = 'running'; this.save();
+        await sendPrompt(session.sessionId!, [{ type: 'text', text: reviewFixMessage(findings) }]); return;
       }
-      session.status = 'waiting_for_developer'; session.reason = 'Ревью требует внимания: нет вердикта или достигнут предел кругов';
-      updateChat(session.sessionId!, { status: 'waiting', reason: session.reason });
-      broadcast({ type: 'session_waiting', taskId: this.state.taskId, sessionId: session.id, message: session.reason }); return;
+      this.waitForDeveloper(session, 'Ревью требует внимания: нет вердикта или достигнут предел кругов'); return;
     }
     if (chat.policy === 'read-only') { await this.markReadyForExecution(session.id); return; }
     if (chat.status === 'complete' && session.reviewerId) {
-      const reviewer = createChat({ project_id: this.state.projectId, task_id: this.state.taskId,
+      const reviewer = createChat({ project_id: this.queue.projectId, task_id: this.queue.taskId,
         agent_id: session.reviewerId, step_ids: session.points, role: 'reviewer', policy: 'read-only', title: `Ревью · ${session.points.join(', ')}` });
-      updateChat(reviewer.id, { metadata: { reviewContext: history(id).filter(e => ['assistant', 'complete_step'].includes(e.type)).map(e => e.payload) } });
-      session.reviewSessionId = reviewer.id; session.reviewRound = (session.reviewRound ?? 0) + 1; session.status = 'reviewing';
-      broadcast({ type: 'review_started', taskId: this.state.taskId, sessionId: session.id, reviewSessionId: reviewer.id });
-      await sendPrompt(reviewer.id, [{ type: 'text', text: `Review changes for steps ${session.points.join(', ')}. Do not edit files. Use get_review_context, inspect the files, report actionable findings using add_finding and finish with submit_review (approved or changes_requested).` }]); return;
+      updateChat(reviewer.id, { metadata: { briefing: REVIEW_BRIEFING, reviewContext: history(id).filter(e => ['assistant', 'complete_step'].includes(e.type)).map(e => e.payload) } });
+      session.reviewSessionId = reviewer.id; session.reviewRound = (session.reviewRound ?? 0) + 1; session.status = 'reviewing'; this.save();
+      this.emit({ type: 'review_started', sessionId: session.id, reviewSessionId: reviewer.id });
+      await sendPrompt(reviewer.id, [{ type: 'text', text: `Проверь изменения по шагам:\n${this.stepList(session.points)}` }]); return;
     }
     if (chat.status === 'complete') { session.status = 'running'; await this.completeSession(session); }
-    else {
-      session.status = 'waiting_for_developer'; session.reason = chat.reason || 'Агент остановился без отчёта';
-      broadcast({ type: 'session_waiting', taskId: this.state.taskId, sessionId: session.id, message: session.reason });
-    }
+    else this.waitForDeveloper(session, chat.reason || 'Агент остановился без отчёта');
   }
+
+  // The session needs the developer. The executor chat is flagged `waiting` too (unless the
+  // agent already did it itself), which is what raises the system notification on the client.
+  waitForDeveloper(session: OrchestratorQueueSession, reason: string, flagChat = true): void {
+    session.status = 'waiting_for_developer'; session.reason = reason;
+    if (flagChat && session.sessionId) updateChat(session.sessionId, { status: 'waiting', reason });
+    this.save();
+    this.emit({ type: 'session_waiting', sessionId: session.id, message: reason });
+  }
+
+  resumeWork(session: OrchestratorQueueSession, readOnly: boolean): void {
+    session.status = readOnly ? 'reviewing' : 'running';
+    session.reason = undefined;
+    this.save();
+  }
+
   async restartSession(id: string): Promise<void> {
-    const session = this.state.sessions.find(s => s.id === id);
+    const session = this.sessions().find(s => s.id === id);
     if (!session || session.status === 'complete') return;
     await this.killSessionProcess(session);
+    markChatsStopped(session, 'Шаг начат заново в новом чате');
     if (session.runId) finishRun(session.runId, 'interrupted');
-    session.reviewSessionId = undefined; session.reviewRound = 0;
+    session.reviewSessionId = undefined; session.reviewRound = 0; session.reason = undefined;
     await this.launchSession(session);
-  }
-  readonly state: OrchestratorState;
-  private steps: OrchestratorQueueSession[][];
-  private stepIndex = 0;
-
-  constructor(taskId: string, projectId: string, sessions: OrchestratorQueueSession[]) {
-    this.state = {
-      id: uuidv4(),
-      taskId,
-      projectId,
-      sessions,
-      status: 'running',
-      startedAt: new Date().toISOString(),
-    };
-    this.steps = buildSteps(sessions);
-    active.set(taskId, this);
-  }
-
-  async start(): Promise<void> {
-    // Mark task in_progress
-    updateTask(this.state.taskId, { status: 'in_progress' });
-    broadcast({ type: 'task_status', taskId: this.state.taskId, status: 'in_progress' });
-    await this.executeStep();
-  }
-
-  private async executeStep(): Promise<void> {
-    if (this.stepIndex >= this.steps.length) {
-      await this.finish();
-      return;
-    }
-    const step = this.steps[this.stepIndex];
-    await Promise.all(step.map(s => this.launchSession(s)));
   }
 
   private async launchSession(session: OrchestratorQueueSession): Promise<void> {
-    const { taskId, projectId } = this.state;
+    const { taskId, projectId } = this.queue;
     const task = getTask(taskId);
     const project = getProject(projectId);
     const baseAgent = getAgent(session.agentId);
@@ -170,7 +165,10 @@ export class Orchestrator {
 
     if (!task || !project || !agent) {
       session.status = 'failed';
-      broadcast({ type: 'session_failed', taskId, sessionId: session.id, reason: 'Missing task/project/agent' });
+      session.reason = 'Не найдены задача, проект или агент';
+      this.save();
+      this.emit({ type: 'session_failed', sessionId: session.id, reason: session.reason });
+      await this.maybeAdvance();
       return;
     }
 
@@ -207,30 +205,33 @@ export class Orchestrator {
     });
 
     const chat = createChat({ project_id: projectId, task_id: taskId, run_id: run.id,
-      metadata: { reasoningEffort: agent.reasoning_effort },
+      // Plangent's protocol and task context go as a hidden briefing; the chat shows only the short request.
+      metadata: { reasoningEffort: agent.reasoning_effort, briefing: prompt + (session.queueMode === 'review_first' ? '' : EXECUTION_REPORT) },
       agent_id: agent.id, model: agent.model, step_ids: session.points, role: 'executor',
-      policy: session.queueMode === 'review_first' ? 'read-only' : session.permissionPolicy, title: task.key + ' ? ' + session.points.join(', ') });
+      policy: session.queueMode === 'review_first' ? 'read-only' : session.permissionPolicy, title: `${task.key} · ${session.points.join(', ')}` });
     session.runId = run.id;
     session.sessionId = chat.id;
     session.mode = 'acp';
     session.status = session.queueMode === 'review_first' ? 'reviewing' : 'running';
-    broadcast({ type: 'session_started', taskId, sessionId: session.id, runId: run.id, terminalSessionId: chat.id, mode: 'acp', points: session.points });
+    this.save();
+    this.emit({ type: 'session_started', sessionId: session.id, runId: run.id, terminalSessionId: chat.id, mode: 'acp', points: session.points });
     try {
-      await sendPrompt(chat.id, [{ type: 'text', text: prompt + (session.queueMode === 'review_first' ? '' : EXECUTION_REPORT) }]);
+      await sendPrompt(chat.id, [{ type: 'text', text: session.queueMode === 'review_first'
+        ? `Изучи шаги и расскажи, как будешь их выполнять. Пока ничего не меняй:\n${this.stepList(session.points)}`
+        : `Выполни шаги:\n${this.stepList(session.points)}` }]);
     } catch (err) {
-      session.status = 'waiting_for_developer';
-      session.reason = String(err);
-      broadcast({ type: 'session_waiting', taskId, sessionId: session.id, message: String(err) });
+      this.waitForDeveloper(session, String(err));
     }
   }
 
   // Mark a running session complete and advance the queue. The agent process is
-  // intentionally kept alive after completion so the developer can reopen the
-  // terminal, ask follow-up questions, or correct the result in the same context.
+  // intentionally kept alive after completion so the developer can ask follow-up
+  // questions or correct the result in the same context.
   private async completeSession(session: OrchestratorQueueSession): Promise<void> {
     if (session.status !== 'running') return;
     session.status = 'complete';
-    const plan = getLatestPlan(this.state.taskId), task = getTask(this.state.taskId), project = getProject(this.state.projectId);
+    session.reason = undefined;
+    const plan = getLatestPlan(this.queue.taskId), task = getTask(this.queue.taskId), project = getProject(this.queue.projectId);
     if (plan && task && project) {
       let content = plan.content;
       for (const step of parsePlanSteps(content)) if (step.id && session.points.includes(step.id)) content = setStepDone(content, step.index, true);
@@ -238,52 +239,38 @@ export class Orchestrator {
       broadcast({ type: 'plan_updated', taskId: task.id });
     }
     if (session.runId) finishRun(session.runId, 'completed');
-    broadcast({ type: 'session_complete', taskId: this.state.taskId, sessionId: session.id, runId: session.runId });
+    this.save();
+    this.emit({ type: 'session_complete', sessionId: session.id, runId: session.runId });
     await this.maybeAdvance();
   }
 
-  // Kill the live agent process for a session (if still running) without touching its
-  // run record. Used to tear down agents once the queue moves past their step.
   private async killSessionProcess(session: OrchestratorQueueSession): Promise<void> {
     if (session.sessionId) await closeSession(session.sessionId);
     if (session.reviewSessionId) await closeSession(session.reviewSessionId);
   }
 
-  private async killStepAgents(step: OrchestratorQueueSession[]): Promise<void> {
-    for (const s of step) await this.killSessionProcess(s);
-  }
-
-  private async killAllAgents(): Promise<void> {
-    for (const s of this.state.sessions) await this.killSessionProcess(s);
-  }
-
-  // Developer marks a session as done (from either `running` or `waiting_for_developer`).
-  // Used both to continue a session that stopped without checking every box, and to
-  // rescue a session stuck in `running` (e.g. no completion signal arrived). The agent
-  // stays alive (same as auto-completion) so a review pause can still talk to it.
+  // Developer accepts a session as done although the agent did not report it
+  // (from `running` or `waiting_for_developer`). The agent stays alive.
   async manualComplete(sessionId: string): Promise<void> {
-    const session = this.state.sessions.find(s => s.id === sessionId);
-    if (!session) return;
-    if (session.status === 'complete' || session.status === 'failed') return;
+    const session = this.sessions().find(s => s.id === sessionId);
+    if (!session || !isActive(session)) return;
     if (session.sessionId) { await cancelChat(session.sessionId); updateChat(session.sessionId, { status: 'complete' }); }
     if (session.reviewSessionId) await closeSession(session.reviewSessionId);
-    session.status = 'complete';
-    if (session.runId) finishRun(session.runId, 'completed');
-    broadcast({ type: 'session_complete', taskId: this.state.taskId, sessionId: session.id, runId: session.runId });
-    await this.maybeAdvance();
+    session.status = 'running';
+    await this.completeSession(session);
   }
 
   async executeReadySession(sessionId: string): Promise<void> {
-    const session = this.state.sessions.find(s => s.id === sessionId);
+    const session = this.sessions().find(s => s.id === sessionId);
     if (!session || session.queueMode !== 'review_first') return;
     if (session.status !== 'reviewing' && session.status !== 'ready_for_execution' && session.status !== 'waiting_for_developer') return;
     if (!session.sessionId || !session.mode) throw new Error('No live preflight session to continue');
 
-    const task = getTask(this.state.taskId);
-    const project = getProject(this.state.projectId);
+    const task = getTask(this.queue.taskId);
+    const project = getProject(this.queue.projectId);
     if (!task || !project) throw new Error('Missing task or project');
 
-    const plan = getLatestPlan(this.state.taskId);
+    const plan = getLatestPlan(this.queue.taskId);
     const planRelPath = path.join('.plangent', `${task.key}.plan.md`);
     const prompt = buildPrompt({
       projectName: project.name,
@@ -298,97 +285,107 @@ export class Orchestrator {
     });
 
     session.status = 'running';
-    this.state.status = 'running';
-    broadcast({ type: 'queue_resumed', taskId: this.state.taskId });
+    session.reason = undefined;
+    this.save();
     await enableExecution(session.sessionId, session.permissionPolicy);
-    await sendPrompt(session.sessionId, [{ type: 'text', text: prompt + EXECUTION_REPORT }]);
+    // The execution rules replace the preflight ones and go out hidden with the next message.
+    updateChat(session.sessionId, { metadata: { ...getChat(session.sessionId).metadata, briefing: prompt + EXECUTION_REPORT, briefed: false } });
+    await sendPrompt(session.sessionId, [{ type: 'text', text: 'Приступай к выполнению этих шагов.' }]);
   }
 
+  // A preflight ("обсудить") session finished its read-only pass and waits for the developer.
   async markReadyForExecution(sessionId: string): Promise<void> {
-    const session = this.state.sessions.find(s => s.id === sessionId);
+    const session = this.sessions().find(s => s.id === sessionId);
     if (!session || session.queueMode !== 'review_first') return;
     if (session.status !== 'reviewing' && session.status !== 'waiting_for_developer') return;
     session.status = 'ready_for_execution';
-    this.state.status = 'paused';
-    broadcast({
-      type: 'session_ready_for_execution',
-      taskId: this.state.taskId,
-      sessionId: session.id,
-      runId: session.runId,
-      terminalSessionId: session.sessionId,
-      message: 'Ознакомление отмечено готовым к выполнению.',
-    });
+    session.reason = 'Агент изучил шаги и ждёт команды на выполнение';
+    if (session.sessionId) updateChat(session.sessionId, { status: 'waiting', reason: session.reason });
+    this.save();
+    this.emit({ type: 'session_ready_for_execution', sessionId: session.id, message: session.reason });
   }
 
-  // Backwards-compatible alias for the existing /advance endpoint.
-  async manualAdvance(sessionId: string): Promise<void> {
-    return this.manualComplete(sessionId);
-  }
-
-  // Developer cancels a session (queued, running or waiting). Frees the queue so the
-  // step can advance instead of hanging forever on the cancelled session.
-  async cancelSession(sessionId: string): Promise<void> {
-    const session = this.state.sessions.find(s => s.id === sessionId);
-    if (!session) return;
-    if (session.status === 'complete' || session.status === 'failed') return;
+  // Developer skips one session: it stops and the rest of the queue goes on.
+  async skipSession(sessionId: string): Promise<void> {
+    const session = this.sessions().find(s => s.id === sessionId);
+    if (!session || !isActive(session)) return;
     await this.killSessionProcess(session);
+    markChatsStopped(session, 'Шаг пропущен');
     if (session.runId) finishRun(session.runId, 'interrupted');
     session.status = 'failed';
-    if (this.state.status === 'paused') this.state.status = 'running';
-    broadcast({ type: 'session_failed', taskId: this.state.taskId, sessionId: session.id, reason: 'Остановлена разработчиком' });
+    session.reason = 'Пропущен разработчиком';
+    this.save();
     await this.maybeAdvance();
   }
 
-  // Resume after a pauseAfter checkpoint. Completed agents stay alive for manual
-  // follow-up; explicit user actions are responsible for closing terminals.
-  async resume(): Promise<void> {
-    if (this.state.status !== 'paused') return;
-    this.state.status = 'running';
-    this.stepIndex++;
-    broadcast({ type: 'queue_resumed', taskId: this.state.taskId });
-    await this.executeStep();
+  // Pause once the current stage is done (toggle).
+  requestPause(on: boolean): void {
+    if (this.queue.status !== 'running') return;
+    this.queue.pauseRequested = on;
+    this.save();
   }
 
-  // Advance to the next step once every session in the current step has reached a
-  // terminal state. Honors per-session `pauseAfter` review checkpoints.
-  private async maybeAdvance(): Promise<void> {
-    const step = this.steps[this.stepIndex];
-    if (!step) return;
-    const stepDone = step.every(s => s.status === 'complete' || s.status === 'failed');
-    if (!stepDone) return;
+  async resume(): Promise<void> {
+    if (this.queue.status !== 'paused') return;
+    this.queue.status = 'running';
+    this.queue.stageIndex++;
+    await this.runStage();
+  }
 
-    if (step.some(s => s.pauseAfter)) {
-      // Keep this step's agents alive so the developer can interact with them
-      // during review; they are torn down on resume().
-      this.state.status = 'paused';
-      broadcast({ type: 'queue_paused', taskId: this.state.taskId, stepIndex: this.stepIndex });
+  // Stop the whole queue. Finished work stays finished; sessions in flight become `stopped`
+  // and run again (for their undone points) when the queue is relaunched.
+  async stop(reason = 'Остановлена разработчиком'): Promise<void> {
+    active.delete(this.queue.taskId);
+    const live = this.sessions().filter(isActive);
+    for (const s of live) {
+      s.status = 'stopped';
+      s.reason = undefined;
+      if (s.runId) finishRun(s.runId, 'interrupted');
+    }
+    Object.assign(this.queue, { status: 'stopped', pauseRequested: false, reason });
+    this.save();
+    this.stopWatching();
+    await Promise.all(live.map(s => this.killSessionProcess(s)));
+    for (const s of live) markChatsStopped(s, 'Очередь остановлена');
+  }
+
+  // Once every session of the stage is done, go on — or pause if the stage asks for it.
+  private async maybeAdvance(): Promise<void> {
+    if (this.queue.status !== 'running') return;
+    const stage = this.queue.stages[this.queue.stageIndex];
+    if (!stage || stage.sessions.some(isActive) || stage.sessions.some(s => s.status === 'queued')) return;
+    const hasNext = this.queue.stages.slice(this.queue.stageIndex + 1).some(st => st.sessions.some(s => s.status === 'queued'));
+    if (hasNext && (stage.pauseAfter || this.queue.pauseRequested)) {
+      // The stage's agents stay alive so the developer can talk to them during the review.
+      Object.assign(this.queue, { status: 'paused', pauseRequested: false });
+      this.save();
+      this.emit({ type: 'queue_paused', stageIndex: this.queue.stageIndex });
       return;
     }
-    this.stepIndex++;
-    await this.executeStep();
+    this.queue.stageIndex++;
+    await this.runStage();
   }
 
-
-  private async finish(): Promise<void> {
-    this.state.status = 'finished';
-    // Stop watcher keyed by task.key
-    const task = getTask(this.state.taskId);
+  private stopWatching(): void {
+    const task = getTask(this.queue.taskId);
     if (task) stopWatchPlanFile(task.key);
-    broadcast({ type: 'queue_finished', taskId: this.state.taskId });
-    console.log(`[orchestrator] Queue finished for task ${this.state.taskId}`);
+  }
+
+  private finish(): void {
+    active.delete(this.queue.taskId);
+    const failed = this.sessions().filter(s => s.status === 'failed').length;
+    Object.assign(this.queue, { status: 'finished', pauseRequested: false, reason: undefined, stageIndex: 0 });
+    archiveFinished(this.queue);
+    this.save();
+    this.stopWatching();
+    this.emit({ type: 'queue_finished', failed });
   }
 
   fail(reason: string): void {
-    this.state.status = 'failed';
-    void this.killAllAgents();
-    broadcast({ type: 'run_failed', taskId: this.state.taskId, reason });
-    active.delete(this.state.taskId);
-  }
-
-  getState(): OrchestratorState {
-    return {
-      ...this.state,
-      sessions: this.state.sessions.map(s => ({ ...s })),
-    };
+    void this.stop(reason).then(() => {
+      this.queue.status = 'failed';
+      this.save();
+      this.emit({ type: 'run_failed', reason });
+    });
   }
 }

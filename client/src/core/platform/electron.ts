@@ -4,7 +4,8 @@ import type { PlatformBridge } from './types'
 // global Window augmentation) so the Electron contract never leaks into the rest
 // of the app's types.
 interface ElectronAPI {
-  notify: (title: string, body: string) => void
+  notify: (title: string, body: string, target?: string) => void
+  onNotificationClick: (handler: (target: string) => void) => void
   isElectron: true
   getFilePath: (file: File) => string
   getClipboardFilePaths: () => Promise<string[]>
@@ -23,7 +24,9 @@ const electronAPI =
 export const isElectron = !!electronAPI
 
 export const electronBridge: PlatformBridge = {
-  notify: (title, body) => electronAPI!.notify(title, body),
+  notify: (title, body, target) => electronAPI!.notify(title, body, target),
+  // Older shells (preload without the click channel) just focus the window.
+  onNotificationClick: (handler) => electronAPI!.onNotificationClick?.(handler),
   getFilePath: (file) => electronAPI!.getFilePath(file) || null,
   getClipboardFilePaths: () => electronAPI!.getClipboardFilePaths(),
   getClipboardImage: () => electronAPI!.getClipboardImage(),

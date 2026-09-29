@@ -83,14 +83,17 @@ export interface PlanFrontmatter {
 }
 
 // Orchestrator types
-type OrchestratorSessionStatus =
+// `stopped`: the developer stopped the queue mid-session; relaunching the queue runs it
+// again for its points that are still not done in the plan.
+export type OrchestratorSessionStatus =
   | 'queued'
   | 'reviewing'
   | 'ready_for_execution'
   | 'running'
   | 'waiting_for_developer'
   | 'complete'
-  | 'failed';
+  | 'failed'
+  | 'stopped';
 
 export type QueueSessionMode = 'execute' | 'review_first';
 // How the executor's permission requests are answered (see agent-sessions/permissions.ts);
@@ -101,13 +104,9 @@ export interface OrchestratorQueueSession {
   id: string;
   points: string[];           // point ids (pN)
   agentId: string;
-  parallelGroup: string | null;
   queueMode: QueueSessionMode;
   permissionPolicy: ExecutionPolicy;
   status: OrchestratorSessionStatus;
-  // When true the orchestrator pauses after this session's step completes,
-  // so the developer can review before the next step starts.
-  pauseAfter?: boolean;
   reviewerId?: string;
   reviewSessionId?: string;
   reviewRound?: number;
@@ -122,15 +121,38 @@ export interface OrchestratorQueueSession {
   mode?: 'acp';
 }
 
-type OrchestratorStatus = 'running' | 'paused' | 'waiting_for_developer' | 'finished' | 'failed';
-
-export interface OrchestratorState {
+// A stage runs its sessions in parallel; stages run one after another.
+export interface QueueStage {
   id: string;
+  sessions: OrchestratorQueueSession[];
+  // Pause the queue once this stage is done, so the developer can review before the next one.
+  pauseAfter: boolean;
+}
+
+// Stages of an earlier run, kept out of the way once all their sessions were done.
+export interface QueueRun {
+  id: string;
+  finishedAt: string;
+  stages: QueueStage[];
+}
+
+// idle: draft, editable. running/paused: frozen until stopped. stopped/finished/failed: editable again.
+export type QueueStatus = 'idle' | 'running' | 'paused' | 'stopped' | 'finished' | 'failed';
+
+// The execution queue of a task, persisted in task_queues so it survives restarts.
+export interface TaskQueue {
   taskId: string;
   projectId: string;
-  sessions: OrchestratorQueueSession[];
-  status: OrchestratorStatus;
-  startedAt: string;
+  status: QueueStatus;
+  stages: QueueStage[];
+  // Index of the stage being executed (running/paused only).
+  stageIndex: number;
+  // "Pause after the current stage" requested while running.
+  pauseRequested: boolean;
+  reason?: string;
+  // Earlier runs, newest first (see archiveFinished).
+  history?: QueueRun[];
+  updatedAt: string;
 }
 
 export interface Run {

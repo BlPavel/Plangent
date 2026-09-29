@@ -1,21 +1,12 @@
 import { reactive } from 'vue'
 import { defineStore } from 'pinia'
-import type { OrchestratorQueueSession } from '@core/models'
-
-export interface TaskTermSession { id: string; label: string; runId: string }
 
 const STORAGE_KEY = 'plangent.taskSession.snapshots'
 
-// A snapshot of a TaskView's live terminal/planning state, kept per task so it
-// survives navigating away and back. The server keeps the PTY/tmux process alive
-// when the websocket closes (see server/terminal/pty-manager.ts), so restoring this
-// snapshot re-attaches the terminal and replays its buffer — the agent is never lost.
+// The planning session of a task, kept per task so it survives navigating away and back:
+// the planner keeps running on the server and the task re-attaches to its chat.
+// (The execution queue lives on the server — see features/tasks/composables/useTaskQueue.)
 export interface TaskSessionSnapshot {
-  sessions: TaskTermSession[]
-  activeSessionId: string | null
-  queueSessions: OrchestratorQueueSession[]
-  waitingSessionIds: string[]
-  sessionActivityByRunId?: Record<string, string>
   planningActive: boolean
   planningRunId: string | null
   planningSessionId: string | null
@@ -28,14 +19,20 @@ export const useTaskSessionStore = defineStore('taskSession', () => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY)
       if (!raw) return {}
-      return JSON.parse(raw) as Record<string, TaskSessionSnapshot>
+      const all = JSON.parse(raw) as Record<string, TaskSessionSnapshot>
+      // Older snapshots also carried terminal and queue state: keep only the planning part.
+      return Object.fromEntries(Object.entries(all).map(([id, s]) => [id, {
+        planningActive: !!s.planningActive,
+        planningRunId: s.planningRunId ?? null,
+        planningSessionId: s.planningSessionId ?? null,
+      }]))
     } catch {
       return {}
     }
   }
 
   function persist() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshots))
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshots)) } catch { /* storage unavailable */ }
   }
 
   function save(taskId: string, snap: TaskSessionSnapshot) {

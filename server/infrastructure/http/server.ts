@@ -16,7 +16,7 @@ import { agentsRouter } from './routes/agents';
 import { browseRouter } from './routes/browse';
 import { uploadRouter } from './routes/upload';
 import { clipboardRouter } from './routes/clipboard';
-import { orchestratorRouter } from './routes/orchestrator';
+import { orchestratorRouter, queuesRouter } from './routes/orchestrator';
 import { attachSocket } from '../terminal/pty-manager';
 import { addEventsClient } from '../../core/shared/events';
 
@@ -69,6 +69,7 @@ export function createApp() {
   app.use('/api/projects/:projectId/tasks/:taskId/runs', runsRouter);
   // Orchestrator endpoints (execute, done, orchestrator state)
   app.use('/api/projects/:projectId/tasks/:taskId', orchestratorRouter);
+  app.use('/api/queues', queuesRouter);
   app.use('/api/terminals', terminalsRouter);
   app.use('/api/library', libraryRouter);
   app.use('/api/browse', browseRouter);

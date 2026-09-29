@@ -1,75 +1,85 @@
 import { Router, Request, Response } from 'express';
-import { v4 as uuidv4 } from 'uuid';
 import { getTask, updateTask } from '../../../core/tasks';
 import { getProject } from '../../../core/projects';
 import { getAgent } from '../../../core/agents';
-import { OrchestratorQueueSession } from '../../../models';
-import { QueueSessionInput, Orchestrator, getOrchestrator, removeOrchestrator } from '../../../core/orchestration/orchestrator';
+import { Orchestrator, getOrchestrator } from '../../../core/orchestration/orchestrator';
+import { getQueue, saveQueue, replaceStages, isFrozen, blockedQueues, StageInput } from '../../../core/orchestration/queue';
 import { deletePlanFile } from '../../../core/orchestration/plan-file';
 import { broadcast } from '../../../core/shared/events';
 
 export const orchestratorRouter = Router({ mergeParams: true });
 
-// POST /projects/:projectId/tasks/:taskId/execute
-// Start a queue of sessions
-orchestratorRouter.post('/execute', async (req: Request, res: Response) => {
+// GET /api/queues/blocked — executing queues (of every project) that wait for the developer
+export const queuesRouter = Router();
+queuesRouter.get('/blocked', (_req: Request, res: Response) => res.json(blockedQueues()));
+
+function taskQueue(req: Request, res: Response) {
   const { projectId, taskId } = req.params;
-  const { sessions: sessionInputs } = req.body as { sessions: QueueSessionInput[] };
+  if (!getProject(projectId) || !getTask(taskId)) { res.status(404).json({ error: 'Task not found' }); return null; }
+  return getOrchestrator(taskId)?.queue ?? getQueue(taskId, projectId);
+}
 
-  if (!Array.isArray(sessionInputs) || sessionInputs.length === 0) {
-    return res.status(400).json({ error: 'sessions array required' });
+function withOrchestrator(action: (orch: Orchestrator, req: Request) => Promise<unknown> | unknown) {
+  return async (req: Request, res: Response) => {
+    const orch = getOrchestrator(req.params.taskId);
+    if (!orch) return res.status(409).json({ error: 'Очередь не запущена' });
+    try { await action(orch, req); res.json(orch.queue); }
+    catch (e) { res.status(400).json({ error: String(e instanceof Error ? e.message : e) }); }
+  };
+}
+
+// GET /projects/:projectId/tasks/:taskId/queue
+orchestratorRouter.get('/queue', (req: Request, res: Response) => {
+  const queue = taskQueue(req, res);
+  if (queue) res.json(queue);
+});
+
+// PUT /projects/:projectId/tasks/:taskId/queue — replace the stages (only while not running)
+orchestratorRouter.put('/queue', (req: Request, res: Response) => {
+  const queue = taskQueue(req, res);
+  if (!queue) return;
+  if (isFrozen(queue)) return res.status(409).json({ error: 'Очередь выполняется — остановите её, чтобы изменить' });
+  const { stages } = req.body as { stages: StageInput[] };
+  if (!Array.isArray(stages)) return res.status(400).json({ error: 'stages array required' });
+  for (const s of stages.flatMap(st => st.sessions ?? [])) {
+    if (!getAgent(s.agentId)) return res.status(400).json({ error: `Agent not found: ${s.agentId}` });
   }
+  res.json(saveQueue(replaceStages(queue, stages)));
+});
 
-  const project = getProject(projectId);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
-  const task = getTask(taskId);
-  if (!task) return res.status(404).json({ error: 'Task not found' });
-
-  // Validate agents
-  for (const s of sessionInputs) {
-    if (!getAgent(s.agentId)) {
-      return res.status(400).json({ error: `Agent not found: ${s.agentId}` });
-    }
-  }
-
-  // Stop any existing orchestrator for this task
-  const existing = getOrchestrator(taskId);
-  if (existing) {
-    if (existing.state.status !== 'finished' && existing.state.status !== 'failed') {
-      existing.fail('Replaced by new execute call');
-    }
-    removeOrchestrator(taskId);
-  }
-
-  // Build session objects
-	  const sessions: OrchestratorQueueSession[] = sessionInputs.map(s => ({
-	    id: uuidv4(),
-	    points: s.points,
-	    agentId: s.agentId,
-	    parallelGroup: s.parallelGroup,
-	    queueMode: s.queueMode === 'review_first' ? 'review_first' : 'execute',
-	    permissionPolicy: s.permissionPolicy === 'allow-edits' || s.permissionPolicy === 'ask' ? s.permissionPolicy : 'allow-all',
-	    pauseAfter: s.pauseAfter ?? false,
-	    model: s.model,
-	    reasoningEffort: s.reasoningEffort,
-      reviewerId: s.reviewerId,
-      maxReviewRounds: Math.max(1, Math.min(10, s.maxReviewRounds ?? 2)),
-	    status: 'queued' as const,
-	  }));
-
-  const orch = new Orchestrator(taskId, projectId, sessions);
-
-  res.status(202).json({
-    orchestratorId: orch.state.id,
-    sessions: sessions.map(s => ({ ...s })),
-  });
-
-  // Start async (don't block response)
+// POST /projects/:projectId/tasks/:taskId/queue/start — (re)launch from the first unfinished stage
+orchestratorRouter.post('/queue/start', (req: Request, res: Response) => {
+  const queue = taskQueue(req, res);
+  if (!queue) return;
+  if (isFrozen(queue)) return res.status(409).json({ error: 'Очередь уже выполняется' });
+  if (!queue.stages.length) return res.status(400).json({ error: 'Очередь пуста' });
+  const orch = new Orchestrator(queue);
   orch.start().catch(e => {
     console.error('[orchestrator] start error:', e);
     orch.fail(String(e));
   });
+  res.status(202).json(queue);
 });
+
+// POST /projects/:projectId/tasks/:taskId/queue/clear-history — forget earlier runs
+orchestratorRouter.post('/queue/clear-history', (req: Request, res: Response) => {
+  const queue = taskQueue(req, res);
+  if (!queue) return;
+  queue.history = [];
+  res.json(saveQueue(queue));
+});
+
+orchestratorRouter.post('/queue/stop',withOrchestrator(orch => orch.stop()));
+orchestratorRouter.post('/queue/pause', withOrchestrator((orch, req) => orch.requestPause(req.body?.on !== false)));
+orchestratorRouter.post('/queue/resume', withOrchestrator(orch => orch.resume()));
+
+// Per-session actions of a running queue.
+// complete: accept as done although the agent did not report it; execute: preflight → execution;
+// skip: stop this session and go on; restart: start it again with a fresh agent.
+orchestratorRouter.post('/queue/sessions/:sessionId/complete', withOrchestrator((orch, req) => orch.manualComplete(req.params.sessionId)));
+orchestratorRouter.post('/queue/sessions/:sessionId/execute', withOrchestrator((orch, req) => orch.executeReadySession(req.params.sessionId)));
+orchestratorRouter.post('/queue/sessions/:sessionId/skip', withOrchestrator((orch, req) => orch.skipSession(req.params.sessionId)));
+orchestratorRouter.post('/queue/sessions/:sessionId/restart', withOrchestrator((orch, req) => orch.restartSession(req.params.sessionId)));
 
 // POST /projects/:projectId/tasks/:taskId/done
 // Mark task done — delete plan file, keep DB records
@@ -79,82 +89,10 @@ orchestratorRouter.post('/done', async (req: Request, res: Response) => {
   const task = getTask(taskId);
   if (!project || !task) return res.status(404).json({ error: 'Not found' });
 
-  // Stop orchestrator if running
-  const orch = getOrchestrator(taskId);
-  if (orch) {
-    orch.fail('Task marked done');
-    removeOrchestrator(taskId);
-  }
-
-  // Delete plan file
+  await getOrchestrator(taskId)?.stop('Задача завершена');
   deletePlanFile(task, project.repo_path);
 
-  // Update task status
   const updated = updateTask(taskId, { status: 'done' });
   broadcast({ type: 'task_status', taskId, status: 'done' });
   res.json(updated);
-});
-
-// GET /projects/:projectId/tasks/:taskId/orchestrator
-// Current orchestrator state for UI rehydration
-orchestratorRouter.get('/orchestrator', (req: Request, res: Response) => {
-  const { taskId } = req.params;
-  const orch = getOrchestrator(taskId);
-  if (!orch) return res.json({ active: false });
-  res.json({ active: true, state: orch.getState() });
-});
-
-// POST /projects/:projectId/tasks/:taskId/sessions/:sessionId/advance
-// Manually mark a session done (waiting OR stuck-running) and advance the queue.
-orchestratorRouter.post('/sessions/:sessionId/advance', async (req: Request, res: Response) => {
-  const { taskId, sessionId } = req.params;
-  const orch = getOrchestrator(taskId);
-  if (!orch) return res.status(404).json({ error: 'No active orchestrator' });
-  await orch.manualComplete(sessionId);
-  res.json({ ok: true });
-});
-
-// POST /projects/:projectId/tasks/:taskId/sessions/:sessionId/execute
-// Continue a completed preflight session into execution.
-orchestratorRouter.post('/sessions/:sessionId/execute', async (req: Request, res: Response) => {
-  const { taskId, sessionId } = req.params;
-  const orch = getOrchestrator(taskId);
-  if (!orch) return res.status(404).json({ error: 'No active orchestrator' });
-  await orch.executeReadySession(sessionId);
-  res.json({ ok: true });
-});
-
-// POST /projects/:projectId/tasks/:taskId/sessions/:sessionId/ready
-// Manually mark a preflight session ready when the agent is waiting for input.
-orchestratorRouter.post('/sessions/:sessionId/ready', async (req: Request, res: Response) => {
-  const { taskId, sessionId } = req.params;
-  const orch = getOrchestrator(taskId);
-  if (!orch) return res.status(404).json({ error: 'No active orchestrator' });
-  await orch.markReadyForExecution(sessionId);
-  res.json({ ok: true });
-});
-
-// POST /projects/:projectId/tasks/:taskId/sessions/:sessionId/cancel
-// Stop a session (queued/running/waiting) and free the queue to advance.
-orchestratorRouter.post('/sessions/:sessionId/cancel', async (req: Request, res: Response) => {
-  const { taskId, sessionId } = req.params;
-  const orch = getOrchestrator(taskId);
-  if (!orch) return res.status(404).json({ error: 'No active orchestrator' });
-  await orch.cancelSession(sessionId);
-  res.json({ ok: true });
-});
-
-// POST /projects/:projectId/tasks/:taskId/orchestrator/resume
-// Resume the queue after a pauseAfter review checkpoint.
-orchestratorRouter.post('/orchestrator/resume', async (req: Request, res: Response) => {
-  const { taskId } = req.params;
-  const orch = getOrchestrator(taskId);
-  if (!orch) return res.status(404).json({ error: 'No active orchestrator' });
-  await orch.resume();
-  res.json({ ok: true });
-});
-
-orchestratorRouter.post('/sessions/:sessionId/restart', async (req: Request, res: Response) => {
-  try { const orch = getOrchestrator(req.params.taskId); if (!orch) return res.status(404).end(); await orch.restartSession(req.params.sessionId); res.json({ ok: true }); }
-  catch (e) { res.status(400).json({ error: String(e) }); }
 });

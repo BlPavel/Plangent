@@ -3,7 +3,22 @@ import type { PlatformBridge } from './types'
 // Plain-browser implementation: no native file access. Clipboard file paths are
 // resolved server-side via the existing API route; drag-dropped files have no
 // resolvable local path, so callers fall back to text/uri-list parsing.
+let notificationClick: ((target: string) => void) | undefined
+
 export const webBridge: PlatformBridge = {
+  notify(title, body, target) {
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted' || document.hasFocus()) return
+    const notification = new Notification(title, { body })
+    notification.onclick = () => {
+      window.focus()
+      if (target) notificationClick?.(target)
+      notification.close()
+    }
+  },
+  onNotificationClick(handler) { notificationClick = handler },
+  requestNotifications() {
+    if (typeof Notification !== 'undefined' && Notification.permission === 'default') void Notification.requestPermission()
+  },
   getFilePath: () => null,
   async getClipboardFilePaths() {
     const res = await fetch('/api/clipboard/paths')

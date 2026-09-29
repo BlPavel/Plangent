@@ -1,4 +1,6 @@
 export { taskRoutes } from './routes'
+export { startQueueNotifications } from './composables/useQueueNotifications'
+export { useBlockedQueuesStore } from './stores/blockedQueues'
 export { TerminalPane } from '@features/terminal'
 export { useTaskSessionStore } from './stores/taskSession'
 export { useTerminalStore } from './stores/terminal'

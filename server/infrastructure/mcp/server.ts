@@ -43,7 +43,7 @@ function planTask(session: AgentSession) {
 function planResult(name: 'get_plan' | 'submit_plan', session: AgentSession, args: Record<string, unknown>): unknown {
   const { task, project } = planTask(session);
   if (name === 'submit_plan') {
-    const executing = ['running', 'paused'].includes(getOrchestrator(task.id)?.state.status ?? '');
+    const executing = !!getOrchestrator(task.id);
     const { steps, removed } = submitPlan(task, project.repo_path, String(args.content), !executing);
     return { saved: true, steps, ...(removed.length ? { removedSteps: removed } : {}) };
   }

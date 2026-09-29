@@ -1,7 +1,8 @@
 import { contextBridge, webUtils, ipcRenderer } from 'electron';
 
 contextBridge.exposeInMainWorld('electronAPI', {
-  notify: (title: string, body: string) => ipcRenderer.send('agent:notify', { title, body }),
+  notify: (title: string, body: string, target?: string) => ipcRenderer.send('agent:notify', { title, body, target }),
+  onNotificationClick: (handler: (target: string) => void) => { ipcRenderer.on('notification:click', (_event, target: string) => handler(target)); },
   isElectron: true,
   // Returns the real filesystem path for a File object (drag-drop, paste)
   getFilePath: (file: File): string => webUtils.getPathForFile(file),

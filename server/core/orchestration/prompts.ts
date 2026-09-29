@@ -127,7 +127,7 @@ export function buildPrompt(ctx: RunContext): string {
       lines.push(`- \`${p}\``);
     }
     lines.push('');
-    lines.push('Do not work on steps outside this list. Check them off as you complete each one.');
+    lines.push('Do not work on steps outside this list. Do not edit the plan file: Plangent checks the steps off itself when you call complete_step.');
     lines.push('');
   } else if (ctx.planContent) {
     lines.push('## Current plan');
@@ -157,3 +157,12 @@ export function buildPrompt(ctx: RunContext): string {
 
 
 export const EXECUTION_REPORT = '\nWhen all assigned steps are done, call the Plangent MCP complete_step tool with a summary. If blocked, call request_help. Do not rely on plan checkboxes as completion signals.';
+
+/** Hidden reviewer briefing; the visible message only lists the steps to check. */
+export const REVIEW_BRIEFING = '[Plangent] You review the changes made for the plan steps listed below. Do not edit files. Use get_review_context, inspect the files, report actionable findings with add_finding and finish with submit_review (approved or changes_requested).';
+
+/** Review findings handed back to the executor, readable in the chat. */
+export function reviewFixMessage(findings: Record<string, unknown>[]): string {
+  const lines = findings.map(f => `- ${f.file}:${f.line} — ${f.message}`);
+  return `Ревью нашло замечания — исправь их:\n${lines.join('\n') || '- (без подробностей, см. ревью)'}\n\nКогда закончишь, снова отчитайся через complete_step.`;
+}
