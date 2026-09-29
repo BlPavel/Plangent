@@ -1,8 +1,10 @@
 import fs from 'fs';
 import path from 'path';
 import { Task, Plan } from '../../models';
-import { createPlan, updatePlan, assignMissingIds, parsePlanSteps } from './plans';
+import { createPlan, updatePlan, assignMissingIds, parsePlanSteps, getLatestPlan, renumberSteps } from './plans';
 import { broadcast } from '../shared/events';
+import { remapQueuePoints } from './queue';
+import { repairMojibake } from './encoding';
 
 const PLANGENT_DIR = '.plangent';
 const PLAN_FILE_HINT = '<!-- Plangent: строки "- [ ] ..." - это шаги очереди. Не удаляйте скобки [ ]. -->';
@@ -36,6 +38,18 @@ function ensurePlanFileHint(content: string): string {
   const frontmatterEnd = 3 + endIdx + 4;
   const body = content.slice(frontmatterEnd).replace(/^\n/, '');
   return `${content.slice(0, frontmatterEnd)}\n${PLAN_FILE_HINT}\n${body}`;
+}
+
+// A plan file as an agent left it: shell tools may have broken its encoding (see encoding.ts), and a
+// read-modify-write can duplicate Plangent's hint line.
+function cleanDiskPlan(content: string): string {
+  let seenHint = false;
+  return repairMojibake(content).split('\n').filter(line => {
+    if (line.trim() !== PLAN_FILE_HINT) return true;
+    if (seenHint) return false;
+    seenHint = true;
+    return true;
+  }).join('\n');
 }
 
 // Write plan content to .plangent/<key>.plan.md, assigning missing ids first.
@@ -95,12 +109,15 @@ export function watchPlanFile(
     debounce = setTimeout(() => {
       if (!fs.existsSync(filePath)) return;
       let content: string;
+      let raw: string;
       try {
-        content = fs.readFileSync(filePath, 'utf-8');
+        raw = fs.readFileSync(filePath, 'utf-8');
       } catch { return; }
+      content = cleanDiskPlan(raw);
 
       // Assign missing ids if the agent added new steps
-      const { content: withIds, changed } = assignMissingIds(content);
+      const { content: withIds, changed: idsAdded } = assignMissingIds(content);
+      const changed = idsAdded || content !== raw;
       if (changed) {
         markPlangentWrite(filePath);
         try {
@@ -165,7 +182,7 @@ export function watchPlanDirForCreate(task: Task, repoPath: string): void {
   const checkAndIngest = () => {
     if (!fs.existsSync(planFilePath)) return;
     let content: string;
-    try { content = fs.readFileSync(planFilePath, 'utf-8'); } catch { return; }
+    try { content = cleanDiskPlan(fs.readFileSync(planFilePath, 'utf-8')); } catch { return; }
     if (!content.trim()) return;
 
     const w = dirWatchers.get(task.key);
@@ -197,6 +214,37 @@ export function watchPlanDirForCreate(task: Task, repoPath: string): void {
   });
 
   dirWatchers.set(task.key, watcher);
+}
+
+/**
+ * A plan handed over by the planner (MCP submit_plan): checked, numbered, stored and written to
+ * the plan file. Ids are Plangent's, so ones the agent invented are dropped and renumbered.
+ */
+export function submitPlan(task: Task, repoPath: string, content: string, renumber: boolean): { steps: string[]; removed: string[] } {
+  const previous = getLatestPlan(task.id);
+  const known = new Set(parsePlanSteps(previous?.content ?? '').map(s => s.id?.toLowerCase()).filter(Boolean));
+  let cleaned = content.replace(/\r\n/g, '\n').split('\n')
+    .map(line => line.replace(/^(\s*-\s*\[[ x]\]\s+)\((p\d+)\)\s+/i, (whole, head: string, id: string) => (known.has(id.toLowerCase()) ? whole : head)))
+    .join('\n');
+  if (!parsePlanSteps(cleaned).length) throw new Error('The plan has no steps. A step is a line "- [ ] step text".');
+  const submitted = new Set(parsePlanSteps(cleaned).map(s => s.id?.toLowerCase()));
+  const removed = [...known].filter(id => !submitted.has(id)) as string[];
+  // With nothing executing yet, ids follow the order of the steps; otherwise they must stay put.
+  let idMap: Record<string, string> = {};
+  if (renumber) ({ content: cleaned, idMap } = renumberSteps(cleaned));
+  remapQueuePoints(task.id, idMap);
+
+  const dirWatcher = dirWatchers.get(task.key);
+  if (dirWatcher) { dirWatcher.close(); dirWatchers.delete(task.key); }
+  ensureGitExclude(repoPath);
+  const plan = previous ? updatePlan(previous.id, cleaned)! : createPlan({ task_id: task.id, content: cleaned });
+  const written = materializePlanFile(task, plan, repoPath);
+  watchPlanFile(task, plan.id, repoPath);
+
+  const steps = parsePlanSteps(written);
+  broadcast({ type: 'plan_updated', taskId: task.id, content: written, idMap,
+    steps: steps.map(s => ({ id: s.id, done: s.done, text: s.text, parallelGroup: s.parallelGroup })) });
+  return { steps: steps.map(s => `(${s.id}) ${s.text}`), removed };
 }
 
 export function stopWatchPlanFile(taskKey: string): void {

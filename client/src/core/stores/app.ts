@@ -14,6 +14,10 @@ export const useAppStore = defineStore('app', () => {
     setTimeout(() => { toasts.value = toasts.value.filter(t => t.id !== id) }, 4000)
   }
 
+  function dismissToast(id: number) {
+    toasts.value = toasts.value.filter(t => t.id !== id)
+  }
+
   interface ConfirmOptions {
     title?: string
     confirmLabel?: string
@@ -37,5 +41,5 @@ export const useAppStore = defineStore('app', () => {
     confirmState.value = null
   }
 
-  return { currentProject, currentTask, toasts, toast, confirmState, confirm, resolveConfirm }
+  return { currentProject, currentTask, toasts, toast, dismissToast, confirmState, confirm, resolveConfirm }
 })

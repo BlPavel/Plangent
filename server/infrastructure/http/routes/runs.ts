@@ -5,12 +5,10 @@ import { getProject } from '../../../core/projects';
 import { getLatestPlan } from '../../../core/orchestration/plans';
 import { getAgent } from '../../../core/agents';
 import { resolvePlanTemplate } from '../../../core/library/plan-template';
-import { buildPrompt, launchAgent, sendToAgent, killAgent } from '../../adapters/generic';
-import { TmuxManager } from '../../terminal/tmux';
-import { getPtySession } from '../../terminal/pty-manager';
-import { registerSession, getSession, removeSession } from '../../../core/sessions/session-registry';
+import { buildPrompt, EXECUTION_REPORT } from '../../../core/orchestration/prompts';
+import { createSession as createChat, listSessions as listChats, getSession as getChat } from '../../../core/agent-sessions/sessions';
+import { sendPrompt, closeSession, startSession } from '../../../core/agent-sessions/acp-host';
 import { getPlanFilePath, materializePlanFile, watchPlanFile, watchPlanDirForCreate } from '../../../core/orchestration/plan-file';
-import { getOrchestrator } from '../../../core/orchestration/orchestrator';
 
 export const runsRouter = Router({ mergeParams: true });
 
@@ -68,26 +66,32 @@ runsRouter.post('/', async (req: Request, res: Response) => {
   const run = createRun({ task_id: task.id, plan_id: latestPlan?.id, agent_id: agent.id, agent_name: agent.name });
   const sessionId = `plangent-${task.key.replace(/[^a-zA-Z0-9]/g, '-')}-${run.id.slice(0, 8)}`;
 
-  // Wire plan-file watching
+  // Wire plan-file watching. The planner saves through submit_plan, which writes the file itself.
   if (purpose === 'plan' || purpose === 'preflight') {
     if (latestPlan) {
       materializePlanFile(task, latestPlan, project.repo_path);
       watchPlanFile(task, latestPlan.id, project.repo_path);
-    } else {
+    } else if (purpose === 'preflight') {
       watchPlanDirForCreate(task, project.repo_path);
     }
   }
 
   try {
-    const result = await launchAgent(agent, project.repo_path, sessionId, project.config.extra_env, prompt);
-    registerSession(run.id, { sessionId, mode: result.mode, projectId, taskId });
-
-    res.status(201).json({
-      run,
-      session_id: sessionId,
-      mode: result.mode,
-      prompt,
-    });
+    if (purpose === 'plan') {
+      // Nothing is sent yet: the briefing goes out, hidden, with the developer's first message.
+      const { mode, config } = req.body;
+      const chat = createChat({ project_id: projectId, task_id: taskId, run_id: run.id, agent_id: agent.id, role: 'planner', policy: 'read-only',
+        model: agent.model, title: task.key + ' · Планирование', metadata: { briefing: prompt, reasoningEffort: agent.reasoning_effort,
+          ...(typeof mode === 'string' && mode ? { preferredMode: mode } : {}),
+          ...(config && typeof config === 'object' ? { preferredConfig: Object.fromEntries(Object.entries(config).map(([k, v]) => [k, String(v)])) } : {}) } });
+      void startSession(chat.id).catch(() => {});
+      return res.status(201).json({ run, session_id: chat.id, mode: 'acp' });
+    }
+    const chat = createChat({ project_id: projectId, task_id: taskId, run_id: run.id, agent_id: agent.id,
+      role: 'executor', policy: purpose === 'preflight' ? 'read-only' : 'allow-all',
+      model: agent.model, title: task.key + ' · Выполнение' });
+    await sendPrompt(chat.id, [{ type: 'text', text: prompt + (purpose === 'execute' ? EXECUTION_REPORT : '') }]);
+    res.status(201).json({ run, session_id: chat.id, mode: 'acp', prompt });
   } catch (err) {
     finishRun(run.id, 'failed', String(err));
     res.status(500).json({ error: 'Failed to start agent', detail: String(err) });
@@ -111,63 +115,23 @@ runsRouter.post('/:runId/step', (req: Request, res: Response) => {
 runsRouter.post('/:runId/finish', async (req: Request, res: Response) => {
   const { status, notes } = req.body;
   if (!status) return res.status(400).json({ error: 'status required' });
-  removeSession(req.params.runId);
   const r = finishRun(req.params.runId, status, notes);
   if (!r) return res.status(404).json({ error: 'Not found' });
   res.json(r);
 });
 
-// Hook callback — called by the agent (Claude Code Stop hook / Codex notify)
-runsRouter.post('/:runId/agent-stopped', async (req: Request, res: Response) => {
-  const { runId, taskId } = req.params;
-  res.json({ ok: true });  // respond immediately so curl doesn't block the hook
-
-  // Notify orchestrator if one is running for this task
-  const orchestrator = getOrchestrator(taskId);
-  if (orchestrator) {
-    try {
-      await orchestrator.onAgentStopped(runId);
-    } catch (e) {
-      console.error('[runs] orchestrator.onAgentStopped error:', e);
-    }
-  }
+// Persistent ACP sessions can be reattached after navigating away.
+runsRouter.get('/:runId/session', (req: Request, res: Response) => {
+  const chat = listChats(req.params.projectId).find(s => s.run_id === req.params.runId);
+  res.json(chat ? { running: true, session_id: chat.id, mode: 'acp', output: '' } : { running: false });
 });
-
-// GET session status / output
-runsRouter.get('/:runId/session', async (req: Request, res: Response) => {
-  const session = getSession(req.params.runId);
-  if (!session) return res.json({ running: false });
-
-  if (session.mode === 'tmux') {
-    const tmux = new TmuxManager(session.sessionId);
-    const exists = await tmux.exists();
-    const output = exists ? await tmux.capturePane() : '';
-    return res.json({ running: exists, session_id: session.sessionId, mode: 'tmux', output });
-	  } else {
-	    const s = getPtySession(session.sessionId);
-	    return res.json({ running: !!s, session_id: session.sessionId, mode: 'pty', output: s?.buffer ?? '' });
-	  }
-	});
-
-// POST send input to running agent
 runsRouter.post('/:runId/input', async (req: Request, res: Response) => {
-  const { text } = req.body;
-  if (!text) return res.status(400).json({ error: 'text required' });
-
-  const session = getSession(req.params.runId);
-  if (!session) return res.status(400).json({ error: 'No active session' });
-
-  await sendToAgent(session.sessionId, session.mode, text);
-  res.json({ ok: true });
+  try { const chat = listChats(req.params.projectId).find(s => s.run_id === req.params.runId); if (!chat) return res.status(404).end();
+    await sendPrompt(chat.id, [{ type: 'text', text: req.body.text }]); res.json({ ok: true });
+  } catch (e) { res.status(400).json({ error: String(e) }); }
 });
-
-// POST kill agent
 runsRouter.post('/:runId/kill', async (req: Request, res: Response) => {
-  const session = getSession(req.params.runId);
-  if (session) {
-    await killAgent(session.sessionId, session.mode);
-    removeSession(req.params.runId);
-  }
-  finishRun(req.params.runId, 'interrupted', 'Прерван пользователем');
-  res.json({ ok: true });
+  const chat = listChats(req.params.projectId).find(s => s.run_id === req.params.runId);
+  if (chat) await closeSession(chat.id);
+  finishRun(req.params.runId, 'interrupted', 'Прерван пользователем'); res.json({ ok: true });
 });

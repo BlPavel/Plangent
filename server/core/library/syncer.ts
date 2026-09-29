@@ -128,12 +128,13 @@ function applyGitExclude(project: Project): void {
   const excludeFile = path.join(gitDir, 'info', 'exclude');
   fs.mkdirSync(path.dirname(excludeFile), { recursive: true });
 
-  const paths = [
-    '.claude/skills/plangent-*',
-    '.claude/commands/plangent-*',
-    '.agents/skills/plangent-*',
-    '.plangent/',
-  ];
+  const paths = ['.plangent/'];
+  for (const agent of listAgents(true)) {
+    for (const slot of [agent.layout_profile?.skills, agent.layout_profile?.commands]) {
+      const pattern = slot?.dir && `${slot.dir.replace(/\/+$/, '')}/plangent-*`;
+      if (pattern && !paths.includes(pattern)) paths.push(pattern);
+    }
+  }
 
   // Main files (CLAUDE.md / AGENTS.md) — hide them too, but only if this project
   // actually has a main item. .git/info/exclude only affects UNTRACKED files, so a

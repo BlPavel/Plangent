@@ -3,12 +3,15 @@ import { WebSocket } from 'ws';
 import fs from 'fs';
 import path from 'path';
 import { execSync } from 'child_process';
+import { killProcessTree } from './process-tree';
 
 export interface PtySession {
   id: string;
   pty: IPty;
   sockets: Set<WebSocket>;
   buffer: string;
+  exitCode?: number;
+  retain?: boolean;
 }
 
 const sessions = new Map<string, PtySession>();
@@ -74,8 +77,9 @@ export function createPtySession(id: string, cmd: string, args: string[], cwd: s
   });
 
   ptyProcess.onExit(({ exitCode }) => {
+    session.exitCode = exitCode;
     broadcast(session, { type: 'exit', exitCode });
-    sessions.delete(id);
+    if (!session.retain && sessions.get(id) === session) sessions.delete(id);
   });
 
   sessions.set(id, session);
@@ -99,6 +103,7 @@ export function attachSocket(sessionId: string, ws: WebSocket): boolean {
   if (session.buffer) {
     ws.send(JSON.stringify({ type: 'data', data: session.buffer }));
   }
+  if (session.exitCode !== undefined) ws.send(JSON.stringify({ type: 'exit', exitCode: session.exitCode }));
 
   ws.on('message', (msg: Buffer) => {
     try {
@@ -118,10 +123,15 @@ export function attachSocket(sessionId: string, ws: WebSocket): boolean {
   return true;
 }
 
-export function killPtySession(id: string): void {
+export async function killPtySession(id: string): Promise<void> {
   const session = sessions.get(id);
   if (session) {
-    session.pty.kill();
+    for (const socket of session.sockets) socket.close();
+    session.sockets.clear();
+    if (session.exitCode === undefined) {
+      await killProcessTree(session.pty.pid);
+      try { session.pty.kill(); } catch { /* exited */ }
+    }
     sessions.delete(id);
   }
 }

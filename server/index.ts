@@ -1,24 +1,12 @@
+import { initSessions } from './core/agent-sessions/sessions';
+import { initQueues } from './core/orchestration/queue';
+import { configureSessionHost, shutdownSessions } from './core/agent-sessions/acp-host';
+import { sessionMcpConfig } from './infrastructure/mcp/server';
+import { killProcessTree } from './infrastructure/terminal/process-tree';
+import { shutdownTerminals } from './infrastructure/http/routes/terminals';
 import { createApp } from './infrastructure/http/server';
 import { getDb } from './infrastructure/db/schema';
 import { syncAll } from './core/library/syncer';
-import { configureAgentRuntime } from './core/orchestration/agent-runtime';
-import {
-  buildPrompt,
-  cleanupClaudeStopHook,
-  deployClaudeStopHook,
-  killAgent,
-  launchAgent,
-  sendToAgent,
-} from './infrastructure/adapters/generic';
-
-configureAgentRuntime({
-  buildPrompt,
-  launchAgent,
-  killAgent,
-  sendToAgent,
-  deployClaudeStopHook,
-  cleanupClaudeStopHook,
-});
 
 process.on('uncaughtException', (err) => {
   console.error('[uncaughtException]', err.message);
@@ -32,6 +20,9 @@ const DEFAULT_PORT = parseInt(process.env.PORT ?? '3001', 10);
 /** Starts the local API and returns the port actually assigned by the OS. */
 export async function startServer(port = DEFAULT_PORT): Promise<number> {
   getDb();
+  initSessions();
+  initQueues();
+  configureSessionHost({ mcp: sessionMcpConfig, terminate: killProcessTree });
 
   try {
     syncAll();
@@ -58,6 +49,10 @@ export async function startServer(port = DEFAULT_PORT): Promise<number> {
     });
   });
 }
+
+export async function shutdown(): Promise<void> { await Promise.all([shutdownSessions(), shutdownTerminals()]); }
+process.once('SIGTERM', () => { void shutdown().finally(() => process.exit()); });
+process.once('SIGINT', () => { void shutdown().finally(() => process.exit()); });
 
 if (require.main === module) {
   startServer().catch(err => {

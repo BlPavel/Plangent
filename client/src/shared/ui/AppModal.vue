@@ -1,7 +1,7 @@
 <template>
   <Teleport to="body">
     <Transition name="modal">
-      <div v-if="modelValue" class="overlay" @click.self="$emit('update:modelValue', false)">
+      <div v-if="modelValue" class="overlay">
         <div class="modal" :class="size === 'large' ? 'modal--large' : ''">
           <h2 class="modal-title">{{ title }}</h2>
           <div class="modal-body">

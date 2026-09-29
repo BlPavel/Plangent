@@ -15,7 +15,14 @@
           class="project-item app-no-drag"
           :class="{ active: !isSettingsRoute && appStore.currentProject?.id === p.id }"
           @click="selectProject(p)"
-        >{{ p.name }}</div>
+        >
+          <span class="project-name">{{ p.name }}</span>
+          <span
+            v-if="blockedQueues.forProject(p.id).length"
+            class="project-blocked"
+            :title="blockedQueues.forProject(p.id).map(b => `${b.taskKey}: ${b.reason}`).join('\n')"
+          >{{ blockedQueues.forProject(p.id).length }}</span>
+        </div>
         <div v-if="!projectsStore.projects.length" class="project-empty">
           Пока нет проектов
         </div>
@@ -25,11 +32,11 @@
         <span class="sidebar-link-icon">⚙</span> Настройки
       </RouterLink>
 
-      <div class="sidebar-version app-no-drag">{{ appVersion ? `v${appVersion}` : '' }}</div>
+      <UpdateStatus :version="appVersion" />
     </aside>
 
     <main class="content">
-      <RouterView />
+      <RouterView :key="route.params.id ? String(route.params.id) : route.path" />
     </main>
 
     <AppToast />
@@ -51,6 +58,7 @@
 </template>
 
 <script setup lang="ts">
+import { useChatStore } from '@features/agent-chat'
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAppStore } from '@core/stores/app'
@@ -58,17 +66,36 @@ import { useProjectsStore } from '@features/projects'
 import { useAgentsStore } from '@features/agents'
 import type { Project } from '@core/models'
 import { api } from '@core/api'
+import { platform } from '@core/platform'
+import { startQueueNotifications, useBlockedQueuesStore } from '@features/tasks'
+import { UpdateStatus } from '@features/updates'
 import AppToast from '@shared/ui/AppToast.vue'
 import AppConfirm from '@shared/ui/AppConfirm.vue'
 import AppModal from '@shared/ui/AppModal.vue'
 import FormField from '@shared/ui/FormField.vue'
 import FolderPicker from '@shared/ui/FolderPicker.vue'
 
+const chatStore = useChatStore()
+void chatStore.connect()
 const router = useRouter()
 const route = useRoute()
 const appStore = useAppStore()
 const projectsStore = useProjectsStore()
 const agentsStore = useAgentsStore()
+
+startQueueNotifications()
+const blockedQueues = useBlockedQueuesStore()
+blockedQueues.start()
+// A clicked notification opens its task, switching to the task's project first.
+platform.onNotificationClick?.(async target => {
+  const projectId = new URL(target, location.origin).searchParams.get('project')
+  if (projectId && appStore.currentProject?.id !== projectId) {
+    if (!projectsStore.projects.length) await projectsStore.load()
+    const project = projectsStore.projects.find(p => p.id === projectId)
+    if (project) appStore.currentProject = project
+  }
+  void router.push(target)
+})
 
 const isSettingsRoute = computed(() => route.path === '/settings')
 
@@ -151,16 +178,32 @@ async function addProject() {
 
 .project-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
 .project-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   padding: 7px 10px;
   border-radius: var(--radius-sm);
   cursor: pointer;
   font-size: 13px;
   font-weight: 500;
   color: var(--text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   transition: background 0.12s, color 0.12s;
+}
+.project-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Tasks whose running queue is stuck until the developer answers; details in the tooltip. */
+.project-blocked {
+  flex-shrink: 0;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: var(--radius-pill);
+  background: var(--warning);
+  color: #0d1117;
+  font-size: 10.5px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .project-item:hover { background: var(--bg3); color: var(--text); }
 .project-item.active { background: var(--bg3); color: var(--text); box-shadow: inset 2px 0 0 var(--blue); }
@@ -182,13 +225,6 @@ async function addProject() {
 .sidebar-link-icon { font-size: 14px; }
 .sidebar-link:hover { background: var(--bg3); color: var(--text); }
 .sidebar-link.active { background: var(--bg3); color: var(--text); box-shadow: inset 2px 0 0 var(--blue); }
-
-.sidebar-version {
-  margin-top: var(--sp-3);
-  padding: 0 6px;
-  font-size: 11px;
-  color: var(--text-faint);
-}
 
 .content { flex: 1; overflow: hidden; }
 .form-field { display: flex; flex-direction: column; gap: 4px; }

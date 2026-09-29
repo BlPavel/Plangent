@@ -1,18 +1,39 @@
+export interface LayoutSlot {
+  dir: string
+  global: string
+  file: string
+  asSkill?: boolean
+  asMerged?: boolean
+}
+
+export interface LayoutProfile {
+  skills?: LayoutSlot
+  commands?: LayoutSlot
+  main?: { file: string; global: string }
+}
+
 export interface Agent {
   id: string
   name: string
+  acp_command: string
+  acp_args: string[]
+  env: Record<string, string>
   command: string
   update_command: string
-  args: string[]
-  env: Record<string, string>
-  skills_dir: string
-  skills_filename: string
+  layout_profile: LayoutProfile | null
   model: string
   reasoning_effort: string
-  model_options: string[]
-  reasoning_options: string[]
   active: boolean
   created_at: string
+}
+
+export interface AgentPreset {
+  name: string
+  acp_command: string
+  acp_args: string[]
+  command: string
+  update_command: string
+  layout_profile: LayoutProfile | null
 }
 
 export interface Project {
@@ -20,7 +41,7 @@ export interface Project {
   name: string
   repo_path: string
   default_agent_id: string | null
-  config: { extra_env?: Record<string, string> }
+  config: { extra_env?: Record<string, string>; dangerous_commands?: string[] }
   hide_from_git?: boolean
   created_at: string
 }
@@ -89,7 +110,7 @@ export interface LibraryItem {
 export interface RunStartResult {
   run: Run
   session_id: string
-  mode: 'tmux' | 'pty'
+  mode: 'acp'
   prompt: string
 }
 
@@ -102,57 +123,75 @@ export type OrchestratorSessionStatus =
   | 'waiting_for_developer'
   | 'complete'
   | 'failed'
+  // the queue was stopped mid-session; a relaunch runs it again for its undone points
+  | 'stopped'
 
 export type QueueSessionMode = 'execute' | 'review_first'
+export type ExecutionPolicy = 'allow-all' | 'allow-edits' | 'ask'
 
 export interface OrchestratorQueueSession {
+  reviewerId?: string
+  reviewSessionId?: string
+  reviewRound?: number
+  maxReviewRounds?: number
+  reason?: string
   id: string
   points: string[]
   agentId: string
-  parallelGroup: string | null
   queueMode: QueueSessionMode
+  permissionPolicy: ExecutionPolicy
   status: OrchestratorSessionStatus
-  pauseAfter?: boolean
   runId?: string
   sessionId?: string
-  mode?: 'tmux' | 'pty'
+  mode?: 'acp'
   model?: string
   reasoningEffort?: string
 }
 
-export type OrchestratorStatus = 'running' | 'paused' | 'waiting_for_developer' | 'finished' | 'failed'
-
-export interface OrchestratorState {
+// Sessions of a stage run in parallel; stages run one after another.
+export interface QueueStage {
   id: string
+  sessions: OrchestratorQueueSession[]
+  pauseAfter: boolean
+}
+
+// Stages of an earlier run, moved out of the queue once all their sessions were done.
+export interface QueueRun {
+  id: string
+  finishedAt: string
+  stages: QueueStage[]
+}
+
+// idle/stopped/finished/failed: editable. running/paused: frozen until stopped.
+export type QueueStatus = 'idle' | 'running' | 'paused' | 'stopped' | 'finished' | 'failed'
+
+export interface TaskQueue {
   taskId: string
   projectId: string
-  sessions: OrchestratorQueueSession[]
-  status: OrchestratorStatus
-  startedAt: string
+  status: QueueStatus
+  stages: QueueStage[]
+  stageIndex: number
+  pauseRequested: boolean
+  reason?: string
+  // earlier runs, newest first
+  history?: QueueRun[]
+  updatedAt: string
 }
 
-export interface OrchestratorResponse {
-  active: boolean
-  state?: OrchestratorState
-}
-
-export interface ExecuteResponse {
-  orchestratorId: string
-  sessions: OrchestratorQueueSession[]
-}
-
-// Orchestrator WS events
-export type OrchestratorEvent =
-  | { type: 'session_started'; taskId: string; sessionId: string; runId: string; terminalSessionId: string; mode: 'tmux' | 'pty'; points: string[] }
-  | { type: 'session_idle'; taskId: string; sessionId: string; runId: string; terminalSessionId?: string }
-  | { type: 'session_ready_for_execution'; taskId: string; sessionId: string; runId?: string; terminalSessionId?: string; message: string }
-  | { type: 'session_complete'; taskId: string; sessionId: string; runId?: string }
-  | { type: 'session_waiting'; taskId: string; sessionId: string; runId: string; terminalSessionId?: string; message: string }
-  | { type: 'session_failed'; taskId: string; sessionId: string; reason: string }
-  | { type: 'session_no_signal'; taskId: string; sessionId: string; runId: string; message: string }
-  | { type: 'queue_finished'; taskId: string }
-  | { type: 'queue_paused'; taskId: string; stepIndex: number }
-  | { type: 'queue_resumed'; taskId: string }
-  | { type: 'run_failed'; taskId: string; reason: string }
-  | { type: 'task_status'; taskId: string; status: Task['status'] }
-  | { type: 'plan_updated'; taskId: string; content?: string; steps: PlanStep[] }
+// Orchestrator WS events. Queue notifications carry projectId/taskKey so they can be shown for any task.
+interface QueueEventBase { taskId: string; projectId?: string; taskKey?: string }
+export type OrchestratorEvent = QueueEventBase & (
+  | { type: 'queue_updated'; queue: TaskQueue }
+  | { type: 'review_started'; sessionId: string; reviewSessionId: string }
+  | { type: 'session_started'; sessionId: string; runId: string; terminalSessionId: string; mode: 'acp'; points: string[] }
+  | { type: 'session_ready_for_execution'; sessionId: string; message: string }
+  | { type: 'session_complete'; sessionId: string; runId?: string }
+  | { type: 'session_waiting'; sessionId: string; message: string }
+  | { type: 'session_failed'; sessionId: string; reason: string }
+  | { type: 'queue_finished'; failed: number }
+  | { type: 'queue_paused'; stageIndex: number }
+  | { type: 'run_failed'; reason: string }
+  | { type: 'task_status'; status: Task['status'] }
+  // idMap: old → new step ids when the planner's plan was renumbered in order.
+  | { type: 'plan_updated'; content?: string; steps: PlanStep[]; idMap?: Record<string, string> }
+)

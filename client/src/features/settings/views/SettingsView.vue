@@ -8,6 +8,7 @@
       <button class="stab" :class="{ active: tab === 'agents' }" @click="tab = 'agents'">Агенты</button>
       <button class="stab" :class="{ active: tab === 'skills' }" @click="tab = 'skills'">Скиллы</button>
       <button class="stab" :class="{ active: tab === 'plan-template' }" @click="tab = 'plan-template'">Шаблон плана</button>
+      <button class="stab" :class="{ active: tab === 'notes' }" @click="tab = 'notes'">Доработки</button>
     </div>
 
     <!-- Agents -->
@@ -16,6 +17,7 @@
         <span class="section-title">Агенты</span>
         <AppButton variant="primary" size="sm" @click="openCreate">+ Добавить агента</AppButton>
       </div>
+      <p class="hint">Агенты подключаются по ACP (Agent Client Protocol). Plangent сам отвечает на их запросы разрешений, поэтому режимы «без подтверждений» агента не нужны.</p>
 
       <div class="agent-list">
         <div v-if="!agentsStore.agents.length" class="empty-state">
@@ -25,10 +27,20 @@
           <div class="agent-top">
             <div>
               <span class="agent-name">{{ a.name }}</span>
-              <code class="agent-cmd">{{ a.command }} {{ a.args.join(' ') }}</code>
+              <code class="agent-cmd">{{ launchLine(a) }}</code>
             </div>
             <div class="actions">
-              <AppButton v-if="a.update_command" variant="update" size="sm" :disabled="updatingAgentId === a.id" @click="updateAgent(a)">
+              <AppButton variant="ghost" size="sm" :disabled="checking.has(a.id)" title="Запустить агента и узнать, что он умеет" @click="check(a)">
+                {{ checking.has(a.id) ? 'Проверка…' : 'Проверить' }}
+              </AppButton>
+              <AppButton
+                v-if="canUpdate(a)"
+                variant="update"
+                size="sm"
+                :disabled="updatingAgentId === a.id"
+                title="Обновить CLI агента и ACP-адаптер до последней версии"
+                @click="updateAgent(a)"
+              >
                 {{ updatingAgentId === a.id ? 'Обновление…' : '⟳ Обновить' }}
               </AppButton>
               <AppButton variant="ghost" size="sm" @click="openEdit(a)">Изменить</AppButton>
@@ -38,9 +50,19 @@
             </div>
           </div>
           <div class="agent-meta">
+            <template v-if="report(a.id)?.ok">
+              <span v-if="report(a.id)!.title">{{ report(a.id)!.title }}</span>
+              <span>Моделей: {{ report(a.id)!.models }}</span>
+              <span v-if="report(a.id)!.capabilities" :class="{ bad: !report(a.id)!.capabilities!.loadSession }">
+                {{ report(a.id)!.capabilities!.loadSession ? 'Восстанавливает чаты' : 'Не восстанавливает чаты после перезапуска' }}
+              </span>
+              <span v-if="report(a.id)!.capabilities">MCP: {{ report(a.id)!.capabilities!.mcpHttp ? 'HTTP' : 'через stdio-мост' }}</span>
+            </template>
+            <span v-else-if="report(a.id)" class="bad" :title="report(a.id)!.error">Не запускается: {{ report(a.id)!.error }}</span>
+            <span v-if="a.model">Модель: {{ a.model }}</span>
+            <span v-if="a.reasoning_effort">Рассуждения: {{ a.reasoning_effort }}</span>
             <span v-if="Object.keys(a.env).length">Env: {{ Object.keys(a.env).join(', ') }}</span>
-            <span v-if="a.skills_dir">Скиллы → {{ a.skills_dir }}/{{ a.skills_filename }}</span>
-            <span v-else-if="a.skills_filename">Скиллы → {{ a.skills_filename }}</span>
+            <span v-if="a.layout_profile?.main">Инструкции → {{ a.layout_profile.main.file }}</span>
           </div>
         </div>
       </div>
@@ -58,96 +80,170 @@
       <PlanTemplateEditor scope="global" />
     </div>
 
+    <!-- Personal improvement notes -->
+    <div v-show="tab === 'notes'" class="tab-body">
+      <ImprovementNotes />
+    </div>
+
     <!-- Agent create/edit modal -->
     <AppModal
       v-model="showAgentModal"
+      size="large"
       :title="editAgent ? 'Изменить агента' : 'Добавить агента'"
       confirm-label="Сохранить"
       @confirm="saveAgent"
     >
-      <FormField v-model="agentForm.name" label="Название" placeholder="Claude Code" />
-      <FormField v-model="agentForm.command" label="Команда" placeholder="claude" hint="Имя команды или полный путь" />
-      <FormField v-model="agentForm.update_command" label="Команда обновления" placeholder="npm update -g @vendor/agent" hint="Выполняется локально по кнопке «Обновить». Оставьте пустым, если обновление не поддерживается." />
-      <FormField v-model="agentForm.args" label="Аргументы (через пробел)" placeholder="--dangerously-skip-permissions --model {model} --effort {reasoning}" hint="Добавляются к команде при каждом запуске. {model} и {reasoning} — точки подстановки для полей ниже" />
-      <FormField v-model="agentForm.env" label="Переменные окружения (JSON)" type="textarea" :rows="3" placeholder='{"OPENAI_API_KEY": "sk-..."}' hint="Все переменные, включая прокси и ключи API" />
-      <FormField v-model="agentForm.skills_dir" label="Папка для скиллов (относительно проекта)" placeholder=".claude/commands" hint="Оставь пустым — скиллы в корень проекта" />
-      <FormField v-model="agentForm.skills_filename" label="Имя файла скиллов" placeholder="plangent.md" hint="Файл создаётся перед запуском и удаляется после" />
+      <div class="presets">
+        <span class="presets-label">Заполнить как:</span>
+        <AppButton v-for="(p, key) in presets" :key="key" variant="ghost" size="sm" type="button" @click="applyPreset(p)">{{ p.name }}</AppButton>
+      </div>
 
-      <template v-if="hasModelPlaceholder">
-        <TagListEditor
-          v-model="agentForm.model_options"
-          label="Доступные модели"
-          placeholder="opus"
-          hint="Список моделей, из которых можно будет выбирать при запуске агента"
-        />
-        <div v-if="modelChoices.length" class="select-field">
-          <label>Модель по умолчанию</label>
-          <AppSelect v-model="agentForm.model" :options="modelDefaultOptions" placeholder="(не задано)" />
-          <span class="hint">Подставляется автоматически, если не выбрать другую при запуске</span>
-        </div>
-      </template>
+      <fieldset class="group">
+        <legend>Подключение</legend>
+        <FormField v-model="agentForm.name" label="Название" placeholder="Claude Code" />
+        <FormField v-model="agentForm.acp_command" label="Команда ACP-адаптера" placeholder="npx" hint="Процесс, который говорит с Plangent по ACP: сам CLI с флагом (gigacode --acp) или адаптер (npx @agentclientprotocol/…)" />
+        <FormField v-model="agentForm.acp_args" label="Аргументы (JSON-массив)" placeholder='["--acp"]' />
+        <FormField v-model="agentForm.env" label="Переменные окружения (JSON)" type="textarea" :rows="3" placeholder='{"HTTPS_PROXY": "http://proxy:8080", "OPENAI_API_KEY": "sk-..."}' hint="Добавляются к окружению при каждом запуске, вместе с переменными проекта. Адреса 127.0.0.1 и localhost всегда идут мимо прокси." />
+      </fieldset>
 
-      <template v-if="hasReasoningPlaceholder">
-        <TagListEditor
-          v-model="agentForm.reasoning_options"
-          label="Доступные уровни рассуждений"
-          placeholder="high"
-          hint="Список уровней, из которых можно будет выбирать при запуске агента"
-        />
-        <div v-if="reasoningChoices.length" class="select-field">
-          <label>Уровень рассуждений по умолчанию</label>
-          <AppSelect v-model="agentForm.reasoning_effort" :options="reasoningDefaultOptions" placeholder="(не задано)" />
-          <span class="hint">Подставляется автоматически, если не выбрать другой при запуске</span>
+      <fieldset class="group">
+        <legend>По умолчанию</legend>
+        <template v-if="editAgent && (defaults.models.length || defaults.efforts.length)">
+          <div v-if="defaults.models.length" class="select-field">
+            <label>Модель</label>
+            <AppSelect v-model="agentForm.model" :options="[{ value: '', label: 'Как решит агент' }, ...defaults.models]" />
+          </div>
+          <div v-if="defaults.efforts.length" class="select-field">
+            <label>Глубина рассуждений</label>
+            <AppSelect v-model="agentForm.reasoning_effort" :options="[{ value: '', label: 'Как решит агент' }, ...defaults.efforts]" />
+          </div>
+          <span class="hint">Для новых чатов и шагов задачи; при запуске можно выбрать другое.</span>
+        </template>
+        <span v-else-if="editAgent && checking.has(editAgent.id)" class="hint">Узнаю у агента список моделей…</span>
+        <span v-else class="hint">Списки моделей и уровней рассуждений агент сообщает сам. Сохраните агента и нажмите «Проверить» — тогда здесь можно будет выбрать значения по умолчанию.</span>
+      </fieldset>
+
+      <fieldset class="group">
+        <legend>Инструкции и скиллы</legend>
+        <p class="hint">Куда Plangent раскладывает инструкции проекта и скиллы, чтобы агент их прочитал. Пустое поле — не раскладывать.</p>
+        <div class="row">
+          <FormField v-model="agentForm.main_file" label="Файл инструкций в проекте" placeholder="CLAUDE.md" />
+          <FormField v-model="agentForm.main_global" label="Глобальный файл инструкций" placeholder="~/.claude/CLAUDE.md" />
         </div>
-      </template>
+        <div class="row">
+          <FormField v-model="agentForm.skills_dir" label="Папка скиллов в проекте" placeholder=".claude/skills" />
+          <FormField v-model="agentForm.skills_global" label="Глобальная папка скиллов" placeholder="~/.claude/skills" />
+        </div>
+        <label class="check"><input v-model="agentForm.commands_as_skills" type="checkbox" /> Команды класть как скиллы (агент не поддерживает отдельные команды)</label>
+        <div v-if="!agentForm.commands_as_skills" class="row">
+          <FormField v-model="agentForm.commands_dir" label="Папка команд в проекте" placeholder=".claude/commands" />
+          <FormField v-model="agentForm.commands_global" label="Глобальная папка команд" placeholder="~/.claude/commands" />
+        </div>
+      </fieldset>
+
+      <fieldset class="group">
+        <legend>Обслуживание</legend>
+        <div class="row">
+          <FormField v-model="agentForm.command" label="CLI агента" placeholder="claude" hint="Для чтения лимитов использования" />
+          <FormField v-model="agentForm.update_command" label="Команда обновления" placeholder="npm update -g @vendor/agent" hint="Кнопка «Обновить». Пусто — кнопки нет" />
+        </div>
+      </fieldset>
     </AppModal>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useAppStore } from '@core/stores/app'
 import { useAgentsStore } from '@features/agents'
+import { useChatStore, modelAndEffort } from '@features/agent-chat'
 import { api } from '@core/api'
-import type { Agent } from '@core/models'
+import type { Agent, AgentPreset, LayoutProfile } from '@core/models'
 import AppModal from '@shared/ui/AppModal.vue'
 import FormField from '@shared/ui/FormField.vue'
 import AppSelect from '@shared/ui/AppSelect.vue'
-import TagListEditor from '@shared/ui/TagListEditor.vue'
 import AppButton from '@shared/ui/AppButton.vue'
 import IconTrash from '@shared/ui/IconTrash.vue'
 import { PlanTemplateEditor, SkillsManager } from '@features/library'
+import ImprovementNotes from '../components/ImprovementNotes.vue'
 
 const appStore = useAppStore()
 const agentsStore = useAgentsStore()
+const chatStore = useChatStore()
 
-const tab = ref<'agents' | 'skills' | 'plan-template'>('agents')
+const tab = ref<'agents' | 'skills' | 'plan-template' | 'notes'>('agents')
 
 // ── Agents ────────────────────────────────────────────────────────────────────
 
+const presets = ref<Record<string, AgentPreset>>({})
 const showAgentModal = ref(false)
 const editAgent = ref<Agent | null>(null)
 
 const defaultAgentForm = () => ({
-  name: '', command: '', update_command: '', args: '', env: '{}', skills_dir: '', skills_filename: 'plangent.md',
-  model: '', reasoning_effort: '', model_options: [] as string[], reasoning_options: [] as string[],
+  name: '', acp_command: '', acp_args: '[]', env: '{}',
+  model: '', reasoning_effort: '',
+  main_file: '', main_global: '', skills_dir: '', skills_global: '',
+  commands_as_skills: false, commands_dir: '', commands_global: '',
+  command: '', update_command: '',
 })
 const agentForm = ref(defaultAgentForm())
 
-// Model/reasoning-effort pickers only appear once the developer has wired the
-// corresponding {model}/{reasoning} placeholder into the args template themselves —
-// see generic.ts launchAgent(), which substitutes them (or drops the flag if unset).
-// The developer builds the list of choices themselves (TagListEditor); the "default"
-// select just picks which one gets substituted automatically when nothing is
-// overridden at launch time.
-const hasModelPlaceholder = computed(() => agentForm.value.args.includes('{model}'))
-const hasReasoningPlaceholder = computed(() => agentForm.value.args.includes('{reasoning}'))
+// Seeded agents have no acp_command of their own and start from their preset.
+const SEEDED: Record<string, string> = { 'agent-claude': 'claude', 'agent-codex': 'codex' }
+function launchLine(a: Agent) {
+  const p = a.acp_command ? a : presets.value[SEEDED[a.id]]
+  const command = a.acp_command || p?.acp_command
+  return command ? [command, ...(p?.acp_args ?? [])].join(' ') : 'ACP-команда не задана'
+}
 
-const modelChoices = computed(() => [...new Set(agentForm.value.model_options.map(v => v.trim()).filter(Boolean))])
-const reasoningChoices = computed(() => [...new Set(agentForm.value.reasoning_options.map(v => v.trim()).filter(Boolean))])
-const modelDefaultOptions = computed(() => [{ value: '', label: '(не задано)' }, ...modelChoices.value.map(m => ({ value: m, label: m }))])
-const reasoningDefaultOptions = computed(() => [{ value: '', label: '(не задано)' }, ...reasoningChoices.value.map(r => ({ value: r, label: r }))])
+// What the agent reported about itself (via a throwaway ACP session).
+const checking = ref(new Set<string>())
+interface Report { ok: boolean; error?: string; title?: string; models?: number; capabilities?: { loadSession: boolean; mcpHttp: boolean } | null }
+function report(agentId: string): Report | null {
+  const source = chatStore.agentOptions[agentId]
+  if (!source) return null
+  if ('error' in source) return { ok: false, error: source.error }
+  const s = source as typeof source & { agent?: { title?: string | null; name?: string; version?: string } | null; capabilities?: Report['capabilities'] }
+  return { ok: true, title: [s.agent?.title || s.agent?.name, s.agent?.version].filter(Boolean).join(' '), models: modelAndEffort(source).models.length, capabilities: s.capabilities }
+}
+async function check(a: Agent, refresh = true) {
+  checking.value.add(a.id)
+  try { await chatStore.fetchAgentOptions(a.id, refresh) }
+  finally { checking.value.delete(a.id) }
+  const r = report(a.id)
+  if (refresh && r) appStore.toast(r.ok ? `${a.name}: агент отвечает` : `${a.name}: ${r.error}`, r.ok ? 'success' : 'error')
+}
+const defaults = computed(() => modelAndEffort(editAgent.value ? chatStore.agentOptions[editAgent.value.id] : null))
 
+function layoutToForm(layout: LayoutProfile | null) {
+  return {
+    main_file: layout?.main?.file ?? '', main_global: layout?.main?.global ?? '',
+    skills_dir: layout?.skills?.dir ?? '', skills_global: layout?.skills?.global ?? '',
+    commands_as_skills: !!layout?.commands?.asSkill,
+    commands_dir: layout?.commands?.asSkill ? '' : layout?.commands?.dir ?? '',
+    commands_global: layout?.commands?.asSkill ? '' : layout?.commands?.global ?? '',
+  }
+}
+function formToLayout(): LayoutProfile | null {
+  const f = agentForm.value, t = (v: string) => v.trim()
+  const layout: LayoutProfile = {}
+  if (t(f.main_file) || t(f.main_global)) layout.main = { file: t(f.main_file), global: t(f.main_global) }
+  const skills = { dir: t(f.skills_dir), global: t(f.skills_global), file: 'plangent-<slug>/SKILL.md' }
+  if (skills.dir || skills.global) layout.skills = skills
+  if (f.commands_as_skills) { if (layout.skills) layout.commands = { ...skills, asSkill: true } }
+  else if (t(f.commands_dir) || t(f.commands_global)) layout.commands = { dir: t(f.commands_dir), global: t(f.commands_global), file: 'plangent-<slug>.md' }
+  return Object.keys(layout).length ? layout : null
+}
+
+function applyPreset(p: AgentPreset) {
+  agentForm.value = {
+    ...agentForm.value,
+    name: agentForm.value.name || p.name,
+    acp_command: p.acp_command, acp_args: JSON.stringify(p.acp_args),
+    command: p.command, update_command: p.update_command,
+    ...layoutToForm(p.layout_profile),
+  }
+}
 function openCreate() {
   editAgent.value = null
   agentForm.value = defaultAgentForm()
@@ -156,47 +252,46 @@ function openCreate() {
 
 function openEdit(a: Agent) {
   editAgent.value = a
+  const p = presets.value[SEEDED[a.id]]
   agentForm.value = {
     name: a.name,
-    command: a.command,
-    update_command: a.update_command ?? '',
-    args: a.args.join(' '),
+    // Show the preset a seeded agent actually runs with; saving makes it explicit.
+    acp_command: a.acp_command || p?.acp_command || '',
+    acp_args: JSON.stringify(a.acp_command ? a.acp_args : p?.acp_args ?? []),
     env: JSON.stringify(a.env, null, 2),
-    skills_dir: a.skills_dir,
-    skills_filename: a.skills_filename,
-    model: a.model ?? '',
-    reasoning_effort: a.reasoning_effort ?? '',
-    model_options: [...(a.model_options ?? [])],
-    reasoning_options: [...(a.reasoning_options ?? [])],
+    model: a.model ?? '', reasoning_effort: a.reasoning_effort ?? '',
+    ...layoutToForm(a.layout_profile),
+    command: a.command, update_command: a.update_command ?? '',
   }
   showAgentModal.value = true
+  if (!chatStore.agentOptions[a.id]) void check(a, false)
 }
 
 async function saveAgent() {
+  let acpArgs: string[]
+  try { acpArgs = JSON.parse(agentForm.value.acp_args || '[]'); if (!Array.isArray(acpArgs) || acpArgs.some(a => typeof a !== 'string')) throw new Error() }
+  catch { appStore.toast('Аргументы должны быть JSON-массивом строк, например ["--acp"]', 'error'); return }
   let envParsed: Record<string, string> = {}
   try { envParsed = JSON.parse(agentForm.value.env || '{}') } catch {
-    appStore.toast('Невалидный JSON в env', 'error'); return
+    appStore.toast('Невалидный JSON в переменных окружения', 'error'); return
   }
+  const f = agentForm.value
   const data = {
-    name: agentForm.value.name.trim(),
-    command: agentForm.value.command.trim(),
-    update_command: agentForm.value.update_command.trim(),
-    args: agentForm.value.args.trim() ? agentForm.value.args.trim().split(/\s+/) : [],
-    env: envParsed,
-    skills_dir: agentForm.value.skills_dir.trim(),
-    skills_filename: agentForm.value.skills_filename.trim(),
-    model: agentForm.value.model.trim(),
-    reasoning_effort: agentForm.value.reasoning_effort.trim(),
-    model_options: modelChoices.value,
-    reasoning_options: reasoningChoices.value,
+    name: f.name.trim(),
+    acp_command: f.acp_command.trim(), acp_args: acpArgs, env: envParsed,
+    model: f.model, reasoning_effort: f.reasoning_effort,
+    layout_profile: formToLayout(),
+    command: f.command.trim(), update_command: f.update_command.trim(),
   }
   try {
     if (editAgent.value) {
+      const connectionChanged = JSON.stringify([editAgent.value.acp_command, editAgent.value.acp_args, editAgent.value.env]) !== JSON.stringify([data.acp_command, data.acp_args, data.env])
       await agentsStore.update(editAgent.value.id, data)
+      if (connectionChanged) delete chatStore.agentOptions[editAgent.value.id]
       appStore.toast('Агент обновлён', 'success')
     } else {
       await agentsStore.create(data)
-      appStore.toast('Агент добавлен', 'success')
+      appStore.toast('Агент добавлен — нажмите «Проверить», чтобы убедиться, что он запускается', 'success')
     }
     showAgentModal.value = false
   } catch (e: unknown) { appStore.toast(String(e), 'error') }
@@ -210,12 +305,34 @@ async function remove(id: string) {
 
 const updatingAgentId = ref<string | null>(null)
 
+// Same shape the server looks for: an adapter package pinned to an exact version.
+const PINNED_PACKAGE = /^(?:@[\w.-]+\/)?[\w.-]+@\d+\.\d+\.\d+(?:-[\w.]+)?$/
+const canUpdate = (a: Agent) => !!a.update_command.trim() || a.acp_args.some(arg => PINNED_PACKAGE.test(arg))
+
+interface AgentUpdateResult {
+  cli: { ok: true; output: string } | { ok: false; error: string } | null
+  adapter: { ok: true; package: string; from: string; to: string } | { ok: false; package: string; error: string } | null
+}
+
 async function updateAgent(agent: Agent) {
-  if (!agent.update_command) return
+  if (!canUpdate(agent)) return
   updatingAgentId.value = agent.id
   try {
-    await api.post(`/agents/${agent.id}/update`)
-    appStore.toast(`${agent.name}: обновление завершено`, 'success')
+    const { cli, adapter } = await api.post<AgentUpdateResult>(`/agents/${agent.id}/update`)
+    const adapterBumped = adapter?.ok && adapter.from !== adapter.to
+    if (adapterBumped) {
+      await agentsStore.load()
+      // Ask the new adapter version what it offers now (models, reasoning levels).
+      await chatStore.fetchAgentOptions(agent.id, true)
+    }
+    const parts: string[] = []
+    if (adapter) parts.push(!adapter.ok ? `адаптер не обновлён — ${adapter.error}` : adapterBumped ? `адаптер ${adapter.from} → ${adapter.to}` : 'адаптер уже актуален')
+    if (cli) parts.push(cli.ok ? 'CLI обновлён' : `CLI не обновлён — ${cli.error}`)
+    const models = adapterBumped ? report(agent.id) : null
+    if (models?.ok) parts.push(`моделей: ${models.models}`)
+    else if (models) parts.push(`агент не запускается: ${models.error}`)
+    const failed = adapter?.ok === false || cli?.ok === false || models?.ok === false
+    appStore.toast(`${agent.name}: ${parts.join(', ')}`, failed ? 'error' : 'success')
   } catch (e: unknown) {
     appStore.toast(`${agent.name}: ${String(e)}`, 'error')
   } finally {
@@ -223,7 +340,15 @@ async function updateAgent(agent: Agent) {
   }
 }
 
-onMounted(() => { agentsStore.load() })
+// Show what each agent last reported (cached on the server; no agent is started for this).
+watch(() => agentsStore.agents.map(a => a.id), ids => {
+  for (const id of ids) if (!chatStore.agentOptions[id]) void chatStore.fetchAgentOptions(id, 'cached')
+}, { immediate: true })
+
+onMounted(async () => {
+  agentsStore.load()
+  presets.value = await api.get<Record<string, AgentPreset>>('/agents/presets')
+})
 </script>
 
 <style scoped>
@@ -296,10 +421,19 @@ onMounted(() => { agentsStore.load() })
 .agent-name { font-weight: 600; display: block; margin-bottom: 2px; }
 .agent-cmd { font-size: 12px; color: var(--text-muted); display: block; }
 .agent-meta { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--text-muted); }
+.agent-meta .bad { color: var(--danger-hover); }
+.actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 
 .hint { font-size: 12px; color: var(--text-muted); }
 
+.presets { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.presets-label { font-size: 12px; color: var(--text-muted); }
+
+.group { border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 14px 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.group legend { font-size: 12px; font-weight: 600; color: var(--text-muted); padding: 0 6px; text-transform: uppercase; letter-spacing: 0.04em; }
+.row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.check { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-muted); }
+
 .select-field { display: flex; flex-direction: column; gap: 6px; }
 .select-field > label { font-size: 12px; font-weight: 500; color: var(--text-muted); }
-.select-field .hint { font-size: 11px; color: var(--text-faint); }
 </style>
