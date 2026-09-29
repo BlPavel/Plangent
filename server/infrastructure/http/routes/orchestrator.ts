@@ -4,7 +4,8 @@ import { getProject } from '../../../core/projects';
 import { getAgent } from '../../../core/agents';
 import { Orchestrator, getOrchestrator } from '../../../core/orchestration/orchestrator';
 import { getQueue, saveQueue, replaceStages, isFrozen, blockedQueues, StageInput } from '../../../core/orchestration/queue';
-import { deletePlanFile } from '../../../core/orchestration/plan-file';
+import { deletePlanFile, materializePlanFile } from '../../../core/orchestration/plan-file';
+import { getLatestPlan, parsePlanSteps } from '../../../core/orchestration/plans';
 import { broadcast } from '../../../core/shared/events';
 
 export const orchestratorRouter = Router({ mergeParams: true });
@@ -94,5 +95,23 @@ orchestratorRouter.post('/done', async (req: Request, res: Response) => {
 
   const updated = updateTask(taskId, { status: 'done' });
   broadcast({ type: 'task_status', taskId, status: 'done' });
+  res.json(updated);
+});
+
+// POST /projects/:projectId/tasks/:taskId/reopen
+// Back to work after /done: the plan (with its checked steps) is still in the DB, so put its file back.
+orchestratorRouter.post('/reopen', (req: Request, res: Response) => {
+  const { projectId, taskId } = req.params;
+  const project = getProject(projectId);
+  const task = getTask(taskId);
+  if (!project || !task) return res.status(404).json({ error: 'Not found' });
+  if (task.status !== 'done') return res.json(task);
+
+  const plan = getLatestPlan(taskId);
+  if (plan?.content.trim()) materializePlanFile(task, plan, project.repo_path);
+
+  const status = plan && parsePlanSteps(plan.content).some(s => s.done) ? 'in_progress' : 'open';
+  const updated = updateTask(taskId, { status });
+  broadcast({ type: 'task_status', taskId, status });
   res.json(updated);
 });

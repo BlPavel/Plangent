@@ -8,6 +8,7 @@
       <button class="stab" :class="{ active: tab === 'agents' }" @click="tab = 'agents'">Агенты</button>
       <button class="stab" :class="{ active: tab === 'skills' }" @click="tab = 'skills'">Скиллы</button>
       <button class="stab" :class="{ active: tab === 'plan-template' }" @click="tab = 'plan-template'">Шаблон плана</button>
+      <button class="stab" :class="{ active: tab === 'notes' }" @click="tab = 'notes'">Доработки</button>
     </div>
 
     <!-- Agents -->
@@ -70,6 +71,11 @@
     <div v-show="tab === 'plan-template'" class="tab-body">
       <p class="hint">Глобальный шаблон применяется ко всем проектам, если проект не переопределил его в своих инструкциях.</p>
       <PlanTemplateEditor scope="global" />
+    </div>
+
+    <!-- Personal improvement notes -->
+    <div v-show="tab === 'notes'" class="tab-body">
+      <ImprovementNotes />
     </div>
 
     <!-- Agent create/edit modal -->
@@ -152,12 +158,13 @@ import AppSelect from '@shared/ui/AppSelect.vue'
 import AppButton from '@shared/ui/AppButton.vue'
 import IconTrash from '@shared/ui/IconTrash.vue'
 import { PlanTemplateEditor, SkillsManager } from '@features/library'
+import ImprovementNotes from '../components/ImprovementNotes.vue'
 
 const appStore = useAppStore()
 const agentsStore = useAgentsStore()
 const chatStore = useChatStore()
 
-const tab = ref<'agents' | 'skills' | 'plan-template'>('agents')
+const tab = ref<'agents' | 'skills' | 'plan-template' | 'notes'>('agents')
 
 // ── Agents ────────────────────────────────────────────────────────────────────
 

@@ -106,6 +106,12 @@ function migrate(db: Database.Database): void {
       file_path TEXT NOT NULL,
       PRIMARY KEY (item_id, agent_type)
     );
+
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 
   // Add columns that may be missing on existing DBs (idempotent)

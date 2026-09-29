@@ -14,6 +14,7 @@
           size="sm"
           @click="markDoneTask"
         >✓ Завершить</AppButton>
+        <AppButton v-else variant="ghost" size="sm" @click="reopenTask">↺ Вернуть в работу</AppButton>
         <AppButton variant="danger-ghost" size="sm" @click="deleteCurrentTask">
           <IconTrash /> Удалить
         </AppButton>
@@ -304,6 +305,15 @@ async function markDoneTask() {
   try {
     await api.post(`/projects/${pid.value}/tasks/${tid.value}/done`, {})
     appStore.toast('Задача завершена', 'success')
+    await loadTask()
+  } catch (e: unknown) { appStore.toast(String(e), 'error') }
+}
+
+async function reopenTask() {
+  if (!pid.value || !tid.value) return
+  try {
+    await api.post(`/projects/${pid.value}/tasks/${tid.value}/reopen`, {})
+    appStore.toast('Задача снова в работе', 'success')
     await loadTask()
   } catch (e: unknown) { appStore.toast(String(e), 'error') }
 }

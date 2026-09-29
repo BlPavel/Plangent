@@ -16,6 +16,7 @@ import { agentsRouter } from './routes/agents';
 import { browseRouter } from './routes/browse';
 import { uploadRouter } from './routes/upload';
 import { clipboardRouter } from './routes/clipboard';
+import { settingsRouter } from './routes/settings';
 import { orchestratorRouter, queuesRouter } from './routes/orchestrator';
 import { attachSocket } from '../terminal/pty-manager';
 import { addEventsClient } from '../../core/shared/events';
@@ -74,6 +75,7 @@ export function createApp() {
   app.use('/api/library', libraryRouter);
   app.use('/api/browse', browseRouter);
   app.use('/api/clipboard', clipboardRouter);
+  app.use('/api/settings', settingsRouter);
 
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true, version: APP_VERSION });

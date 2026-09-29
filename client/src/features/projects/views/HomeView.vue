@@ -48,7 +48,13 @@
             <code class="task-key">{{ t.key }}</code>
             <span class="task-title">{{ t.title || '—' }}</span>
             <StatusBadge :status="t.status" />
-            <button class="task-del" title="Удалить задачу" @click.stop="deleteTaskCard(t)">
+            <button v-if="t.status !== 'done'" class="task-act task-done" title="Завершить задачу" @click.stop="markDoneTaskCard(t)">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3.2 3.2L13 5" /></svg>
+            </button>
+            <button v-else class="task-act task-reopen" title="Вернуть в работу" @click.stop="reopenTaskCard(t)">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 8a5.5 5.5 0 1 0 1.6-3.9" /><path d="M2.5 2.5v3h3" /></svg>
+            </button>
+            <button class="task-act task-del" title="Удалить задачу" @click.stop="deleteTaskCard(t)">
               <IconTrash />
             </button>
           </div>
@@ -108,6 +114,12 @@
   </div>
 </template>
 
+<script lang="ts">
+type HomeTab = 'agents' | 'terminal' | 'tasks' | 'instructions' | 'integrations' | 'docs'
+// Module-level so it survives HomeView being unmounted while a task is open.
+const lastTab: { projectId: string | null; tab: HomeTab } = { projectId: null, tab: 'agents' }
+</script>
+
 <script setup lang="ts">
 import { TerminalsView } from '@features/terminal'
 import { AgentChats } from '@features/agent-chat'
@@ -135,7 +147,9 @@ const currentProject = computed(() => appStore.currentProject)
 const agents = computed(() => agentsStore.agents)
 const tasks = ref<Task[]>([])
 
-const activeTab = ref<'agents' | 'terminal' | 'tasks' | 'instructions' | 'integrations' | 'docs'>('tasks')
+// A freshly opened project starts on «Агенты»; coming back from a task restores the tab you left.
+const activeTab = ref<HomeTab>(lastTab.projectId && lastTab.projectId === appStore.currentProject?.id ? lastTab.tab : 'agents')
+watch(activeTab, tab => { if (currentProject.value) Object.assign(lastTab, { projectId: currentProject.value.id, tab }) }, { immediate: true })
 const tabs = [
   { id: 'agents', label: '\u0410\u0433\u0435\u043d\u0442\u044b', disabled: false },
   { id: 'terminal', label: 'Терминал', disabled: false },
@@ -153,6 +167,10 @@ const projectForm = ref({ name: '', repo_path: '', default_agent_id: '', dangero
 onMounted(() => agentsStore.load())
 
 watch(currentProject, () => { loadTasks() }, { immediate: true })
+watch(() => currentProject.value?.id, id => {
+  activeTab.value = 'agents'
+  Object.assign(lastTab, { projectId: id ?? null, tab: 'agents' })
+})
 
 
 async function loadTasks() {
@@ -230,6 +248,29 @@ async function saveProject() {
 function openTask(t: Task) {
   appStore.currentTask = t
   router.push(`/task/${t.id}`)
+}
+
+async function markDoneTaskCard(t: Task) {
+  if (!currentProject.value) return
+  if (!(await appStore.confirm(`Отметить задачу «${t.key}» выполненной? Плановый файл будет удалён.`, { confirmLabel: 'Отметить выполненной', danger: false }))) return
+  try {
+    const updated = await api.post<Task>(`/projects/${currentProject.value.id}/tasks/${t.id}/done`, {})
+    tasks.value = tasks.value.map(x => x.id === t.id ? updated : x)
+    appStore.toast('Задача завершена', 'success')
+  } catch (e: unknown) {
+    appStore.toast(String(e), 'error')
+  }
+}
+
+async function reopenTaskCard(t: Task) {
+  if (!currentProject.value) return
+  try {
+    const updated = await api.post<Task>(`/projects/${currentProject.value.id}/tasks/${t.id}/reopen`, {})
+    tasks.value = tasks.value.map(x => x.id === t.id ? updated : x)
+    appStore.toast(`«${t.key}» снова в работе`, 'success')
+  } catch (e: unknown) {
+    appStore.toast(String(e), 'error')
+  }
 }
 
 async function deleteTaskCard(t: Task) {
@@ -390,7 +431,7 @@ async function deleteTaskCard(t: Task) {
 }
 .task-title { flex: 1; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.task-del {
+.task-act {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -398,15 +439,21 @@ async function deleteTaskCard(t: Task) {
   height: 30px;
   background: none;
   border: none;
-  color: var(--danger-hover);
   cursor: pointer;
   border-radius: var(--radius-sm);
   opacity: 0;
   transition: opacity 0.12s, background 0.12s;
 }
-.task-del svg { width: 16px; height: 16px; }
-.task-card:hover .task-del { opacity: 0.75; }
-.task-del:hover { opacity: 1; background: var(--danger-soft); }
+.task-act svg { width: 16px; height: 16px; }
+.task-card:hover .task-act { opacity: 0.75; }
+.task-act:hover { opacity: 1; }
+.task-del { color: var(--danger-hover); }
+.task-del:hover { background: var(--danger-soft); }
+.task-done { color: var(--accent-hover); }
+.task-done:hover { background: var(--accent-soft); }
+.task-reopen { color: var(--blue-hover); }
+.task-reopen:hover { background: var(--blue-soft); }
+.task-act + .task-del { margin-left: -8px; }
 
 /* Placeholder tabs */
 .placeholder-tab {
