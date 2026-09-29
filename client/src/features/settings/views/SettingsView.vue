@@ -33,7 +33,14 @@
               <AppButton variant="ghost" size="sm" :disabled="checking.has(a.id)" title="Запустить агента и узнать, что он умеет" @click="check(a)">
                 {{ checking.has(a.id) ? 'Проверка…' : 'Проверить' }}
               </AppButton>
-              <AppButton v-if="a.update_command" variant="update" size="sm" :disabled="updatingAgentId === a.id" @click="updateAgent(a)">
+              <AppButton
+                v-if="canUpdate(a)"
+                variant="update"
+                size="sm"
+                :disabled="updatingAgentId === a.id"
+                title="Обновить CLI агента и ACP-адаптер до последней версии"
+                @click="updateAgent(a)"
+              >
                 {{ updatingAgentId === a.id ? 'Обновление…' : '⟳ Обновить' }}
               </AppButton>
               <AppButton variant="ghost" size="sm" @click="openEdit(a)">Изменить</AppButton>
@@ -298,12 +305,34 @@ async function remove(id: string) {
 
 const updatingAgentId = ref<string | null>(null)
 
+// Same shape the server looks for: an adapter package pinned to an exact version.
+const PINNED_PACKAGE = /^(?:@[\w.-]+\/)?[\w.-]+@\d+\.\d+\.\d+(?:-[\w.]+)?$/
+const canUpdate = (a: Agent) => !!a.update_command.trim() || a.acp_args.some(arg => PINNED_PACKAGE.test(arg))
+
+interface AgentUpdateResult {
+  cli: { ok: true; output: string } | { ok: false; error: string } | null
+  adapter: { ok: true; package: string; from: string; to: string } | { ok: false; package: string; error: string } | null
+}
+
 async function updateAgent(agent: Agent) {
-  if (!agent.update_command) return
+  if (!canUpdate(agent)) return
   updatingAgentId.value = agent.id
   try {
-    await api.post(`/agents/${agent.id}/update`)
-    appStore.toast(`${agent.name}: обновление завершено`, 'success')
+    const { cli, adapter } = await api.post<AgentUpdateResult>(`/agents/${agent.id}/update`)
+    const adapterBumped = adapter?.ok && adapter.from !== adapter.to
+    if (adapterBumped) {
+      await agentsStore.load()
+      // Ask the new adapter version what it offers now (models, reasoning levels).
+      await chatStore.fetchAgentOptions(agent.id, true)
+    }
+    const parts: string[] = []
+    if (adapter) parts.push(!adapter.ok ? `адаптер не обновлён — ${adapter.error}` : adapterBumped ? `адаптер ${adapter.from} → ${adapter.to}` : 'адаптер уже актуален')
+    if (cli) parts.push(cli.ok ? 'CLI обновлён' : `CLI не обновлён — ${cli.error}`)
+    const models = adapterBumped ? report(agent.id) : null
+    if (models?.ok) parts.push(`моделей: ${models.models}`)
+    else if (models) parts.push(`агент не запускается: ${models.error}`)
+    const failed = adapter?.ok === false || cli?.ok === false || models?.ok === false
+    appStore.toast(`${agent.name}: ${parts.join(', ')}`, failed ? 'error' : 'success')
   } catch (e: unknown) {
     appStore.toast(`${agent.name}: ${String(e)}`, 'error')
   } finally {

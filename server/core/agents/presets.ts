@@ -17,7 +17,7 @@ export const agentPresets: Record<string, AgentPreset> = {
   claude: {
     name: 'Claude Code',
     acp_command: 'npx',
-    acp_args: ['--yes', '@agentclientprotocol/claude-agent-acp@0.81.2'],
+    acp_args: ['--yes', '@agentclientprotocol/claude-agent-acp@0.84.0'],
     command: 'claude',
     update_command: 'npm update -g @anthropic-ai/claude-code',
     layout_profile: {
