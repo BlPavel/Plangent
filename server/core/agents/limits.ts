@@ -98,7 +98,7 @@ function windowLabel(minutes?: number | null) {
 async function codexLimits(agent: Agent): Promise<LimitWindow[]> {
   const result = await rpc<{ rateLimits?: CodexSnapshot; rateLimitsByLimitId?: Record<string, CodexSnapshot> }>(agent, agent.command || 'codex', ['app-server'],
     msg => {
-      if (!msg) return [{ id: 1, method: 'initialize', params: { clientInfo: { name: 'plangent', version: '0.2.1' }, capabilities: null } }];
+      if (!msg) return [{ id: 1, method: 'initialize', params: { clientInfo: { name: 'plangent', version: '0.2.2' }, capabilities: null } }];
       return msg.id === 1 ? [{ method: 'initialized' }, { id: 2, method: 'account/rateLimits/read' }] : [];
     },
     msg => {
