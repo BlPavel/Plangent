@@ -96,7 +96,7 @@
     ],
     "publish": {
       "provider": "github",
-      "releaseType": "release"
+      "releaseType": "draft"
     }
   }
 }
