@@ -8,8 +8,21 @@ on:
 permissions:
   contents: write
 
+env:
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  GH_REPO: ${{ github.repository }}
+  TAG: ${{ github.ref_name }}
+
 jobs:
-  release:
+  # One draft per tag, created before the builds: parallel electron-builder runs would otherwise
+  # each create their own release and split the artifacts between them.
+  draft:
+    runs-on: ubuntu-latest
+    steps:
+      - run: gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --draft --title "$TAG" --notes ""
+
+  build:
+    needs: draft
     strategy:
       matrix:
         os: [macos-latest, windows-latest]
@@ -23,6 +36,12 @@ jobs:
 
       - run: npm ci
 
+      # Uploads into the draft above (publish.releaseType is "draft").
       - run: npm run electron:release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Auto-update only sees published releases, so publish once every platform has uploaded.
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - run: gh release edit "$TAG" --draft=false --latest

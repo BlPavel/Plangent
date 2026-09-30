@@ -76,7 +76,7 @@ function probeAgent(agentId: string): Promise<AcpOptions> {
     try {
       return await Promise.race([
         (async () => {
-          const init = await connection.agent.request('initialize', { protocolVersion: sdk.PROTOCOL_VERSION, clientInfo: { name: 'Plangent', version: '0.2.2' }, clientCapabilities: {} });
+          const init = await connection.agent.request('initialize', { protocolVersion: sdk.PROTOCOL_VERSION, clientInfo: { name: 'Plangent', version: '0.2.3' }, clientCapabilities: {} });
           return saveAcpOptions(agentId, await connection.agent.request('session/new', { cwd: os.tmpdir(), mcpServers: [] }), init);
         })(),
         new Promise<never>((_, reject) => { child.on('error', reject); timer = setTimeout(() => reject(new Error('Агент не ответил за 90 секунд')), 90_000); }),
@@ -210,7 +210,7 @@ async function boot(id: string): Promise<LiveSession> {
   const timeout = setTimeout(() => { failed('Адаптер не ответил за 90 секунд'); void terminate(child.pid); }, 90_000);
   try {
     const initialized = await connection.agent.request('initialize', { protocolVersion: sdk.PROTOCOL_VERSION,
-      clientInfo: { name: 'Plangent', version: '0.2.2' }, clientCapabilities: {} });
+      clientInfo: { name: 'Plangent', version: '0.2.3' }, clientCapabilities: {} });
     updateSession(id, { metadata: { ...session.metadata, ...initialized } });
     const mcpServers = mcpConfig(session, !!initialized.agentCapabilities?.mcpCapabilities?.http);
     if (session.acp_session_id && !initialized.agentCapabilities?.loadSession) {

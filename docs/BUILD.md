@@ -116,12 +116,21 @@ npm version 0.2.0   # обновит package.json и создаст git-тег v
 git push --follow-tags
 ```
 
-Workflow соберёт `.dmg`, `.zip` (macOS) и `.exe` на `macos-latest`/`windows-latest`
-и прикрепит их вместе с `latest.yml` / `latest-mac.yml` к **черновику** GitHub
-Release — публикация идёт через `electron-builder --publish=always` (скрипт
-`electron:release`), используя встроенный `GITHUB_TOKEN`, без дополнительной
-настройки секретов. Когда обе сборки закончились, откройте черновик и нажмите
-**Publish release** — только после этого релиз увидит автообновление.
+Workflow работает в три шага, используя встроенный `GITHUB_TOKEN`, без
+дополнительной настройки секретов:
+
+1. `draft` создаёт один черновик GitHub Release для тега.
+2. `build` собирает `.dmg`, `.zip` (macOS) и `.exe` на `macos-latest`/`windows-latest`
+   и загружает их вместе с `latest.yml` / `latest-mac.yml` в этот черновик через
+   `electron-builder --publish=always` (скрипт `electron:release`,
+   `build.publish.releaseType: "draft"`).
+3. `publish` публикует черновик, только если обе сборки прошли успешно.
+
+Вручную ничего публиковать не нужно. Черновик создаётся заранее специально: без
+него параллельные сборки создают каждая свой релиз и делят файлы между ними, и
+автообновление не находит `latest.yml`. Если сборка упала, черновик останется —
+после исправления перезапустите workflow (Re-run all jobs), он переиспользует
+черновик.
 
 ## Автообновление
 
