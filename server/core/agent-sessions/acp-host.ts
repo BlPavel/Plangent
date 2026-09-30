@@ -181,7 +181,9 @@ async function boot(id: string): Promise<LiveSession> {
   const sdk = await loadSdk();
   const { command, args } = adapterCommand(agent);
   updateSession(id, { status: 'starting', reason: '' });
-  const child = spawn(command, args, { cwd: project.repo_path, env: agentEnv(process.env, agent.env, project.config.extra_env),
+  // The project folder reaches the agent through session/new. Starting the process there would make npx
+  // honor the project's .npmrc (e.g. a corporate registry) when it resolves the adapter itself.
+  const child = spawn(command, args, { cwd: os.tmpdir(), env: agentEnv(process.env, agent.env, project.config.extra_env),
     stdio: 'pipe', windowsHide: true, detached: process.platform !== 'win32' });
   const connection = sdk.client({ name: 'Plangent' })
     .onNotification('session/update', p => update(id, p.params))
@@ -204,6 +206,7 @@ async function boot(id: string): Promise<LiveSession> {
   };
   child.on('error', e => failed(e.message));
   child.on('exit', code => failed(`Адаптер завершился (${code}). ${stderr}`));
+  const exited = new Promise<void>(resolve => child.once('exit', () => resolve()));
   const timeout = setTimeout(() => { failed('Адаптер не ответил за 90 секунд'); void terminate(child.pid); }, 90_000);
   try {
     const initialized = await connection.agent.request('initialize', { protocolVersion: sdk.PROTOCOL_VERSION,
@@ -266,7 +269,10 @@ async function boot(id: string): Promise<LiveSession> {
     }
     return state;
   } catch (error) {
-    failed(String(error));
+    // A dying adapter first surfaces as "ACP connection closed"; give it a moment to exit so the
+    // reason carries its stderr (npm registry errors, crashes) instead.
+    await Promise.race([exited, new Promise(resolve => setTimeout(resolve, 1000))]);
+    failed(stderr.trim() ? `${String(error)}\n${stderr.trim()}` : String(error));
     await terminate(child.pid);
     throw error;
   } finally { clearTimeout(timeout); }
