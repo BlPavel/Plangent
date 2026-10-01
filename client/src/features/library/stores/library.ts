@@ -56,7 +56,6 @@ export const useLibraryStore = defineStore('library', () => {
   // A group's item changed or removed inside one project: that project gets its own copy / nothing, the group keeps its item.
   const detach = (id: string, projectId: string) => api.post<LibraryItem>(`/library/${id}/detach`, { projectId })
   const exclude = (id: string, projectId: string) => api.post(`/library/${id}/exclude`, { projectId })
-  const reattach = (id: string) => api.post(`/library/${id}/reattach`, {})
 
   async function syncAll(): Promise<void> {
     await api.post('/library/sync')
@@ -79,5 +78,5 @@ export const useLibraryStore = defineStore('library', () => {
     await api.delete(`/library/${id}/overrides/${agentType}`)
   }
 
-  return { items, loading, load, getItem, findMainId, create, update, remove, syncAll, detach, exclude, reattach, getPlanTemplateDefaults, getOverride, setOverride, deleteOverride }
+  return { items, loading, load, getItem, findMainId, create, update, remove, syncAll, detach, exclude, getPlanTemplateDefaults, getOverride, setOverride, deleteOverride }
 })

@@ -134,7 +134,12 @@ export function updateLibraryItem(id: string, data: Partial<Omit<LibraryItem, 'i
 /** Takes a project out of a shared item (or puts it back). */
 export function setExcluded(itemId: string, projectId: string, excluded: boolean): void {
   const db = getDb();
-  if (excluded) db.prepare('INSERT OR IGNORE INTO library_item_exclusions (item_id, project_id) VALUES (?, ?)').run(itemId, projectId);
+  if (excluded) {
+    db.transaction(() => {
+      db.prepare('INSERT OR IGNORE INTO library_item_exclusions (item_id, project_id) VALUES (?, ?)').run(itemId, projectId);
+      db.prepare('DELETE FROM library_item_targets WHERE item_id=? AND target_id=?').run(itemId, projectId);
+    })();
+  }
   else db.prepare('DELETE FROM library_item_exclusions WHERE item_id=? AND project_id=?').run(itemId, projectId);
 }
 

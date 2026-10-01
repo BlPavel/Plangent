@@ -80,7 +80,7 @@ function projectOfSharedItem(req: Request, res: Response) {
   const item = getLibraryItem(req.params.id);
   const project = getProject(String(req.body.projectId ?? ''));
   if (!item || !project) { res.status(404).json({ error: 'Not found' }); return null; }
-  if (libraryOrigin(item, project) !== 'group') { res.status(400).json({ error: 'Элемент не получен через группу' }); return null; }
+  if (!libraryOrigin(item, project) || !project.group_id || !item.targets.includes(project.group_id)) { res.status(400).json({ error: 'Элемент не получен через группу' }); return null; }
   return { item, project };
 }
 
@@ -104,19 +104,6 @@ libraryRouter.post('/:id/exclude', (req: Request, res: Response) => {
   if (!found) return;
   try { unsyncItem(found.item, [found.project]); } catch (e) { console.error('[library] unsyncItem error:', e); }
   setExcluded(found.item.id, found.project.id, true);
-  res.json({ ok: true });
-});
-
-// Back to the shared version: the project's copy goes away and the group's item applies there again.
-libraryRouter.post('/:id/reattach', (req: Request, res: Response) => {
-  const copy = getLibraryItem(req.params.id);
-  const original = copy?.detached_from ? getLibraryItem(copy.detached_from) : null;
-  if (!copy || !original) return res.status(404).json({ error: 'Not found' });
-  try { unsyncItem(copy); } catch (e) { console.error('[library] unsyncItem error:', e); }
-  deleteItemContent(copy);
-  deleteLibraryItem(copy.id);
-  for (const projectId of copy.targets) setExcluded(original.id, projectId, false);
-  try { syncItem(getLibraryItem(original.id)!); } catch (e) { console.error('[library] syncItem error:', e); }
   res.json({ ok: true });
 });
 

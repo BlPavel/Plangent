@@ -48,13 +48,11 @@
           </div>
           <div class="item-badges">
             <span class="badge">{{ typeLabel(item.type) }}</span>
-            <span v-if="item.detached_from" class="badge badge-where" title="Отвязан от общего скилла группы: живёт только в этом проекте">свой для проекта</span>
             <span v-if="availabilityLabel(item)" class="badge badge-where" :title="availabilityTitle(item)">{{ availabilityLabel(item) }}</span>
             <span v-if="item.agent_filter.length" class="badge">{{ item.agent_filter.join(', ') }}</span>
           </div>
         </div>
         <div class="item-btns">
-          <AppButton v-if="item.detached_from" variant="ghost" size="sm" title="Вернуть общую версию из группы" @click="reattach(item)">К общему</AppButton>
           <AppButton variant="ghost" size="sm" @click="openEdit(item)">Изменить</AppButton>
           <AppButton variant="danger-ghost" size="sm" icon title="Удалить" @click="removeItem(item)">
             <IconTrash />
@@ -111,7 +109,10 @@ const project = computed(() => props.projectId ? projectsStore.projects.find(p =
 
 // An item added inside a single project belongs to it alone: there is nothing to choose.
 // Opened from a project, an item that comes from its group is changed for this project only.
-const editingShared = computed(() => scope.value === 'project' && !!props.projectId && editItem.value?.origin === 'group')
+function isSharedInProject(item: LibraryItem): boolean {
+  return ownProjectOnly.value && (item.origin === 'group' || !!project.value?.group_id && item.targets.includes(project.value.group_id))
+}
+const editingShared = computed(() => !!editItem.value && isSharedInProject(editItem.value))
 const ownProjectOnly = computed(() => scope.value === 'project' && project.value?.kind === 'project')
 const availableTypeValues = computed<LibraryItemType[]>(() => props.allowedTypes ?? (scope.value === 'global' ? ['skill'] : ['skill', 'command', 'main']))
 const filterType = ref<LibraryItemType | ''>(availableTypeValues.value.length === 1 ? availableTypeValues.value[0] : '')
@@ -182,18 +183,12 @@ async function toggleEnabled(item: LibraryItem) {
 
 async function removeItem(item: LibraryItem) {
   // A group's item removed inside a project only leaves that project.
-  const shared = scope.value === 'project' && !!props.projectId && item.origin === 'group'
+  const shared = isSharedInProject(item)
   if (!(await appStore.confirm(shared ? 'Убрать из этого проекта? В группе и в других проектах он останется.' : 'Удалить?'))) return
   try {
     if (shared) { await store.exclude(item.id, props.projectId!); await reload() } else await store.remove(item.id)
     appStore.toast(shared ? 'Убрано из проекта' : 'Удалено', 'success')
   } catch (e: unknown) { appStore.toast(String(e), 'error') }
-}
-
-async function reattach(item: LibraryItem) {
-  if (!(await appStore.confirm('Вернуть общую версию из группы? Изменения этого проекта будут потеряны.'))) return
-  try { await store.reattach(item.id); await reload(); appStore.toast('Возвращена общая версия', 'success') }
-  catch (e: unknown) { appStore.toast(String(e), 'error') }
 }
 
 const showModal = ref(false)

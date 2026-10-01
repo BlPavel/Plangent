@@ -9,8 +9,8 @@ function contentDir(type: LibraryItemType, slug: string, item?: LibraryItem): st
   return path.join(LIBRARY_DIR, `${type}s`, item?.detached_from ? `${slug}~${item.id}` : slug);
 }
 
-function mainContentDir(): string {
-  return path.join(LIBRARY_DIR, 'main');
+function mainContentDir(item: LibraryItem): string {
+  return path.join(LIBRARY_DIR, 'main', ...(item.detached_from ? [`${item.slug}~${item.id}`] : []));
 }
 
 export function readItemContent(item: LibraryItem): string {
@@ -52,7 +52,7 @@ export function deleteOverrideContent(item: LibraryItem, agentType: string): voi
 
 function getContentPath(item: LibraryItem): string {
   if (item.type === 'main') {
-    return path.join(mainContentDir(), `${item.slug}.md`);
+    return path.join(mainContentDir(item), `${item.slug}.md`);
   }
   if (item.type === 'plan-template') {
     return path.join(contentDir(item.type, item.slug, item), 'PLAN_TEMPLATE.md');
@@ -62,7 +62,7 @@ function getContentPath(item: LibraryItem): string {
 
 function getOverridePath(item: LibraryItem, agentType: string): string {
   const dir = item.type === 'main'
-    ? path.join(mainContentDir(), 'overrides')
+    ? path.join(mainContentDir(item), 'overrides')
     : path.join(contentDir(item.type, item.slug, item), 'overrides');
   return path.join(dir, `${agentType}.md`);
 }
