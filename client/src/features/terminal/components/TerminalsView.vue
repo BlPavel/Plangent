@@ -86,12 +86,6 @@
   </div>
 </template>
 
-<script lang="ts">
-// Projects whose terminal was already auto-opened in this app session (module-level,
-// so switching views doesn't reopen a terminal the user deliberately closed).
-const autoOpened = new Set<string>()
-</script>
-
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { api } from '@core/api'
@@ -126,11 +120,10 @@ async function load() {
 }
 watch(() => props.projectId, () => { selected.value = ''; loaded.value = false; void load() }, { immediate: true })
 
-// The first time the tab is shown for a project, open a terminal right away instead of
-// an empty screen. After the user closes the last one we respect that and show the button.
+// Open a terminal when entering an empty tab, after the project's sessions are loaded.
+// Closing the last terminal keeps the tab empty until the user returns to it.
 watch([() => props.visible, loaded], ([visible, isLoaded]) => {
-  if (!visible || !isLoaded || terminals.value.length || autoOpened.has(props.projectId)) return
-  autoOpened.add(props.projectId)
+  if (!visible || !isLoaded || terminals.value.length) return
   void create()
 }, { immediate: true })
 
