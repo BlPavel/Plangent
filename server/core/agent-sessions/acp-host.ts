@@ -6,6 +6,7 @@ import os from 'os';
 import { EventEmitter } from 'events';
 import { getAgent } from '../agents';
 import { getProject } from '../projects';
+import { readOnlyRoots, workspaceBriefing, writableRoots } from '../projects/workspace';
 import { broadcast } from '../shared/events';
 import { addEvent, getSession, history, updateSession } from './sessions';
 import { getAcpOptions, saveAcpOptions, type AcpOptions } from '../agents/acp-options';
@@ -142,7 +143,8 @@ async function permission(id: string, request: ACP.RequestPermissionRequest): Pr
   // Codex asks with little more than the toolCallId; what the call is was sent in the earlier tool_call update.
   const announced = history(id).filter(e => e.type === 'tool_call' && e.payload.toolCallId === request.toolCall.toolCallId).pop()?.payload;
   const toolCall = { ...(announced as Partial<ACP.ToolCallUpdate> | undefined), ...Object.fromEntries(Object.entries(request.toolCall).filter(([, v]) => v != null)) } as ACP.ToolCallUpdate;
-  const decision = permissionDecision(session.policy, { ...request, toolCall }, project?.config.dangerous_commands, project?.repo_path);
+  const decision = permissionDecision(session.policy, { ...request, toolCall }, project?.config.dangerous_commands,
+    project ? { writable: writableRoots(project), readOnly: readOnlyRoots() } : undefined);
   const option = request.options.find(o => o.kind === (decision === 'allow' ? 'allow_once' : 'reject_once'));
   if (decision !== 'ask' && option) {
     addEvent(id, 'permission_result', { title: toolCall.title, decision });
@@ -217,14 +219,18 @@ async function boot(id: string): Promise<LiveSession> {
       throw new Error('Адаптер не поддерживает восстановление. Начните новый чат с контекстом.');
     }
     let response: ACP.NewSessionResponse | ACP.LoadSessionResponse;
+    // A group works in its service folder; its projects live elsewhere and join the session's scope.
+    const extra = writableRoots(project).slice(1);
+    const where = { cwd: project.repo_path, mcpServers,
+      ...(extra.length && initialized.agentCapabilities?.sessionCapabilities?.additionalDirectories ? { additionalDirectories: extra } : {}) };
     if (session.acp_session_id) {
       try {
-        response = await connection.agent.request('session/load', { sessionId: session.acp_session_id, cwd: project.repo_path, mcpServers });
+        response = await connection.agent.request('session/load', { sessionId: session.acp_session_id, ...where });
       } catch (error) {
         if ((error as { code?: number }).code !== -32002 && !/resource not found/i.test(String(error))) throw error;
         // The agent never persisted this conversation (no finished turn before a restart). Start fresh
         // and hand it the chat transcript with the next prompt instead of failing forever.
-        response = await connection.agent.request('session/new', { cwd: project.repo_path, mcpServers });
+        response = await connection.agent.request('session/new', where);
         const hasHistory = history(id).some(e => e.type === 'user' || e.type === 'assistant');
         updateSession(id, { metadata: { ...getSession(id).metadata, needsContext: hasHistory } });
         addEvent(id, 'notice', { text: hasHistory
@@ -232,7 +238,7 @@ async function boot(id: string): Promise<LiveSession> {
           : 'Агент не нашёл прежнюю сессию, поэтому начата новая.' });
       }
     } else {
-      response = await connection.agent.request('session/new', { cwd: project.repo_path, mcpServers });
+      response = await connection.agent.request('session/new', where);
       saveAcpOptions(agent.id, response, initialized);
     }
     state.loading = false;
@@ -334,7 +340,10 @@ export async function sendPrompt(id: string, content: ACP.ContentBlock[]): Promi
   sessionSignals.emit('thinking', id);
   // `briefing` is Plangent's instructions for the session: sent with the first message (and again if the
   // agent lost the conversation) but never shown as something the developer wrote.
-  const briefing = typeof session.metadata.briefing === 'string' ? session.metadata.briefing : '';
+  // The workspace note (group projects, reference catalog) goes with the first message of every chat.
+  const project = getProject(session.project_id);
+  const workspace = project ? workspaceBriefing(project) : '';
+  const briefing = [workspace, typeof session.metadata.briefing === 'string' ? session.metadata.briefing : ''].filter(Boolean).join('\n\n');
   const withBriefing = briefing && (!session.metadata.briefed || session.metadata.needsContext);
   const prompt: ACP.ContentBlock[] = [
     ...(withBriefing ? [{ type: 'text' as const, text: briefing }] : []),

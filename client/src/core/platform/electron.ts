@@ -12,6 +12,7 @@ interface ElectronAPI {
   getClipboardImage: () => Promise<string | null>
   getClipboardText: () => Promise<string>
   setClipboardText: (text: string) => Promise<void>
+  pickFolder?: (defaultPath?: string) => Promise<string | null>
   updates?: AppUpdates
 }
 
@@ -34,6 +35,8 @@ export const electronBridge: PlatformBridge = {
   getClipboardText: () => electronAPI!.getClipboardText(),
   setClipboardText: (text) => electronAPI!.setClipboardText(text),
   canAccessFiles: true,
+  // Shells older than the folder dialog fall back to the in-app browser.
+  pickFolder: electronAPI?.pickFolder ? (defaultPath) => electronAPI!.pickFolder!(defaultPath) : undefined,
   // Shells older than the updater don't expose it.
   updates: electronAPI?.updates,
 }

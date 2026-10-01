@@ -80,7 +80,7 @@ test('stdio ACP lifecycle persists coalesced messages, serializes queue, resolve
       assert.ok(fs.existsSync(path.join(temp, '.plangent', 'PLAN-TEST', 'plan.md')));
       await call(plannerHeaders, 'tools/call', { name: 'submit_plan', arguments: { content: '- [ ] (p1) Invented id\n- [ ] Inserted\n- [x] (p2) Second' } });
       assert.match(getLatestPlan(planTask.id)!.content, /\(p1\) Invented id\n- \[ \] \(p2\) Inserted\n- \[x\] \(p3\) Second/);
-      (await import('../orchestration/plan-file')).stopWatchPlanFile('PLAN-TEST');
+      (await import('../orchestration/plan-file')).stopWatchPlanFile(planTask.id);
       const task = createTask({ project_id: project.id, key: 'ACP-TEST' });
       createPlan({ task_id: task.id, content: '- [ ] (p1) First\n- [ ] (p2) Second' });
       const queue = queues.saveQueue(queues.replaceStages(queues.getQueue(task.id, project.id), [
@@ -120,7 +120,7 @@ test('stdio ACP lifecycle persists coalesced messages, serializes queue, resolve
       for (const s of stopQueue.stages.flatMap(st => st.sessions).filter(s => s.sessionId && s.status === 'stopped')) {
         assert.ok(!['thinking', 'waiting', 'starting'].includes(repository.getSession(s.sessionId!).status));
       }
-      (await import('../orchestration/plan-file')).stopWatchPlanFile('ACP-TEST');
+      (await import('../orchestration/plan-file')).stopWatchPlanFile(task.id);
     } finally { await host.shutdownSessions(); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
   } finally { await host.shutdownSessions(); getDb().close(); }
 });

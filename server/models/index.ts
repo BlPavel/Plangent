@@ -34,16 +34,33 @@ export interface Agent {
 export interface ProjectConfig {
   dangerous_commands?: string[];
   extra_env?: Record<string, string>;
+  // Sources only: shown to agents of every project, not just the targets.
+  available_everywhere?: boolean;
+  // Sources only: how the folder gets its files; just 'folder' for now (see docs/DOCS-PROPOSAL.md).
+  source_type?: 'folder';
 }
+
+// group: holds projects and its own tasks, works in a service folder. source: a read-only folder agents
+// can be pointed at with @key.
+export type ProjectKind = 'project' | 'group' | 'source';
 
 export interface Project {
   id: string;
+  kind: ProjectKind;
   name: string;
+  // @-key of projects and sources, unique across both; null for groups.
+  key: string | null;
   repo_path: string;
+  group_id: string | null;
+  icon: string;
+  // What the agent is told about a source (or a group's purpose).
+  description: string;
   default_agent_id: string | null;
   config: ProjectConfig;
   hide_from_git: boolean;
   created_at: string;
+  // Sources only: the groups/projects it is available for (unless available_everywhere).
+  targets?: string[];
 }
 
 export interface Task {
@@ -170,6 +187,7 @@ export interface Run {
 }
 
 export type LibraryItemType = 'skill' | 'command' | 'main' | 'plan-template';
+// global: everywhere. project: only the groups/projects listed in `targets` (a group covers its projects).
 export type LibraryScope = 'global' | 'project';
 
 export interface LibraryItem {
@@ -179,7 +197,15 @@ export interface LibraryItem {
   title: string;
   description: string;
   scope: LibraryScope;
+  // Legacy single project; migrated into targets and no longer used.
   project_id: string | null;
+  targets: string[];
+  // Groups from `targets` whose own folder gets the item but not their projects.
+  own_only: string[];
+  // Projects taken out of a shared item (they changed or deleted it there).
+  excluded: string[];
+  // For a project's own copy of a group's item: the item it was detached from.
+  detached_from: string | null;
   frontmatter: Record<string, unknown>;
   agent_filter: string[];
   enabled: boolean;

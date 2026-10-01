@@ -371,7 +371,7 @@ export class Orchestrator {
 
   private stopWatching(): void {
     const task = getTask(this.queue.taskId);
-    if (task) stopWatchPlanFile(task.key);
+    if (task) stopWatchPlanFile(task.id);
   }
 
   private finish(): void {

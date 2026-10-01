@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { listTasks, getTask, createTask, updateTask, deleteTask } from '../../../core/tasks';
-import { getProject } from '../../../core/projects';
+import { getProject, groupMembers } from '../../../core/projects';
+import { moveTask } from '../../../core/orchestration/task-move';
 import { getOrchestrator } from '../../../core/orchestration/orchestrator';
 import { listSessions } from '../../../core/agent-sessions/sessions';
 import { closeSession } from '../../../core/agent-sessions/acp-host';
@@ -10,8 +11,19 @@ export const tasksRouter = Router({ mergeParams: true });
 
 tasksRouter.get('/', (req: Request, res: Response) => {
   const { projectId } = req.params;
-  if (!getProject(projectId)) return res.status(404).json({ error: 'Project not found' });
-  res.json(listTasks(projectId));
+  const project = getProject(projectId);
+  if (!project) return res.status(404).json({ error: 'Project not found' });
+  // A group's list can include its projects' tasks too (each task carries its project_id).
+  const withMembers = project.kind === 'group' && req.query.members === '1';
+  const tasks = withMembers ? [project, ...groupMembers(project.id)].flatMap(p => listTasks(p.id)) : listTasks(projectId);
+  res.json(tasks.sort((a, b) => b.created_at.localeCompare(a.created_at)));
+});
+
+tasksRouter.post('/:taskId/move', async (req: Request, res: Response) => {
+  const task = getTask(req.params.taskId);
+  if (!task || task.project_id !== req.params.projectId) return res.status(404).json({ error: 'Not found' });
+  try { res.json(await moveTask(task.id, String(req.body.project_id ?? ''))); }
+  catch (e) { res.status(400).json({ error: e instanceof Error ? e.message : String(e) }); }
 });
 
 tasksRouter.get('/:taskId', (req: Request, res: Response) => {
@@ -24,7 +36,8 @@ tasksRouter.post('/', (req: Request, res: Response) => {
   const { projectId } = req.params;
   const { key, title, description, jira_url, branch_name } = req.body;
   if (!key) return res.status(400).json({ error: 'key required' });
-  if (!getProject(projectId)) return res.status(404).json({ error: 'Project not found' });
+  const project = getProject(projectId);
+  if (!project || project.kind === 'source') return res.status(404).json({ error: 'Project not found' });
   const t = createTask({ project_id: projectId, key, title, description, jira_url, branch_name });
   res.status(201).json(t);
 });

@@ -35,10 +35,19 @@ test('automatic approval stops at the project folder', () => {
   const root = path.resolve('repo');
   const edit = (file: string): RequestPermissionRequest => ({ sessionId: 's', options: [], toolCall: { toolCallId: 't', kind: 'edit', title: 'Write',
     locations: [{ path: file }], content: [{ type: 'diff', path: file, oldText: '', newText: 'hi' }] } });
-  assert.equal(permissionDecision('allow-all', edit(path.join(root, 'src', 'a.ts')), undefined, root), 'allow');
-  assert.equal(permissionDecision('allow-edits', edit('src/a.ts'), undefined, root), 'allow');
-  assert.equal(permissionDecision('allow-all', edit(path.resolve('repo-typo', 'a.ts')), undefined, root), 'ask');
-  assert.equal(permissionDecision('allow-edits', edit(path.join(root, '..', 'x.ts')), undefined, root), 'ask');
+  assert.equal(permissionDecision('allow-all', edit(path.join(root, 'src', 'a.ts')), undefined, { writable: [root] }), 'allow');
+  assert.equal(permissionDecision('allow-edits', edit('src/a.ts'), undefined, { writable: [root] }), 'allow');
+  assert.equal(permissionDecision('allow-all', edit(path.resolve('repo-typo', 'a.ts')), undefined, { writable: [root] }), 'ask');
+  assert.equal(permissionDecision('allow-edits', edit(path.join(root, '..', 'x.ts')), undefined, { writable: [root] }), 'ask');
+});
+test('a group writes in all its projects, never in reference sources', () => {
+  const group = path.resolve('groups', 'g'), shell = path.resolve('shell'), uiKit = path.resolve('libs', 'ui-kit');
+  const scope = { writable: [group, shell], readOnly: [uiKit] };
+  const edit = (file: string): RequestPermissionRequest => ({ sessionId: 's', options: [], toolCall: { toolCallId: 't', kind: 'edit', title: 'Write', locations: [{ path: file }] } });
+  assert.equal(permissionDecision('allow-all', edit(path.join(shell, 'a.ts')), undefined, scope), 'allow');
+  assert.equal(permissionDecision('allow-all', edit(path.join(uiKit, 'a.ts')), undefined, scope), 'deny');
+  assert.equal(permissionDecision('ask', edit(path.join(uiKit, 'a.ts')), undefined, scope), 'deny');
+  assert.equal(permissionDecision('allow-all', edit(path.resolve('other', 'a.ts')), undefined, scope), 'ask');
 });
 test('edit policy only auto-approves known edit and read operations', () => {
   assert.equal(permissionDecision('allow-edits', request('edit', 'Edit file')), 'allow');

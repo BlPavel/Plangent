@@ -96,7 +96,7 @@ export function watchPlanFile(
   const filePath = getPlanFilePath(repoPath, task.key);
   const fileName = 'plan.md';
   if (!fs.existsSync(dir)) return;
-  stopWatchPlanFile(task.key);
+  stopWatchPlanFile(task.id);
 
   let debounce: NodeJS.Timeout | null = null;
 
@@ -143,7 +143,7 @@ export function watchPlanFile(
     }, 300);
   });
 
-  watchers.set(task.key, watcher);
+  watchers.set(task.id, watcher);
 }
 
 // Add .plangent/ to .git/info/exclude so plan files never appear in git status.
@@ -174,8 +174,8 @@ export function watchPlanDirForCreate(task: Task, repoPath: string): void {
   const fileName = 'plan.md';
 
   // Stop any previous dir watcher for this task
-  const prev = dirWatchers.get(task.key);
-  if (prev) { prev.close(); dirWatchers.delete(task.key); }
+  const prev = dirWatchers.get(task.id);
+  if (prev) { prev.close(); dirWatchers.delete(task.id); }
 
   let debounce: NodeJS.Timeout | null = null;
 
@@ -185,8 +185,8 @@ export function watchPlanDirForCreate(task: Task, repoPath: string): void {
     try { content = cleanDiskPlan(fs.readFileSync(planFilePath, 'utf-8')); } catch { return; }
     if (!content.trim()) return;
 
-    const w = dirWatchers.get(task.key);
-    if (w) { w.close(); dirWatchers.delete(task.key); }
+    const w = dirWatchers.get(task.id);
+    if (w) { w.close(); dirWatchers.delete(task.id); }
 
     const { content: withIds } = assignMissingIds(content);
     const withHint = ensurePlanFileHint(withIds);
@@ -213,7 +213,7 @@ export function watchPlanDirForCreate(task: Task, repoPath: string): void {
     debounce = setTimeout(checkAndIngest, 400);
   });
 
-  dirWatchers.set(task.key, watcher);
+  dirWatchers.set(task.id, watcher);
 }
 
 /**
@@ -235,8 +235,8 @@ export function submitPlan(task: Task, repoPath: string, content: string, renumb
   if (renumber) ({ content: cleaned, idMap } = renumberSteps(cleaned));
   remapQueuePoints(task.id, idMap);
 
-  const dirWatcher = dirWatchers.get(task.key);
-  if (dirWatcher) { dirWatcher.close(); dirWatchers.delete(task.key); }
+  const dirWatcher = dirWatchers.get(task.id);
+  if (dirWatcher) { dirWatcher.close(); dirWatchers.delete(task.id); }
   ensureGitExclude(repoPath);
   const plan = previous ? updatePlan(previous.id, cleaned)! : createPlan({ task_id: task.id, content: cleaned });
   const written = materializePlanFile(task, plan, repoPath);
@@ -248,15 +248,15 @@ export function submitPlan(task: Task, repoPath: string, content: string, renumb
   return { steps: steps.map(s => `(${s.id}) ${s.text}`), removed };
 }
 
-export function stopWatchPlanFile(taskKey: string): void {
-  const w = watchers.get(taskKey);
-  if (w) { w.close(); watchers.delete(taskKey); }
+export function stopWatchPlanFile(taskId: string): void {
+  const w = watchers.get(taskId);
+  if (w) { w.close(); watchers.delete(taskId); }
 }
 
 export function deletePlanFile(task: Task, repoPath: string): void {
-  stopWatchPlanFile(task.key);
+  stopWatchPlanFile(task.id);
   migratePlanFile(repoPath, task.key);
-  const watcher = dirWatchers.get(task.key);
-  if (watcher) { watcher.close(); dirWatchers.delete(task.key); }
+  const watcher = dirWatchers.get(task.id);
+  if (watcher) { watcher.close(); dirWatchers.delete(task.id); }
   deleteTaskDirectory(task, repoPath);
 }

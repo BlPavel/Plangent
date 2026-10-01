@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getClipboardImage: (): Promise<string | null> => ipcRenderer.invoke('clipboard:image'),
   getClipboardText: (): Promise<string> => ipcRenderer.invoke('clipboard:text'),
   setClipboardText: (text: string): Promise<void> => ipcRenderer.invoke('clipboard:write-text', text),
+  pickFolder: (defaultPath?: string): Promise<string | null> => ipcRenderer.invoke('dialog:pick-folder', defaultPath),
   updates: {
     getState: () => ipcRenderer.invoke('update:get-state'),
     onState: (handler: (state: unknown) => void) => { ipcRenderer.on('update:state', (_event, state) => handler(state)); },

@@ -36,14 +36,28 @@ export interface AgentPreset {
   layout_profile: LayoutProfile | null
 }
 
+// group: holds projects and its own tasks. source (справочник): a read-only folder referenced as @key.
+export type ProjectKind = 'project' | 'group' | 'source'
+
 export interface Project {
   id: string
+  kind: ProjectKind
   name: string
+  // @-key of projects and sources (unique across both); null for groups.
+  key: string | null
   repo_path: string
+  group_id: string | null
+  icon: string
+  // What the agent is told about it.
+  description: string
   default_agent_id: string | null
-  config: { extra_env?: Record<string, string>; dangerous_commands?: string[] }
+  config: { extra_env?: Record<string, string>; dangerous_commands?: string[]; available_everywhere?: boolean }
   hide_from_git?: boolean
   created_at: string
+  // Sources: groups/projects it is shared with (unless available_everywhere).
+  targets?: string[]
+  // Open tasks, as listed by GET /projects.
+  active_tasks?: number
 }
 
 export interface Task {
@@ -100,8 +114,15 @@ export interface LibraryItem {
   slug: string
   title: string
   description: string
+  // global: everywhere; project: only `targets` (groups/projects; a group covers its projects).
   scope: LibraryScope
-  project_id: string | null
+  targets: string[]
+  // Groups from `targets` that give the item to their own folder only, not their projects.
+  own_only: string[]
+  // For a project's own copy of a group's item: the item it was detached from.
+  detached_from?: string | null
+  // How the item reaches the project it was listed for (GET /library?forProject=).
+  origin?: 'global' | 'group' | 'direct'
   frontmatter: Record<string, unknown>
   agent_filter: string[]
   enabled: boolean

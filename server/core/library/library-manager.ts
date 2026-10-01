@@ -4,8 +4,9 @@ import { LibraryItem, LibraryItemType } from '../../models';
 
 const LIBRARY_DIR = path.join(process.cwd(), 'data', 'library');
 
-function contentDir(type: LibraryItemType, slug: string): string {
-  return path.join(LIBRARY_DIR, `${type}s`, slug);
+// A project's detached copy keeps its own folder: it shares the slug with the group's item it came from.
+function contentDir(type: LibraryItemType, slug: string, item?: LibraryItem): string {
+  return path.join(LIBRARY_DIR, `${type}s`, item?.detached_from ? `${slug}~${item.id}` : slug);
 }
 
 function mainContentDir(): string {
@@ -54,15 +55,15 @@ function getContentPath(item: LibraryItem): string {
     return path.join(mainContentDir(), `${item.slug}.md`);
   }
   if (item.type === 'plan-template') {
-    return path.join(contentDir(item.type, item.slug), 'PLAN_TEMPLATE.md');
+    return path.join(contentDir(item.type, item.slug, item), 'PLAN_TEMPLATE.md');
   }
-  return path.join(contentDir(item.type, item.slug), `${item.type === 'skill' ? 'SKILL' : 'COMMAND'}.md`);
+  return path.join(contentDir(item.type, item.slug, item), `${item.type === 'skill' ? 'SKILL' : 'COMMAND'}.md`);
 }
 
 function getOverridePath(item: LibraryItem, agentType: string): string {
   const dir = item.type === 'main'
     ? path.join(mainContentDir(), 'overrides')
-    : path.join(contentDir(item.type, item.slug), 'overrides');
+    : path.join(contentDir(item.type, item.slug, item), 'overrides');
   return path.join(dir, `${agentType}.md`);
 }
 

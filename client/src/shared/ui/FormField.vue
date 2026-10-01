@@ -4,6 +4,7 @@
     <textarea
       v-if="type === 'textarea'"
       :value="modelValue"
+      :disabled="disabled"
       :placeholder="placeholder"
       :rows="rows ?? 3"
       @input="$emit('update:modelValue', ($event.target as HTMLTextAreaElement).value)"
@@ -11,6 +12,7 @@
     <select
       v-else-if="type === 'select'"
       :value="modelValue"
+      :disabled="disabled"
       @change="$emit('update:modelValue', ($event.target as HTMLSelectElement).value)"
     >
       <slot />
@@ -19,6 +21,7 @@
       v-else
       :type="type ?? 'text'"
       :value="modelValue"
+      :disabled="disabled"
       :placeholder="placeholder"
       @input="$emit('update:modelValue', ($event.target as HTMLInputElement).value)"
     />
@@ -34,6 +37,7 @@ defineProps<{
   type?: string
   rows?: number
   hint?: string
+  disabled?: boolean
 }>()
 defineEmits<{ 'update:modelValue': [v: string] }>()
 </script>

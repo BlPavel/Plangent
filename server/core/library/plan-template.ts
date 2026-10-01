@@ -1,5 +1,6 @@
 import { readItemContent } from './library-manager';
-import { listLibraryItems } from './index';
+import { libraryItemsFor, listLibraryItems } from './index';
+import { getProject } from '../projects';
 
 export const PLAN_PROTOCOL_LOCKED = `## Протокол Plangent (не удалять)
 
@@ -19,21 +20,11 @@ Plangent отслеживает шаги плана по строкам-чекб
 Используй slug раздела и точное имя файла из get_plan; ссылка должна существовать.`;
 
 export function resolvePlanTemplate(projectId: string): string {
-  const projectTemplate = listLibraryItems({
-    type: 'plan-template',
-    scope: 'project',
-    projectId,
-    enabledOnly: true,
-  })[0];
-  if (projectTemplate) return readItemContent(projectTemplate);
-
-  const globalTemplate = listLibraryItems({
-    type: 'plan-template',
-    scope: 'global',
-    projectId: '',
-    enabledOnly: true,
-  })[0];
-  if (globalTemplate) return readItemContent(globalTemplate);
-
-  return '';
+  const project = getProject(projectId);
+  const templates = project
+    ? libraryItemsFor(project, 'plan-template').filter(t => t.enabled)
+    : listLibraryItems({ type: 'plan-template', projectId: '', enabledOnly: true }).map(t => ({ ...t, origin: 'global' as const }));
+  // The closest level wins: the project itself, then its group, then the global template.
+  const template = (['direct', 'group', 'global'] as const).map(origin => templates.find(t => t.origin === origin)).find(Boolean);
+  return template ? readItemContent(template) : '';
 }

@@ -18,7 +18,7 @@
       </div>
     </div>
 
-    <label v-if="scope === 'project' && project" class="git-toggle">
+    <label v-if="scope === 'project' && project?.kind === 'project'" class="git-toggle">
       <input type="checkbox" :checked="!project.hide_from_git" @change="toggleGitVisibility" />
       <span>
         Включать созданные файлы в git
@@ -48,12 +48,15 @@
           </div>
           <div class="item-badges">
             <span class="badge">{{ typeLabel(item.type) }}</span>
+            <span v-if="item.detached_from" class="badge badge-where" title="Отвязан от общего скилла группы: живёт только в этом проекте">свой для проекта</span>
+            <span v-if="availabilityLabel(item)" class="badge badge-where" :title="availabilityTitle(item)">{{ availabilityLabel(item) }}</span>
             <span v-if="item.agent_filter.length" class="badge">{{ item.agent_filter.join(', ') }}</span>
           </div>
         </div>
         <div class="item-btns">
+          <AppButton v-if="item.detached_from" variant="ghost" size="sm" title="Вернуть общую версию из группы" @click="reattach(item)">К общему</AppButton>
           <AppButton variant="ghost" size="sm" @click="openEdit(item)">Изменить</AppButton>
-          <AppButton variant="danger-ghost" size="sm" icon title="Удалить" @click="removeItem(item.id)">
+          <AppButton variant="danger-ghost" size="sm" icon title="Удалить" @click="removeItem(item)">
             <IconTrash />
           </AppButton>
         </div>
@@ -68,6 +71,7 @@
       size="large"
       @confirm="save"
     >
+      <p v-if="editingShared" class="shared-note">Этот элемент общий, из группы. Изменения сохранятся только для этого проекта: он получит свою копию, а у группы и других проектов всё останется как было.</p>
       <LibraryItemForm
         ref="formRef"
         :form="form"
@@ -75,6 +79,10 @@
         :is-edit="!!editItem"
         :existing-main-id="existingMainId"
         :allowed-types="availableTypeValues"
+      />
+      <AvailabilityField
+        v-if="form.type !== 'plan-template' && !ownProjectOnly" v-model="availability" class="availability" own-folder :within="scope === 'project' ? projectId : undefined"
+        hint="Группа и все её проекты вместе — это вся группа: новые проекты группы получат элемент сами. Если проект не отмечен, он не получит."
       />
     </AppModal>
   </div>
@@ -85,7 +93,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useLibraryStore } from '../stores/library'
 import { useAppStore } from '@core/stores/app'
 import { useAgentsStore } from '@features/agents'
-import { useProjectsStore } from '@features/projects'
+import { AvailabilityField, useProjectsStore, type Availability } from '@features/projects'
 import type { LibraryItem, LibraryItemType, LibraryScope } from '@core/models'
 import AppModal from '@shared/ui/AppModal.vue'
 import AppButton from '@shared/ui/AppButton.vue'
@@ -101,6 +109,10 @@ const agentsStore = useAgentsStore()
 const projectsStore = useProjectsStore()
 const project = computed(() => props.projectId ? projectsStore.projects.find(p => p.id === props.projectId) ?? null : null)
 
+// An item added inside a single project belongs to it alone: there is nothing to choose.
+// Opened from a project, an item that comes from its group is changed for this project only.
+const editingShared = computed(() => scope.value === 'project' && !!props.projectId && editItem.value?.origin === 'group')
+const ownProjectOnly = computed(() => scope.value === 'project' && project.value?.kind === 'project')
 const availableTypeValues = computed<LibraryItemType[]>(() => props.allowedTypes ?? (scope.value === 'global' ? ['skill'] : ['skill', 'command', 'main']))
 const filterType = ref<LibraryItemType | ''>(availableTypeValues.value.length === 1 ? availableTypeValues.value[0] : '')
 const syncing = ref(false)
@@ -116,18 +128,29 @@ function typeLabel(t: LibraryItemType) {
   return { skill: 'скилл', command: 'команда', main: 'main', 'plan-template': 'шаблон плана' }[t]
 }
 
+// A project lists everything that applies to it; the global list (settings) shows every item.
 async function reload() {
   await store.load({
     type: availableTypeValues.value.length === 1 ? availableTypeValues.value[0] : (filterType.value || undefined),
-    scope: scope.value,
-    projectId: scope.value === 'project' ? props.projectId : undefined,
+    forProject: scope.value === 'project' ? props.projectId : undefined,
   })
+}
+
+function availabilityLabel(item: LibraryItem): string {
+  if (item.detached_from) return ''
+  if (scope.value === 'project') return item.origin === 'global' ? 'везде' : item.origin === 'group' ? 'через группу' : ''
+  if (item.scope === 'global') return 'везде'
+  return item.targets.length === 1 ? (projectsStore.byId(item.targets[0])?.name ?? '—') : `выбранным: ${item.targets.length}`
+}
+function availabilityTitle(item: LibraryItem): string {
+  if (item.scope === 'global') return 'Доступно всем проектам'
+  return 'Доступно: ' + item.targets.map(id => (projectsStore.byId(id)?.name ?? '—') + (item.own_only?.includes(id) ? ' (только папка группы)' : '')).join(', ')
 }
 
 onMounted(() => {
   reload()
   agentsStore.load()
-  if (scope.value === 'project' && !projectsStore.projects.length) projectsStore.load()
+  if (!projectsStore.projects.length) projectsStore.load()
 })
 watch(() => props.projectId, reload)
 watch(availableTypeValues, (types) => {
@@ -157,9 +180,19 @@ async function toggleEnabled(item: LibraryItem) {
   catch (e: unknown) { appStore.toast(String(e), 'error') }
 }
 
-async function removeItem(id: string) {
-  if (!(await appStore.confirm('Удалить?'))) return
-  try { await store.remove(id); appStore.toast('Удалено', 'success') }
+async function removeItem(item: LibraryItem) {
+  // A group's item removed inside a project only leaves that project.
+  const shared = scope.value === 'project' && !!props.projectId && item.origin === 'group'
+  if (!(await appStore.confirm(shared ? 'Убрать из этого проекта? В группе и в других проектах он останется.' : 'Удалить?'))) return
+  try {
+    if (shared) { await store.exclude(item.id, props.projectId!); await reload() } else await store.remove(item.id)
+    appStore.toast(shared ? 'Убрано из проекта' : 'Удалено', 'success')
+  } catch (e: unknown) { appStore.toast(String(e), 'error') }
+}
+
+async function reattach(item: LibraryItem) {
+  if (!(await appStore.confirm('Вернуть общую версию из группы? Изменения этого проекта будут потеряны.'))) return
+  try { await store.reattach(item.id); await reload(); appStore.toast('Возвращена общая версия', 'success') }
   catch (e: unknown) { appStore.toast(String(e), 'error') }
 }
 
@@ -167,6 +200,7 @@ const showModal = ref(false)
 const editItem = ref<LibraryItem | null>(null)
 const defaultForm = () => ({ type: (availableTypeValues.value[0] ?? 'skill') as LibraryItemType, slug: '', title: '', description: '', agent_filter: [] as string[], disableModelInvocation: false, content: '' })
 const form = ref(defaultForm())
+const availability = ref<Availability>({ everywhere: true, targets: [] })
 
 function slugify(s: string): string {
   return s.toLowerCase().trim().replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '') || `item_${Date.now()}`
@@ -188,6 +222,7 @@ async function openCreate() {
     title: '',
     content: '',
   }
+  availability.value = scope.value === 'project' && props.projectId ? { everywhere: false, targets: [props.projectId] } : { everywhere: true, targets: [] }
   showModal.value = true
 }
 
@@ -204,6 +239,7 @@ async function openEdit(item: LibraryItem) {
     disableModelInvocation: !!item.frontmatter['disable-model-invocation'],
     content: full.content ?? '',
   }
+  availability.value = { everywhere: item.scope === 'global', targets: [...item.targets], ownOnly: [...(item.own_only ?? [])] }
   showModal.value = true
 }
 
@@ -230,15 +266,20 @@ async function save() {
     slug,
     title,
     description: form.value.description.trim(),
-    scope: scope.value,
-    project_id: scope.value === 'project' ? (props.projectId ?? null) : null,
+    scope: (availability.value.everywhere ? 'global' : 'project') as LibraryScope,
+    targets: availability.value.everywhere ? [] : availability.value.targets,
+    own_only: availability.value.everywhere ? [] : (availability.value.ownOnly ?? []).filter(id => availability.value.targets.includes(id)),
     frontmatter,
     agent_filter: agentFilter,
     content: form.value.content,
   }
 
   try {
-    if (editItem.value) {
+    if (editItem.value && editingShared.value) {
+      const copy = await store.detach(editItem.value.id, props.projectId!)
+      await store.update(copy.id, { ...payload, scope: 'project', targets: [props.projectId!], own_only: [] })
+      appStore.toast('Сохранено для этого проекта', 'success')
+    } else if (editItem.value) {
       await store.update(editItem.value.id, payload)
       appStore.toast('Сохранено', 'success')
     } else {
@@ -298,6 +339,9 @@ async function save() {
 .item-slug { font-size: 11px; color: var(--text-muted); font-family: monospace; }
 .item-desc { font-size: 11px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .item-badges { display: flex; gap: 4px; flex-shrink: 0; }
+.badge-where { color: var(--blue-hover); }
+.availability { margin-top: 12px; }
+.shared-note { margin: 0 0 12px; padding: 8px 10px; background: var(--blue-soft); border-radius: var(--radius-sm); font-size: 12px; line-height: 1.45; color: var(--text-muted); }
 .badge { font-size: 10px; padding: 2px 6px; background: var(--bg3); border: 1px solid var(--border); border-radius: 4px; color: var(--text-muted); }
 .item-btns { display: flex; gap: 6px; flex-shrink: 0; }
 

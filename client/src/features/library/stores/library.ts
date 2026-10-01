@@ -7,13 +7,15 @@ export const useLibraryStore = defineStore('library', () => {
   const items = ref<LibraryItem[]>([])
   const loading = ref(false)
 
-  async function load(filters: { type?: LibraryItemType; scope?: LibraryScope; projectId?: string } = {}) {
+  // forProject: everything that applies to that project/group, each item with its `origin`.
+  async function load(filters: { type?: LibraryItemType; scope?: LibraryScope; projectId?: string; forProject?: string } = {}) {
     loading.value = true
     try {
       const params = new URLSearchParams()
       if (filters.type) params.set('type', filters.type)
       if (filters.scope) params.set('scope', filters.scope)
       if (filters.projectId) params.set('projectId', filters.projectId)
+      if (filters.forProject) params.set('forProject', filters.forProject)
       const qs = params.toString()
       items.value = await api.get<LibraryItem[]>(`/library${qs ? '?' + qs : ''}`)
     } finally {
@@ -51,6 +53,11 @@ export const useLibraryStore = defineStore('library', () => {
     items.value = items.value.filter(i => i.id !== id)
   }
 
+  // A group's item changed or removed inside one project: that project gets its own copy / nothing, the group keeps its item.
+  const detach = (id: string, projectId: string) => api.post<LibraryItem>(`/library/${id}/detach`, { projectId })
+  const exclude = (id: string, projectId: string) => api.post(`/library/${id}/exclude`, { projectId })
+  const reattach = (id: string) => api.post(`/library/${id}/reattach`, {})
+
   async function syncAll(): Promise<void> {
     await api.post('/library/sync')
   }
@@ -72,5 +79,5 @@ export const useLibraryStore = defineStore('library', () => {
     await api.delete(`/library/${id}/overrides/${agentType}`)
   }
 
-  return { items, loading, load, getItem, findMainId, create, update, remove, syncAll, getPlanTemplateDefaults, getOverride, setOverride, deleteOverride }
+  return { items, loading, load, getItem, findMainId, create, update, remove, syncAll, detach, exclude, reattach, getPlanTemplateDefaults, getOverride, setOverride, deleteOverride }
 })

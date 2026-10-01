@@ -34,7 +34,7 @@
 
     <div v-show="activeTab === 'analysis'" class="tab-body">
       <AnalysisPanel
-        :project-id="pid ?? ''" :task-id="tid ?? ''" :default-agent-id="appStore.currentProject?.default_agent_id"
+        :project-id="pid ?? ''" :task-id="tid ?? ''" :default-agent-id="defaultAgentId"
         :sections="analysisSections" :done="taskDone" :locked-reason="analysisLockedReason" :highlights="analysisHighlights"
         :opened="openedAnalysis" :open-file="openedAnalysisFile" :agent-revision="agentRevision"
         :chats="analysisChats" :selected-chat="selectedAnalysisChat" :initials="analysisInitials"
@@ -49,7 +49,7 @@
         :readonly="taskDone"
         :planning-message="planningMessage"
         :project-id="pid ?? ''"
-        :default-agent-id="appStore.currentProject?.default_agent_id"
+        :default-agent-id="defaultAgentId"
         :planning-active="planningActive"
         :planning-draft="planningDraft"
         :planning-session-id="planningSessionId"
@@ -83,7 +83,7 @@
             :project-id="pid ?? ''"
             :task-id="tid ?? ''"
             :task-done="task?.status === 'done'"
-            :default-agent-id="appStore.currentProject?.default_agent_id"
+            :default-agent-id="defaultAgentId"
             @plan-changed="plan = $event"
           />
           <ExecutionQueue
@@ -109,6 +109,7 @@ import { ref, computed, onMounted, onUnmounted, watch, provide, nextTick } from 
 import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '@core/stores/app'
 import { useAgentsStore } from '@features/agents'
+import { useProjectsStore } from '@features/projects'
 import { useTaskSessionStore } from '../stores/taskSession'
 import { api } from '@core/api'
 import { onServerEvent } from '@core/api/events'
@@ -154,6 +155,8 @@ const planningRunId = ref<string | null>(null)
 const planningSessionId = ref<string | null>(null)
 
 const pid = computed(() => appStore.currentProject?.id)
+const projectsStore = useProjectsStore()
+const defaultAgentId = computed(() => projectsStore.agentFor(appStore.currentProject))
 const tid = computed(() => task.value?.id)
 
 // ——— Execution queue ———

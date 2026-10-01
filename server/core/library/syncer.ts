@@ -2,9 +2,9 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { Agent, LayoutProfile, LayoutSlot, LibraryItem, Project } from '../../models';
-import { listLibraryItems } from './index';
+import { libraryItemsFor, listLibraryItems } from './index';
 import { listAgents } from '../agents';
-import { listProjects } from '../projects';
+import { groupMembers, listProjects } from '../projects';
 import { readItemContent, readOverrideContent, buildSkillFileContent } from './library-manager';
 
 const PLANGENT_MARKER_START = (slug: string) => `<!-- plangent:${slug}:start -->`;
@@ -140,7 +140,7 @@ function applyGitExclude(project: Project): void {
   // actually has a main item. .git/info/exclude only affects UNTRACKED files, so a
   // CLAUDE.md the user already committed stays visible; a fully Plangent-managed one
   // (untracked) gets hidden.
-  const hasMain = listLibraryItems({ type: 'main', scope: 'project', projectId: project.id, enabledOnly: true }).length > 0;
+  const hasMain = libraryItemsFor(project, 'main').some(item => item.enabled && item.origin !== 'global');
   if (hasMain) {
     for (const agent of listAgents(true)) {
       const mainFile = agent.layout_profile?.main?.file;
@@ -175,6 +175,36 @@ function removeGitExclude(project: Project): void {
   if (si === -1 || ei === -1) return;
   content = (content.slice(0, si) + content.slice(ei + end.length)).replace(/\n{3,}/g, '\n\n');
   fs.writeFileSync(excludeFile, content, 'utf-8');
+}
+
+/**
+ * Where an item is written: null stands for the agents' global folders; a group target covers the group's
+ * own service folder and, unless limited to it (`own_only`), every project in it.
+ */
+function itemProjects(item: LibraryItem): (Project | null)[] {
+  if (item.scope === 'global') return [null];
+  const all = listProjects();
+  const result = new Map<string, Project>();
+  for (const target of item.targets) {
+    const project = all.find(p => p.id === target);
+    if (!project || project.kind === 'source') continue;
+    result.set(project.id, project);
+    if (project.kind === 'group' && !item.own_only.includes(project.id)) for (const member of groupMembers(project.id)) result.set(member.id, member);
+  }
+  return [...result.values()].filter(p => !item.excluded.includes(p.id));
+}
+
+/**
+ * A project joined or left a group: items it had only through the old group are removed, the ones the new
+ * group shares are written.
+ */
+export function resyncAfterRegroup(before: Project, after: Project): void {
+  if (before.group_id === after.group_id) return;
+  const now = libraryItemsFor(after);
+  for (const item of libraryItemsFor(before)) {
+    if (item.origin === 'group' && !now.some(i => i.id === item.id)) unsyncItem(item, [after]);
+  }
+  for (const item of now) if (item.origin === 'group' && item.enabled) syncItem(item);
 }
 
 interface SyncTarget {
@@ -229,9 +259,7 @@ export function syncItem(item: LibraryItem): void {
   if (!item.enabled) { unsyncItem(item); return; }
 
   const agents = listAgents(true);
-  const projects = item.scope === 'project'
-    ? listProjects().filter(p => p.id === item.project_id)
-    : [null as unknown as Project];
+  const projects = itemProjects(item);
 
   for (const agent of agents) {
     for (const project of projects) {
@@ -247,17 +275,13 @@ export function syncItem(item: LibraryItem): void {
   }
 
   // Update git exclude for affected projects
-  if (item.scope === 'project') {
-    const project = listProjects().find(p => p.id === item.project_id);
-    if (project?.hide_from_git) applyGitExclude(project);
-  }
+  for (const project of projects) if (project?.hide_from_git) applyGitExclude(project);
 }
 
-export function unsyncItem(item: LibraryItem): void {
+/** Removes the item's files; `only` limits that to some projects (e.g. one that lost access to the item). */
+export function unsyncItem(item: LibraryItem, only?: Project[]): void {
   const agents = listAgents(true);
-  const projects = item.scope === 'project'
-    ? listProjects().filter(p => p.id === item.project_id)
-    : [null as unknown as Project];
+  const projects = only ?? itemProjects(item);
 
   for (const agent of agents) {
     for (const project of projects) {
@@ -290,16 +314,15 @@ export function unsyncItem(item: LibraryItem): void {
 export function syncAll(): void {
   const items = listLibraryItems({ enabledOnly: true });
   const agents = listAgents(true);
-  const projects = listProjects();
+  // Reference sources are never written to; a group's service folder has no git.
+  const projects = listProjects('project');
 
   // Collect expected paths
   const expectedPaths = new Set<string>();
   const expectedMainSections = new Map<string, Set<string>>(); // mainFilePath → Set<slug>
 
   for (const item of items) {
-    const scopedProjects = item.scope === 'project'
-      ? projects.filter(p => p.id === item.project_id)
-      : [null as unknown as Project];
+    const scopedProjects = itemProjects(item);
 
     for (const agent of agents) {
       for (const project of scopedProjects) {

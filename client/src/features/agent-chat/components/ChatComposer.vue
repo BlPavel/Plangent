@@ -63,7 +63,8 @@ import AppButton from '@shared/ui/AppButton.vue'
 import SuggestMenu, { type SuggestItem } from './SuggestMenu.vue'
 
 export type ContentBlock = Record<string, unknown>
-interface FileHit { path: string; dir: boolean; uri: string }
+// ref: a reference source or another project (@key/…), listed after the project's own files.
+interface FileHit { path: string; dir: boolean; uri: string; ref?: boolean; section?: SuggestItem['section']; detail?: string }
 interface Attachment { name: string; preview?: string; block: ContentBlock }
 
 const props = withDefaults(defineProps<{
@@ -103,7 +104,7 @@ const suggestItems = computed<SuggestItem[]>(() => {
   return files.value.map(f => {
     const trimmed = f.dir ? f.path.slice(0, -1) : f.path
     const cut = trimmed.lastIndexOf('/') + 1
-    return { value: f.path, prefix: trimmed.slice(0, cut), label: trimmed.slice(cut) + (f.dir ? '/' : ''), dir: f.dir }
+    return { value: f.path, prefix: trimmed.slice(0, cut), label: trimmed.slice(cut) + (f.dir ? '/' : ''), dir: f.dir, ref: f.ref, section: f.section, detail: f.detail }
   })
 })
 
@@ -128,7 +129,7 @@ function searchFiles(query: string) {
   const id = ++request
   timer = setTimeout(async () => {
     try {
-      const rows = await api.get<FileHit[]>(`/projects/${props.projectId}/files?q=${encodeURIComponent(query)}`)
+      const rows = await api.get<FileHit[]>(`/projects/${props.projectId}/mentions?q=${encodeURIComponent(query)}`)
       if (id === request) files.value = rows
     } catch { if (id === request) files.value = [] }
     finally { if (id === request) loadingFiles.value = false }

@@ -3,30 +3,24 @@
     <aside class="sidebar">
       <div class="logo app-drag">⚡ Plangent</div>
 
-      <button class="btn btn-ghost new-project-btn" @click="showAddProject = true">
-        <span class="btn-plus">+</span> Новый проект
-      </button>
-
-      <div class="nav-label">Проекты</div>
-      <div class="project-list">
-        <div
-          v-for="p in projectsStore.projects"
-          :key="p.id"
-          class="project-item app-no-drag"
-          :class="{ active: !isSettingsRoute && appStore.currentProject?.id === p.id }"
-          @click="selectProject(p)"
-        >
-          <span class="project-name">{{ p.name }}</span>
-          <span
-            v-if="blockedQueues.forProject(p.id).length"
-            class="project-blocked"
-            :title="blockedQueues.forProject(p.id).map(b => `${b.taskKey}: ${b.reason}`).join('\n')"
-          >{{ blockedQueues.forProject(p.id).length }}</span>
-        </div>
-        <div v-if="!projectsStore.projects.length" class="project-empty">
-          Пока нет проектов
+      <div ref="newMenu" class="new-menu app-no-drag">
+        <button class="btn btn-ghost new-project-btn" @click="newMenuOpen = !newMenuOpen">
+          <span class="btn-plus">+</span> Новый
+        </button>
+        <div v-if="newMenuOpen" class="new-menu-list">
+          <button v-for="o in NEW_OPTIONS" :key="o.kind" type="button" class="new-menu-item" @click="openCreate(o.kind)">
+            <span>{{ o.icon }}</span><span class="new-menu-text"><b>{{ o.label }}</b><small>{{ o.hint }}</small></span>
+          </button>
         </div>
       </div>
+
+      <ProjectTree
+        :current-id="isSettingsRoute ? null : appStore.currentProject?.id ?? null"
+        :blocked="blockedQueues.forProject"
+        @select="selectProject"
+        @create="openCreate"
+        @regroup="regroup"
+      />
 
       <RouterLink to="/settings" class="sidebar-link app-no-drag" :class="{ active: $route.path === '/settings' }">
         <span class="sidebar-link-icon">⚙</span> Настройки
@@ -42,18 +36,7 @@
     <AppToast />
     <AppConfirm />
 
-    <!-- Add project modal -->
-    <AppModal v-model="showAddProject" title="Новый проект" confirm-label="Создать" @confirm="addProject">
-      <FormField v-model="newProject.name" label="Название" placeholder="My Project" />
-      <div class="form-field">
-        <label>Путь к репозиторию</label>
-        <FolderPicker v-model="newProject.repo_path" />
-      </div>
-      <FormField v-model="newProject.default_agent_id" label="Агент по умолчанию" type="select">
-        <option value="">— выбрать —</option>
-        <option v-for="a in agentsStore.agents" :key="a.id" :value="a.id">{{ a.name }}</option>
-      </FormField>
-    </AppModal>
+    <ProjectFormModal v-model="showCreate" :kind="createKind" :group-id="createGroupId" @saved="selectProject" />
   </div>
 </template>
 
@@ -62,18 +45,15 @@ import { useChatStore } from '@features/agent-chat'
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAppStore } from '@core/stores/app'
-import { useProjectsStore } from '@features/projects'
+import { ProjectFormModal, ProjectTree, useProjectsStore } from '@features/projects'
 import { useAgentsStore } from '@features/agents'
-import type { Project } from '@core/models'
+import type { Project, ProjectKind } from '@core/models'
 import { api } from '@core/api'
 import { platform } from '@core/platform'
 import { startQueueNotifications, useBlockedQueuesStore } from '@features/tasks'
 import { UpdateStatus } from '@features/updates'
 import AppToast from '@shared/ui/AppToast.vue'
 import AppConfirm from '@shared/ui/AppConfirm.vue'
-import AppModal from '@shared/ui/AppModal.vue'
-import FormField from '@shared/ui/FormField.vue'
-import FolderPicker from '@shared/ui/FolderPicker.vue'
 
 const chatStore = useChatStore()
 void chatStore.connect()
@@ -99,14 +79,40 @@ platform.onNotificationClick?.(async target => {
 
 const isSettingsRoute = computed(() => route.path === '/settings')
 
-const showAddProject = ref(false)
-const newProject = ref({ name: '', repo_path: '', default_agent_id: '' })
+const NEW_OPTIONS: { kind: ProjectKind; icon: string; label: string; hint: string }[] = [
+  { kind: 'project', icon: '📁', label: 'Проект', hint: 'Репозиторий, в котором работают агенты' },
+  { kind: 'group', icon: '🗂', label: 'Группа', hint: 'Несколько проектов и общие задачи' },
+  { kind: 'source', icon: '📘', label: 'Справочник', hint: 'Папка только для чтения, @имя' },
+]
+const newMenu = ref<HTMLElement>()
+const newMenuOpen = ref(false)
+const showCreate = ref(false)
+const createKind = ref<ProjectKind>('project')
+// A project created while a group is open goes into that group.
+const createGroupId = ref<string | null>(null)
 const appVersion = ref('')
+
+function openCreate(kind: ProjectKind) {
+  newMenuOpen.value = false
+  createKind.value = kind
+  const current = appStore.currentProject
+  createGroupId.value = current?.kind === 'group' ? current.id : current?.kind === 'project' ? current.group_id : null
+  showCreate.value = true
+}
+document.addEventListener('mousedown', e => { if (!newMenu.value?.contains(e.target as Node)) newMenuOpen.value = false })
+
+async function regroup(p: Project, groupId: string | null) {
+  try {
+    const updated = await projectsStore.update(p.id, { group_id: groupId })
+    if (appStore.currentProject?.id === p.id) appStore.currentProject = updated
+    appStore.toast(groupId ? `«${p.name}» в группе «${projectsStore.byId(groupId)?.name}»` : `«${p.name}» вне группы`, 'success')
+  } catch (e: unknown) { appStore.toast(String(e), 'error') }
+}
 
 onMounted(async () => {
   await Promise.all([projectsStore.load(), agentsStore.load()])
   if (projectsStore.projects.length && !appStore.currentProject) {
-    selectProject(projectsStore.projects[0])
+    selectProject(projectsStore.workProjects[0] ?? projectsStore.projects[0])
   }
   try {
     const health = await api.get<{ ok: boolean; version: string }>('/health')
@@ -117,23 +123,6 @@ onMounted(async () => {
 function selectProject(p: Project) {
   appStore.currentProject = p
   if (router.currentRoute.value.path !== '/') router.push('/')
-}
-
-async function addProject() {
-  const { name, repo_path, default_agent_id } = newProject.value
-  if (!name || !repo_path) return
-  try {
-    const p = await projectsStore.create({
-      name,
-      repo_path,
-      default_agent_id: default_agent_id || null,
-      config: {},
-    })
-    selectProject(p)
-    appStore.toast('Проект создан', 'success')
-    showAddProject.value = false
-    newProject.value = { name: '', repo_path: '', default_agent_id: '' }
-  } catch (e: unknown) { appStore.toast(String(e), 'error') }
 }
 </script>
 
@@ -160,54 +149,43 @@ async function addProject() {
   padding: 0 6px var(--sp-4);
 }
 
+.new-menu { position: relative; margin-bottom: var(--sp-3); }
 .new-project-btn {
   width: 100%;
   justify-content: center;
-  margin-bottom: var(--sp-4);
 }
 .btn-plus { font-size: 15px; line-height: 1; margin-top: -1px; }
-
-.nav-label {
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-faint);
-  padding: 0 6px var(--sp-2);
+.new-menu-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 60;
+  padding: 4px;
+  background: var(--bg2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
 }
-
-.project-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
-.project-item {
+.new-menu-item {
   display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 10px;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 8px;
+  background: none;
+  border: none;
   border-radius: var(--radius-sm);
-  cursor: pointer;
+  color: var(--text);
+  font: inherit;
   font-size: 13px;
-  font-weight: 500;
-  color: var(--text-muted);
-  transition: background 0.12s, color 0.12s;
+  text-align: left;
+  cursor: pointer;
 }
-.project-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-/* Tasks whose running queue is stuck until the developer answers; details in the tooltip. */
-.project-blocked {
-  flex-shrink: 0;
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
-  border-radius: var(--radius-pill);
-  background: var(--warning);
-  color: #0d1117;
-  font-size: 10.5px;
-  font-weight: 700;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-.project-item:hover { background: var(--bg3); color: var(--text); }
-.project-item.active { background: var(--bg3); color: var(--text); box-shadow: inset 2px 0 0 var(--blue); }
-.project-empty { padding: 8px 10px; font-size: 12px; color: var(--text-faint); }
+.new-menu-item:hover { background: var(--bg3); }
+.new-menu-text { display: flex; flex-direction: column; gap: 1px; }
+.new-menu-text b { font-weight: 600; }
+.new-menu-text small { font-size: 11px; color: var(--text-faint); }
 
 .sidebar-link {
   display: flex;
@@ -227,6 +205,4 @@ async function addProject() {
 .sidebar-link.active { background: var(--bg3); color: var(--text); box-shadow: inset 2px 0 0 var(--blue); }
 
 .content { flex: 1; overflow: hidden; }
-.form-field { display: flex; flex-direction: column; gap: 4px; }
-label { font-size: 12px; color: var(--text-muted); }
 </style>

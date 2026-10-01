@@ -1,8 +1,9 @@
 import { Router, Request, Response } from 'express';
 import {
   listLibraryItems, getLibraryItem, createLibraryItem, updateLibraryItem, deleteLibraryItem,
-  setLibraryOverride, deleteLibraryOverride,
+  setLibraryOverride, deleteLibraryOverride, libraryItemsFor, libraryOrigin, setExcluded,
 } from '../../../core/library';
+import { getProject } from '../../../core/projects';
 import { readItemContent, writeItemContent, deleteItemContent, writeOverrideContent, readOverrideContent, deleteOverrideContent } from '../../../core/library/library-manager';
 import { PLAN_PROTOCOL_LOCKED } from '../../../core/library/plan-template';
 import { syncItem, unsyncItem, syncAll } from '../../../core/library/syncer';
@@ -17,7 +18,13 @@ libraryRouter.get('/plan-template/defaults', (_req: Request, res: Response) => {
 });
 
 libraryRouter.get('/', (req: Request, res: Response) => {
-  const { type, scope, projectId } = req.query;
+  const { type, scope, projectId, forProject } = req.query;
+  // Everything that applies to a project or group, with its origin (global / group / direct).
+  if (typeof forProject === 'string') {
+    const project = getProject(forProject);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+    return res.json(libraryItemsFor(project, type as LibraryItemType | undefined));
+  }
   const items = listLibraryItems({
     type: type as LibraryItemType | undefined,
     scope: scope as LibraryScope | undefined,
@@ -38,14 +45,16 @@ libraryRouter.post('/', (req: Request, res: Response) => {
   if (!type || !slug || !title || !scope) {
     return res.status(400).json({ error: 'type, slug, title, scope required' });
   }
-  // Only one main file / plan template is allowed per scope (global / per-project)
+  const targets: string[] = Array.isArray(req.body.targets) ? req.body.targets : project_id ? [project_id] : [];
+  const own_only: string[] = Array.isArray(req.body.own_only) ? req.body.own_only : [];
+  // Only one main file / plan template per level: global, or per group/project
   if (type === 'main' || type === 'plan-template') {
-    const existing = listLibraryItems({ type, scope, projectId: scope === 'project' ? (project_id ?? undefined) : '' });
-    if (existing.length > 0) {
+    const clash = listLibraryItems({ type, scope }).some(other => scope === 'global' || other.targets.some(t => targets.includes(t)));
+    if (clash) {
       return res.status(409).json({ error: type === 'main' ? 'Главный файл для этого уровня уже существует' : 'Шаблон плана для этого уровня уже существует' });
     }
   }
-  const item = createLibraryItem({ type, slug, title, description, scope, project_id, frontmatter, agent_filter, enabled });
+  const item = createLibraryItem({ type, slug, title, description, scope, targets, own_only, frontmatter, agent_filter, enabled });
   if (content !== undefined) writeItemContent(item, content);
   try { syncItem(item); } catch (e) { console.error('[library] syncItem error:', e); }
   res.status(201).json({ ...item, content: content ?? '' });
@@ -53,11 +62,62 @@ libraryRouter.post('/', (req: Request, res: Response) => {
 
 libraryRouter.put('/:id', (req: Request, res: Response) => {
   const { content, ...rest } = req.body;
+  const before = getLibraryItem(req.params.id);
   const updated = updateLibraryItem(req.params.id, rest);
-  if (!updated) return res.status(404).json({ error: 'Not found' });
+  if (!before || !updated) return res.status(404).json({ error: 'Not found' });
+  // Availability changed: take the files away from where the item no longer applies.
+  if (before.scope !== updated.scope || before.targets.join() !== updated.targets.join() || before.own_only.join() !== updated.own_only.join()) {
+    try { unsyncItem(before); } catch (e) { console.error('[library] unsyncItem error:', e); }
+  }
   if (content !== undefined) writeItemContent(updated, content);
   try { syncItem(updated); } catch (e) { console.error('[library] syncItem error:', e); }
   res.json({ ...updated, content: content ?? readItemContent(updated) });
+});
+
+// A group's item changed or deleted inside one project stops being shared there: the project gets its own copy
+// (or nothing), and the group's item stays as it was for everyone else.
+function projectOfSharedItem(req: Request, res: Response) {
+  const item = getLibraryItem(req.params.id);
+  const project = getProject(String(req.body.projectId ?? ''));
+  if (!item || !project) { res.status(404).json({ error: 'Not found' }); return null; }
+  if (libraryOrigin(item, project) !== 'group') { res.status(400).json({ error: 'Элемент не получен через группу' }); return null; }
+  return { item, project };
+}
+
+libraryRouter.post('/:id/detach', (req: Request, res: Response) => {
+  const found = projectOfSharedItem(req, res);
+  if (!found) return;
+  const { item, project } = found;
+  const copy = createLibraryItem({
+    type: item.type, slug: item.slug, title: item.title, description: item.description, scope: 'project', targets: [project.id],
+    frontmatter: item.frontmatter, agent_filter: item.agent_filter, enabled: item.enabled, detached_from: item.id,
+  });
+  writeItemContent(copy, readItemContent(item));
+  try { unsyncItem(item, [project]); } catch (e) { console.error('[library] unsyncItem error:', e); }
+  setExcluded(item.id, project.id, true);
+  try { syncItem(copy); } catch (e) { console.error('[library] syncItem error:', e); }
+  res.status(201).json({ ...copy, content: readItemContent(copy) });
+});
+
+libraryRouter.post('/:id/exclude', (req: Request, res: Response) => {
+  const found = projectOfSharedItem(req, res);
+  if (!found) return;
+  try { unsyncItem(found.item, [found.project]); } catch (e) { console.error('[library] unsyncItem error:', e); }
+  setExcluded(found.item.id, found.project.id, true);
+  res.json({ ok: true });
+});
+
+// Back to the shared version: the project's copy goes away and the group's item applies there again.
+libraryRouter.post('/:id/reattach', (req: Request, res: Response) => {
+  const copy = getLibraryItem(req.params.id);
+  const original = copy?.detached_from ? getLibraryItem(copy.detached_from) : null;
+  if (!copy || !original) return res.status(404).json({ error: 'Not found' });
+  try { unsyncItem(copy); } catch (e) { console.error('[library] unsyncItem error:', e); }
+  deleteItemContent(copy);
+  deleteLibraryItem(copy.id);
+  for (const projectId of copy.targets) setExcluded(original.id, projectId, false);
+  try { syncItem(getLibraryItem(original.id)!); } catch (e) { console.error('[library] syncItem error:', e); }
+  res.json({ ok: true });
 });
 
 libraryRouter.delete('/:id', (req: Request, res: Response) => {
