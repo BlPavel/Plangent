@@ -6,6 +6,9 @@ import { useAppStore } from '@core/stores/app'
 
 interface ActiveQueue { projectId: string; taskId: string; taskKey: string }
 
+/** What the restart is doing once confirmed: stopping the backend, then handing over to the installer. */
+export type InstallStage = 'stopping' | 'launching'
+
 /**
  * Self-update of the installed app. The shell checks and downloads on its own; this store mirrors
  * its state and asks before a restart that would stop executing queues.
@@ -13,6 +16,7 @@ interface ActiveQueue { projectId: string; taskId: string; taskKey: string }
 export const useUpdatesStore = defineStore('updates', () => {
   const updates = platform.updates
   const state = ref<UpdateState>({ status: 'idle' })
+  const installing = ref<{ version: string; stage: InstallStage } | null>(null)
   let started = false
 
   function start() {
@@ -33,10 +37,15 @@ export const useUpdatesStore = defineStore('updates', () => {
       )
       if (!ok) return
     }
-    await updates.install()
+    // The window is about to close: say so instead of letting it vanish mid-click.
+    installing.value = { version: state.value.version, stage: 'stopping' }
+    try {
+      await updates.install()
+    } catch { /* the shell quits anyway */ }
+    if (installing.value) installing.value = { ...installing.value, stage: 'launching' }
   }
 
   const openRelease = () => updates?.openRelease()
 
-  return { state, start, install, openRelease }
+  return { state, installing, start, install, openRelease }
 })
