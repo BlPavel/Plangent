@@ -58,6 +58,9 @@ export interface Task {
   created_at: string
 }
 
+export interface AnalysisFile { id: string; section_id: string; name: string; mime: string; size: number; created_at: string }
+export interface AnalysisSection { id: string; task_id: string; slug: string; title: string; description: string; kind: 'source' | 'worked'; author: 'developer' | 'agent'; position: number; created_at: string; updated_at: string; files: AnalysisFile[] }
+
 export interface PlanStep {
   text: string
   done: boolean
@@ -191,6 +194,7 @@ export type OrchestratorEvent = QueueEventBase & (
   | { type: 'queue_finished'; failed: number }
   | { type: 'queue_paused'; stageIndex: number }
   | { type: 'run_failed'; reason: string }
+  | { type: 'analysis_updated'; actor: 'developer' | 'agent' }
   | { type: 'task_status'; status: Task['status'] }
   // idMap: old → new step ids when the planner's plan was renumbered in order.
   | { type: 'plan_updated'; content?: string; steps: PlanStep[]; idMap?: Record<string, string> }

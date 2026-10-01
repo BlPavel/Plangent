@@ -77,7 +77,7 @@ test('stdio ACP lifecycle persists coalesced messages, serializes queue, resolve
       await call(plannerHeaders, 'tools/call', { name: 'submit_plan', arguments: { content: '# Plan\n- [ ] (p7) Invented id\n- [ ] Second' } });
       const { getLatestPlan } = await import('../orchestration/plans');
       assert.match(getLatestPlan(planTask.id)!.content, /- \[ \] \(p1\) Invented id\n- \[ \] \(p2\) Second/);
-      assert.ok(fs.existsSync(path.join(temp, '.plangent', 'PLAN-TEST.plan.md')));
+      assert.ok(fs.existsSync(path.join(temp, '.plangent', 'PLAN-TEST', 'plan.md')));
       await call(plannerHeaders, 'tools/call', { name: 'submit_plan', arguments: { content: '- [ ] (p1) Invented id\n- [ ] Inserted\n- [x] (p2) Second' } });
       assert.match(getLatestPlan(planTask.id)!.content, /\(p1\) Invented id\n- \[ \] \(p2\) Inserted\n- \[x\] \(p3\) Second/);
       (await import('../orchestration/plan-file')).stopWatchPlanFile('PLAN-TEST');

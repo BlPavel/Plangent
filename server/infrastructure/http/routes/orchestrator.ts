@@ -1,10 +1,14 @@
 import { Router, Request, Response } from 'express';
+import { listSessions, updateSession } from '../../../core/agent-sessions/sessions';
+import { closeSession } from '../../../core/agent-sessions/acp-host';
+import { finishRun, getRun } from '../../../core/runs';
 import { getTask, updateTask } from '../../../core/tasks';
 import { getProject } from '../../../core/projects';
 import { getAgent } from '../../../core/agents';
 import { Orchestrator, getOrchestrator } from '../../../core/orchestration/orchestrator';
 import { getQueue, saveQueue, replaceStages, isFrozen, blockedQueues, activeQueues, StageInput } from '../../../core/orchestration/queue';
 import { deletePlanFile, materializePlanFile } from '../../../core/orchestration/plan-file';
+import { materializeTaskAnalysis } from '../../../core/orchestration/analysis';
 import { getLatestPlan, parsePlanSteps } from '../../../core/orchestration/plans';
 import { broadcast } from '../../../core/shared/events';
 
@@ -54,6 +58,7 @@ orchestratorRouter.put('/queue', (req: Request, res: Response) => {
 orchestratorRouter.post('/queue/start', (req: Request, res: Response) => {
   const queue = taskQueue(req, res);
   if (!queue) return;
+  if (getTask(req.params.taskId)?.status === 'done') return res.status(409).json({ error: 'Завершённая задача доступна только для чтения' });
   if (isFrozen(queue)) return res.status(409).json({ error: 'Очередь уже выполняется' });
   if (!queue.stages.length) return res.status(400).json({ error: 'Очередь пуста' });
   const orch = new Orchestrator(queue);
@@ -90,9 +95,15 @@ orchestratorRouter.post('/done', async (req: Request, res: Response) => {
   const { projectId, taskId } = req.params;
   const project = getProject(projectId);
   const task = getTask(taskId);
-  if (!project || !task) return res.status(404).json({ error: 'Not found' });
+  if (!project || !task || task.project_id !== projectId) return res.status(404).json({ error: 'Not found' });
 
   await getOrchestrator(taskId)?.stop('Задача завершена');
+  const chats = listSessions(projectId).filter(s => s.task_id === taskId && ['planner', 'analyst'].includes(s.role));
+  for (const chat of chats) {
+    await closeSession(chat.id);
+    updateSession(chat.id, { status: 'ready', reason: 'Задача завершена. Верните её в работу, чтобы продолжить.' });
+    if (chat.run_id && getRun(chat.run_id)?.status === 'running') finishRun(chat.run_id, 'interrupted', 'Задача завершена');
+  }
   deletePlanFile(task, project.repo_path);
 
   const updated = updateTask(taskId, { status: 'done' });
@@ -106,7 +117,7 @@ orchestratorRouter.post('/reopen', (req: Request, res: Response) => {
   const { projectId, taskId } = req.params;
   const project = getProject(projectId);
   const task = getTask(taskId);
-  if (!project || !task) return res.status(404).json({ error: 'Not found' });
+  if (!project || !task || task.project_id !== projectId) return res.status(404).json({ error: 'Not found' });
   if (task.status !== 'done') return res.json(task);
 
   const plan = getLatestPlan(taskId);
@@ -114,6 +125,7 @@ orchestratorRouter.post('/reopen', (req: Request, res: Response) => {
 
   const status = plan && parsePlanSteps(plan.content).some(s => s.done) ? 'in_progress' : 'open';
   const updated = updateTask(taskId, { status });
+  materializeTaskAnalysis(taskId);
   broadcast({ type: 'task_status', taskId, status });
   res.json(updated);
 });

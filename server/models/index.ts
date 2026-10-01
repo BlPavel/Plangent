@@ -72,6 +72,7 @@ export interface PlanStep {
   done: boolean;
   index: number;
   id?: string;            // stable (pN) id
+  analysisLinks?: string[];
   parallelGroup?: string; // @parallel:<groupName>
 }
 
@@ -184,4 +185,26 @@ export interface LibraryItem {
   enabled: boolean;
   created_at: string;
   updated_at: string;
+}
+
+export interface AnalysisSection {
+  id: string;
+  task_id: string;
+  slug: string;
+  title: string;
+  description: string;
+  kind: 'source' | 'worked';
+  author: 'developer' | 'agent';
+  position: number;
+  created_at: string;
+  updated_at: string;
+}
+export interface AnalysisFile {
+  id: string;
+  section_id: string;
+  name: string;
+  mime: string;
+  size: number;
+  content: Buffer;
+  created_at: string;
 }

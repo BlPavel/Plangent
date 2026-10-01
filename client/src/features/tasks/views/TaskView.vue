@@ -23,18 +23,31 @@
 
     <!-- Tab bar -->
     <div class="task-tab-bar">
+      <button class="tab-btn" :class="{ active: activeTab === 'analysis' }" @click="activeTab = 'analysis'">Анализ</button>
       <button class="tab-btn" :class="{ active: activeTab === 'plan' }" @click="activeTab = 'plan'">План</button>
-      <button class="tab-btn" :class="{ active: activeTab === 'exec' }" @click="activeTab = 'exec'">
+      <button v-if="!taskDone" class="tab-btn" :class="{ active: activeTab === 'exec' }" @click="activeTab = 'exec'">
         Выполнение
         <span v-if="attentionCount" class="tab-count warn" title="Шаги, которым нужен ваш ответ">{{ attentionCount }}</span>
         <span v-else-if="queue.frozen.value" class="tab-live" title="Очередь выполняется" />
       </button>
     </div>
 
+    <div v-show="activeTab === 'analysis'" class="tab-body">
+      <AnalysisPanel
+        :project-id="pid ?? ''" :task-id="tid ?? ''" :default-agent-id="appStore.currentProject?.default_agent_id"
+        :sections="analysisSections" :done="taskDone" :locked-reason="analysisLockedReason" :highlights="analysisHighlights"
+        :opened="openedAnalysis" :open-file="openedAnalysisFile" :agent-revision="agentRevision"
+        :chats="analysisChats" :selected-chat="selectedAnalysisChat" :initials="analysisInitials"
+        :launching="analysisLaunch.launching.value" :launch-error="analysisLaunch.error.value"
+        @reload="loadAnalysis" @planning="planFromAnalysis" @select-chat="selectedAnalysisChat = $event" @launch="launchAnalysis"
+      />
+    </div>
     <!-- Tab: План -->
     <div v-show="activeTab === 'plan'" class="tab-body">
       <PlanPanel
         :plan="plan"
+        :readonly="taskDone"
+        :planning-message="planningMessage"
         :project-id="pid ?? ''"
         :default-agent-id="appStore.currentProject?.default_agent_id"
         :planning-active="planningActive"
@@ -61,7 +74,7 @@
     </div>
 
     <!-- Tab: Выполнение — plan steps and the queue on the left, the selected step's agent on the right -->
-    <div v-show="activeTab === 'exec'" class="tab-body">
+    <div v-if="!taskDone" v-show="activeTab === 'exec'" class="tab-body">
       <div v-if="!plan" class="exec-no-plan">Нет плана. Создайте план на вкладке «План».</div>
       <div v-else class="exec">
         <div class="exec-left">
@@ -92,7 +105,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch, provide } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, provide, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '@core/stores/app'
 import { useAgentsStore } from '@features/agents'
@@ -100,7 +113,12 @@ import { useTaskSessionStore } from '../stores/taskSession'
 import { api } from '@core/api'
 import { onServerEvent } from '@core/api/events'
 import { platform } from '@core/platform'
-import type { Task, Plan, RunStartResult, PlanStep, OrchestratorEvent } from '@core/models'
+import type { Task, Plan, AnalysisSection, PlanStep, OrchestratorEvent } from '@core/models'
+import AnalysisPanel from '../components/AnalysisPanel.vue'
+import { useAgentChatLaunch } from '../composables/useAgentChatLaunch'
+import { DocumentLinksKey } from '@shared/composables/documentLinks'
+import { AnalysisNavigationKey } from '../composables/analysisNavigation'
+import type { AnalysisChatSnapshot } from '../stores/taskSession'
 import PlanPanel from '../components/PlanPanel.vue'
 import StepPicker from '../components/StepPicker.vue'
 import ExecutionQueue from '../components/ExecutionQueue.vue'
@@ -125,13 +143,12 @@ const agents = computed(() => agentsStore.agents)
 const editingPlan = ref(false)
 const planContent = ref('')
 
-const activeTab = ref<'plan' | 'exec'>('plan')
+const activeTab = ref<'analysis' | 'plan' | 'exec'>('plan')
 
 // Planning state: a draft shows the agent picker next to the plan; active means a planner session exists.
 const planningDraft = ref(false)
 const planningInitial = ref<ContentBlock[] | undefined>()
-const planningError = ref('')
-const planningLaunching = ref(false)
+const planningMessage = ref('')
 const planningActive = ref(false)
 const planningRunId = ref<string | null>(null)
 const planningSessionId = ref<string | null>(null)
@@ -140,6 +157,68 @@ const pid = computed(() => appStore.currentProject?.id)
 const tid = computed(() => task.value?.id)
 
 // ——— Execution queue ———
+const planningLaunch = useAgentChatLaunch(pid, tid, 'plan')
+const { error: planningError, launching: planningLaunching } = planningLaunch
+const analysisLaunch = useAgentChatLaunch(pid, tid, 'analysis')
+const taskDone = computed(() => task.value?.status === 'done')
+const analysisSections = ref<AnalysisSection[]>([])
+const analysisHighlights = ref<string[]>([])
+const agentRevision = ref(0)
+const openedAnalysis = ref<string | null>(null), openedAnalysisFile = ref<string>()
+const analysisChats = ref<AnalysisChatSnapshot[]>([])
+const selectedAnalysisChat = ref<string | null>(null)
+const analysisInitials = ref<Record<string, ContentBlock[]>>({})
+let analysisLoadVersion = 0
+async function loadAnalysis(actor?: string) {
+  if (!pid.value || !tid.value) return
+  const version = ++analysisLoadVersion
+  try {
+    const sections = await api.get<AnalysisSection[]>(`/projects/${pid.value}/tasks/${tid.value}/analysis`)
+    if (version !== analysisLoadVersion) return
+    if (actor === 'agent') {
+      analysisHighlights.value = sections.filter(s => {
+        const old = analysisSections.value.find(x => x.id === s.id)
+        return !old || old.description !== s.description || old.title !== s.title
+      }).map(s => s.id)
+      agentRevision.value++
+    }
+    analysisSections.value = sections
+  } catch (e) { appStore.toast(String(e), 'error') }
+}
+async function openAnalysis(target: string) {
+  const [slug, ...names] = target.split('/')
+  const section = analysisSections.value.find(s => s.slug === slug)
+  if (!section) return
+  openedAnalysis.value = null
+  await nextTick()
+  openedAnalysis.value = section.id
+  openedAnalysisFile.value = names.length ? names.join('/') : undefined
+  activeTab.value = 'analysis'
+  setTimeout(() => document.getElementById('analysis-' + section.id)?.scrollIntoView({ block: 'nearest' }), 0)
+}
+provide(AnalysisNavigationKey, { sections: analysisSections, open: openAnalysis })
+provide(DocumentLinksKey, {
+  exists: target => {
+    const [slug, ...names] = target.split('/')
+    const section = analysisSections.value.find(s => s.slug === slug)
+    return !!section && (!names.length || section.files.some(f => f.name === names.join('/')))
+  },
+  open: openAnalysis,
+})
+async function launchAnalysis(request: NewChatRequest) {
+  if (taskDone.value) return
+  const result = await analysisLaunch.launch(request)
+  if (!result) return
+  analysisInitials.value[result.session_id] = result.content
+  analysisChats.value.push({ runId: result.run.id, sessionId: result.session_id })
+  selectedAnalysisChat.value = result.session_id
+}
+function planFromAnalysis() {
+  planningMessage.value = 'Составь план по анализу задачи'
+  planningDraft.value = true
+  planningError.value = ''
+  activeTab.value = 'plan'
+}
 const queue = useTaskQueue(pid, tid)
 provide(TaskQueueKey, queue)
 const selectedQueueId = ref<string | null>(null)
@@ -157,6 +236,9 @@ async function startQueue() {
 // A notification (or link) may point at one of the task's chats: open the step it belongs to.
 function openChatFromRoute() {
   const chatId = route.query.session
+  if (taskDone.value) { if (typeof chatId === 'string') activeTab.value = 'plan'; return }
+  const analysisChat = analysisChats.value.find(c => c.sessionId === chatId)
+  if (analysisChat) { selectedAnalysisChat.value = analysisChat.sessionId; activeTab.value = 'analysis'; return }
   if (typeof chatId !== 'string') return
   if (chatId === planningSessionId.value) { activeTab.value = 'plan'; return }
   const s = queue.allSessions.value.find(x => x.sessionId === chatId || x.reviewSessionId === chatId)
@@ -186,6 +268,9 @@ async function handleEvent(event: OrchestratorEvent) {
   if (event.taskId !== tid.value) return
   queue.applyEvent(event)
   switch (event.type) {
+    case 'analysis_updated':
+      await loadAnalysis(event.actor)
+      break
     case 'task_status':
       if (task.value) task.value = { ...task.value, status: event.status }
       break
@@ -222,9 +307,10 @@ onMounted(async () => {
   stopEvents = onServerEvent<OrchestratorEvent>(e => { void handleEvent(e) })
   await loadTask()
   restorePlanning()
-  await Promise.all([loadPlan(), agentsStore.load(), queue.load()])
+  await Promise.all([loadPlan(), loadAnalysis(), agentsStore.load(), queue.load()])
+  if (!plan.value) activeTab.value = 'analysis'
   // Open where the work is: a running queue, or a step that waits for the developer.
-  if (queue.sessions.value.length && (queue.frozen.value || attentionCount.value)) activeTab.value = 'exec'
+  if (!taskDone.value && queue.sessions.value.length && (queue.frozen.value || attentionCount.value)) activeTab.value = 'exec'
   const first = queue.sessions.value.find(s => sessionState(s, chat(s.sessionId), chat(s.reviewSessionId)).attention)
     ?? queue.sessions.value.find(s => sessionState(s).live)
   if (first) selectedQueueId.value = first.id
@@ -238,18 +324,33 @@ function restorePlanning() {
   if (!tid.value) return
   const snap = sessionStore.load(tid.value)
   if (!snap) return
+  analysisChats.value = snap.analysisChats ?? []
+  selectedAnalysisChat.value = snap.selectedAnalysisChat ?? analysisChats.value.at(-1)?.sessionId ?? null
   planningActive.value = snap.planningActive
   planningRunId.value = snap.planningRunId
   planningSessionId.value = snap.planningSessionId
 }
 
-watch([planningActive, planningRunId, planningSessionId], () => {
+watch([planningActive, planningRunId, planningSessionId, analysisChats, selectedAnalysisChat], () => {
   if (!tid.value) return
   sessionStore.save(tid.value, {
+    analysisChats: analysisChats.value,
+    selectedAnalysisChat: selectedAnalysisChat.value,
     planningActive: planningActive.value,
     planningRunId: planningRunId.value,
     planningSessionId: planningSessionId.value,
   })
+}, { deep: true })
+
+watch(taskDone, done => { if (done && (activeTab.value === 'exec' || typeof route.query.session === 'string')) activeTab.value = 'plan' })
+const analysisLockedReason = computed(() => {
+  if (taskDone.value) return 'Завершённая задача доступна только для чтения'
+  const working = queue.sessions.value.some(s => {
+    if (!['running', 'reviewing'].includes(s.status)) return false
+    const id = s.status === 'reviewing' ? s.reviewSessionId : s.sessionId
+    return !id || chat(id)?.status !== 'waiting'
+  })
+  return queue.queue.value?.status === 'running' && working ? 'Анализ нельзя менять, пока агенты выполняют очередь' : ''
 })
 
 function goBack() {
@@ -260,26 +361,17 @@ function goBack() {
 
 // The planner session is created without a prompt; the developer's first message goes out
 // through the chat (ChatView), and the server attaches the hidden planning briefing to it.
-async function launchPlanning({ content, ...options }: NewChatRequest) {
-  if (!pid.value || !tid.value || !options.agent_id) return
-  planningLaunching.value = true
-  planningError.value = ''
-  try {
-    const result = await api.post<RunStartResult>(
-      `/projects/${pid.value}/tasks/${tid.value}/runs`,
-      { purpose: 'plan', agent_id: options.agent_id, model: options.model || undefined, mode: options.mode, config: options.config },
-    )
-    planningInitial.value = content
-    planningDraft.value = false
-    planningActive.value = true
-    planningRunId.value = result.run.id
-    planningSessionId.value = result.session_id
-    activeTab.value = 'plan'
-  } catch (e: unknown) {
-    planningError.value = String(e)
-  } finally {
-    planningLaunching.value = false
-  }
+async function launchPlanning(request: NewChatRequest) {
+  if (taskDone.value) return
+  const result = await planningLaunch.launch(request)
+  if (!result) return
+  planningInitial.value = result.content
+  planningDraft.value = false
+  planningActive.value = true
+  planningRunId.value = result.run.id
+  planningSessionId.value = result.session_id
+  planningMessage.value = ''
+  activeTab.value = 'plan'
 }
 
 // Approve the plan: close the planning agent session and finalize the plan.

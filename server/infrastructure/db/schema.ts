@@ -71,6 +71,31 @@ function migrate(db: Database.Database): void {
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+
+    CREATE TABLE IF NOT EXISTS analysis_sections (
+      id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      slug TEXT NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      kind TEXT NOT NULL CHECK(kind IN ('source', 'worked')),
+      author TEXT NOT NULL CHECK(author IN ('developer', 'agent')),
+      position INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(task_id, slug)
+    );
+    CREATE TABLE IF NOT EXISTS analysis_files (
+      id TEXT PRIMARY KEY,
+      section_id TEXT NOT NULL REFERENCES analysis_sections(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      mime TEXT NOT NULL,
+      size INTEGER NOT NULL CHECK(size >= 0 AND size <= 26214400),
+      content BLOB NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(section_id, name)
+    );
+
     CREATE TABLE IF NOT EXISTS runs (
       id TEXT PRIMARY KEY,
       task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
@@ -127,6 +152,14 @@ function migrate(db: Database.Database): void {
   try { db.exec(`ALTER TABLE agents ADD COLUMN acp_args TEXT NOT NULL DEFAULT '[]'`); } catch { /* exists */ }
   seedDefaultAgents(db);
   migrateData(db);
+  try { db.exec('ALTER TABLE tasks ADD COLUMN description_migrated INTEGER NOT NULL DEFAULT 0'); } catch { /* exists */ }
+  // Clear the old field in the same transaction: reopening/deleting the section cannot repeat migration.
+  db.transaction(() => {
+    db.prepare(`INSERT INTO analysis_sections (id, task_id, slug, title, description, kind, author, position)
+      SELECT lower(hex(randomblob(16))), id, 'task-description', 'Описание задачи', description, 'source', 'developer', -1
+      FROM tasks WHERE description_migrated=0 AND trim(coalesce(description, '')) <> ''`).run();
+    db.prepare("UPDATE tasks SET description=NULL, description_migrated=1 WHERE description_migrated=0").run();
+  })();
 }
 
 // Built-in agents, created on first start from their presets (core/agents/presets).

@@ -66,6 +66,10 @@ function parseFrontmatter(content: string): { meta: PlanFrontmatter; body: strin
 // or:      - [x] text (no id yet)
 const STEP_REGEX = /^(\s*-\s*)\[([ x])\]\s+(?:\(([^)]+)\)\s+)?(.+?)(\s+@parallel:(\S+))?$/i;
 
+export function parseAnalysisLinks(text: string): string[] {
+  return [...new Set([...text.matchAll(/\[\[([^\]\r\n]+)\]\]/g)].map(m => m[1].trim()))];
+}
+
 export function parsePlanSteps(content: string): PlanStep[] {
   const { body } = parseFrontmatter(content);
   const lines = body.split('\n');
@@ -80,7 +84,7 @@ export function parsePlanSteps(content: string): PlanStep[] {
     // Strip @parallel tag from the display text
     const rawText = m[4].trim();
     const parallelGroup = m[6] || undefined;
-    steps.push({ text: rawText, done, index: index++, id: stepId, parallelGroup });
+    steps.push({ text: rawText, done, index: index++, id: stepId, analysisLinks: parseAnalysisLinks(rawText), parallelGroup });
   }
   return steps;
 }

@@ -71,12 +71,14 @@ const props = withDefaults(defineProps<{
   commands?: { name: string; description: string }[]
   busy?: boolean
   disabled?: boolean
+  initialText?: string
   placeholder?: string
-}>(), { commands: () => [], busy: false, disabled: false, placeholder: 'Напишите агенту…  @ — файл, / — команда' })
+}>(), { initialText: undefined, commands: () => [], busy: false, disabled: false, placeholder: 'Напишите агенту…  @ — файл, / — команда' })
 const emit = defineEmits<{ send: [content: ContentBlock[]]; cancel: []; error: [message: string] }>()
 
 const input = ref<HTMLTextAreaElement>()
-const text = ref('')
+const text = ref(props.initialText ?? '')
+watch(() => props.initialText, value => { if (value !== undefined) text.value = value })
 const attachments = ref<Attachment[]>([])
 const focused = ref(false), dragging = ref(false)
 const canSend = computed(() => !!text.value.trim() || attachments.value.length > 0)

@@ -8,6 +8,12 @@ export const plangentTools = {
   get_review_context: { description: 'Get assigned plan and executor context.', fields: {} },
   add_finding: { description: 'Report a review finding.', fields: { file: { type: 'string' }, line: { type: 'integer', minimum: 1 }, severity: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] }, message: { type: 'string' } } },
   submit_review: { description: 'Submit review verdict.', fields: { verdict: { type: 'string', enum: ['approved', 'changes_requested'] } } },
+  get_analysis: { description: 'Get analysis sections, descriptions and attachment paths. Call before analyzing.', fields: {} },
+  save_section: {
+    description: 'Save an analysis section. Omit slug to create; supply existing slug to update. Defaults to worked, author agent. Source or developer material edits require an explicit developer request and source_requested=true.',
+    fields: { title: { type: 'string' }, description: { type: 'string' }, slug: { type: 'string' },
+      kind: { type: 'string', enum: ['source', 'worked'] }, source_requested: { type: 'boolean' } },
+  },
   get_plan: { description: 'Get the task, its current plan (if any), the plan template and the plan format rules. Call it before writing a plan.', fields: {} },
   submit_plan: {
     description: 'Save the whole plan (markdown). Every tracked step is its own line "- [ ] step text"; everything else (headings, notes) is free text. ' +
@@ -34,5 +40,7 @@ export function isPlangentToolCall(tool: Pick<ToolCallUpdate, 'title' | 'kind' |
   if (mcp?.server === 'plangent' && typeof mcp.tool === 'string' && mcp.tool in plangentTools) return true;
   if ((tool.kind ?? 'other') !== 'other' || !input || typeof input !== 'object' || Array.isArray(input)) return false;
   if (title !== JSON.stringify(input)) return false;
+  if ('title' in input && 'description' in input &&
+    Object.keys(input).every(key => key in plangentTools.save_section.fields)) return true;
   return signatures.includes(Object.keys(input).sort().join(','));
 }

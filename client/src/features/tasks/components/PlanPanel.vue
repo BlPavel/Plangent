@@ -1,7 +1,7 @@
 <template>
   <div class="plan-tab">
     <!-- Planning with an agent: plan on the left, chat on the right, header always visible -->
-    <template v-if="planningActive || planningDraft">
+    <template v-if="!readonly && (planningActive || planningDraft)">
       <header class="planning-bar">
         <div class="planning-status" :class="{ live: planningActive }">
           <span class="planning-dot" />
@@ -36,7 +36,7 @@
           @dblclick="setShare(50)"
         />
         <aside class="chat-pane">
-          <ChatView v-if="planningSessionId" :session-id="planningSessionId" :initial-content="planningInitial" />
+          <ChatView v-if="planningSessionId" :session-id="planningSessionId" :initial-content="planningInitial" :draft-text="planningMessage" />
           <NewChatPanel
             v-else
             :project-id="projectId"
@@ -45,6 +45,7 @@
             :text="plan ? 'Скажите, что изменить в плане. Агент изучит код и обновит план — в проекте он ничего не меняет.' : 'Опишите задачу — агент изучит код и составит план. В проекте он ничего не меняет, план появится слева.'"
             :placeholder="plan ? 'Что изменить в плане…' : 'Опишите задачу…  @ — файл'"
             fixed-policy="read-only"
+            :initial-text="planningMessage"
             :busy="planningLaunching"
             :error="planningError"
             @start="$emit('launchPlanning', $event)"
@@ -54,10 +55,10 @@
     </template>
 
     <!-- Empty state — no plan yet -->
-    <div v-else-if="!plan && !editingPlan" class="plan-tab-content">
+    <div v-else-if="!plan && (!editingPlan || readonly)" class="plan-tab-content">
       <div class="plan-panel-header">
         <div class="progress-line"><span>Плана пока нет</span></div>
-        <div class="plan-header-actions">
+        <div v-if="!readonly" class="plan-header-actions">
           <AppButton variant="primary" size="sm" @click="$emit('openPlanning')">▸ Составить план с агентом</AppButton>
           <AppButton variant="ghost" size="sm" @click="$emit('startManualEdit')">Написать вручную</AppButton>
         </div>
@@ -65,7 +66,7 @@
     </div>
 
     <!-- Plan editor (manual) -->
-    <div v-else-if="editingPlan" class="plan-tab-content">
+    <div v-else-if="editingPlan && !readonly" class="plan-tab-content">
       <div class="plan-editor-wrap">
         <textarea
           :value="planContent"
@@ -95,7 +96,7 @@
             <div class="progress-fill" :style="{ width: progressPct + '%' }" />
           </div>
         </div>
-        <div class="plan-header-actions">
+        <div v-if="!readonly" class="plan-header-actions">
           <AppButton variant="ghost" size="sm" @click="$emit('openPlanning')">▸ Изменить план с агентом</AppButton>
           <AppButton variant="ghost" size="sm" @click="$emit('togglePlanEdit')">Редактировать вручную</AppButton>
         </div>
@@ -104,7 +105,7 @@
         <div v-for="s in plan!.steps" :key="s.id ?? s.index" class="step" :class="{ done: s.done }">
           <span class="step-check readonly" :class="{ done: s.done }">{{ s.done ? '✓' : '' }}</span>
           <span class="step-id" v-if="s.id">{{ s.id }}</span>
-          <span class="step-text">{{ s.text }}</span>
+          <span class="step-text"><AnalysisLinks :text="s.text" /></span>
           <span v-if="s.parallelGroup" class="parallel-badge">параллельно: {{ s.parallelGroup }}</span>
         </div>
       </div>
@@ -113,11 +114,14 @@
 </template>
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import AnalysisLinks from './AnalysisLinks.vue'
 import { ChatView, NewChatPanel, MessageMarkdown, type NewChatRequest, type ContentBlock } from '@features/agent-chat'
 import AppButton from '@shared/ui/AppButton.vue'
 import type { Plan } from '@core/models'
 
 const props = defineProps<{
+  readonly?: boolean
+  planningMessage?: string
   plan: Plan | null
   projectId: string
   defaultAgentId?: string | null
@@ -204,6 +208,10 @@ function startDrag(event: PointerEvent) {
 .plan-pane { flex-grow: 0; flex-shrink: 0; min-width: 0; overflow-y: auto; padding: 20px 24px; display: flex; flex-direction: column; }
 .plan-doc :deep(ul) { list-style: none; padding-left: 4px; }
 .plan-doc :deep(ul ul) { padding-left: 20px; }
+/* [[раздел]] / [[раздел/файл]] in the plan document: the same label as AnalysisLinks in the step list */
+.plan-doc :deep(button.btn[data-analysis-target]) { height: 19px; margin: 0 1px; padding: 0 6px; vertical-align: 1px; border: 1px solid var(--blue-soft); border-radius: 5px; background: var(--blue-soft); color: var(--blue-hover); font-family: 'Cascadia Code', 'JetBrains Mono', monospace; font-size: 11.5px; font-weight: 400; }
+.plan-doc :deep(button.btn[data-analysis-target]:not(:disabled):hover) { border-color: var(--blue-hover); }
+.plan-doc :deep(button.btn[data-analysis-target]:disabled) { opacity: 1; border-style: dashed; border-color: var(--danger); background: var(--danger-soft); color: var(--danger-hover) !important; text-decoration: line-through; }
 .chat-pane { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .splitter { position: relative; width: 1px; flex-shrink: 0; background: var(--border); cursor: col-resize; touch-action: none; }
 .splitter::before { content: ''; position: absolute; inset: 0 -4px; }

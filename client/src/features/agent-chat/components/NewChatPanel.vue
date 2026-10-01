@@ -8,7 +8,7 @@
       </div>
     </div>
     <div class="new-chat-dock">
-      <ChatComposer :project-id="projectId" :placeholder="placeholder" :disabled="!agentId || busy" @send="start" @error="localError = $event">
+      <ChatComposer :initial-text="initialText" :project-id="projectId" :placeholder="placeholder" :disabled="!agentId || busy" @send="start" @error="localError = $event">
         <template #status><UsageMeter v-if="agentId" :agent-id="agentId" /></template>
       </ChatComposer>
       <AgentSettingsBar :policy="fixedPolicy ?? policy" :selects="resolvedSelects" :locked="!!fixedPolicy" @policy="policy = $event" @change="(select, value) => (choices[select.configId] = value)">
@@ -49,6 +49,7 @@ const props = defineProps<{
   defaultAgentId?: string | null
   title: string
   text: string
+  initialText?: string
   placeholder?: string
   fixedPolicy?: string
   busy?: boolean

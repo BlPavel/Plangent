@@ -9,6 +9,7 @@ import { resolvePlanTemplate } from '../library/plan-template';
 import { buildPrompt, EXECUTION_REPORT, REVIEW_BRIEFING, reviewFixMessage } from './prompts';
 import { createSession as createChat, getSession as getChat, updateSession as updateChat, history } from '../agent-sessions/sessions';
 import { sendPrompt, closeSession, cancelSession as cancelChat, enableExecution, sessionSignals } from '../agent-sessions/acp-host';
+import { getPlanFilePath } from './task-files';
 import { materializePlanFile, watchPlanFile, stopWatchPlanFile } from './plan-file';
 import { archiveFinished, isActive, saveQueue } from './queue';
 import { broadcast } from '../../core/shared/events';
@@ -177,13 +178,14 @@ export class Orchestrator {
     if (!plan) {
       plan = createPlan({ task_id: taskId, content: '' });
     }
-    const planRelPath = path.join('.plangent', `${task.key}.plan.md`);
+    const planRelPath = path.relative(project.repo_path, getPlanFilePath(project.repo_path, task.key));
     materializePlanFile(task, plan, project.repo_path);
     watchPlanFile(task, plan.id, project.repo_path);
 
     // Build session-specific prompt
     const purpose = session.queueMode === 'review_first' ? 'preflight' : 'execute';
     const prompt = buildPrompt({
+      taskId: task.id, repoPath: project.repo_path,
       projectName: project.name,
       taskKey: task.key,
       taskTitle: task.title ?? undefined,
@@ -271,8 +273,9 @@ export class Orchestrator {
     if (!task || !project) throw new Error('Missing task or project');
 
     const plan = getLatestPlan(this.queue.taskId);
-    const planRelPath = path.join('.plangent', `${task.key}.plan.md`);
+    const planRelPath = path.relative(project.repo_path, getPlanFilePath(project.repo_path, task.key));
     const prompt = buildPrompt({
+      taskId: task.id, repoPath: project.repo_path,
       projectName: project.name,
       taskKey: task.key,
       taskTitle: task.title ?? undefined,

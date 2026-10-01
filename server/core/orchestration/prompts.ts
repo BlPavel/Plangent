@@ -1,3 +1,4 @@
+import { analysisToolContext, selectedAnalysisContext } from './analysis-context';
 import { PLAN_PROTOCOL_LOCKED } from '../library/plan-template';
 export interface RunContext {
   projectName: string;
@@ -8,7 +9,9 @@ export interface RunContext {
   planFilePath?: string;
   planTemplate?: string;
   points?: string[];
-  purpose?: 'plan' | 'execute' | 'preflight';
+  taskId?: string;
+  repoPath?: string;
+  purpose?: 'analysis' | 'plan' | 'execute' | 'preflight';
   runHistory: Array<{
     agent: string;
     date: string;
@@ -29,6 +32,7 @@ function buildPlanningPrompt(ctx: RunContext): string {
     ctx.planContent
       ? 'A plan already exists. Call the Plangent tool get_plan to read it, then change it as the developer asks below.'
       : 'Call the Plangent tool get_plan for the plan template and format, then plan the task the developer describes below.',
+    'Use get_plan analysis groups: prefer worked sections; consult source materials for details. Reference materials on step lines as [[section]] or [[section/file]]. If analysis is empty, plan as usual.',
     'Save the plan only with the Plangent tool submit_plan (the full plan every time) - never write the plan file yourself.',
     'After submitting, summarize the plan in a few lines and wait for the developer\'s feedback. Do not start executing.',
     '',
@@ -41,10 +45,23 @@ export function planningToolContext(ctx: RunContext): Record<string, unknown> {
   return {
     task: { key: ctx.taskKey, title: ctx.taskTitle ?? '', description: ctx.taskDescription ?? '' },
     project: ctx.projectName,
+    ...(ctx.taskId && ctx.repoPath ? { analysis: analysisToolContext(ctx.taskId, ctx.repoPath, ctx.taskKey) } : {}),
     currentPlan: ctx.planContent || null,
     template: ctx.planTemplate?.trim() || null,
     format: PLAN_PROTOCOL_LOCKED.trim(),
   };
+}
+
+export function buildAnalysisPrompt(ctx: RunContext): string {
+  return [
+    '[Plangent] You are the analyst for task ' + ctx.taskKey + ' in project ' + ctx.projectName + '.',
+    'Start with the Plangent tool get_analysis. Read the sections and attachments as needed.',
+    'Save results promptly with save_section in as many worked sections as needed; new sections have author agent.',
+    'Only edit developer materials or create/edit source sections when explicitly requested by the developer; set source_requested=true only for that request.',
+    'Mention project files by path; do not copy them into analysis. Do not edit project files or write analysis files directly.',
+    'Do not create or change the plan. Summarize the saved sections with their [[slug]] links in your reply.',
+    '', "Developer's message:",
+  ].join('\n');
 }
 
 function buildPreflightPrompt(ctx: RunContext): string {
@@ -96,6 +113,7 @@ function buildPreflightPrompt(ctx: RunContext): string {
 }
 
 export function buildPrompt(ctx: RunContext): string {
+  if (ctx.purpose === 'analysis') return buildAnalysisPrompt(ctx);
   if (ctx.purpose === 'plan') return buildPlanningPrompt(ctx);
   if (ctx.purpose === 'preflight') return buildPreflightPrompt(ctx);
 
@@ -142,6 +160,10 @@ export function buildPrompt(ctx: RunContext): string {
     lines.push('Then execute the steps.');
     lines.push('');
   }
+
+  const materials = ctx.taskId && ctx.repoPath
+    ? selectedAnalysisContext(ctx.taskId, ctx.repoPath, ctx.taskKey, ctx.planContent ?? '', ctx.points) : '';
+  if (materials) lines.push('## Материалы анализа', materials, '');
 
   if (ctx.runHistory.length > 0) {
     lines.push('## Run history');

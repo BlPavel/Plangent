@@ -9,6 +9,7 @@ export interface ChatSession {
   metadata: Record<string, unknown>; created_at?: string; updated_at?: string;
 }
 export interface ChatPayload {
+  link?: string;
   text?: string; toolCallId?: string; title?: string; status?: string; kind?: string; rawOutput?: unknown;
   content?: { type: string; path?: string; oldText?: string; newText?: string; content?: { text?: string } }[];
   entries?: { status: string; content: string }[];

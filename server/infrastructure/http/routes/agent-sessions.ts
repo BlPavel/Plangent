@@ -5,6 +5,7 @@ import { startSession, sendPrompt, cancelSession, closeSession, answerPermission
 import { editQueued } from '../../../core/agent-sessions/prompt-queue';
 import { getProject } from '../../../core/projects';
 import { getAgent } from '../../../core/agents';
+import { getTask } from '../../../core/tasks';
 import { broadcast } from '../../../core/shared/events';
 
 export const agentSessionsRouter = Router();
@@ -31,6 +32,8 @@ agentSessionsRouter.post('/:id/:action', async (req, res) => {
   try {
     const id = req.params.id;
     const session = getSession(id);
+    if (session.task_id && getTask(session.task_id)?.status === 'done' && !['cancel', 'close'].includes(req.params.action))
+      return res.status(409).json({ error: 'Завершённая задача доступна только для чтения' });
     switch (req.params.action) {
       case 'prompt': {
         const content: ContentBlock[] = req.body.content ?? [{ type: 'text', text: req.body.text }];
