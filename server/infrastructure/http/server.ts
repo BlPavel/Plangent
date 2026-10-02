@@ -1,3 +1,4 @@
+import { integrationsRouter } from './routes/integrations';
 import { terminalsRouter } from './routes/terminals';
 import { agentSessionsRouter } from './routes/agent-sessions';
 import { mcpRouter } from '../mcp/server';
@@ -59,6 +60,7 @@ export function createApp() {
   // this local-only endpoint; the default JSON limit remains in force elsewhere.
   app.use('/api/upload-temp', express.json({ limit: '25mb' }), uploadRouter);
   app.use('/api/projects/:projectId/tasks/:taskId/analysis', analysisRouter);
+  app.use('/api/integrations', integrationsRouter);
   app.use(express.json({ limit: '25mb' }));
 
   app.use(express.static(CLIENT_DIST));

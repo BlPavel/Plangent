@@ -1,3 +1,5 @@
+import { SourceType, SyncStatus, DocsSelection, SyncStats } from './integrations';
+export * from './integrations';
 export interface LayoutSlot {
   dir: string;
   global: string;
@@ -37,7 +39,7 @@ export interface ProjectConfig {
   // Sources only: shown to agents of every project, not just the targets.
   available_everywhere?: boolean;
   // Sources only: how the folder gets its files; just 'folder' for now (see docs/DOCS-PROPOSAL.md).
-  source_type?: 'folder';
+  source_type?: SourceType;
 }
 
 // group: holds projects and its own tasks, works in a service folder. source: a read-only folder agents
@@ -61,6 +63,13 @@ export interface Project {
   created_at: string;
   // Sources only: the groups/projects it is available for (unless available_everywhere).
   targets?: string[];
+  source_type: SourceType;
+  connection_id: string | null;
+  docs_config: Record<string, unknown>;
+  docs_selection: DocsSelection[];
+  sync_status: SyncStatus;
+  last_sync_at: string | null;
+  sync_stats: SyncStats;
 }
 
 export interface Task {

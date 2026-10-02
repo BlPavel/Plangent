@@ -1,3 +1,4 @@
+import { localOrigin } from '../local-origin';
 import { Router, Request, Response, NextFunction } from 'express';
 import path from 'path';
 import { pathToFileURL } from 'url';
@@ -5,13 +6,24 @@ import { listProjects, getProject, getProjectByKey, createProject, updateProject
 import { searchFiles } from '../../../core/projects/files';
 import { resyncAfterRegroup } from '../../../core/library/syncer';
 import { getDb } from '../../db/schema';
+import { docsRouter } from './docs-sources';
+import { cancelDocsSync } from '../../../core/docs-sources';
+import { DocsSourceError } from '../../../core/docs-sources/types';
+import { IntegrationError } from '../../../core/integrations';
 import { Project } from '../../../models';
 
 export const projectsRouter = Router();
+projectsRouter.use(localOrigin);
+projectsRouter.use('/:id/docs', docsRouter);
 
 const guard = (handler: (req: Request, res: Response) => unknown) => (req: Request, res: Response, next: NextFunction) => {
-  try { return handler(req, res); }
-  catch (e) { if (e instanceof ProjectError) return res.status(400).json({ error: e.message }); next(e); }
+
+  Promise.resolve().then(() => handler(req, res)).catch(e => {
+    if (e instanceof ProjectError || e instanceof DocsSourceError) return res.status(400).json({ error: e.message });
+    if (e instanceof IntegrationError) return res.status(e.status).json({ error: e.message, code: e.code });
+    res.status(500).json({ error: 'Project operation failed' });
+  });
+
 };
 
 projectsRouter.get('/', (_req: Request, res: Response) => {
@@ -67,8 +79,7 @@ projectsRouter.get('/:id/mentions', async (req: Request, res: Response) => {
 });
 
 projectsRouter.post('/', guard((req: Request, res: Response) => {
-  const { kind, name, key, repo_path, group_id, icon, description, default_agent_id, config, targets } = req.body;
-  const p = createProject({ kind, name, key, repo_path, group_id, icon, description, default_agent_id, config, targets });
+  const p = createProject(req.body);
   if (p.group_id) resyncAfterRegroup({ ...p, group_id: null }, p);
   res.status(201).json(p);
 }));
@@ -81,7 +92,8 @@ projectsRouter.patch('/:id', guard((req: Request, res: Response) => {
   res.json(p);
 }));
 
-projectsRouter.delete('/:id', (req: Request, res: Response) => {
+projectsRouter.delete('/:id', guard(async (req: Request, res: Response) => {
+  await cancelDocsSync(req.params.id);
   const p = getProject(req.params.id);
   if (!p) return res.status(404).json({ error: 'Not found' });
   // The projects stay and leave the group, losing what it shared with them.
@@ -92,4 +104,4 @@ projectsRouter.delete('/:id', (req: Request, res: Response) => {
   }
   deleteProject(p.id);
   res.status(204).end();
-});
+}));

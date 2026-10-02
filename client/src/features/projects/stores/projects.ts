@@ -1,6 +1,8 @@
 import { defineStore } from 'pinia'
-import { computed, ref } from 'vue'
+import { computed, ref, onScopeDispose } from 'vue'
 import { api } from '@core/api'
+import { onServerEvent } from '@core/api/events'
+import type { SyncProgress } from '@core/models/integrations'
 import type { Project } from '@core/models'
 
 export type ProjectInput = Partial<Omit<Project, 'id' | 'created_at' | 'active_tasks'>> & { name: string }
@@ -9,6 +11,17 @@ export type ProjectInput = Partial<Omit<Project, 'id' | 'created_at' | 'active_t
 export const useProjectsStore = defineStore('projects', () => {
   const projects = ref<Project[]>([])
   const loading = ref(false)
+  const syncProgress = ref<Record<string, SyncProgress>>({})
+  const unsubscribe = onServerEvent<{ type: string; project_id?: string; project?: Project; progress?: SyncProgress }>(event => {
+    if (!event.project_id) return
+    if (event.type === 'docs-sync-progress' && event.progress) syncProgress.value[event.project_id] = event.progress
+    if (event.type === 'docs-sync-status') {
+      if (event.project) { const i = projects.value.findIndex(p => p.id === event.project_id); if (i >= 0) projects.value[i] = event.project }
+      else { const p = byId(event.project_id); if (p) p.sync_status = 'running' }
+      if (event.project?.sync_status !== 'running') delete syncProgress.value[event.project_id]
+    }
+  })
+  onScopeDispose(unsubscribe)
 
   const groups = computed(() => projects.value.filter(p => p.kind === 'group'))
   const sources = computed(() => projects.value.filter(p => p.kind === 'source'))
@@ -42,5 +55,8 @@ export const useProjectsStore = defineStore('projects', () => {
     await load()
   }
 
-  return { projects, loading, groups, sources, workProjects, members, byId, agentFor, load, create, update, remove }
+  async function startSync(id: string, confirmedLarge = false) { await api.post('/projects/' + id + '/docs/sync', { confirmed_large: confirmedLarge }); await load() }
+  async function cancelSync(id: string) { await api.post('/projects/' + id + '/docs/cancel'); await load() }
+
+  return { syncProgress, startSync, cancelSync, projects, loading, groups, sources, workProjects, members, byId, agentFor, load, create, update, remove }
 })

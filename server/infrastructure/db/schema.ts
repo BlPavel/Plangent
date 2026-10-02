@@ -3,6 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import os from 'os';
 import { agentPresets } from '../../core/agents/presets';
+import { slugify } from '../../core/shared/slugify';
 
 export const DATA_DIR = process.env.PLANGENT_DATA_DIR || path.join(process.cwd(), 'data');
 const DB_PATH = path.join(DATA_DIR, 'plangent.db');
@@ -19,7 +20,7 @@ export function getDb(): Database.Database {
   return _db;
 }
 
-function migrate(db: Database.Database): void {
+export function migrate(db: Database.Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS agents (
       id TEXT PRIMARY KEY,
@@ -163,6 +164,7 @@ function migrate(db: Database.Database): void {
   seedDefaultAgents(db);
   migrateData(db);
   migrateWorkspaces(db);
+  migrateIntegrations(db);
   try { db.exec('ALTER TABLE tasks ADD COLUMN description_migrated INTEGER NOT NULL DEFAULT 0'); } catch { /* exists */ }
   // Clear the old field in the same transaction: reopening/deleting the section cannot repeat migration.
   db.transaction(() => {
@@ -197,14 +199,6 @@ function migrateData(db: Database.Database): void {
   // Legacy common plan protocol is now runtime instructions, not a user-facing global skill.
   // Historical filesystem cleanup is no longer performed at startup.
   migrateOldSkills(db);
-}
-
-/** A latin slug for the @-key; Cyrillic is transliterated so «Заказы» becomes `zakazy`, not an empty key. */
-export function slugify(value: string): string {
-  const map: Record<string, string> = { а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'e', ж: 'zh', з: 'z', и: 'i', й: 'y', к: 'k', л: 'l', м: 'm',
-    н: 'n', о: 'o', п: 'p', р: 'r', с: 's', т: 't', у: 'u', ф: 'f', х: 'h', ц: 'c', ч: 'ch', ш: 'sh', щ: 'sch', ъ: '', ы: 'y', ь: '', э: 'e', ю: 'yu', я: 'ya' };
-  return [...value.toLowerCase()].map(c => map[c] ?? c).join('')
-    .replace(/[^a-z0-9._-]+/g, '-').replace(/^[-._]+|[-._]+$/g, '').replace(/-{2,}/g, '-') || 'project';
 }
 
 /**
@@ -312,4 +306,77 @@ function migrateOldSkills(db: Database.Database): void {
       fs.writeFileSync(path.join(libDir, 'SKILL.md'), content);
     }
   }
+}
+
+/** Idempotent additive migration: existing folder sources keep their data and targets. */
+function migrateIntegrations(db: Database.Database): void {
+  db.transaction(() => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS integration_organizations (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        credential_id TEXT REFERENCES integration_credentials(id) ON DELETE SET NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE TABLE IF NOT EXISTS integration_credentials (
+        id TEXT PRIMARY KEY,
+        organization_id TEXT REFERENCES integration_organizations(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        username TEXT NOT NULL DEFAULT '',
+        secret_blob BLOB CHECK(secret_blob IS NULL OR typeof(secret_blob) = 'blob'),
+        status TEXT NOT NULL DEFAULT 'needs_update' CHECK(status IN ('ready','needs_update')),
+        revision INTEGER NOT NULL DEFAULT 1 CHECK(revision > 0),
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE TABLE IF NOT EXISTS integration_connections (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        base_url TEXT NOT NULL,
+        organization_id TEXT REFERENCES integration_organizations(id) ON DELETE SET NULL,
+        credential_mode TEXT NOT NULL DEFAULT 'inherit' CHECK(credential_mode IN ('inherit','credential','own')),
+        credential_id TEXT REFERENCES integration_credentials(id) ON DELETE SET NULL,
+        auth_strategy TEXT NOT NULL DEFAULT 'auto' CHECK(auth_strategy IN ('basic','form','auto','token','browser','api-login')),
+        auth_config TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(auth_config)),
+        last_check_status TEXT NOT NULL DEFAULT 'unchecked' CHECK(last_check_status IN ('unchecked','ok','error','needs_update')),
+        last_check_at TEXT,
+        last_check_message TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE TABLE IF NOT EXISTS integration_sessions (
+        connection_id TEXT PRIMARY KEY REFERENCES integration_connections(id) ON DELETE CASCADE,
+        credential_id TEXT REFERENCES integration_credentials(id) ON DELETE CASCADE,
+        credential_revision INTEGER NOT NULL DEFAULT 1 CHECK(credential_revision > 0),
+        secret_blob BLOB NOT NULL CHECK(typeof(secret_blob) = 'blob'),
+        expires_at TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS integration_credentials_organization ON integration_credentials(organization_id);
+      CREATE INDEX IF NOT EXISTS integration_connections_organization ON integration_connections(organization_id);
+      CREATE INDEX IF NOT EXISTS integration_connections_credential ON integration_connections(credential_id);
+      CREATE INDEX IF NOT EXISTS integration_sessions_credential ON integration_sessions(credential_id);
+    `);
+    const columns: [string, string][] = [
+      ['source_type', "TEXT NOT NULL DEFAULT 'folder' CHECK(source_type IN ('folder','docs'))"],
+      ['connection_id', 'TEXT REFERENCES integration_connections(id) ON DELETE SET NULL'],
+      ['docs_config', "TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(docs_config))"],
+      ['docs_selection', "TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(docs_selection))"],
+      ['sync_status', "TEXT NOT NULL DEFAULT 'idle' CHECK(sync_status IN ('idle','running','done','error','cancelled'))"],
+      ['last_sync_at', 'TEXT'],
+      ['sync_stats', "TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(sync_stats))"],
+    ];
+    const existing = new Set((db.prepare('PRAGMA table_info(projects)').all() as { name: string }[]).map(r => r.name));
+    for (const [name, definition] of columns) {
+      if (existing.has(name)) continue;
+      // Catch only a concurrent duplicate-column migration; all other errors must abort.
+      try { db.exec('ALTER TABLE projects ADD COLUMN ' + name + ' ' + definition); }
+      catch (error) {
+        if (!(error instanceof Error) || !error.message.includes('duplicate column name')) throw error;
+      }
+    }
+    db.exec('CREATE INDEX IF NOT EXISTS projects_connection ON projects(connection_id)');
+  })();
 }

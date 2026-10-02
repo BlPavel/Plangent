@@ -1,7 +1,13 @@
 import fs from 'fs';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import { DATA_DIR, getDb, slugify } from '../../infrastructure/db/schema';
+import { DATA_DIR, getDb } from '../../infrastructure/db/schema';
+import { checkedFile } from '../docs-sources/sync';
+import { validateConfig } from '../docs-sources/config';
+import { sourceFolder, isDocsSyncRunning } from '../docs-sources';
+import { requireConnection } from '../integrations';
+import { DocsSelection, SourceType } from '../../models/integrations';
+import { slugify } from '../shared/slugify';
 import { Project, ProjectConfig, ProjectKind } from '../../models';
 
 function parse(row: Record<string, unknown>): Project {
@@ -9,6 +15,9 @@ function parse(row: Record<string, unknown>): Project {
     ...(row as Omit<Project, 'config' | 'hide_from_git'>),
     config: JSON.parse(row.config as string || '{}'),
     hide_from_git: Boolean(row.hide_from_git),
+    docs_config: JSON.parse(row.docs_config as string || '{}'),
+    docs_selection: JSON.parse(row.docs_selection as string || '[]'),
+    sync_stats: JSON.parse(row.sync_stats as string || '{}'),
   };
   if (project.kind === 'source') project.targets = sourceTargets(project.id);
   return project;
@@ -106,6 +115,10 @@ export interface ProjectInput {
   config?: ProjectConfig;
   hide_from_git?: boolean;
   targets?: string[];
+  source_type?: SourceType;
+  connection_id?: string | null;
+  docs_config?: Record<string, unknown>;
+  docs_selection?: DocsSelection[];
 }
 
 function setSourceTargets(id: string, targets: string[]): void {
@@ -118,12 +131,38 @@ function setSourceTargets(id: string, targets: string[]): void {
   })();
 }
 
+
+function docsSettings(data: Partial<ProjectInput>, current?: Project) {
+  const type = data.source_type ?? current?.source_type ?? 'folder';
+  if (!['folder', 'docs'].includes(type)) throw new ProjectError('Invalid source type');
+  if (current && type !== current.source_type) throw new ProjectError('Source type cannot be changed');
+  if (type !== 'docs') return { type, connection: null, config: {}, selection: [] };
+  if ((current?.kind ?? data.kind) !== 'source') throw new ProjectError('Docs type is only for reference sources');
+  const connection = data.connection_id ?? current?.connection_id;
+  if (!connection) throw new ProjectError('Choose a connection');
+  requireConnection(connection);
+  const config = validateConfig(data.docs_config ?? current?.docs_config);
+  const selection = data.docs_selection ?? current?.docs_selection ?? [];
+  if (!Array.isArray(selection) || selection.length > 10000 || selection.some(s =>
+    !s || typeof s.id !== 'string' || !s.id || s.id.length > 512 || typeof s.include_descendants !== 'boolean' ||
+    (s.excluded_ids !== undefined && (!Array.isArray(s.excluded_ids) || s.excluded_ids.some(id => typeof id !== 'string' || !id || id.length > 512)))
+  )) throw new ProjectError('Invalid document selection');
+  return { type, connection, config, selection };
+}
+function saveDocsSettings(id: string, settings: ReturnType<typeof docsSettings>): void {
+  getDb().prepare('UPDATE projects SET source_type=?,connection_id=?,docs_config=?,docs_selection=? WHERE id=?')
+    .run(settings.type, settings.connection, JSON.stringify(settings.config), JSON.stringify(settings.selection), id);
+}
+
 export function createProject(data: ProjectInput): Project {
   const kind = data.kind ?? 'project';
+  if (!['project', 'group', 'source'].includes(kind)) throw new ProjectError('Invalid project kind');
+  const settings = docsSettings(data);
   const id = uuidv4();
   if (!data.name?.trim()) throw new ProjectError('Укажите название');
-  if (kind !== 'group' && !data.repo_path) throw new ProjectError('Укажите папку');
-  const repoPath = kind === 'group' ? groupFolder(id) : data.repo_path!;
+  if (kind !== 'group' && settings.type !== 'docs' && !data.repo_path) throw new ProjectError('Укажите папку');
+  const repoPath = kind === 'group' ? groupFolder(id) : settings.type === 'docs' ? sourceFolder(id) : data.repo_path!;
+  if (settings.type === 'docs') checkedFile(repoPath, 'INDEX.md');
   checkPath(kind, repoPath);
   checkGroup(data.group_id, kind);
   let key: string | null = null;
@@ -136,6 +175,8 @@ export function createProject(data: ProjectInput): Project {
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(id, kind, data.name.trim(), key, repoPath, data.group_id ?? null, data.icon ?? '', data.description ?? '',
     data.default_agent_id ?? null, JSON.stringify(data.config ?? {}), data.hide_from_git === false ? 0 : 1);
+  saveDocsSettings(id, settings);
+  if (settings.type === 'docs') fs.mkdirSync(repoPath, { recursive: true });
   if (kind === 'source') setSourceTargets(id, data.targets ?? []);
   if (kind === 'group') writeGroupReadme(id);
   if (data.group_id) writeGroupReadme(data.group_id);
@@ -145,7 +186,10 @@ export function createProject(data: ProjectInput): Project {
 export function updateProject(id: string, data: Partial<ProjectInput>): Project | null {
   const current = getProject(id);
   if (!current) return null;
+  if (isDocsSyncRunning(id)) throw new ProjectError('Cancel sync before changing the source');
+  const settings = docsSettings(data, current);
   const u = { ...current, ...data, config: data.config ?? current.config };
+  if (settings.type === 'docs') u.repo_path = sourceFolder(id);
   if (!u.name?.trim()) throw new ProjectError('Укажите название');
   if (current.kind === 'group') u.repo_path = current.repo_path;
   else {
@@ -159,6 +203,7 @@ export function updateProject(id: string, data: Partial<ProjectInput>): Project 
     UPDATE projects SET name=?, key=?, repo_path=?, group_id=?, icon=?, description=?, default_agent_id=?, config=?, hide_from_git=? WHERE id=?
   `).run(u.name.trim(), current.kind === 'group' ? null : u.key, u.repo_path, u.group_id ?? null, u.icon ?? '', u.description ?? '',
     u.default_agent_id ?? null, JSON.stringify(u.config), u.hide_from_git ? 1 : 0, id);
+  saveDocsSettings(id, settings);
   if (current.kind === 'source' && data.targets) setSourceTargets(id, data.targets);
   for (const group of new Set([current.group_id, u.group_id, current.kind === 'group' ? id : null])) if (group) writeGroupReadme(group);
   return getProject(id);
@@ -168,6 +213,16 @@ export function updateProject(id: string, data: Partial<ProjectInput>): Project 
 export function deleteProject(id: string): boolean {
   const current = getProject(id);
   if (!current) return false;
+  if (isDocsSyncRunning(id)) throw new ProjectError('Cancel sync before deleting the source');
+  if (current.source_type === 'docs') {
+    const root = sourceFolder(id);
+    if (path.resolve(current.repo_path) !== path.resolve(root) || (fs.existsSync(root) && fs.lstatSync(root).isSymbolicLink())) throw new ProjectError('Unsafe managed source directory');
+    for (let dir = path.dirname(root); ; dir = path.dirname(dir)) {
+      if (fs.existsSync(dir) && fs.lstatSync(dir).isSymbolicLink()) throw new ProjectError('Unsafe managed source directory');
+      if (path.dirname(dir) === dir) break;
+    }
+    fs.rmSync(root, { recursive: true, force: true });
+  }
   const deleted = getDb().prepare('DELETE FROM projects WHERE id = ?').run(id).changes > 0;
   // Only ever the service folder Plangent created itself.
   if (current.kind === 'group' && path.resolve(current.repo_path) === path.resolve(groupFolder(id))) {

@@ -4,7 +4,8 @@
       <p>Выберите проект или создайте новый</p>
     </div>
 
-    <SourceView v-else-if="currentProject.kind === 'source'" :source="currentProject" @edit="showProjectModal = true" @delete="deleteProject" />
+    <!-- The store copy: sync status and statistics arrive there over server events. -->
+    <SourceView v-else-if="currentProject.kind === 'source'" :source="projectsStore.byId(currentProject.id) ?? currentProject" @edit="showProjectModal = true" @delete="deleteProject" />
 
     <div v-else class="project-area">
       <!-- Project / group header -->
@@ -249,7 +250,9 @@ async function deleteProject() {
   const message = p.kind === 'group'
     ? `Удалить группу «${p.name}»? Проекты останутся и выйдут из группы, а задачи и чаты самой группы будут удалены безвозвратно.`
     : p.kind === 'source'
-      ? `Удалить справочник @${p.key}? Папка на диске не изменится.`
+      ? p.source_type === 'docs'
+        ? `Удалить справочник @${p.key}? Скачанные документы будут удалены с диска; во внешнем сервисе ничего не изменится.`
+        : `Удалить справочник @${p.key}? Папка на диске не изменится.`
       : `Удалить проект «${p.name}»? Все его задачи, чаты и настройки будут удалены безвозвратно.`
   const ok = await appStore.confirm(message, { confirmLabel: 'Удалить', danger: true })
   if (!ok) return
