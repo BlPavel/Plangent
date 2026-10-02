@@ -16,6 +16,8 @@ export interface ChatPayload {
   availableCommands?: { name: string; description: string }[];
   file?: string; line?: number; severity?: string; message?: string;
   verdict?: string; summary?: string; question?: string; note?: string;
+  /** propose_library_change: the proposal the card shows. */
+  proposal_id?: string;
   /** The user message also carried Plangent's hidden briefing. */
   briefing?: boolean;
 }

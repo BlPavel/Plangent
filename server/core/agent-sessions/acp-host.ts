@@ -1,3 +1,4 @@
+import { buildLibrarianPrompt } from '../orchestration/prompts';
 import type * as ACP from '@agentclientprotocol/sdk';
 import { Readable, Writable } from 'stream';
 import spawn from 'cross-spawn';
@@ -247,8 +248,8 @@ async function boot(id: string): Promise<LiveSession> {
     const modes = response.modes?.availableModes ?? [];
     // 'discuss' is chosen before the agent's own mode list is known; map it onto its plan/read-only mode.
     const preferred = getSession(id).metadata.preferredMode as string | undefined;
-    // A planner is read-only too, but the agent's own plan mode would fight submit_plan (Claude ends it with ExitPlanMode).
-  const discuss = (session.policy === 'read-only' && session.role !== 'planner') || preferred === 'discuss';
+    // Planner and librarian write through MCP; the agent's plan mode can interrupt that workflow.
+    const discuss = (session.policy === 'read-only' && session.role !== 'planner' && session.role !== 'librarian') || preferred === 'discuss';
     const safeMode = (preferred && !isBypassMode(preferred) ? modes.find(m => m.id === preferred) : undefined)
       ?? (discuss ? modes.find(m => /^plan$|read.?only/i.test(m.id)) : undefined)
       ?? modes.find(m => m.id === 'default') ?? modes.find(m => m.id === 'read-only');
@@ -343,7 +344,8 @@ export async function sendPrompt(id: string, content: ACP.ContentBlock[]): Promi
   // The workspace note (group projects, reference catalog) goes with the first message of every chat.
   const project = getProject(session.project_id);
   const workspace = project ? workspaceBriefing(project) : '';
-  const briefing = [workspace, typeof session.metadata.briefing === 'string' ? session.metadata.briefing : ''].filter(Boolean).join('\n\n');
+  const roleBriefing = session.role === 'librarian' ? buildLibrarianPrompt(project?.name ?? session.project_id) : '';
+  const briefing = [workspace, roleBriefing || (typeof session.metadata.briefing === 'string' ? session.metadata.briefing : '')].filter(Boolean).join('\n\n');
   const withBriefing = briefing && (!session.metadata.briefed || session.metadata.needsContext);
   const prompt: ACP.ContentBlock[] = [
     ...(withBriefing ? [{ type: 'text' as const, text: briefing }] : []),

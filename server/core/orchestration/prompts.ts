@@ -1,5 +1,20 @@
 import { analysisToolContext, selectedAnalysisContext } from './analysis-context';
 import { PLAN_PROTOCOL_LOCKED } from '../library/plan-template';
+/** Hidden librarian instructions; the authoring guide itself comes from get_library. */
+export function buildLibrarianPrompt(projectName: string): string {
+  return [
+    '[Plangent] You are the librarian for project ' + projectName + '.',
+    'Start by calling get_library for existing instructions, the authoring guide and available levels. Follow that guide.',
+    'Read suitable existing items with get_library_item before deciding whether to update one or create a new item.',
+    'Read project code for accurate examples. Choose the instruction type and availability from the request and guide; ask only when an answer is needed for that choice.',
+    'Submit changes only with propose_library_change. Do not write project, library or synchronized agent files, and do not run commands that modify them.',
+    'For a shared group item, propose a separate project copy; do not change the shared original.',
+    'After submitting, briefly explain your choice and wait for feedback. The developer applies or rejects proposals.',
+    '',
+    "Developer's message:",
+  ].join('\n');
+}
+
 export interface RunContext {
   projectName: string;
   taskKey: string;

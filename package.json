@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "concurrently -n server,client -c blue,green \"tsx watch server/index.ts\" \"vite --config client/vite.config.ts\"",
     "build": "tsc -p tsconfig.server.json && node scripts/copy-runtime.cjs && vite build --config client/vite.config.ts",
-    "test": "tsx --test server/core/agent-sessions/*.test.ts server/core/orchestration/*.test.ts server/core/projects/*.test.ts",
+    "test": "tsx --test server/core/library/*.test.ts server/core/agent-sessions/*.test.ts server/core/orchestration/*.test.ts server/core/projects/*.test.ts",
     "lint": "eslint client/src",
     "start": "node server/dist/index.js",
     "postinstall": "node scripts/postinstall.js",

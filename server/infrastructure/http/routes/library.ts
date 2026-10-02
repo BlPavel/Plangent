@@ -5,11 +5,39 @@ import {
 } from '../../../core/library';
 import { getProject } from '../../../core/projects';
 import { readItemContent, writeItemContent, deleteItemContent, writeOverrideContent, readOverrideContent, deleteOverrideContent } from '../../../core/library/library-manager';
+import { DEFAULT_INSTRUCTION_GUIDE } from '../../../core/library/instruction-guide';
 import { PLAN_PROTOCOL_LOCKED } from '../../../core/library/plan-template';
 import { syncItem, unsyncItem, syncAll } from '../../../core/library/syncer';
 import { LibraryItemType, LibraryScope } from '../../../models';
 
+import { listProposals, applyProposal, rejectProposal, ProposalConflict } from '../../../core/library/proposals';
+
 export const libraryRouter = Router();
+
+libraryRouter.get('/proposals', (req: Request, res: Response) => {
+  res.json(listProposals({
+    projectId: typeof req.query.projectId === 'string' ? req.query.projectId : undefined,
+    sessionId: typeof req.query.sessionId === 'string' ? req.query.sessionId : undefined,
+  }));
+});
+libraryRouter.post('/proposals/:proposalId/apply', (req: Request, res: Response) => {
+  try {
+    const item = applyProposal(req.params.proposalId, req.body.availability);
+    res.json(item);
+  } catch (e) {
+    res.status(e instanceof ProposalConflict ? 409 : 400).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+libraryRouter.post('/proposals/:proposalId/reject', (req: Request, res: Response) => {
+  try { res.json(rejectProposal(req.params.proposalId)); }
+  catch (e) { res.status(e instanceof ProposalConflict ? 409 : 400).json({ error: e instanceof Error ? e.message : String(e) }); }
+});
+
+
+
+libraryRouter.get('/instruction-guide/defaults', (_req: Request, res: Response) => {
+  res.json({ content: DEFAULT_INSTRUCTION_GUIDE });
+});
 
 libraryRouter.get('/plan-template/defaults', (_req: Request, res: Response) => {
   res.json({
@@ -47,11 +75,11 @@ libraryRouter.post('/', (req: Request, res: Response) => {
   }
   const targets: string[] = Array.isArray(req.body.targets) ? req.body.targets : project_id ? [project_id] : [];
   const own_only: string[] = Array.isArray(req.body.own_only) ? req.body.own_only : [];
-  // Only one main file / plan template per level: global, or per group/project
-  if (type === 'main' || type === 'plan-template') {
+  // Only one main file / plan template / instruction guide per level.
+  if (type === 'main' || type === 'plan-template' || type === 'instruction-guide') {
     const clash = listLibraryItems({ type, scope }).some(other => scope === 'global' || other.targets.some(t => targets.includes(t)));
     if (clash) {
-      return res.status(409).json({ error: type === 'main' ? 'Главный файл для этого уровня уже существует' : 'Шаблон плана для этого уровня уже существует' });
+      return res.status(409).json({ error: type === 'main' ? 'Главный файл для этого уровня уже существует' : type === 'plan-template' ? 'Шаблон плана для этого уровня уже существует' : 'Руководство по инструкциям для этого уровня уже существует' });
     }
   }
   const item = createLibraryItem({ type, slug, title, description, scope, targets, own_only, frontmatter, agent_filter, enabled });

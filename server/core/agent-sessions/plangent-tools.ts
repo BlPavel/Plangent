@@ -2,6 +2,21 @@ import type { ToolCallUpdate } from '@agentclientprotocol/sdk';
 
 /** Tools the Plangent MCP server gives agents (served by infrastructure/mcp/server.ts). */
 export const plangentTools = {
+  get_library: { description: 'Get the project library catalog, instruction authoring guide and available levels. Call first.', fields: {} },
+  get_library_item: { description: 'Read an available library item, including content.', fields: { id: { type: 'string' } } },
+  propose_library_change: {
+    description: 'Save a library proposal for developer review. Preserve type and slug on update; supply item_id. Availability defaults to project for new items and group copies.',
+    fields: { proposal: { type: 'object', additionalProperties: false,
+      required: ['action', 'type', 'slug', 'title', 'content', 'explanation'],
+      properties: {
+        action: { type: 'string', enum: ['create', 'update'] }, type: { type: 'string', enum: ['skill', 'main', 'command'] },
+        slug: { type: 'string' }, title: { type: 'string' }, description: { type: 'string' }, frontmatter: { type: 'object' },
+        content: { type: 'string' }, explanation: { type: 'string' }, item_id: { type: 'string' },
+        scope: { type: 'string', enum: ['global', 'project'] }, targets: { type: 'array', items: { type: 'string' } },
+        own_only: { type: 'array', items: { type: 'string' } },
+      },
+    } },
+  },
   complete_step: { description: 'Finish all assigned steps with a summary.', fields: { summary: { type: 'string' } } },
   request_help: { description: 'Ask the developer for help.', fields: { question: { type: 'string' } } },
   report_progress: { description: 'Report progress.', fields: { note: { type: 'string' } } },

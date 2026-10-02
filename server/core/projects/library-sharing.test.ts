@@ -30,7 +30,7 @@ test('editing shared instructions isolates project content', async () => {
     method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
   });
   try {
-    for (const type of ['main', 'skill', 'command', 'plan-template'] as LibraryItemType[]) {
+    for (const type of ['main', 'skill', 'command', 'plan-template', 'instruction-guide'] as LibraryItemType[]) {
       for (const direct of [false, true]) {
         const item = library.createLibraryItem({
           type, slug: `${type}-${direct}`, title: 'Shared', scope: 'project',

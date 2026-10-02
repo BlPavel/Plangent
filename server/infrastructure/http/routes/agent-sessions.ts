@@ -13,9 +13,12 @@ agentSessionsRouter.get('/', (req, res) => res.json(listSessions(typeof req.quer
 agentSessionsRouter.post('/', async (req, res) => {
   try {
     const { project_id, agent_id, model, mode, config } = req.body;
-    const policy = ['ask', 'allow-edits', 'allow-all', 'read-only'].includes(req.body.policy) ? req.body.policy : 'ask';
+    const role = req.body.role ?? 'chat';
+    if (!['chat', 'librarian'].includes(role)) return res.status(400).json({ error: 'Invalid session role' });
+    if (role === 'librarian' && getProject(project_id)?.kind === 'source') return res.status(400).json({ error: 'Choose a project or group for the librarian' });
+    const policy = role === 'librarian' ? 'read-only' : ['ask', 'allow-edits', 'allow-all', 'read-only'].includes(req.body.policy) ? req.body.policy : 'ask';
     if (!getProject(project_id) || !getAgent(agent_id)) return res.status(400).json({ error: 'Проект или агент не найден' });
-    const session = createSession({ project_id, agent_id, model, role: 'chat', policy, metadata: { ...(typeof mode === 'string' && mode ? { preferredMode: mode } : {}), ...(config && typeof config === 'object' ? { preferredConfig: Object.fromEntries(Object.entries(config).map(([k, v]) => [k, String(v)])) } : {}) } });
+    const session = createSession({ project_id, agent_id, model, role, policy, metadata: { ...(typeof mode === 'string' && mode ? { preferredMode: mode } : {}), ...(config && typeof config === 'object' ? { preferredConfig: Object.fromEntries(Object.entries(config).map(([k, v]) => [k, String(v)])) } : {}) } });
     res.status(201).json(session);
     void startSession(session.id).catch(() => {});
   } catch (e) { res.status(400).json({ error: String(e) }); }
@@ -49,7 +52,7 @@ agentSessionsRouter.post('/:id/:action', async (req, res) => {
       case 'mode': await setMode(id, String(req.body.mode)); break;
       case 'config': await setConfig(id, String(req.body.configId), String(req.body.value)); break;
       case 'context': {
-        const next = createSession({ project_id: session.project_id, agent_id: session.agent_id, role: 'chat', policy: 'ask' });
+        const next = createSession({ project_id: session.project_id, agent_id: session.agent_id, role: session.role === 'librarian' ? 'librarian' : 'chat', policy: session.role === 'librarian' ? 'read-only' : 'ask' });
         const context = history(id).filter(e => ['user', 'assistant'].includes(e.type)).map(e => `${e.type}: ${e.payload.text ?? ''}`).join('\n').slice(-60_000);
         await sendPrompt(next.id, [{ type: 'text', text: `Контекст предыдущего разговора (может быть обрезан):\n${context}\nПродолжим разговор.` }]);
         return res.json(getSession(next.id));

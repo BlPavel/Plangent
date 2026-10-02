@@ -19,6 +19,8 @@ import { getTask } from '../../core/tasks';
 import { getProject } from '../../core/projects';
 import path from 'path';
 
+import { libraryToolContext, libraryToolItem, proposeLibraryChange, type ProposalInput } from '../../core/library/proposals';
+
 const tokens = new Map<string, string>();
 export function sessionMcpConfig(session: AgentSession, http: boolean): McpServer[] {
   const token = randomBytes(32).toString('hex');
@@ -33,6 +35,7 @@ export function allowed(session: AgentSession): PlangentTool[] {
   if (session.role === 'executor') return session.policy === 'read-only' ? ['request_help', 'report_progress'] : ['complete_step', 'request_help', 'report_progress'];
   if (session.role === 'reviewer') return ['get_review_context', 'add_finding', 'submit_review'];
   if (session.role === 'analyst') return ['get_analysis', 'save_section'];
+  if (session.role === 'librarian') return ['get_library', 'get_library_item', 'propose_library_change'];
   if (session.role === 'planner') return ['get_plan', 'submit_plan'];
   return [];
 }
@@ -66,8 +69,21 @@ mcpRouter.post('/', async (req, res) => {
     if (!allowed(session).includes(name)) throw new Error('Tool not allowed for this role');
     if (!['thinking', 'waiting'].includes(session.status)) throw new Error('Session has no active turn');
     const args = request.params.arguments ?? {};
-    for (const field of name === 'save_section' ? [] : Object.keys(tools[name].fields)) {
+    for (const field of ['save_section', 'propose_library_change'].includes(name) ? [] : Object.keys(tools[name].fields)) {
       if (field === 'line' ? !Number.isInteger(args[field]) || Number(args[field]) < 1 : typeof args[field] !== 'string' || !String(args[field]).trim()) throw new Error(`Invalid ${field}`);
+    }
+    if (name === 'get_library' || name === 'get_library_item' || name === 'propose_library_change') {
+      try {
+        if (name === 'propose_library_change' && (!args.proposal || typeof args.proposal !== 'object' || Array.isArray(args.proposal))) throw new Error('Invalid proposal');
+        const result = name === 'get_library' ? libraryToolContext(session.project_id)
+          : name === 'get_library_item' ? libraryToolItem(session.project_id, String(args.id))
+          : proposeLibraryChange(id, args.proposal as unknown as ProposalInput);
+        if (name === 'propose_library_change') {
+          const proposal = result as ReturnType<typeof proposeLibraryChange>;
+          addEvent(id, name, { summary: proposal.explanation, proposal_id: proposal.id });
+        }
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+      } catch (e) { return { isError: true, content: [{ type: 'text', text: e instanceof Error ? e.message : String(e) }] }; }
     }
     if (name === 'complete_step') { updateSession(id, { status: 'complete', reason: String(args.summary) }); sessionSignals.emit('complete', id, args.summary); }
     if (name === 'request_help') { updateSession(id, { status: 'waiting', reason: String(args.question) }); sessionSignals.emit('help', id, args.question); }

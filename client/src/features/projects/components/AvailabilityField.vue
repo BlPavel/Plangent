@@ -1,11 +1,11 @@
 <template>
   <div class="availability">
     <label class="caption">{{ label }}</label>
-    <div v-if="!within" class="modes">
+    <div v-if="!within || allowEverywhere" class="modes">
       <label class="mode"><input type="radio" :checked="modelValue.everywhere" @change="set({ everywhere: true })" /> Везде</label>
       <label class="mode"><input type="radio" :checked="!modelValue.everywhere" @change="set({ everywhere: false })" /> Выбранным</label>
     </div>
-    <template v-if="within || !modelValue.everywhere">
+    <template v-if="(within && !allowEverywhere) || !modelValue.everywhere">
       <div v-if="ownFolder && options.length > 1" class="bulk">
         <button type="button" class="bulk-btn" @click="selectAll">Выбрать все</button>
         <button type="button" class="bulk-btn" :disabled="!selected.size" @click="commit(new Set())">Снять выбор</button>
@@ -31,7 +31,8 @@ import { useProjectsStore } from '../stores/projects'
 /** «Доступно для»: everywhere, or chosen groups/projects (a group covers all its projects, also future ones). */
 export interface Availability { everywhere: boolean; targets: string[]; /** groups that give it to their own folder only */ ownOnly?: string[] }
 
-const props = withDefaults(defineProps<{ modelValue: Availability; label?: string; hint?: string; within?: string; ownFolder?: boolean }>(), { label: 'Доступно', hint: '' })
+// `allowEverywhere` keeps the «Везде» choice next to a `within` neighbourhood.
+const props = withDefaults(defineProps<{ modelValue: Availability; label?: string; hint?: string; within?: string; ownFolder?: boolean; allowEverywhere?: boolean }>(), { label: 'Доступно', hint: '' })
 const emit = defineEmits<{ 'update:modelValue': [value: Availability] }>()
 const projectsStore = useProjectsStore()
 

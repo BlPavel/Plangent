@@ -64,6 +64,7 @@
           <div v-else-if="row.type === 'submit_review'" class="card verdict" :class="row.payload.verdict">
             {{ row.payload.verdict === 'approved' ? '✓ Ревью одобрено' : '↻ Нужны исправления' }}
           </div>
+          <slot v-else-if="cards?.includes(row.type)" name="card" :event="row" />
           <div v-else-if="NOTICES[row.type]" class="card notice" :class="row.type">
             <div class="card-label">{{ NOTICES[row.type] }}</div>
             <div class="notice-text">{{ row.payload.summary ?? row.payload.question ?? row.payload.note ?? row.payload.text ?? '' }}</div>
@@ -144,8 +145,10 @@ import AgentSettingsBar from './AgentSettingsBar.vue'
 import { agentSelects, type AgentOptionsSource, type AgentSelect } from '../utils/agent-options'
 import { useChatStore, statusLabel, statusTone, type ChatEvent, type ChatSession } from '../stores/sessions'
 
-const props = defineProps<{ sessionId: string; initialContent?: ContentBlock[]; draftText?: string }>()
+// `cards`: event types the host feature renders itself through the `card` slot (e.g. library proposals).
+const props = defineProps<{ sessionId: string; initialContent?: ContentBlock[]; draftText?: string; cards?: string[] }>()
 const emit = defineEmits<{ session: [id: string] }>()
+defineExpose({ setText: (text: string) => composer.value?.setText(text) })
 const store = useChatStore()
 const agents = useAgentsStore()
 const snap = computed(() => store.snapshots[props.sessionId])

@@ -105,7 +105,7 @@ export interface Run {
   finished_at?: string
 }
 
-export type LibraryItemType = 'skill' | 'command' | 'main' | 'plan-template'
+export type LibraryItemType = 'skill' | 'command' | 'main' | 'plan-template' | 'instruction-guide'
 export type LibraryScope = 'global' | 'project'
 
 export interface LibraryItem {
@@ -127,6 +127,32 @@ export interface LibraryItem {
   agent_filter: string[]
   enabled: boolean
   content?: string
+  created_at: string
+  updated_at: string
+}
+
+/** A library change the librarian agent proposed; the developer applies or rejects it. */
+export type LibraryProposalStatus = 'pending' | 'applied' | 'rejected' | 'stale'
+export interface LibraryProposal {
+  id: string
+  project_id: string
+  session_id: string
+  status: LibraryProposalStatus
+  action: 'create' | 'update'
+  type: 'skill' | 'main' | 'command'
+  slug: string
+  title: string
+  description: string
+  frontmatter: Record<string, unknown>
+  content: string
+  scope: LibraryScope
+  targets: string[]
+  own_only: string[]
+  explanation: string
+  item_id: string | null
+  // The item as it was when proposed: the base of the diff and of the staleness check.
+  snapshot: (LibraryItem & { content: string }) | null
+  applied_item_id: string | null
   created_at: string
   updated_at: string
 }

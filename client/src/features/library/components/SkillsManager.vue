@@ -11,6 +11,7 @@
         >{{ t.label }}</button>
       </div>
       <div class="lib-actions">
+        <slot name="actions" />
         <AppButton variant="ghost" size="sm" :disabled="syncing" @click="doSync">
           {{ syncing ? '...' : '↻ Синк' }}
         </AppButton>
@@ -35,7 +36,7 @@
       <div v-else-if="!store.items.length" class="muted-msg">
         Нет элементов. Нажмите «+ Добавить».
       </div>
-      <div v-for="item in store.items" :key="item.id" class="item-row">
+      <div v-for="item in store.items" :key="item.id" class="item-row" :class="{ fresh: fresh === item.id }">
         <div class="item-main">
           <label class="toggle" :title="item.enabled ? 'Включён' : 'Выключен'">
             <input type="checkbox" :checked="item.enabled" @change="toggleEnabled(item)" />
@@ -87,7 +88,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { onServerEvent } from '@core/api/events'
 import { useLibraryStore } from '../stores/library'
 import { useAppStore } from '@core/stores/app'
 import { useAgentsStore } from '@features/agents'
@@ -126,7 +128,7 @@ const typeOptions = [
 ].filter(t => t.value === '' || availableTypeValues.value.includes(t.value))
 
 function typeLabel(t: LibraryItemType) {
-  return { skill: 'скилл', command: 'команда', main: 'main', 'plan-template': 'шаблон плана' }[t]
+  return { skill: 'скилл', command: 'команда', main: 'main', 'plan-template': 'шаблон плана', 'instruction-guide': 'руководство по инструкциям' }[t]
 }
 
 // A project lists everything that applies to it; the global list (settings) shows every item.
@@ -153,6 +155,17 @@ onMounted(() => {
   agentsStore.load()
   if (!projectsStore.projects.length) projectsStore.load()
 })
+// An applied agent proposal changes the library on the server: show it right away and highlight it for a moment.
+const fresh = ref('')
+let freshTimer: ReturnType<typeof setTimeout> | undefined
+onBeforeUnmount(onServerEvent<{ type: string; item?: LibraryItem }>(event => {
+  if (event.type !== 'library_changed') return
+  void reload()
+  fresh.value = event.item?.id ?? ''
+  clearTimeout(freshTimer)
+  freshTimer = setTimeout(() => { fresh.value = '' }, 4000)
+}))
+onBeforeUnmount(() => clearTimeout(freshTimer))
 watch(() => props.projectId, reload)
 watch(availableTypeValues, (types) => {
   filterType.value = types.length === 1 ? types[0] : ''
@@ -328,6 +341,7 @@ async function save() {
   align-items: center;
   gap: 12px;
 }
+.item-row.fresh { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); transition: box-shadow 0.3s, border-color 0.3s; }
 .item-main { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
 .item-text { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
 .item-title { font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

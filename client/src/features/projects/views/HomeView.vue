@@ -94,7 +94,7 @@
 
       <!-- Tab: Инструкции -->
       <div v-show="activeTab === 'instructions'" class="tab-content instructions-tab">
-        <SkillsManager v-if="currentProject" scope="project" :project-id="currentProject.id" />
+        <InstructionsWorkspace v-if="currentProject" :project-id="currentProject.id" :default-agent-id="projectsStore.agentFor(currentProject)" />
       </div>
 
       <!-- Tab: Интеграции (disabled placeholder) -->
@@ -162,7 +162,7 @@ import FormField from '@shared/ui/FormField.vue'
 import StatusBadge from '@shared/ui/StatusBadge.vue'
 import AppButton from '@shared/ui/AppButton.vue'
 import IconTrash from '@shared/ui/IconTrash.vue'
-import { SkillsManager } from '@features/library'
+import { InstructionsWorkspace } from '@features/library'
 import ProjectFormModal from '../components/ProjectFormModal.vue'
 import GroupProjects from '../components/GroupProjects.vue'
 import SourceView from '../components/SourceView.vue'
@@ -524,7 +524,7 @@ async function deleteTaskCard(t: Task) {
 .placeholder-icon { font-size: 32px; }
 .placeholder-title { font-size: 15px; font-weight: 600; color: var(--text); }
 .placeholder-text { font-size: 13px; }
-.instructions-tab { overflow-y: auto; padding: var(--sp-5) var(--sp-6); }
+.instructions-tab { overflow: hidden; }
 
 .form-field { display: flex; flex-direction: column; gap: 4px; }
 label { font-size: 12px; color: var(--text-muted); }
