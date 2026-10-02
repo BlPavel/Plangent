@@ -6,17 +6,19 @@
 
     <div class="settings-tabs">
       <button class="stab" :class="{ active: tab === 'agents' }" @click="tab = 'agents'">Агенты</button>
+      <button class="stab" :class="{ active: tab === 'connections' }" @click="tab = 'connections'">Подключения</button>
       <button class="stab" :class="{ active: tab === 'skills' }" @click="tab = 'skills'">Скиллы</button>
       <button class="stab" :class="{ active: tab === 'plan-template' }" @click="tab = 'plan-template'">Шаблон плана</button>
       <button class="stab" :class="{ active: tab === 'instruction-guide' }" @click="tab = 'instruction-guide'">Руководство по инструкциям</button>
       <button class="stab" :class="{ active: tab === 'notes' }" @click="tab = 'notes'">Доработки</button>
     </div>
 
+    <div v-if="tab === 'connections'" class="tab-body"><ConnectionsSettings :fix="typeof route.query.fix === 'string' ? route.query.fix : undefined" /></div>
     <!-- Agents -->
     <div v-show="tab === 'agents'" class="tab-body">
       <div class="section-header">
         <span class="section-title">Агенты</span>
-        <AppButton variant="primary" size="sm" @click="openCreate">+ Добавить агента</AppButton>
+        <AppButton variant="primary" size="sm" @click="openCreate()">+ Добавить агента</AppButton>
       </div>
       <p class="hint">Агенты подключаются по ACP (Agent Client Protocol). Plangent сам отвечает на их запросы разрешений, поэтому режимы «без подтверждений» агента не нужны.</p>
 
@@ -103,6 +105,10 @@
       <div class="presets">
         <span class="presets-label">Заполнить как:</span>
         <AppButton v-for="(p, key) in presets" :key="key" variant="ghost" size="sm" type="button" @click="applyPreset(p)">{{ p.name }}</AppButton>
+        <template v-if="!Object.keys(presets).length">
+          <span class="hint">{{ loadingPresets ? 'Загрузка пресетов…' : 'Не удалось загрузить пресеты.' }}</span>
+          <AppButton v-if="!loadingPresets" variant="ghost" size="sm" @click="loadPresets">Повторить</AppButton>
+        </template>
       </div>
 
       <fieldset class="group">
@@ -161,6 +167,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { useAppStore } from '@core/stores/app'
 import { useAgentsStore } from '@features/agents'
 import { useChatStore, modelAndEffort } from '@features/agent-chat'
@@ -172,17 +179,23 @@ import AppSelect from '@shared/ui/AppSelect.vue'
 import AppButton from '@shared/ui/AppButton.vue'
 import IconTrash from '@shared/ui/IconTrash.vue'
 import { InstructionGuideEditor, PlanTemplateEditor, SkillsManager } from '@features/library'
+import ConnectionsSettings from '../components/ConnectionsSettings.vue'
 import ImprovementNotes from '../components/ImprovementNotes.vue'
 
 const appStore = useAppStore()
 const agentsStore = useAgentsStore()
 const chatStore = useChatStore()
 
-const tab = ref<'agents' | 'skills' | 'plan-template' | 'instruction-guide' | 'notes'>('agents')
+type Tab = 'agents' | 'skills' | 'plan-template' | 'instruction-guide' | 'notes' | 'connections'
+// Other screens link straight to a tab, e.g. a docs source's «Изменить пароль» → ?tab=connections&fix=<id>.
+const route = useRoute()
+const tab = ref<Tab>(route.query.tab === 'connections' ? 'connections' : 'agents')
+watch(() => route.query.tab, t => { if (t === 'connections') tab.value = t })
 
 // ── Agents ────────────────────────────────────────────────────────────────────
 
 const presets = ref<Record<string, AgentPreset>>({})
+const loadingPresets = ref(true)
 const showAgentModal = ref(false)
 const editAgent = ref<Agent | null>(null)
 
@@ -352,9 +365,16 @@ watch(() => agentsStore.agents.map(a => a.id), ids => {
   for (const id of ids) if (!chatStore.agentOptions[id]) void chatStore.fetchAgentOptions(id, 'cached')
 }, { immediate: true })
 
-onMounted(async () => {
-  agentsStore.load()
-  presets.value = await api.get<Record<string, AgentPreset>>('/agents/presets')
+async function loadPresets() {
+  loadingPresets.value = true
+  try { presets.value = await api.get<Record<string, AgentPreset>>('/agents/presets') }
+  catch (e) { appStore.toast(String(e), 'error') }
+  finally { loadingPresets.value = false }
+}
+
+onMounted(() => {
+  void agentsStore.load()
+  void loadPresets()
 })
 </script>
 

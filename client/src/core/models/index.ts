@@ -56,6 +56,13 @@ export interface Project {
   created_at: string
   // Sources: groups/projects it is shared with (unless available_everywhere).
   targets?: string[]
+  source_type?: 'folder' | 'docs'
+  connection_id?: string | null
+  docs_config?: Record<string, unknown>
+  docs_selection?: { id: string; include_descendants: boolean; excluded_ids?: string[] }[]
+  sync_status?: 'idle' | 'running' | 'done' | 'error' | 'cancelled'
+  last_sync_at?: string | null
+  sync_stats?: { message?: string; code?: string; confirmation_count?: number; warnings?: string[]; errors?: number; found?: number; downloaded?: number; added?: number; updated?: number; deleted?: number }
   // Open tasks, as listed by GET /projects.
   active_tasks?: number
 }

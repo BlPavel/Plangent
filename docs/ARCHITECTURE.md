@@ -96,3 +96,5 @@ Dependency direction is one-way at the module boundary: infrastructure calls
 core, and core points toward models. Core code must not import HTTP routes,
 terminal sessions, or CLI adapters; runtime integrations are wired from
 `server/index.ts`.
+
+Integrations, authenticated documentation sources and their lifecycle are documented in [INTEGRATIONS.md](INTEGRATIONS.md).

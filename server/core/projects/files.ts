@@ -43,6 +43,8 @@ async function index(root: string): Promise<string[]> {
   return [...dirs, ...files];
 }
 
+export function invalidateFileCache(root: string): void { cache.delete(root); }
+
 function entries(root: string): Promise<string[]> {
   const hit = cache.get(root);
   if (hit && Date.now() - hit.at < TTL) return hit.entries;

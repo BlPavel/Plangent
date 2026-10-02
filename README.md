@@ -33,3 +33,7 @@ Plangent — десктопное приложение для оркестрац
 npm install
 npm run electron:dev
 ```
+
+## Подключения и документация
+
+[Пользовательская инструкция](docs/CONNECTIONS-USER-GUIDE.md).

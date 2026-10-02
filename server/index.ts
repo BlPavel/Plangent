@@ -6,7 +6,9 @@ import { sessionMcpConfig } from './infrastructure/mcp/server';
 import { killProcessTree } from './infrastructure/terminal/process-tree';
 import { shutdownTerminals } from './infrastructure/http/routes/terminals';
 import { createApp } from './infrastructure/http/server';
-import { getDb } from './infrastructure/db/schema';
+import { DATA_DIR, getDb } from './infrastructure/db/schema';
+import { configureSecretVault, DevFileVault, SecretVault } from './infrastructure/secrets';
+import { resetInterruptedDocsSyncs } from './core/docs-sources';
 import { syncAll } from './core/library/syncer';
 
 process.on('uncaughtException', (err) => {
@@ -19,8 +21,10 @@ process.on('unhandledRejection', (reason) => {
 const DEFAULT_PORT = parseInt(process.env.PORT ?? '3001', 10);
 
 /** Starts the local API and returns the port actually assigned by the OS. */
-export async function startServer(port = DEFAULT_PORT): Promise<number> {
+export async function startServer(port = DEFAULT_PORT, vault?: SecretVault): Promise<number> {
+  configureSecretVault(vault ?? new DevFileVault(DATA_DIR));
   getDb();
+  resetInterruptedDocsSyncs();
   initSessions();
   initQueues();
   initTaskFiles();
@@ -36,7 +40,7 @@ export async function startServer(port = DEFAULT_PORT): Promise<number> {
 
   return new Promise((resolve, reject) => {
     server.once('error', reject);
-    server.listen(port, () => {
+    server.listen(port, '127.0.0.1', () => {
       const address = server.address();
       if (!address || typeof address === 'string') {
         reject(new Error('Could not determine the server port'));

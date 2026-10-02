@@ -1,9 +1,11 @@
 <template>
-  <AppModal :model-value="modelValue" :title="title" :confirm-label="editing ? 'Сохранить' : 'Создать'" @update:model-value="$emit('update:modelValue', $event)" @confirm="save">
+  <AppModal :model-value="modelValue" :title="title" :size="kind === 'source' && sourceType === 'docs' ? 'large' : 'default'" :confirm-label="editing ? 'Сохранить' : 'Создать'" @update:model-value="$emit('update:modelValue', $event)" @confirm="save">
     <!-- A source is known only by its key: that is what @ shows. -->
     <template v-if="kind === 'source'">
       <FormField v-model="form.key" label="Имя (для @)" placeholder="ui-kit" hint="Латиница, цифры, «-», «.» и «_». В чате — @ui-kit." />
-      <div class="form-field">
+      <FormField v-model="sourceType" label="Тип справочника" type="select" :disabled="editing" :hint="editing ? 'Тип справочника после создания не меняется.' : DOCS_FORM.type"><option value="folder">Папка</option><option value="docs">Документация</option></FormField>
+      <DocsSourceFields v-if="sourceType === 'docs'" v-model="docsForm" @valid="docsValid = $event" />
+      <div v-else class="form-field">
         <label>Папка</label>
         <FolderPicker v-model="form.repo_path" />
       </div>
@@ -67,6 +69,10 @@ import AppModal from '@shared/ui/AppModal.vue'
 import FormField from '@shared/ui/FormField.vue'
 import FolderPicker from '@shared/ui/FolderPicker.vue'
 import { useProjectsStore } from '../stores/projects'
+import DocsSourceFields from './DocsSourceFields.vue'
+import type { DocsForm } from '@core/models/integrations'
+import { errorText } from '@shared/utils/errorText'
+import { ERRORS as DOCS_ERRORS, FORM as DOCS_FORM } from '../utils/docs-hints'
 import AvailabilityField, { type Availability } from './AvailabilityField.vue'
 
 const props = defineProps<{ modelValue: boolean; kind: ProjectKind; project?: Project | null; groupId?: string | null }>()
@@ -84,6 +90,8 @@ const title = computed(() => {
 
 const blank = () => ({ name: '', key: '', repo_path: '', group_id: '', description: '', default_agent_id: '', dangerous_commands: '' })
 const form = ref(blank())
+const sourceType = ref('folder'), docsValid = ref(true)
+const docsForm = ref<DocsForm>({ connection_id: '', docs_config: {}, docs_selection: [] })
 const availability = ref<Availability>({ everywhere: false, targets: [] })
 
 const suggestedKey = computed(() => form.value.name.toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'my-project')
@@ -92,6 +100,8 @@ watch(() => props.modelValue, open => {
   if (!open) return
   void agentsStore.load()
   const p = props.project
+  sourceType.value = p?.source_type || 'folder'; docsValid.value = true
+  docsForm.value = { connection_id: p?.connection_id || '', docs_config: JSON.parse(JSON.stringify(p?.docs_config || {})), docs_selection: JSON.parse(JSON.stringify(p?.docs_selection || [])) }
   form.value = p ? {
     name: p.name, key: p.key ?? '', repo_path: p.kind === 'group' ? '' : p.repo_path, group_id: p.group_id ?? '',
     description: p.description, default_agent_id: p.default_agent_id ?? '', dangerous_commands: (p.config.dangerous_commands ?? []).join('\n'),
@@ -108,7 +118,12 @@ async function save() {
   const f = form.value
   const kind = props.kind
   if (kind === 'source' ? !f.key.trim() : !f.name.trim()) return appStore.toast(kind === 'source' ? 'Укажите имя' : 'Укажите название', 'error')
-  if (kind !== 'group' && !f.repo_path.trim()) return appStore.toast('Укажите папку', 'error')
+  if (kind === 'source' && sourceType.value === 'docs') {
+    if (!docsForm.value.connection_id) return appStore.toast('Выберите подключение', 'error')
+    if (!Object.keys(docsForm.value.docs_config).length) return appStore.toast(DOCS_FORM.noConfig, 'error')
+    if (!docsValid.value) return appStore.toast(DOCS_FORM.jsonInvalid, 'error')
+  }
+  if (kind !== 'group' && !(kind === 'source' && sourceType.value === 'docs') && !f.repo_path.trim()) return appStore.toast('Укажите папку', 'error')
   const config = {
     ...props.project?.config,
     ...(kind === 'source' ? { available_everywhere: availability.value.everywhere } : {}),
@@ -120,7 +135,7 @@ async function save() {
     name: kind === 'source' ? f.key.trim() : f.name.trim(),
     ...(kind === 'group' ? {} : { key: f.key.trim() || null, repo_path: f.repo_path.trim() }),
     ...(kind === 'project' ? { group_id: f.group_id || null } : {}),
-    ...(kind === 'source' ? { targets: availability.value.targets } : {}),
+    ...(kind === 'source' ? { targets: availability.value.targets, source_type: sourceType.value as 'folder' | 'docs', ...(sourceType.value === 'docs' ? docsForm.value : {}) } : {}),
     description: f.description.trim(),
     default_agent_id: f.default_agent_id || null,
     config,
@@ -130,7 +145,7 @@ async function save() {
     appStore.toast(editing.value ? 'Сохранено' : 'Создано', 'success')
     emit('update:modelValue', false)
     emit('saved', projectsStore.byId(saved.id) ?? saved)
-  } catch (e: unknown) { appStore.toast(String(e), 'error') }
+  } catch (e: unknown) { appStore.toast(errorText(e, kind === 'source' && sourceType.value === 'docs' ? DOCS_ERRORS : []), 'error') }
 }
 </script>
 

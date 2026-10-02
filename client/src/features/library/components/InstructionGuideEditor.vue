@@ -31,8 +31,14 @@
         </AppButton>
         <span class="hint">Начнётся с текста, который действует сейчас.</span>
       </div>
-      <textarea class="text readonly" :value="inherited?.content ?? defaultText" spellcheck="false" readonly />
+      <textarea v-if="inherited" class="text readonly" :value="inherited.content" spellcheck="false" readonly />
     </template>
+
+    <section class="defaults">
+      <h3>Предустановленные инструкции</h3>
+      <p>Встроенное руководство, которое применяется, если своё не задано. Его можно взять за основу с помощью кнопки в редакторе.</p>
+      <textarea class="text readonly" :value="defaultText" aria-label="Предустановленные инструкции" spellcheck="false" readonly />
+    </section>
   </div>
 </template>
 
@@ -120,6 +126,7 @@ async function reset() {
 
 <style scoped>
 .guide-editor { display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+.defaults { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
 .section-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 h3 { margin: 0 0 3px; font-size: 14px; }
 p { margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.45; max-width: 720px; }
