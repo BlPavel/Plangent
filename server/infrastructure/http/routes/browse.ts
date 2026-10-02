@@ -5,8 +5,15 @@ import os from 'os';
 
 export const browseRouter = Router();
 
+// Above a drive root on Windows: the list of drives, so a folder on D: can be reached from C:.
+const DRIVES = '::drives';
+
 browseRouter.get('/', (req: Request, res: Response) => {
   const rawPath = (req.query.path as string) || os.homedir();
+  if (rawPath === DRIVES) {
+    const drives = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map(l => `${l}:\\`).filter(d => { try { return fs.existsSync(d); } catch { return false; } });
+    return res.json({ path: '', parent: null, entries: drives.map(d => ({ name: d, path: d, isDir: true })) });
+  }
   const dirPath = path.resolve(rawPath);
 
   if (!fs.existsSync(dirPath)) {
@@ -24,7 +31,7 @@ browseRouter.get('/', (req: Request, res: Response) => {
       .map(e => ({ name: e.name, isDir: true }))
       .sort((a, b) => a.name.localeCompare(b.name));
 
-    const parent = dirPath !== path.parse(dirPath).root ? path.dirname(dirPath) : null;
+    const parent = dirPath !== path.parse(dirPath).root ? path.dirname(dirPath) : process.platform === 'win32' ? DRIVES : null;
 
     res.json({ path: dirPath, parent, entries });
   } catch {

@@ -105,7 +105,9 @@ export function installUpdate(): void {
     installMac(true);
     app.quit();
   } else {
-    autoUpdater.quitAndInstall(true, true);
+    // Not silent: the installer's own progress window bridges the gap between this window closing
+    // and the new version starting. build/installer.nsh skips its questions and finish page on updates.
+    autoUpdater.quitAndInstall(false, true);
   }
 }
 

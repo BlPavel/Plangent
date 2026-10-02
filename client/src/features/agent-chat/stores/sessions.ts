@@ -9,12 +9,15 @@ export interface ChatSession {
   metadata: Record<string, unknown>; created_at?: string; updated_at?: string;
 }
 export interface ChatPayload {
+  link?: string;
   text?: string; toolCallId?: string; title?: string; status?: string; kind?: string; rawOutput?: unknown;
   content?: { type: string; path?: string; oldText?: string; newText?: string; content?: { text?: string } }[];
   entries?: { status: string; content: string }[];
   availableCommands?: { name: string; description: string }[];
   file?: string; line?: number; severity?: string; message?: string;
   verdict?: string; summary?: string; question?: string; note?: string;
+  /** propose_library_change: the proposal the card shows. */
+  proposal_id?: string;
   /** The user message also carried Plangent's hidden briefing. */
   briefing?: boolean;
 }

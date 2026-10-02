@@ -1,3 +1,4 @@
+import { analysisToolContext, saveAnalystSection } from '../../core/orchestration/analysis-context';
 import { Router } from 'express';
 import { randomBytes, randomUUID } from 'crypto';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -18,6 +19,8 @@ import { getTask } from '../../core/tasks';
 import { getProject } from '../../core/projects';
 import path from 'path';
 
+import { libraryToolContext, libraryToolItem, proposeLibraryChange, type ProposalInput } from '../../core/library/proposals';
+
 const tokens = new Map<string, string>();
 export function sessionMcpConfig(session: AgentSession, http: boolean): McpServer[] {
   const token = randomBytes(32).toString('hex');
@@ -28,9 +31,11 @@ export function sessionMcpConfig(session: AgentSession, http: boolean): McpServe
     env: [{ name: 'ELECTRON_RUN_AS_NODE', value: '1' }, { name: 'PLANGENT_MCP_URL', value: url }, { name: 'PLANGENT_MCP_TOKEN', value: token }] }];
 }
 const tools = plangentTools;
-function allowed(session: AgentSession): PlangentTool[] {
+export function allowed(session: AgentSession): PlangentTool[] {
   if (session.role === 'executor') return session.policy === 'read-only' ? ['request_help', 'report_progress'] : ['complete_step', 'request_help', 'report_progress'];
   if (session.role === 'reviewer') return ['get_review_context', 'add_finding', 'submit_review'];
+  if (session.role === 'analyst') return ['get_analysis', 'save_section'];
+  if (session.role === 'librarian') return ['get_library', 'get_library_item', 'propose_library_change'];
   if (session.role === 'planner') return ['get_plan', 'submit_plan'];
   return [];
 }
@@ -47,7 +52,7 @@ function planResult(name: 'get_plan' | 'submit_plan', session: AgentSession, arg
     const { steps, removed } = submitPlan(task, project.repo_path, String(args.content), !executing);
     return { saved: true, steps, ...(removed.length ? { removedSteps: removed } : {}) };
   }
-  return planningToolContext({ projectName: project.name, taskKey: task.key, taskTitle: task.title ?? undefined,
+  return planningToolContext({ taskId: task.id, repoPath: project.repo_path, projectName: project.name, taskKey: task.key, taskTitle: task.title ?? undefined,
     taskDescription: task.description ?? undefined, planContent: getLatestPlan(task.id)?.content, planTemplate: resolvePlanTemplate(project.id), runHistory: [] });
 }
 export const mcpRouter = Router();
@@ -57,15 +62,28 @@ mcpRouter.post('/', async (req, res) => {
   if (!id) return res.status(401).json({ error: 'Unauthorized' });
   const server = new Server({ name: 'Plangent', version: '1.0.0' }, { capabilities: { tools: {} } });
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: allowed(getSession(id)).map(name => ({ name, description: tools[name].description,
-    inputSchema: { type: 'object' as const, properties: tools[name].fields, required: Object.keys(tools[name].fields), additionalProperties: false } })) }));
+    inputSchema: { type: 'object' as const, properties: tools[name].fields, required: name === 'save_section' ? ['title', 'description'] : Object.keys(tools[name].fields), additionalProperties: false } })) }));
   server.setRequestHandler(CallToolRequestSchema, async request => {
     const session = getSession(id);
     const name = request.params.name as keyof typeof tools;
     if (!allowed(session).includes(name)) throw new Error('Tool not allowed for this role');
     if (!['thinking', 'waiting'].includes(session.status)) throw new Error('Session has no active turn');
     const args = request.params.arguments ?? {};
-    for (const field of Object.keys(tools[name].fields)) {
+    for (const field of ['save_section', 'propose_library_change'].includes(name) ? [] : Object.keys(tools[name].fields)) {
       if (field === 'line' ? !Number.isInteger(args[field]) || Number(args[field]) < 1 : typeof args[field] !== 'string' || !String(args[field]).trim()) throw new Error(`Invalid ${field}`);
+    }
+    if (name === 'get_library' || name === 'get_library_item' || name === 'propose_library_change') {
+      try {
+        if (name === 'propose_library_change' && (!args.proposal || typeof args.proposal !== 'object' || Array.isArray(args.proposal))) throw new Error('Invalid proposal');
+        const result = name === 'get_library' ? libraryToolContext(session.project_id)
+          : name === 'get_library_item' ? libraryToolItem(session.project_id, String(args.id))
+          : proposeLibraryChange(id, args.proposal as unknown as ProposalInput);
+        if (name === 'propose_library_change') {
+          const proposal = result as ReturnType<typeof proposeLibraryChange>;
+          addEvent(id, name, { summary: proposal.explanation, proposal_id: proposal.id });
+        }
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+      } catch (e) { return { isError: true, content: [{ type: 'text', text: e instanceof Error ? e.message : String(e) }] }; }
     }
     if (name === 'complete_step') { updateSession(id, { status: 'complete', reason: String(args.summary) }); sessionSignals.emit('complete', id, args.summary); }
     if (name === 'request_help') { updateSession(id, { status: 'waiting', reason: String(args.question) }); sessionSignals.emit('help', id, args.question); }
@@ -77,6 +95,16 @@ mcpRouter.post('/', async (req, res) => {
     if (name === 'submit_review') {
       if (!['approved', 'changes_requested'].includes(String(args.verdict))) throw new Error('Invalid verdict');
       updateSession(id, { status: 'complete', reason: String(args.verdict) }); sessionSignals.emit('review', id, args.verdict);
+    }
+    if (name === 'get_analysis' || name === 'save_section') {
+      try {
+        const { task, project } = planTask(session);
+        const section = name === 'save_section' ? saveAnalystSection(task.id, args) : null;
+        const result = section ? { saved: true, section: { id: section.id, slug: section.slug, title: section.title, kind: section.kind, author: section.author }, link: '[[' + section.slug + ']]' }
+          : analysisToolContext(task.id, project.repo_path, task.key);
+        if (section) addEvent(id, name, { summary: 'Раздел анализа сохранён: ' + section.title, link: '[[' + section.slug + ']]' });
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+      } catch (e) { return { isError: true, content: [{ type: 'text', text: e instanceof Error ? e.message : String(e) }] }; }
     }
     if (name === 'get_plan' || name === 'submit_plan') {
       // Format problems go back to the agent as a tool error it can fix, not as a protocol failure.

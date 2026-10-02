@@ -3,6 +3,13 @@ import { getLatestPlan, listPlans, createPlan, updatePlan, parsePlanSteps, markS
 import { getTask } from '../../../core/tasks';
 
 export const plansRouter = Router({ mergeParams: true });
+plansRouter.use((req, res, next) => {
+  const task = getTask(req.params.taskId);
+  if (!task || task.project_id !== req.params.projectId) return res.status(404).json({ error: 'Task not found' });
+  if (!['GET', 'HEAD'].includes(req.method) && task.status === 'done')
+    return res.status(409).json({ error: 'Завершённая задача доступна только для чтения' });
+  next();
+});
 
 plansRouter.get('/', (req: Request, res: Response) => {
   const t = getTask(req.params.taskId);

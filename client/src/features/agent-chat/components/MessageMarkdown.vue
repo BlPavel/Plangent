@@ -1,16 +1,23 @@
 <template>
-  <div class="md" :class="{ 'md-typing': live || catching }" v-html="html" />
+  <div class="md" :class="{ 'md-typing': live || catching }" v-html="html" @click="openDocument" />
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, inject } from 'vue'
+import { DocumentLinksKey } from '@shared/composables/documentLinks'
 import { useSmoothText } from '@shared/composables/useSmoothText'
 import { renderMarkdown } from '../utils/markdown'
 
 /** Markdown message body; text that grows after mount is typed out smoothly. */
 const props = defineProps<{ text: string; live?: boolean }>()
 const { shown, catching } = useSmoothText(() => props.text)
-const html = computed(() => renderMarkdown(shown.value))
+const links = inject(DocumentLinksKey, undefined)
+const html = computed(() => renderMarkdown(shown.value, links))
+function openDocument(event: MouseEvent) {
+  const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-analysis-target]')
+  const target = button?.dataset.analysisTarget
+  if (target && links?.exists(target)) links.open(target)
+}
 </script>
 
 <style scoped>

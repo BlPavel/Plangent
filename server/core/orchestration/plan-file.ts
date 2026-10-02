@@ -1,4 +1,5 @@
 import fs from 'fs';
+import { validateAnalysisLinks } from './analysis-context';
 import path from 'path';
 import { Task, Plan } from '../../models';
 import { createPlan, updatePlan, assignMissingIds, parsePlanSteps, getLatestPlan, renumberSteps } from './plans';
@@ -6,7 +7,8 @@ import { broadcast } from '../shared/events';
 import { remapQueuePoints } from './queue';
 import { repairMojibake } from './encoding';
 
-const PLANGENT_DIR = '.plangent';
+import { getTaskDirectory, getPlanFilePath, migratePlanFile, deleteTaskDirectory } from './task-files';
+export { getPlanFilePath } from './task-files';
 const PLAN_FILE_HINT = '<!-- Plangent: строки "- [ ] ..." - это шаги очереди. Не удаляйте скобки [ ]. -->';
 
 const watchers = new Map<string, fs.FSWatcher>();
@@ -22,9 +24,6 @@ export function setPlanSyncListener(fn: PlanSyncListener): void {
   planSyncListener = fn;
 }
 
-export function getPlanFilePath(repoPath: string, taskKey: string): string {
-  return path.join(repoPath, PLANGENT_DIR, `${taskKey}.plan.md`);
-}
 
 function ensurePlanFileHint(content: string): string {
   if (content.includes(PLAN_FILE_HINT)) return content;
@@ -52,9 +51,10 @@ function cleanDiskPlan(content: string): string {
   }).join('\n');
 }
 
-// Write plan content to .plangent/<key>.plan.md, assigning missing ids first.
+// Write plan content to .plangent/<key>/plan.md, assigning missing ids first.
 // Returns the (possibly modified) content written to disk.
 export function materializePlanFile(task: Task, plan: Plan, repoPath: string): string {
+  migratePlanFile(repoPath, task.key);
   const filePath = getPlanFilePath(repoPath, task.key);
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
 
@@ -82,7 +82,7 @@ function isPlangentWrite(filePath: string): boolean {
 
 // Watch the plan file for changes and sync them back to DB.
 //
-// We watch the .plangent/ DIRECTORY (filtering by filename) rather than the file
+// We watch the task DIRECTORY (filtering by filename) rather than the file
 // itself: agent file tools (and editors) often save atomically via a temp file +
 // rename, which silently kills a file-level fs.watch after the first change — that
 // caused only the first checked step to ever sync. A directory watch survives those
@@ -92,11 +92,11 @@ export function watchPlanFile(
   planId: string,
   repoPath: string,
 ): void {
-  const dir = path.join(repoPath, PLANGENT_DIR);
+  const dir = getTaskDirectory(repoPath, task.key);
   const filePath = getPlanFilePath(repoPath, task.key);
-  const fileName = `${task.key}.plan.md`;
+  const fileName = 'plan.md';
   if (!fs.existsSync(dir)) return;
-  stopWatchPlanFile(task.key);
+  stopWatchPlanFile(task.id);
 
   let debounce: NodeJS.Timeout | null = null;
 
@@ -135,7 +135,7 @@ export function watchPlanFile(
         type: 'plan_updated',
         taskId: task.id,
         content,
-        steps: steps.map(s => ({ id: s.id, done: s.done, text: s.text, parallelGroup: s.parallelGroup })),
+        steps: steps.map(s => ({ id: s.id, done: s.done, text: s.text, analysisLinks: s.analysisLinks, parallelGroup: s.parallelGroup })),
       });
 
       // Let the orchestrator react (auto-complete finished sessions).
@@ -143,7 +143,7 @@ export function watchPlanFile(
     }, 300);
   });
 
-  watchers.set(task.key, watcher);
+  watchers.set(task.id, watcher);
 }
 
 // Add .plangent/ to .git/info/exclude so plan files never appear in git status.
@@ -163,19 +163,19 @@ function ensureGitExclude(repoPath: string): void {
 
 const dirWatchers = new Map<string, fs.FSWatcher>();
 
-// Watch .plangent/ directory for the first creation of <key>.plan.md by an agent.
+// Watch the task directory for the first creation of plan.md by an agent.
 // On appearance: ingests into DB, assigns ids, broadcasts, then hands off to watchPlanFile.
 export function watchPlanDirForCreate(task: Task, repoPath: string): void {
-  const dir = path.join(repoPath, PLANGENT_DIR);
+  const dir = getTaskDirectory(repoPath, task.key);
   fs.mkdirSync(dir, { recursive: true });
   ensureGitExclude(repoPath);
 
   const planFilePath = getPlanFilePath(repoPath, task.key);
-  const fileName = `${task.key}.plan.md`;
+  const fileName = 'plan.md';
 
   // Stop any previous dir watcher for this task
-  const prev = dirWatchers.get(task.key);
-  if (prev) { prev.close(); dirWatchers.delete(task.key); }
+  const prev = dirWatchers.get(task.id);
+  if (prev) { prev.close(); dirWatchers.delete(task.id); }
 
   let debounce: NodeJS.Timeout | null = null;
 
@@ -185,8 +185,8 @@ export function watchPlanDirForCreate(task: Task, repoPath: string): void {
     try { content = cleanDiskPlan(fs.readFileSync(planFilePath, 'utf-8')); } catch { return; }
     if (!content.trim()) return;
 
-    const w = dirWatchers.get(task.key);
-    if (w) { w.close(); dirWatchers.delete(task.key); }
+    const w = dirWatchers.get(task.id);
+    if (w) { w.close(); dirWatchers.delete(task.id); }
 
     const { content: withIds } = assignMissingIds(content);
     const withHint = ensurePlanFileHint(withIds);
@@ -200,7 +200,7 @@ export function watchPlanDirForCreate(task: Task, repoPath: string): void {
       type: 'plan_updated',
       taskId: task.id,
       content: withHint,
-      steps: steps.map(s => ({ id: s.id, done: s.done, text: s.text, parallelGroup: s.parallelGroup })),
+      steps: steps.map(s => ({ id: s.id, done: s.done, text: s.text, analysisLinks: s.analysisLinks, parallelGroup: s.parallelGroup })),
     });
     planSyncListener?.(task.id);
 
@@ -213,7 +213,7 @@ export function watchPlanDirForCreate(task: Task, repoPath: string): void {
     debounce = setTimeout(checkAndIngest, 400);
   });
 
-  dirWatchers.set(task.key, watcher);
+  dirWatchers.set(task.id, watcher);
 }
 
 /**
@@ -221,6 +221,7 @@ export function watchPlanDirForCreate(task: Task, repoPath: string): void {
  * the plan file. Ids are Plangent's, so ones the agent invented are dropped and renumbered.
  */
 export function submitPlan(task: Task, repoPath: string, content: string, renumber: boolean): { steps: string[]; removed: string[] } {
+  validateAnalysisLinks(task.id, content);
   const previous = getLatestPlan(task.id);
   const known = new Set(parsePlanSteps(previous?.content ?? '').map(s => s.id?.toLowerCase()).filter(Boolean));
   let cleaned = content.replace(/\r\n/g, '\n').split('\n')
@@ -234,8 +235,8 @@ export function submitPlan(task: Task, repoPath: string, content: string, renumb
   if (renumber) ({ content: cleaned, idMap } = renumberSteps(cleaned));
   remapQueuePoints(task.id, idMap);
 
-  const dirWatcher = dirWatchers.get(task.key);
-  if (dirWatcher) { dirWatcher.close(); dirWatchers.delete(task.key); }
+  const dirWatcher = dirWatchers.get(task.id);
+  if (dirWatcher) { dirWatcher.close(); dirWatchers.delete(task.id); }
   ensureGitExclude(repoPath);
   const plan = previous ? updatePlan(previous.id, cleaned)! : createPlan({ task_id: task.id, content: cleaned });
   const written = materializePlanFile(task, plan, repoPath);
@@ -243,21 +244,19 @@ export function submitPlan(task: Task, repoPath: string, content: string, renumb
 
   const steps = parsePlanSteps(written);
   broadcast({ type: 'plan_updated', taskId: task.id, content: written, idMap,
-    steps: steps.map(s => ({ id: s.id, done: s.done, text: s.text, parallelGroup: s.parallelGroup })) });
+    steps: steps.map(s => ({ id: s.id, done: s.done, text: s.text, analysisLinks: s.analysisLinks, parallelGroup: s.parallelGroup })) });
   return { steps: steps.map(s => `(${s.id}) ${s.text}`), removed };
 }
 
-export function stopWatchPlanFile(taskKey: string): void {
-  const w = watchers.get(taskKey);
-  if (w) { w.close(); watchers.delete(taskKey); }
+export function stopWatchPlanFile(taskId: string): void {
+  const w = watchers.get(taskId);
+  if (w) { w.close(); watchers.delete(taskId); }
 }
 
 export function deletePlanFile(task: Task, repoPath: string): void {
-  stopWatchPlanFile(task.key);
-  const filePath = getPlanFilePath(repoPath, task.key);
-  try {
-    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-    const dir = path.dirname(filePath);
-    if (fs.existsSync(dir) && fs.readdirSync(dir).length === 0) fs.rmdirSync(dir);
-  } catch { /* ignore */ }
+  stopWatchPlanFile(task.id);
+  migratePlanFile(repoPath, task.key);
+  const watcher = dirWatchers.get(task.id);
+  if (watcher) { watcher.close(); dirWatchers.delete(task.id); }
+  deleteTaskDirectory(task, repoPath);
 }

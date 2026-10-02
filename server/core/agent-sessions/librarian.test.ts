@@ -1,0 +1,127 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { once } from 'node:events';
+import express from 'express';
+import { EventEmitter } from 'node:events';
+import type { WebSocket } from 'ws';
+
+test('librarian HTTP and MCP workflow keeps files read-only and briefs the first message', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'plangent-librarian-'));
+  const cwd = process.cwd(), mock = path.resolve('scripts/mock-acp-agent.mjs');
+  process.chdir(root);
+  process.env.PLANGENT_DATA_DIR = path.join(root, 'data');
+  const { getDb } = await import('../../infrastructure/db/schema');
+  const sessions = await import('./sessions');
+  const host = await import('./acp-host');
+  const { createAgent } = await import('../agents');
+  const { createProject } = await import('../projects');
+  const { permissionDecision } = await import('./permissions');
+  const { isPlangentToolCall } = await import('./plangent-tools');
+  const { mcpRouter, sessionMcpConfig, allowed } = await import('../../infrastructure/mcp/server');
+  const { libraryRouter } = await import('../../infrastructure/http/routes/library');
+  const { agentSessionsRouter } = await import('../../infrastructure/http/routes/agent-sessions');
+  const { buildLibrarianPrompt } = await import('../orchestration/prompts');
+  const { addEventsClient } = await import('../shared/events');
+  sessions.initSessions();
+  const { killProcessTree } = await import('../../infrastructure/terminal/process-tree');
+  host.configureSessionHost({ mcp: () => [], terminate: killProcessTree });
+  const events: Record<string, unknown>[] = [];
+  const ws = Object.assign(new EventEmitter(), { readyState: 1, send: (data: string) => events.push(JSON.parse(data)) });
+  addEventsClient(ws as unknown as WebSocket);
+  const agent = createAgent({ name: 'Mock', command: process.execPath, acp_command: process.execPath, acp_args: [mock] });
+  const group = createProject({ name: 'Group', kind: 'group' });
+  const project = createProject({ name: 'Project', repo_path: path.join(root, 'project'), group_id: group.id });
+  const app = express();
+  app.use(express.json());
+  app.use('/sessions', agentSessionsRouter);
+  app.use('/library', libraryRouter);
+  app.use('/mcp', mcpRouter);
+  const server = app.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const base = 'http://127.0.0.1:' + (server.address() as { port: number }).port;
+  process.env.PLANGENT_URL = base;
+  const json = async (url: string, body: unknown, method = 'POST') => fetch(base + url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  let id = '';
+  try {
+    const created = await json('/sessions', { project_id: project.id, agent_id: agent.id, role: 'librarian', policy: 'allow-all' });
+    assert.equal(created.status, 201);
+    const session = await created.json() as { id: string; role: string; policy: string };
+    id = session.id;
+    assert.equal(session.role, 'librarian');
+    assert.equal(session.policy, 'read-only');
+    assert.deepEqual(allowed(sessions.getSession(id)), ['get_library', 'get_library_item', 'propose_library_change']);
+    for (const role of ['chat', 'analyst', 'planner', 'executor', 'reviewer'] as const)
+      assert.ok(!allowed({ ...sessions.getSession(id), role }).includes('get_library'));
+    assert.equal((await json('/sessions/' + id, { policy: 'allow-all' }, 'PATCH')).status, 400);
+    assert.equal((await json('/sessions', { project_id: project.id, agent_id: agent.id, role: 'executor' })).status, 400);
+    assert.equal(permissionDecision('read-only', { toolCall: { toolCallId: 'edit', kind: 'edit', title: 'write' }, options: [] } as never), 'deny');
+    const config = sessionMcpConfig(sessions.getSession(id), true)[0] as { headers: { name: string; value: string }[] };
+    const call = async (name: string, args: unknown = {}, method = 'tools/call') => {
+      const response = await fetch(base + '/mcp', { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', ...Object.fromEntries(config.headers.map(h => [h.name, h.value])) },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params: method === 'tools/list' ? {} : { name, arguments: args } }) });
+      return await response.json() as { error?: unknown; result: { isError?: boolean; content: { text: string }[]; tools?: { name: string }[] } };
+    };
+    const tools = await call('', {}, 'tools/list');
+    assert.deepEqual(tools.result.tools?.map(t => t.name), ['get_library', 'get_library_item', 'propose_library_change']);
+    await host.sendPrompt(id, [{ type: 'text', text: 'Create a store testing skill' }]);
+    const untilReady = async () => {
+      const deadline = Date.now() + 10_000;
+      while (sessions.getSession(id).status !== 'ready') {
+        if (Date.now() > deadline) throw new Error('Agent timed out');
+        await new Promise(r => setTimeout(r, 25));
+      }
+    };
+    await untilReady();
+    assert.equal(sessions.history(id).find(e => e.type === 'user')?.payload.briefing, true);
+    assert.equal(sessions.history(id).find(e => e.type === 'user')?.payload.text, 'Create a store testing skill');
+    await host.sendPrompt(id, [{ type: 'text', text: 'Second message' }]);
+    await untilReady();
+    assert.equal(sessions.history(id).filter(e => e.type === 'user')[1].payload.briefing, undefined);
+    const briefing = buildLibrarianPrompt(project.name);
+    assert.match(briefing, /Start by calling get_library/);
+    assert.match(briefing, /propose_library_change/);
+    sessions.updateSession(id, { status: 'thinking' });
+    const catalog = JSON.parse((await call('get_library')).result.content[0].text);
+    assert.ok(catalog.guide);
+    assert.equal(catalog.levels.length, 3);
+    const invalid = await call('propose_library_change', { proposal: { action: 'wrong' } });
+    assert.equal(invalid.result.isError, true);
+    const input = { action: 'create', type: 'skill', slug: 'store-testing', title: 'Store tests', description: 'Apply when testing stores', content: 'Use the project conventions.', explanation: 'A focused testing skill' };
+    assert.ok(isPlangentToolCall({ title: JSON.stringify({ proposal: input }), kind: 'other', rawInput: { proposal: input } }));
+    const result = await call('propose_library_change', { proposal: input });
+    assert.ok(!result.result.isError);
+    const proposal = JSON.parse(result.result.content[0].text);
+    assert.ok(sessions.history(id).some(e => e.type === 'propose_library_change' && e.payload.proposal_id === proposal.id));
+    assert.ok(events.some(e => e.type === 'library_proposal'));
+    const list = await fetch(base + '/library/proposals?sessionId=' + id);
+    assert.equal((await list.json() as unknown[]).length, 1);
+    assert.deepEqual(await (await fetch(base + '/library?forProject=' + project.id)).json(), []);
+    const appliedResponse = await json('/library/proposals/' + proposal.id + '/apply', {});
+    assert.equal(appliedResponse.status, 200);
+    const item = await appliedResponse.json() as { id: string };
+    assert.ok(events.some(e => e.type === 'library_changed'));
+    const content = await call('get_library_item', { id: item.id });
+    assert.equal(JSON.parse(content.result.content[0].text).content, input.content);
+    assert.equal((await (await fetch(base + '/library?forProject=' + project.id)).json() as unknown[]).length, 1);
+    assert.ok(fs.existsSync(path.join(project.repo_path, '.claude/skills/plangent-store-testing/SKILL.md')));
+    assert.equal((await json('/library/proposals/' + proposal.id + '/apply', {})).status, 409);
+    const rejected = JSON.parse((await call('propose_library_change', { proposal: { ...input, slug: 'reject-this' } })).result.content[0].text);
+    assert.equal((await json('/library/proposals/' + rejected.id + '/reject', {})).status, 200);
+    assert.equal((await json('/library/proposals/' + rejected.id + '/apply', {})).status, 409);
+    const denied = await call('submit_plan', { content: '- [ ] forbidden' });
+    assert.ok(denied.error || denied.result?.isError);
+    const invalidTarget = await call('get_library_item', { id: 'missing' });
+    assert.equal(invalidTarget.result.isError, true);
+  } finally {
+    if (id) await host.closeSession(id);
+    ws.emit('close');
+    await new Promise<void>(resolve => server.close(() => resolve()));
+    getDb().close();
+    process.chdir(cwd);
+    delete process.env.PLANGENT_URL;
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

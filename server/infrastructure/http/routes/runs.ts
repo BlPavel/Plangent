@@ -1,3 +1,4 @@
+import { getPlanFilePath } from '../../../core/orchestration/task-files';
 import { Router, Request, Response } from 'express';
 import { listRuns, getRun, createRun, updateRun, addCompletedStep, finishRun } from '../../../core/runs';
 import { getTask } from '../../../core/tasks';
@@ -8,7 +9,7 @@ import { resolvePlanTemplate } from '../../../core/library/plan-template';
 import { buildPrompt, EXECUTION_REPORT } from '../../../core/orchestration/prompts';
 import { createSession as createChat, listSessions as listChats, getSession as getChat } from '../../../core/agent-sessions/sessions';
 import { sendPrompt, closeSession, startSession } from '../../../core/agent-sessions/acp-host';
-import { getPlanFilePath, materializePlanFile, watchPlanFile, watchPlanDirForCreate } from '../../../core/orchestration/plan-file';
+import { materializePlanFile, watchPlanFile, watchPlanDirForCreate } from '../../../core/orchestration/plan-file';
 
 export const runsRouter = Router({ mergeParams: true });
 
@@ -32,7 +33,8 @@ runsRouter.post('/', async (req: Request, res: Response) => {
   if (!project) return res.status(404).json({ error: 'Project not found' });
 
   const task = getTask(taskId);
-  if (!task) return res.status(404).json({ error: 'Task not found' });
+  if (!task || task.project_id !== projectId) return res.status(404).json({ error: 'Task not found' });
+  if (task.status === 'done') return res.status(409).json({ error: 'Завершённая задача доступна только для чтения' });
 
   const agentId: string = req.body.agent_id ?? project.default_agent_id ?? '';
   const baseAgent = getAgent(agentId);
@@ -43,13 +45,14 @@ runsRouter.post('/', async (req: Request, res: Response) => {
     reasoning_effort: req.body.reasoning_effort || baseAgent.reasoning_effort,
   };
 
-  const purpose: 'plan' | 'execute' | 'preflight' =
-    req.body.purpose === 'plan' ? 'plan' : req.body.purpose === 'preflight' ? 'preflight' : 'execute';
+  const purpose: 'analysis' | 'plan' | 'execute' | 'preflight' =
+    req.body.purpose === 'analysis' ? 'analysis' : req.body.purpose === 'plan' ? 'plan' : req.body.purpose === 'preflight' ? 'preflight' : 'execute';
   const latestPlan = getLatestPlan(task.id);
   const previousRuns = listRuns(task.id);
   const planFilePath = getPlanFilePath(project.repo_path, task.key);
 
   const prompt = buildPrompt({
+    taskId: task.id, repoPath: project.repo_path,
     projectName: project.name,
     taskKey: task.key,
     taskTitle: task.title ?? undefined,
@@ -77,11 +80,11 @@ runsRouter.post('/', async (req: Request, res: Response) => {
   }
 
   try {
-    if (purpose === 'plan') {
+    if (purpose === 'plan' || purpose === 'analysis') {
       // Nothing is sent yet: the briefing goes out, hidden, with the developer's first message.
       const { mode, config } = req.body;
-      const chat = createChat({ project_id: projectId, task_id: taskId, run_id: run.id, agent_id: agent.id, role: 'planner', policy: 'read-only',
-        model: agent.model, title: task.key + ' · Планирование', metadata: { briefing: prompt, reasoningEffort: agent.reasoning_effort,
+      const chat = createChat({ project_id: projectId, task_id: taskId, run_id: run.id, agent_id: agent.id, role: purpose === 'analysis' ? 'analyst' : 'planner', policy: 'read-only',
+        model: agent.model, title: task.key + (purpose === 'analysis' ? ' · Анализ' : ' · Планирование'), metadata: { briefing: prompt, reasoningEffort: agent.reasoning_effort,
           ...(typeof mode === 'string' && mode ? { preferredMode: mode } : {}),
           ...(config && typeof config === 'object' ? { preferredConfig: Object.fromEntries(Object.entries(config).map(([k, v]) => [k, String(v)])) } : {}) } });
       void startSession(chat.id).catch(() => {});

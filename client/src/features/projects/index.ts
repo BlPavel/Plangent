@@ -1,2 +1,5 @@
 export { projectRoutes } from './routes'
 export { useProjectsStore } from './stores/projects'
+export { default as ProjectTree } from './components/ProjectTree.vue'
+export { default as ProjectFormModal } from './components/ProjectFormModal.vue'
+export { default as AvailabilityField, type Availability } from './components/AvailabilityField.vue'

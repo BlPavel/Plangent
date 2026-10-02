@@ -8,6 +8,7 @@
       <button class="stab" :class="{ active: tab === 'agents' }" @click="tab = 'agents'">Агенты</button>
       <button class="stab" :class="{ active: tab === 'skills' }" @click="tab = 'skills'">Скиллы</button>
       <button class="stab" :class="{ active: tab === 'plan-template' }" @click="tab = 'plan-template'">Шаблон плана</button>
+      <button class="stab" :class="{ active: tab === 'instruction-guide' }" @click="tab = 'instruction-guide'">Руководство по инструкциям</button>
       <button class="stab" :class="{ active: tab === 'notes' }" @click="tab = 'notes'">Доработки</button>
     </div>
 
@@ -78,6 +79,12 @@
     <div v-show="tab === 'plan-template'" class="tab-body">
       <p class="hint">Глобальный шаблон применяется ко всем проектам, если проект не переопределил его в своих инструкциях.</p>
       <PlanTemplateEditor scope="global" />
+    </div>
+
+    <!-- Instruction authoring guide (global) -->
+    <div v-show="tab === 'instruction-guide'" class="tab-body">
+      <p class="hint">Глобальное руководство действует во всех проектах, если проект или группа не переопределили его во вкладке «Инструкции» → «Руководство для агента».</p>
+      <InstructionGuideEditor scope="global" />
     </div>
 
     <!-- Personal improvement notes -->
@@ -164,14 +171,14 @@ import FormField from '@shared/ui/FormField.vue'
 import AppSelect from '@shared/ui/AppSelect.vue'
 import AppButton from '@shared/ui/AppButton.vue'
 import IconTrash from '@shared/ui/IconTrash.vue'
-import { PlanTemplateEditor, SkillsManager } from '@features/library'
+import { InstructionGuideEditor, PlanTemplateEditor, SkillsManager } from '@features/library'
 import ImprovementNotes from '../components/ImprovementNotes.vue'
 
 const appStore = useAppStore()
 const agentsStore = useAgentsStore()
 const chatStore = useChatStore()
 
-const tab = ref<'agents' | 'skills' | 'plan-template' | 'notes'>('agents')
+const tab = ref<'agents' | 'skills' | 'plan-template' | 'instruction-guide' | 'notes'>('agents')
 
 // ── Agents ────────────────────────────────────────────────────────────────────
 

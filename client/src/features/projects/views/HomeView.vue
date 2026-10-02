@@ -4,15 +4,23 @@
       <p>Выберите проект или создайте новый</p>
     </div>
 
+    <SourceView v-else-if="currentProject.kind === 'source'" :source="currentProject" @edit="showProjectModal = true" @delete="deleteProject" />
+
     <div v-else class="project-area">
-      <!-- Project header -->
+      <!-- Project / group header -->
       <div class="project-header app-drag">
         <div class="project-title">
-          <h1>{{ currentProject.name }}</h1>
-          <span class="repo-path">{{ currentProject.repo_path }}</span>
+          <h1><span class="title-icon">{{ isGroup ? '🗂' : '📁' }}</span>{{ currentProject.name }}</h1>
+          <span v-if="isGroup" class="repo-path">
+            {{ members.length ? `Проекты: ${members.map(m => m.name).join(', ')}` : 'В группе пока нет проектов — добавьте их на вкладке «Проекты»' }}
+          </span>
+          <span v-else class="repo-path">
+            <button v-if="group" class="crumb app-no-drag" title="Открыть группу" @click="appStore.currentProject = group">🗂 {{ group.name }} ›</button>
+            <code class="project-key">@{{ currentProject.key }}</code> {{ currentProject.repo_path }}
+          </span>
         </div>
         <div class="project-header-actions">
-          <AppButton variant="ghost" size="sm" @click="openEditProject">Настройки проекта</AppButton>
+          <AppButton variant="ghost" size="sm" @click="showProjectModal = true">{{ isGroup ? 'Настройки группы' : 'Настройки проекта' }}</AppButton>
           <AppButton variant="danger-ghost" size="sm" @click="deleteProject">Удалить</AppButton>
         </div>
       </div>
@@ -29,24 +37,44 @@
         >{{ t.label }}</button>
       </div>
 
-      <div v-show="activeTab === 'agents'" class="tab-content"><AgentChats :project-id="currentProject.id" :default-agent-id="currentProject.default_agent_id" /></div>
+      <div v-show="activeTab === 'agents'" class="tab-content"><AgentChats :project-id="currentProject.id" :default-agent-id="projectsStore.agentFor(currentProject)" /></div>
+      <div v-if="isGroup" v-show="activeTab === 'projects'" class="tab-content"><GroupProjects :group="currentProject" /></div>
       <div v-show="activeTab === 'terminal'" class="tab-content"><TerminalsView :project-id="currentProject.id" :visible="activeTab === 'terminal'" /></div>
       <div v-show="activeTab === 'tasks'" class="tab-content tasks-tab">
         <div class="task-actions">
           <AppButton variant="primary" @click="openCreateTask">+ Задача</AppButton>
+          <template v-if="isGroup">
+            <FormField v-model="taskFilter.project" type="select" class="task-filter">
+              <option value="">Все проекты</option>
+              <option value="group">Только задачи группы</option>
+              <option v-for="m in members" :key="m.id" :value="m.id">📁 {{ m.name }}</option>
+            </FormField>
+            <FormField v-model="taskFilter.status" type="select" class="task-filter">
+              <option value="">Любой статус</option>
+              <option value="active">Активные</option>
+              <option value="done">Выполненные</option>
+            </FormField>
+            <input v-model="taskFilter.text" class="task-search" placeholder="Ключ или название…" />
+          </template>
         </div>
         <div class="task-list">
           <div v-if="!tasks.length" class="empty-state small">
             Нет задач. Создайте первую.
           </div>
+          <div v-else-if="!shownTasks.length" class="empty-state small">
+            Под фильтр ничего не подходит.
+          </div>
           <div
-            v-for="t in tasks"
+            v-for="t in shownTasks"
             :key="t.id"
             class="task-card"
             @click="openTask(t)"
           >
             <code class="task-key">{{ t.key }}</code>
             <span class="task-title">{{ t.title || '—' }}</span>
+            <span v-if="isGroup" class="task-owner" :class="{ own: t.project_id === currentProject.id }">
+              {{ t.project_id === currentProject.id ? 'группа' : ownerName(t) }}
+            </span>
             <StatusBadge :status="t.status" />
             <button v-if="t.status !== 'done'" class="task-act task-done" title="Завершить задачу" @click.stop="markDoneTaskCard(t)">
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3.2 3.2L13 5" /></svg>
@@ -54,6 +82,9 @@
             <button v-else class="task-act task-reopen" title="Вернуть в работу" @click.stop="reopenTaskCard(t)">
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 8a5.5 5.5 0 1 0 1.6-3.9" /><path d="M2.5 2.5v3h3" /></svg>
             </button>
+            <span v-if="moveTargets(t).length" class="task-menu" @click.stop>
+              <AppMenu :items="moveMenu(t)" size="xs" title="Переместить" />
+            </span>
             <button class="task-act task-del" title="Удалить задачу" @click.stop="deleteTaskCard(t)">
               <IconTrash />
             </button>
@@ -63,7 +94,7 @@
 
       <!-- Tab: Инструкции -->
       <div v-show="activeTab === 'instructions'" class="tab-content instructions-tab">
-        <SkillsManager v-if="currentProject" scope="project" :project-id="currentProject.id" />
+        <InstructionsWorkspace v-if="currentProject" :project-id="currentProject.id" :default-agent-id="projectsStore.agentFor(currentProject)" />
       </div>
 
       <!-- Tab: Интеграции (disabled placeholder) -->
@@ -89,33 +120,28 @@
     <AppModal v-model="showTaskModal" title="Новая задача" confirm-label="Создать" @confirm="createTask">
       <FormField v-model="taskForm.key" label="Ключ задачи" placeholder="PROJ-123" />
       <FormField v-model="taskForm.title" label="Название" placeholder="Добавить авторизацию" />
+      <FormField
+        v-if="isGroup && members.length" v-model="taskForm.owner" label="Где" type="select"
+        hint="Задача группы: агент работает сразу со всеми проектами группы."
+      >
+        <option value="">🗂 Вся группа</option>
+        <option v-for="m in members" :key="m.id" :value="m.id">📁 {{ m.name }}</option>
+      </FormField>
     </AppModal>
 
-    <!-- Edit project modal -->
-    <AppModal v-model="showProjectModal" title="Настройки проекта" confirm-label="Сохранить" @confirm="saveProject">
-      <FormField v-model="projectForm.name" label="Название" />
-      <div class="form-field">
-        <label>Путь к репозиторию</label>
-        <FolderPicker v-model="projectForm.repo_path" />
-      </div>
-      <FormField v-model="projectForm.default_agent_id" label="Агент по умолчанию" type="select">
-        <option value="">— выбрать —</option>
-        <option v-for="a in agents" :key="a.id" :value="a.id">{{ a.name }}</option>
-      </FormField>
-      <FormField
-        v-model="projectForm.dangerous_commands"
-        label="Опасные команды"
-        type="textarea"
-        :rows="3"
-        placeholder="git push --force&#10;git reset --hard&#10;rm -rf&#10;git clean -fd"
-        hint="По одной команде на строку. Даже в режиме «без вопросов» такая команда переведёт сессию в «ждёт вас»."
-      />
-    </AppModal>
+    <ProjectFormModal
+      v-if="currentProject"
+      v-model="showProjectModal"
+      :kind="currentProject.kind"
+      :project="currentProject"
+      @saved="p => appStore.currentProject = p"
+      @manage-projects="activeTab = 'projects'"
+    />
   </div>
 </template>
 
 <script lang="ts">
-type HomeTab = 'agents' | 'terminal' | 'tasks' | 'instructions' | 'integrations' | 'docs'
+type HomeTab = 'agents' | 'projects' | 'terminal' | 'tasks' | 'instructions' | 'integrations' | 'docs'
 // Module-level so it survives HomeView being unmounted while a task is open.
 const lastTab: { projectId: string | null; tab: HomeTab } = { projectId: null, tab: 'agents' }
 </script>
@@ -131,12 +157,15 @@ import { useAgentsStore } from '@features/agents'
 import { api } from '@core/api'
 import type { Task } from '@core/models'
 import AppModal from '@shared/ui/AppModal.vue'
+import AppMenu, { type MenuItem } from '@shared/ui/AppMenu.vue'
 import FormField from '@shared/ui/FormField.vue'
-import FolderPicker from '@shared/ui/FolderPicker.vue'
 import StatusBadge from '@shared/ui/StatusBadge.vue'
 import AppButton from '@shared/ui/AppButton.vue'
 import IconTrash from '@shared/ui/IconTrash.vue'
-import { SkillsManager } from '@features/library'
+import { InstructionsWorkspace } from '@features/library'
+import ProjectFormModal from '../components/ProjectFormModal.vue'
+import GroupProjects from '../components/GroupProjects.vue'
+import SourceView from '../components/SourceView.vue'
 
 const router = useRouter()
 const appStore = useAppStore()
@@ -144,117 +173,130 @@ const projectsStore = useProjectsStore()
 const agentsStore = useAgentsStore()
 
 const currentProject = computed(() => appStore.currentProject)
-const agents = computed(() => agentsStore.agents)
+const isGroup = computed(() => currentProject.value?.kind === 'group')
+const group = computed(() => projectsStore.byId(currentProject.value?.group_id))
+const members = computed(() => isGroup.value ? projectsStore.members(currentProject.value!.id) : [])
 const tasks = ref<Task[]>([])
 
 // A freshly opened project starts on «Агенты»; coming back from a task restores the tab you left.
 const activeTab = ref<HomeTab>(lastTab.projectId && lastTab.projectId === appStore.currentProject?.id ? lastTab.tab : 'agents')
 watch(activeTab, tab => { if (currentProject.value) Object.assign(lastTab, { projectId: currentProject.value.id, tab }) }, { immediate: true })
-const tabs = [
-  { id: 'agents', label: '\u0410\u0433\u0435\u043d\u0442\u044b', disabled: false },
-  { id: 'terminal', label: 'Терминал', disabled: false },
-  { id: 'tasks', label: 'Задачи', disabled: false },
-  { id: 'instructions', label: 'Инструкции', disabled: false },
-  { id: 'integrations', label: 'Интеграции', disabled: true },
-  { id: 'docs', label: 'Доки', disabled: true },
-] as const
+const tabs = computed(() => [
+  ...(isGroup.value ? [{ id: 'projects' as const, label: `Проекты · ${members.value.length}`, disabled: false }] : []),
+  { id: 'agents' as const, label: 'Агенты', disabled: false },
+  { id: 'terminal' as const, label: 'Терминал', disabled: false },
+  { id: 'tasks' as const, label: 'Задачи', disabled: false },
+  { id: 'instructions' as const, label: 'Инструкции', disabled: false },
+  { id: 'integrations' as const, label: 'Интеграции', disabled: true },
+  { id: 'docs' as const, label: 'Доки', disabled: true },
+])
 
 const showTaskModal = ref(false)
 const showProjectModal = ref(false)
-const taskForm = ref({ key: '', title: '' })
-const projectForm = ref({ name: '', repo_path: '', default_agent_id: '', dangerous_commands: '' })
+const taskForm = ref({ key: '', title: '', owner: '' })
+
+// Group page: its own tasks and its projects' tasks, filtered.
+const taskFilter = ref({ project: '', status: 'active', text: '' })
+const shownTasks = computed(() => {
+  if (!isGroup.value) return tasks.value
+  const { project, status, text } = taskFilter.value
+  const q = text.trim().toLowerCase()
+  return tasks.value.filter(t =>
+    (!project || (project === 'group' ? t.project_id === currentProject.value!.id : t.project_id === project)) &&
+    (!status || (status === 'done') === (t.status === 'done')) &&
+    (!q || t.key.toLowerCase().includes(q) || (t.title ?? '').toLowerCase().includes(q)))
+})
+const ownerName = (t: Task) => projectsStore.byId(t.project_id)?.name ?? '—'
 
 onMounted(() => agentsStore.load())
 
-watch(currentProject, () => { loadTasks() }, { immediate: true })
+watch(() => currentProject.value?.id, () => { loadTasks() }, { immediate: true })
 watch(() => currentProject.value?.id, id => {
   activeTab.value = 'agents'
+  taskFilter.value = { project: '', status: 'active', text: '' }
   Object.assign(lastTab, { projectId: id ?? null, tab: 'agents' })
 })
 
-
 async function loadTasks() {
-  if (!currentProject.value) return
-  tasks.value = await api.get<Task[]>(`/projects/${currentProject.value.id}/tasks`)
+  const p = currentProject.value
+  if (!p || p.kind === 'source') { tasks.value = []; return }
+  tasks.value = await api.get<Task[]>(`/projects/${p.id}/tasks${p.kind === 'group' ? '?members=1' : ''}`)
 }
 
-
 function openCreateTask() {
-  taskForm.value = { key: '', title: '' }
+  taskForm.value = { key: '', title: '', owner: '' }
   showTaskModal.value = true
 }
 
 async function createTask() {
   if (!currentProject.value || !taskForm.value.key) return
-  const duplicate = tasks.value.some(t => t.key === taskForm.value.key)
-  if (duplicate) {
+  const ownerId = taskForm.value.owner || currentProject.value.id
+  if (tasks.value.some(t => t.key === taskForm.value.key && t.project_id === ownerId)) {
     appStore.toast(`Ключ «${taskForm.value.key}» уже занят`, 'error')
     return
   }
   try {
-    const t = await api.post<Task>(`/projects/${currentProject.value.id}/tasks`, taskForm.value)
+    const t = await api.post<Task>(`/projects/${ownerId}/tasks`, { key: taskForm.value.key, title: taskForm.value.title })
     tasks.value.unshift(t)
     appStore.toast('Задача создана', 'success')
     showTaskModal.value = false
   } catch (e: unknown) { appStore.toast(String(e), 'error') }
 }
 
-function openEditProject() {
-  const p = currentProject.value!
-  projectForm.value = {
-    name: p.name,
-    repo_path: p.repo_path,
-    default_agent_id: p.default_agent_id ?? '',
-    dangerous_commands: (p.config.dangerous_commands ?? []).join('\n'),
-  }
-  showProjectModal.value = true
-}
-
 async function deleteProject() {
   const p = currentProject.value
   if (!p) return
-  const ok = await appStore.confirm(
-    `Удалить проект «${p.name}»? Все его задачи, чаты и настройки будут удалены безвозвратно.`,
-    { confirmLabel: 'Удалить', danger: true }
-  )
+  const message = p.kind === 'group'
+    ? `Удалить группу «${p.name}»? Проекты останутся и выйдут из группы, а задачи и чаты самой группы будут удалены безвозвратно.`
+    : p.kind === 'source'
+      ? `Удалить справочник @${p.key}? Папка на диске не изменится.`
+      : `Удалить проект «${p.name}»? Все его задачи, чаты и настройки будут удалены безвозвратно.`
+  const ok = await appStore.confirm(message, { confirmLabel: 'Удалить', danger: true })
   if (!ok) return
   try {
     await projectsStore.remove(p.id)
-    appStore.currentProject = projectsStore.projects[0] ?? null
-    appStore.toast('Проект удалён', 'success')
+    appStore.currentProject = projectsStore.workProjects[0] ?? projectsStore.projects[0] ?? null
+    appStore.toast('Удалено', 'success')
   } catch (e: unknown) {
     appStore.toast(String(e), 'error')
   }
 }
 
-async function saveProject() {
-  if (!currentProject.value) return
-  try {
-    const { dangerous_commands, ...form } = projectForm.value
-    const updated = await projectsStore.update(currentProject.value.id, {
-      ...form,
-      default_agent_id: projectForm.value.default_agent_id || null,
-      config: {
-        ...currentProject.value.config,
-        dangerous_commands: dangerous_commands.split('\n').map(s => s.trim()).filter(Boolean),
-      },
-    })
-    appStore.currentProject = updated
-    appStore.toast('Сохранено', 'success')
-    showProjectModal.value = false
-  } catch (e: unknown) { appStore.toast(String(e), 'error') }
-}
-
+// The task page works in the task's own project, also when opened from its group.
 function openTask(t: Task) {
+  const owner = projectsStore.byId(t.project_id)
+  if (owner && owner.id !== currentProject.value?.id) appStore.currentProject = owner
   appStore.currentTask = t
   router.push(`/task/${t.id}`)
 }
 
+/** Where a task can move: a group's task into one of its projects, a project's task up into its group. */
+function moveTargets(t: Task) {
+  const owner = projectsStore.byId(t.project_id)
+  if (!owner) return []
+  if (owner.kind === 'group') return projectsStore.members(owner.id)
+  const g = projectsStore.byId(owner.group_id)
+  return g ? [g] : []
+}
+function moveMenu(t: Task): MenuItem[] {
+  return [{ heading: 'Переместить задачу' }, ...moveTargets(t).map(target => ({
+    label: `${target.kind === 'group' ? '🗂' : '📁'} ${target.kind === 'group' ? `В группу «${target.name}»` : target.name}`,
+    action: () => void moveTask(t, target.id),
+  }))]
+}
+async function moveTask(t: Task, targetId: string) {
+  try {
+    const moved = await api.post<Task>(`/projects/${t.project_id}/tasks/${t.id}/move`, { project_id: targetId })
+    if (isGroup.value) tasks.value = tasks.value.map(x => x.id === t.id ? moved : x)
+    else tasks.value = tasks.value.filter(x => x.id !== t.id)
+    appStore.toast(`«${t.key}» перенесена в «${projectsStore.byId(targetId)?.name}»`, 'success')
+  } catch (e: unknown) { appStore.toast(String(e), 'error') }
+}
+
 async function markDoneTaskCard(t: Task) {
-  if (!currentProject.value) return
   if (!(await appStore.confirm(`Отметить задачу «${t.key}» выполненной? Плановый файл будет удалён.`, { confirmLabel: 'Отметить выполненной', danger: false }))) return
   try {
-    const updated = await api.post<Task>(`/projects/${currentProject.value.id}/tasks/${t.id}/done`, {})
+    const updated = await api.post<Task>(`/projects/${t.project_id}/tasks/${t.id}/done`, {})
     tasks.value = tasks.value.map(x => x.id === t.id ? updated : x)
     appStore.toast('Задача завершена', 'success')
   } catch (e: unknown) {
@@ -263,9 +305,8 @@ async function markDoneTaskCard(t: Task) {
 }
 
 async function reopenTaskCard(t: Task) {
-  if (!currentProject.value) return
   try {
-    const updated = await api.post<Task>(`/projects/${currentProject.value.id}/tasks/${t.id}/reopen`, {})
+    const updated = await api.post<Task>(`/projects/${t.project_id}/tasks/${t.id}/reopen`, {})
     tasks.value = tasks.value.map(x => x.id === t.id ? updated : x)
     appStore.toast(`«${t.key}» снова в работе`, 'success')
   } catch (e: unknown) {
@@ -274,10 +315,9 @@ async function reopenTaskCard(t: Task) {
 }
 
 async function deleteTaskCard(t: Task) {
-  if (!currentProject.value) return
   if (!(await appStore.confirm(`Удалить задачу «${t.key}»? Действие необратимо.`))) return
   try {
-    await api.delete(`/projects/${currentProject.value.id}/tasks/${t.id}`)
+    await api.delete(`/projects/${t.project_id}/tasks/${t.id}`)
     tasks.value = tasks.value.filter(x => x.id !== t.id)
     appStore.toast('Задача удалена', 'success')
   } catch (e: unknown) {
@@ -302,6 +342,10 @@ async function deleteTaskCard(t: Task) {
 }
 .project-title { min-width: 0; }
 .project-header-actions { display: flex; gap: var(--sp-2); flex-shrink: 0; }
+.title-icon { margin-right: 8px; }
+.crumb { background: none; border: none; padding: 0; margin-right: 6px; color: var(--text-muted); font: inherit; cursor: pointer; }
+.crumb:hover { color: var(--blue-hover); }
+.project-key { margin-right: 6px; color: var(--text); }
 .project-header h1 { font-size: 18px; font-weight: 700; letter-spacing: -0.01em; margin-bottom: 2px; }
 .repo-path {
   display: block;
@@ -394,6 +438,9 @@ async function deleteTaskCard(t: Task) {
 .tasks-tab { overflow: hidden; }
 
 .task-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 12px 24px;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
@@ -430,6 +477,13 @@ async function deleteTaskCard(t: Task) {
   white-space: nowrap;
 }
 .task-title { flex: 1; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.task-owner { flex-shrink: 0; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 2px 8px; border-radius: var(--radius-pill); background: var(--bg3); border: 1px solid var(--border); font-size: 11px; color: var(--text-muted); }
+.task-owner.own { color: var(--blue-hover); border-color: var(--blue-soft); }
+.task-menu { opacity: 0; transition: opacity 0.12s; }
+.task-card:hover .task-menu, .task-menu:has(.menu.open) { opacity: 1; }
+.task-filter { width: 190px; }
+.task-search { width: 200px; height: var(--size-md); padding: 0 10px; background: var(--bg3); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); color: var(--text); font: inherit; font-size: 13px; }
+.task-search:focus { outline: none; border-color: var(--blue); }
 
 .task-act {
   display: flex;
@@ -470,7 +524,7 @@ async function deleteTaskCard(t: Task) {
 .placeholder-icon { font-size: 32px; }
 .placeholder-title { font-size: 15px; font-weight: 600; color: var(--text); }
 .placeholder-text { font-size: 13px; }
-.instructions-tab { overflow-y: auto; padding: var(--sp-5) var(--sp-6); }
+.instructions-tab { overflow: hidden; }
 
 .form-field { display: flex; flex-direction: column; gap: 4px; }
 label { font-size: 12px; color: var(--text-muted); }

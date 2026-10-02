@@ -25,6 +25,9 @@ export interface PlatformBridge {
   // Replace the clipboard contents with plain text.
   setClipboardText(text: string): Promise<void>
 
+  // The system folder dialog; absent in a plain browser (FolderPicker browses through the server then).
+  pickFolder?(defaultPath?: string): Promise<string | null>
+
   // True when the platform can resolve real native file paths locally.
   // Use this instead of an `isElectron` check — it asks about a capability,
   // not about the environment.

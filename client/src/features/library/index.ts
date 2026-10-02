@@ -1,4 +1,6 @@
 export { libraryRoutes } from './routes'
 export { default as SkillsManager } from './components/SkillsManager.vue'
 export { default as PlanTemplateEditor } from './components/PlanTemplateEditor.vue'
+export { default as InstructionGuideEditor } from './components/InstructionGuideEditor.vue'
+export { default as InstructionsWorkspace } from './components/InstructionsWorkspace.vue'
 export { useLibraryStore } from './stores/library'

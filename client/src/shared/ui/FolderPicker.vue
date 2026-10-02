@@ -32,9 +32,9 @@
               v-for="entry in entries"
               :key="entry.name"
               class="dir-entry"
-              @click="navigate(currentPath + '/' + entry.name)"
+              @click="navigate(entry.path ?? currentPath + '/' + entry.name)"
             >
-              📁 {{ entry.name }}
+              {{ entry.path ? '💽' : '📁' }} {{ entry.name }}
             </div>
             <div v-if="!entries.length && !parent" class="empty-dirs">Нет папок</div>
           </template>
@@ -55,12 +55,15 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { api } from '@core/api'
+import { platform } from '@core/platform'
 import AppButton from './AppButton.vue'
 
+// `path` is set for drive entries (the list above a Windows drive root).
+interface BrowseEntry { name: string; isDir: boolean; path?: string }
 interface BrowseResult {
   path: string
   parent: string | null
-  entries: { name: string; isDir: boolean }[]
+  entries: BrowseEntry[]
 }
 
 const props = defineProps<{ modelValue: string }>()
@@ -69,7 +72,7 @@ const emit = defineEmits<{ 'update:modelValue': [v: string] }>()
 const show = ref(false)
 const currentPath = ref('')
 const parent = ref<string | null>(null)
-const entries = ref<{ name: string; isDir: boolean }[]>([])
+const entries = ref<BrowseEntry[]>([])
 const loading = ref(false)
 const error = ref('')
 
@@ -89,6 +92,11 @@ async function navigate(p: string) {
 }
 
 async function open() {
+  if (platform.pickFolder) {
+    const picked = await platform.pickFolder(props.modelValue || undefined)
+    if (picked) emit('update:modelValue', picked)
+    return
+  }
   show.value = true
   const startPath = props.modelValue || ''
   await navigate(startPath)

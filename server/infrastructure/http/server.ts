@@ -10,6 +10,7 @@ import fs from 'fs';
 import { projectsRouter } from './routes/projects';
 import { tasksRouter } from './routes/tasks';
 import { plansRouter } from './routes/plans';
+import { analysisRouter } from './routes/analysis';
 import { runsRouter } from './routes/runs';
 import { libraryRouter } from './routes/library';
 import { agentsRouter } from './routes/agents';
@@ -57,6 +58,7 @@ export function createApp() {
   // Clipboard screenshots are sent as base64. Keep the larger parser scoped to
   // this local-only endpoint; the default JSON limit remains in force elsewhere.
   app.use('/api/upload-temp', express.json({ limit: '25mb' }), uploadRouter);
+  app.use('/api/projects/:projectId/tasks/:taskId/analysis', analysisRouter);
   app.use(express.json({ limit: '25mb' }));
 
   app.use(express.static(CLIENT_DIST));

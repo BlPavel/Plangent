@@ -9,7 +9,7 @@
           <span class="status-badge" :class="state.tone">{{ state.label }}</span>
         </div>
         <ul class="detail-steps">
-          <li v-for="s in sessionSteps" :key="s.id" :class="{ done: s.done }"><code>{{ s.id }}</code> {{ s.text }}</li>
+          <li v-for="s in sessionSteps" :key="s.id" :class="{ done: s.done }"><code>{{ s.id }}</code> <AnalysisLinks :text="s.text" /></li>
         </ul>
       </div>
       <div class="detail-actions">
@@ -36,6 +36,7 @@
 
 <script setup lang="ts">
 import { computed, inject, ref, watch } from 'vue'
+import AnalysisLinks from './AnalysisLinks.vue'
 import { api } from '@core/api'
 import type { Agent, OrchestratorQueueSession, PlanStep } from '@core/models'
 import { ChatView, useChatStore } from '@features/agent-chat'

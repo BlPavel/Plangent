@@ -45,6 +45,9 @@
             </summary>
             <MessageMarkdown class="thought-body" :text="String(row.payload.text ?? '')" :live="row.live" />
           </details>
+          <div v-else-if="row.type === 'save_section'" class="card notice">
+            <MessageMarkdown :text="String(row.payload.summary ?? '') + ' ' + String(row.payload.link ?? '')" />
+          </div>
           <ToolCallCard v-else-if="row.type === 'tool_call'" :call="row.payload" />
           <div v-else-if="row.type === 'plan'" class="card plan">
             <div class="card-label">План</div>
@@ -61,6 +64,7 @@
           <div v-else-if="row.type === 'submit_review'" class="card verdict" :class="row.payload.verdict">
             {{ row.payload.verdict === 'approved' ? '✓ Ревью одобрено' : '↻ Нужны исправления' }}
           </div>
+          <slot v-else-if="cards?.includes(row.type)" name="card" :event="row" />
           <div v-else-if="NOTICES[row.type]" class="card notice" :class="row.type">
             <div class="card-label">{{ NOTICES[row.type] }}</div>
             <div class="notice-text">{{ row.payload.summary ?? row.payload.question ?? row.payload.note ?? row.payload.text ?? '' }}</div>
@@ -103,6 +107,7 @@
           ref="composer"
           :project-id="snap.session.project_id"
           :commands="commands"
+          :initial-text="draftText"
           :busy="thinking"
           @send="send"
           @cancel="action('cancel')"
@@ -140,8 +145,10 @@ import AgentSettingsBar from './AgentSettingsBar.vue'
 import { agentSelects, type AgentOptionsSource, type AgentSelect } from '../utils/agent-options'
 import { useChatStore, statusLabel, statusTone, type ChatEvent, type ChatSession } from '../stores/sessions'
 
-const props = defineProps<{ sessionId: string; initialContent?: ContentBlock[] }>()
+// `cards`: event types the host feature renders itself through the `card` slot (e.g. library proposals).
+const props = defineProps<{ sessionId: string; initialContent?: ContentBlock[]; draftText?: string; cards?: string[] }>()
 const emit = defineEmits<{ session: [id: string] }>()
+defineExpose({ setText: (text: string) => composer.value?.setText(text) })
 const store = useChatStore()
 const agents = useAgentsStore()
 const snap = computed(() => store.snapshots[props.sessionId])
@@ -219,7 +226,7 @@ watch(() => props.sessionId, async id => {
   try { await store.load(id) } catch (e) { error.value = String(e); return }
   await nextTick()
   scrollDown()
-  if (props.initialContent?.length) void send(props.initialContent)
+  if (props.initialContent?.length && !snap.value?.events.some(e => e.type === 'user')) void send(props.initialContent)
   else composer.value?.focus()
 }, { immediate: true })
 

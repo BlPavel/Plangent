@@ -1,4 +1,5 @@
 import { initSessions } from './core/agent-sessions/sessions';
+import { initTaskFiles } from './core/orchestration/task-files-startup';
 import { initQueues } from './core/orchestration/queue';
 import { configureSessionHost, shutdownSessions } from './core/agent-sessions/acp-host';
 import { sessionMcpConfig } from './infrastructure/mcp/server';
@@ -22,6 +23,7 @@ export async function startServer(port = DEFAULT_PORT): Promise<number> {
   getDb();
   initSessions();
   initQueues();
+  initTaskFiles();
   configureSessionHost({ mcp: sessionMcpConfig, terminate: killProcessTree });
 
   try {

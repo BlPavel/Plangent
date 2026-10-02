@@ -34,16 +34,33 @@ export interface Agent {
 export interface ProjectConfig {
   dangerous_commands?: string[];
   extra_env?: Record<string, string>;
+  // Sources only: shown to agents of every project, not just the targets.
+  available_everywhere?: boolean;
+  // Sources only: how the folder gets its files; just 'folder' for now (see docs/DOCS-PROPOSAL.md).
+  source_type?: 'folder';
 }
+
+// group: holds projects and its own tasks, works in a service folder. source: a read-only folder agents
+// can be pointed at with @key.
+export type ProjectKind = 'project' | 'group' | 'source';
 
 export interface Project {
   id: string;
+  kind: ProjectKind;
   name: string;
+  // @-key of projects and sources, unique across both; null for groups.
+  key: string | null;
   repo_path: string;
+  group_id: string | null;
+  icon: string;
+  // What the agent is told about a source (or a group's purpose).
+  description: string;
   default_agent_id: string | null;
   config: ProjectConfig;
   hide_from_git: boolean;
   created_at: string;
+  // Sources only: the groups/projects it is available for (unless available_everywhere).
+  targets?: string[];
 }
 
 export interface Task {
@@ -72,6 +89,7 @@ export interface PlanStep {
   done: boolean;
   index: number;
   id?: string;            // stable (pN) id
+  analysisLinks?: string[];
   parallelGroup?: string; // @parallel:<groupName>
 }
 
@@ -168,7 +186,8 @@ export interface Run {
   finished_at?: string;
 }
 
-export type LibraryItemType = 'skill' | 'command' | 'main' | 'plan-template';
+export type LibraryItemType = 'skill' | 'command' | 'main' | 'plan-template' | 'instruction-guide';
+// global: everywhere. project: only the groups/projects listed in `targets` (a group covers its projects).
 export type LibraryScope = 'global' | 'project';
 
 export interface LibraryItem {
@@ -178,10 +197,64 @@ export interface LibraryItem {
   title: string;
   description: string;
   scope: LibraryScope;
+  // Legacy single project; migrated into targets and no longer used.
   project_id: string | null;
+  targets: string[];
+  // Groups from `targets` whose own folder gets the item but not their projects.
+  own_only: string[];
+  // Projects taken out of a shared item (they changed or deleted it there).
+  excluded: string[];
+  // For a project's own copy of a group's item: the item it was detached from.
+  detached_from: string | null;
   frontmatter: Record<string, unknown>;
   agent_filter: string[];
   enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AnalysisSection {
+  id: string;
+  task_id: string;
+  slug: string;
+  title: string;
+  description: string;
+  kind: 'source' | 'worked';
+  author: 'developer' | 'agent';
+  position: number;
+  created_at: string;
+  updated_at: string;
+}
+export interface AnalysisFile {
+  id: string;
+  section_id: string;
+  name: string;
+  mime: string;
+  size: number;
+  content: Buffer;
+  created_at: string;
+}
+
+export type LibraryProposalStatus = 'pending' | 'applied' | 'rejected' | 'stale';
+export interface LibraryProposal {
+  id: string;
+  project_id: string;
+  session_id: string;
+  status: LibraryProposalStatus;
+  action: 'create' | 'update';
+  type: 'skill' | 'main' | 'command';
+  slug: string;
+  title: string;
+  description: string;
+  frontmatter: Record<string, unknown>;
+  content: string;
+  scope: LibraryScope;
+  targets: string[];
+  own_only: string[];
+  explanation: string;
+  item_id: string | null;
+  snapshot: (LibraryItem & { content: string }) | null;
+  applied_item_id: string | null;
   created_at: string;
   updated_at: string;
 }
