@@ -76,13 +76,13 @@
           </template>
           <template #notes="{ path }">
             <div v-if="fileNotes.length || composing?.scope === 'file'" class="ct-notes">
-              <ItemView v-for="item in fileNotes" :key="item.id" :item="item" :read-only="reviewReadOnly" :agent-working="agentWorking" @open-ref="openRef" @implement="implement(item)" />
+              <ItemView v-for="item in fileNotes" :key="item.id" :item="item" :read-only="reviewReadOnly" @open-ref="openRef" @show-change="showChange" />
               <ItemComposer v-if="composing?.scope === 'file'" :where="path" :busy="draftBusy" :error="draftError" @save="saveDraft" @cancel="cancelCompose" />
             </div>
           </template>
           <template #widget="{ line, side }">
             <div class="ct-widget">
-              <ItemView v-for="item in itemsAt(line, side)" :key="item.id" :item="item" :read-only="reviewReadOnly" :agent-working="agentWorking" @open-ref="openRef" @implement="implement(item)" />
+              <ItemView v-for="item in itemsAt(line, side)" :key="item.id" :item="item" :read-only="reviewReadOnly" @open-ref="openRef" @show-change="showChange" />
               <ItemComposer
                 v-if="composing?.scope === 'line' && composing.side === side && composing.end === line" :where="composeWhere"
                 :busy="draftBusy" :error="draftError" @save="saveDraft" @cancel="cancelCompose"
@@ -93,25 +93,14 @@
       </main>
       <div class="ct-resizer" :class="{ off: rightCollapsed }" role="separator" aria-orientation="vertical" aria-label="Ширина правой панели" title="Потяните, чтобы изменить ширину; двойной клик — сбросить" tabindex="0" @pointerdown="startResize($event, 'right')" @dblclick="rightWidth = 380" @keydown="resizeKey($event, 'right')" />
 
-      <PaneRail
-        v-if="rightCollapsed" side="right" shortcut="Ctrl+Alt+B" :items="rightRail" @expand="rightCollapsed = false" @pick="showRight($event as RightTab)"
-      />
-      <!-- Both tabs stay mounted: the chat keeps its scroll and draft while the remarks are shown. -->
+      <PaneRail v-if="rightCollapsed" side="right" shortcut="Ctrl+Alt+B" :items="rightRail" @expand="rightCollapsed = false" @pick="rightCollapsed = false" />
       <aside v-show="!rightCollapsed" class="ct-right">
-        <div class="ct-tabs" role="tablist">
-          <button type="button" role="tab" class="ct-tab" :class="{ active: rightTab === 'remarks' }" :aria-selected="rightTab === 'remarks'" @click="rightTab = 'remarks'">
-            Замечания<span v-if="store.items.length" class="ct-count" :class="{ warning: attention }" :title="attention ? `Нужно ваше решение: ${attention}` : ''">{{ attention || store.items.length }}</span>
-          </button>
-          <button type="button" role="tab" class="ct-tab" :class="{ active: rightTab === 'chat' }" :aria-selected="rightTab === 'chat'" @click="rightTab = 'chat'">
-            <span v-if="chatStatus" class="ct-dot" :class="chatStatus" :title="statusLabel(chatStatus)" />Чат с агентом
-          </button>
+        <div class="ct-tabs">
+          <span class="ct-title">Замечания<span v-if="store.items.length" class="ct-count" :class="{ warning: attention }" :title="attention ? `Ждут вашего ответа: ${attention}` : ''">{{ attention || store.items.length }}</span></span>
           <button type="button" class="ct-collapse" title="Свернуть панель (Ctrl+Alt+B)" aria-label="Свернуть правую панель" @click="rightCollapsed = true">»</button>
         </div>
-        <div v-show="rightTab === 'remarks'" class="ct-pane">
-          <ReviewPanel :origin="origin" :agent-working="agentWorking" @send="sendItems" @goto="goto" @discuss="discuss" @open-ref="openRef" />
-        </div>
-        <div v-show="rightTab === 'chat'" class="ct-pane">
-          <ChatsPanel ref="chatsPanel" :project-id="projectId" :default-agent-id="defaultAgentId" :agent-working="agentWorking" @goto="goto" @open-ref="openRef" />
+        <div class="ct-pane">
+          <ReviewPanel :project-id="projectId" :origin="origin" :default-agent-id="defaultAgentId" @goto="goto" @open-ref="openRef" @show-change="showChange" />
         </div>
       </aside>
     </div>
@@ -129,16 +118,14 @@ const lastOpened = new Map<string, string>()
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { FileTree, type CodeSide, type LineMarker, type LineSelection } from '@shared/code-viewer'
 import { useAppStore } from '@core/stores/app'
-import { statusLabel } from '@features/agent-chat'
 import { codeReviewsApi } from '../api'
 import { useCodeStore } from '../stores/code'
-import { useReviewChats } from '../composables/review-chats'
+import { useReviewAgentStore } from '../stores/review-agent'
 import type { CodeReviewItem, GitChange, ReviewHistory } from '../types'
 import BaseSwitcher from '../components/BaseSwitcher.vue'
 import ChangesList from '../components/ChangesList.vue'
 import FileViewer from '../components/FileViewer.vue'
 import HistoryMenu from '../components/HistoryMenu.vue'
-import ChatsPanel from '../components/ChatsPanel.vue'
 import ItemComposer from '../components/ItemComposer.vue'
 import ItemView from '../components/ItemView.vue'
 import PaneRail from '../components/PaneRail.vue'
@@ -161,12 +148,9 @@ const app = useAppStore()
 const viewer = ref<InstanceType<typeof FileViewer>>()
 const tree = ref<InstanceType<typeof FileTree>>()
 const search = ref<InstanceType<typeof SearchPanel>>()
-const chatsPanel = ref<InstanceType<typeof ChatsPanel>>()
 type LeftTab = 'changes' | 'files' | 'search'
-type RightTab = 'remarks' | 'chat'
 const leftTab = ref<LeftTab>('changes')
-const rightTab = ref<RightTab>('remarks')
-const reviewChats = useReviewChats()
+const agent = useReviewAgentStore()
 const mode = ref<'diff' | 'file'>('diff')
 const quickOpen = ref(false)
 const loaded = ref(false)
@@ -232,7 +216,7 @@ async function removeHistoryItem(item: ReviewHistory) {
   try { await store.removeReview(item.id) } catch (cause) { app.toast(cause instanceof Error ? cause.message : 'Не удалось удалить', 'error') }
 }
 function openFirstUnresolved() {
-  const item = store.items.find(i => i.status === 'needs_decision') ?? store.items.find(i => ['draft', 'sent'].includes(i.status))
+  const item = store.items.find(i => !i.closed && ['done', 'answered', 'needs_decision'].includes(i.status)) ?? store.items.find(i => !i.closed)
   if (item?.file) goto(item)
 }
 
@@ -243,7 +227,6 @@ const draftBusy = ref(false)
 const draftError = ref('')
 const origin = computed(() => (props.task ? { type: 'task' as const, id: props.task.id } : { type: 'project' as const, id: props.projectId }))
 const reviewReadOnly = computed(() => store.readOnly || (!!store.openedReviewId && store.openedReview?.review.status !== 'open'))
-const agentWorking = computed(() => store.current?.agent_working ?? false)
 const rounds = computed(() => store.openedReview?.rounds.length ?? store.current?.summary?.rounds ?? 0)
 const drafts = computed(() => store.items.filter(i => i.status === 'draft').length)
 const draftWord = computed(() => (drafts.value % 10 === 1 && drafts.value % 100 !== 11 ? 'черновик' : drafts.value % 10 >= 2 && drafts.value % 10 <= 4 && (drafts.value % 100 < 12 || drafts.value % 100 > 14) ? 'черновика' : 'черновиков'))
@@ -355,27 +338,19 @@ function goto(item: CodeReviewItem) {
   const as = item.side === 'old' || (changed && store.selectedPath !== item.file) ? 'diff' : store.selectedPath === item.file ? mode.value : 'file'
   void open(item.file, as, item.scope === 'line' ? item.line_start ?? undefined : undefined, item.side)
 }
-function discuss(item: CodeReviewItem) {
-  const session = reviewChats.chatOf(item)?.session.id
-  if (!session) return
-  showRight('chat')
-  void chatsPanel.value?.openChat(session,`По пункту «${item.text.replace(/\s+/g, ' ').slice(0, 80)}»: `)
-}
-// --- right panel: remarks and the agent chat -----------------------------------
-const attention = computed(() => store.items.filter(i => i.status === 'needs_decision').length)
-const chatStatus = computed(() => chatsPanel.value?.status ?? '')
+// --- right panel: the review and its agent ---------------------------------------
+const attention = computed(() => store.items.filter(i => !i.closed && ['done', 'answered', 'needs_decision'].includes(i.status)).length)
 const rightRail = computed(() => [
-  { id: 'remarks', label: 'Замечания', icon: 'remarks' as const, count: attention.value || store.items.length, tone: attention.value ? 'warning' as const : undefined },
-  { id: 'chat', label: 'Чат с агентом', icon: 'chat' as const, dot: chatStatus.value },
+  { id: 'remarks', label: 'Замечания', icon: 'remarks' as const, count: attention.value || store.items.length, tone: attention.value ? 'warning' as const : undefined, dot: agent.session?.status },
 ])
-function showRight(tab: RightTab) { rightCollapsed.value = false; rightTab.value = tab }
-/** Hands items to a chat (`ids` null: all drafts; `target` '': a new chat) and shows the chat. */
-function sendItems(ids: string[] | null, target: string) {
-  showRight('chat')
-  void chatsPanel.value?.send(ids, target)
+/** «Посмотреть правку»: the agent's changes of that round, opened at the file it named. */
+async function showChange(roundId: string, file?: string) {
+  await store.setBase('agent', roundId)
+  const target = file && store.shownChanges.some(c => c.path === file) ? file : store.shownChanges[0]?.path
+  leftCollapsed.value = false
+  leftTab.value = 'changes'
+  if (target) await open(target, 'diff')
 }
-/** «Сделать» on an answered question: the agreement goes to the chat that answered it. */
-const implement = (item: CodeReviewItem) => sendItems([item.id], reviewChats.chatOf(item)?.session.id ?? reviewChats.latest.value?.session.id ?? '')
 /** A search hit: a line opens the file there; a file found by name opens like in the changes list. */
 const openFound = (path: string, line?: number) => open(path, line || !store.changes.some(c => c.path === path) ? 'file' : 'diff', line)
 
@@ -457,16 +432,11 @@ watch(() => props.projectId, id => { void begin(id) }, { immediate: true })
 .ct-tab:hover { color: var(--text); }
 .ct-tab.active { color: var(--text); border-bottom-color: var(--blue); }
 .ct-count.warning { background: var(--warning-text); color: var(--bg); }
+.ct-title { flex: 1; display: flex; align-items: center; padding: 7px 12px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
 .ct-collapse { flex-shrink: 0; width: 28px; font: inherit; font-size: 13px; color: var(--text-faint); background: none; border: none; cursor: pointer; }
 .ct-collapse:hover { color: var(--text); }
 .ct-collapse:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
 .ct-resizer.off { pointer-events: none; }
-.ct-dot { display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: var(--border-strong); vertical-align: 1px; }
-.ct-dot.thinking, .ct-dot.starting { background: var(--blue-hover); animation: ct-pulse 1.4s ease-in-out infinite; }
-.ct-dot.waiting { background: var(--warning-text); }
-.ct-dot.complete, .ct-dot.ready { background: var(--accent-hover); }
-.ct-dot.error { background: var(--danger-hover); }
-@keyframes ct-pulse { 50% { opacity: 0.35; } }
 .ct-count { margin-left: 5px; padding: 0 5px; font-size: 10px; font-weight: 600; border-radius: var(--radius-pill); background: var(--bg3); color: var(--text-muted); }
 .ct-pane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 /* The last block fills the pane; toolbars above it (comparison switch) keep their height. */

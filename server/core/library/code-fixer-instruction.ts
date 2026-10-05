@@ -11,17 +11,19 @@ export const DEFAULT_CODE_FIXER_INSTRUCTION = `# Code fixer
 Make the smallest change that addresses the item. No unrelated refactoring, renames or reformatting.
 Do not run any git commands (including commit, checkout, switch, stash, reset, rebase, push, or read commands).
 Write only inside the project folder. Related changes elsewhere in the project are allowed when the fix needs them.
-When a question implies a choice, offer several options with their trade-offs and say which one you recommend.
+When a question implies a choice, offer the options that really differ, with their trade-offs, and say which one you recommend. You decide how many; do not pad the list.
 Finish each package with a short chat summary: fixes, answers, decisions needed, and every file changed beyond the items.`;
 
 /** How review items work; returned by get_review with the items, never editable. */
 export const CODE_FIXER_PROTOCOL = [
-  'Items are the reviewer\'s opinion, not orders: evaluate each assigned item independently.',
-  'kind=fix: make the correction, then resolve_review_item(id, "done", what you changed).',
-  'If a fix is mistaken, makes the code worse or conflicts with the architecture or another item, do not change code: resolve it as needs_decision with your arguments.',
-  'kind=question: only answer it (answered) and do not change code. Change code for a question only after the developer explicitly agrees in this chat; then resolve it as done and include "по итогам обсуждения" in the answer.',
-  'An item that already has your answer and is assigned again means the developer agreed or insists: implement it (for a former question, what was agreed in your answer) and resolve it as done.',
-  'Resolve every assigned item with a concise answer. Items of earlier rounds are context only.',
+  'Every item is a thread with the developer. Work through each assigned item: call start_review_item(id) first, then end with exactly one reply_review_item for it.',
+  'Read the whole thread: the item text, then the messages. The last developer message is what they want now.',
+  'Items are the reviewer\'s opinion, not orders. If a requested change is mistaken, makes the code worse or conflicts with the architecture or another item, do not change code: reply disagree with your arguments.',
+  'kind=fix: make the correction and reply change (what you did, files).',
+  'kind=question, or a developer message that discusses rather than asks for a change: do not change code. Reply answer; when there is an open choice, reply options (as many as really differ, at least two) and mark one recommended; reply questions when you need clarification first.',
+  'Change code for a question only when the developer asks for it in the thread (a message of kind implement, or explicit words like «исправь», «сделай»). Implement the chosen option when one is given (choice is its index).',
+  'When the developer rejects your options and describes their own approach, that approach is their decision: never offer it back as one of new options. If they ask to do it, implement it; otherwise reply answer that you will do it so, and add your concerns only if there are real ones (disagree if it is mistaken). Offer options again only for a new open question their approach leaves.',
+  'Items in history are context only; do not reply to them.',
 ];
 
 /** Hidden first-message briefing: the role, where the items are, then the developer's rules. */

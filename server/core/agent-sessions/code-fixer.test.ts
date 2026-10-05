@@ -87,7 +87,7 @@ test('code fixer rounds, MCP isolation, developer decisions and instruction inhe
     const session = await created.json() as { id: string };
     const id = session.id; ids.push(id);
     await ready(id);
-    assert.deepEqual(allowed(sessions.getSession(id)), ['get_review', 'resolve_review_item']);
+    assert.deepEqual(allowed(sessions.getSession(id)), ['get_review', 'start_review_item', 'reply_review_item']);
     for (const role of ['chat', 'executor', 'reviewer', 'librarian', 'analyst', 'planner'] as const)
       assert.ok(!allowed({ ...sessions.getSession(id), role }).includes('get_review'));
     assert.equal((await json('/sessions', { project_id: group.id, agent_id: agent.id, role: 'code-fixer' })).status, 400);
@@ -107,7 +107,7 @@ test('code fixer rounds, MCP isolation, developer decisions and instruction inhe
     const first = sessions.history(id).find(e => e.type === 'user')!;
     assert.equal(first.payload.briefing, true);
     // The round message only announces the items; their text comes from get_review.
-    assert.match(String(first.payload.text), /раунд 1: 1 замечание и 1 вопрос\. Возьми их через get_review/);
+    assert.match(String(first.payload.text), /раунд 1: 2 новых пункта\. Возьми их через get_review/);
     assert.doesNotMatch(String(first.payload.text), /Fix code/);
     const config = sessionMcpConfig(sessions.getSession(id), true)[0] as { headers: { name: string; value: string }[] };
     const call = async (name: string, args: unknown = {}, method = 'tools/call') => {
@@ -116,70 +116,84 @@ test('code fixer rounds, MCP isolation, developer decisions and instruction inhe
         body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params: method === 'tools/list' ? {} : { name, arguments: args } }) });
       return await response.json() as { error?: unknown; result: { isError?: boolean; content: { text: string }[]; tools?: { name: string }[] } };
     };
-    assert.deepEqual((await call('', {}, 'tools/list')).result.tools?.map(t => t.name), ['get_review', 'resolve_review_item']);
+    assert.deepEqual((await call('', {}, 'tools/list')).result.tools?.map(t => t.name), ['get_review', 'start_review_item', 'reply_review_item']);
     assert.ok((await call('get_review')).error, 'MCP requires an active turn');
     sessions.updateSession(id, { status: 'thinking' });
     const fetched = JSON.parse((await call('get_review')).result.content[0].text);
     assert.equal(fetched.review.id, review.id);
-    assert.ok(fetched.protocol.some((rule: string) => rule.includes('needs_decision')));
+    assert.ok(fetched.protocol.some((rule: string) => rule.includes('disagree')));
     assert.deepEqual(fetched.assigned.map((i: { id: string }) => i.id).sort(), [item.id, question.id].sort());
     assert.deepEqual(fetched.history, []);
     assert.ok((await call('get_library')).error);
-    assert.equal((await call('resolve_review_item', { id: item.id, status: 'rejected', answer: 'No' })).result.isError, true);
-    assert.equal((await call('resolve_review_item', { id: question.id, status: 'done', answer: 'по итогам обсуждения' })).result.isError, true);
-    assert.equal((await call('resolve_review_item', { id: question.id, status: 'answered', answer: 'Because' })).result.isError, undefined);
+    // Replies are typed; a question cannot be "fixed" before the developer asks for it in the thread.
+    assert.equal((await call('reply_review_item', { id: item.id, kind: 'rejected', text: 'No' })).result.isError, true);
+    assert.equal((await call('reply_review_item', { id: question.id, kind: 'change', text: 'Changed' })).result.isError, true);
+    assert.equal((await call('start_review_item', { id: question.id })).result.isError, undefined);
+    assert.ok(sessions.history(id).some(e => e.type === 'review_focus' && e.payload.item_id === question.id));
+    assert.equal((await call('reply_review_item', { id: question.id, kind: 'options', text: 'Pick', options: [{ label: 'A' }] })).result.isError, true);
+    assert.equal((await call('reply_review_item', { id: question.id, kind: 'options', text: 'Two ways',
+      options: [{ label: 'A' }, { label: 'B', recommended: true }] })).result.isError, undefined);
     assert.equal(store.getItem(question.id)!.status, 'answered');
-    await call('resolve_review_item', { id: item.id, status: 'needs_decision', answer: 'Conflicts with architecture' });
-    assert.equal(service.attention(project.id)[0].count, 1);
+    assert.deepEqual(store.listMessages(review.id, question.id)[0].options, [{ label: 'A' }, { label: 'B', recommended: true }]);
+    await call('reply_review_item', { id: item.id, kind: 'disagree', text: 'Conflicts with architecture' });
+    assert.equal(service.attention(project.id)[0].count, 2, 'Both threads wait for the developer');
     assert.ok(events.some(e => e.type === 'code_review_needs_decision' && e.itemId === item.id));
-    assert.equal((await service.current(project.id)).attention, 1);
+    assert.equal((await service.current(project.id)).attention, 2);
+    assert.equal((await call('reply_review_item', { id: item.id, kind: 'answer', text: 'Again' })).result.isError, true, 'One reply per turn');
     sessions.updateSession(id, { status: 'ready' });
-    await service.decideItem(project.id, review.id, item.id, 'insist');
-    assert.equal(store.getItem(item.id)!.status, 'sent');
-    await ready(id);
-    assert.match(String(sessions.history(id).filter(e => e.type === 'user').at(-1)!.payload.text), /Сделай как в замечании/);
+    // The developer answers in the threads; replies wait for the batch.
+    await assert.rejects(service.addMessage(project.id, review.id, item.id, { text: ' ' }), /text required/);
+    await service.addMessage(project.id, review.id, item.id, { kind: 'implement', text: 'Настаиваю: сделай как в замечании' });
+    await service.addMessage(project.id, review.id, question.id, { kind: 'implement', text: 'Сделай вариант B', choice: 1 });
+    await assert.rejects(service.closeItem(project.id, review.id, question.id, 'accept'), /queued reply/);
+    const quiet = createReviewService(getDb(), { sendPrompt: async () => {} });
+    const batch = await quiet.sendRound(project.id, review.id, id);
+    assert.deepEqual(batch.items.map(i => i.id).sort(), [item.id, question.id].sort());
+    assert.ok(store.listMessages(review.id).filter(m => m.author === 'developer').every(m => m.sent && m.round_id === batch.round.id));
     sessions.updateSession(id, { status: 'thinking' });
-    await call('resolve_review_item', { id: item.id, status: 'needs_decision', answer: 'Still disagree' });
-    await service.decideItem(project.id, review.id, item.id, 'agree');
-    assert.equal(store.getItem(item.id)!.status, 'rejected');
+    const thread = JSON.parse((await call('get_review')).result.content[0].text).assigned.find((i: { id: string }) => i.id === question.id).thread;
+    assert.deepEqual(thread.at(-1), { author: 'developer', kind: 'implement', text: 'Сделай вариант B', choice: 1 });
+    assert.equal((await call('reply_review_item', { id: question.id, kind: 'change', text: 'Did B', files: ['code.ts'] })).result.isError, undefined);
+    await call('reply_review_item', { id: item.id, kind: 'change', text: 'Done as asked' });
+    sessions.updateSession(id, { status: 'ready' });
+    assert.equal((await service.closeItem(project.id, review.id, question.id, 'accept')).closed, true);
+    assert.equal((await service.closeItem(project.id, review.id, item.id, 'reject')).status, 'rejected');
     assert.deepEqual(service.attention(project.id), []);
     const other = sessions.createSession({ project_id: project.id, agent_id: agent.id, role: 'code-fixer', policy: 'ask' });
     ids.push(other.id);
     sessions.updateSession(other.id, { status: 'ready' });
     await service.addDraft(project.id, { scope: 'general', kind: 'fix', text: 'Second round' });
-    sessions.updateSession(id, { status: 'ready' });
     const second = await service.sendRound(project.id, review.id, other.id, 'Сначала разберись с типами');
-    assert.equal(second.round.n, 2);
+    assert.equal(second.round.n, 3);
     assert.match(String(sessions.history(other.id).find(e => e.type === 'user')?.payload.text), /Комментарий разработчика: Сначала разберись с типами/);
-    assert.equal((await service.current(project.id)).rounds.length, 2);
+    assert.equal((await service.current(project.id)).rounds.length, 3);
     await ready(other.id);
-    await assert.rejects(service.resolveItem(sessions.getSession(other.id), question.id, 'answered', 'No'), /another chat/);
-    sessions.addEvent(id, 'user', { text: 'I agree: make the change for the question.' });
-    sessions.updateSession(id, { status: 'thinking' });
-    await call('resolve_review_item', { id: question.id, status: 'done', answer: 'Исправлено по итогам обсуждения' });
-    assert.equal(store.getItem(question.id)!.status, 'done');
-    sessions.updateSession(id, { status: 'ready' });
+    await assert.rejects(service.replyItem(sessions.getSession(other.id), question.id, { kind: 'answer', text: 'No' }), /another chat/);
+    // Writing to a closed thread reopens it; a failed delivery puts the reply back in the queue.
+    await service.addMessage(project.id, review.id, question.id, { text: 'А почему B?' });
+    assert.equal(store.getItem(question.id)!.closed, false);
     const thirdDraft = (await service.addDraft(project.id, { scope: 'general', kind: 'fix', text: 'Retry' })).item;
     const failing = createReviewService(getDb(), { sendPrompt: async () => { throw new Error('Delivery failed'); } });
     await assert.rejects(failing.sendRound(project.id, review.id, id), /Delivery failed/);
     assert.equal(store.getItem(thirdDraft.id)!.status, 'draft');
-    assert.equal(store.listRounds(review.id).length, 2);
-    // Chosen items only; an answered question sent again is the developer's agreement and becomes a fix.
-    const quiet = createReviewService(getDb(), { sendPrompt: async () => {} });
-    const ask = (await service.addDraft(project.id, { scope: 'general', kind: 'question', text: 'Which way?' })).item;
-    await quiet.sendRound(project.id, review.id, id, '', [ask.id]);
-    assert.equal(store.getItem(thirdDraft.id)!.status, 'draft');
-    await service.resolveItem(sessions.getSession(id), ask.id, 'answered', 'A or B; B recommended');
-    await assert.rejects(quiet.sendRound(project.id, review.id, id, '', [item.id]), /can be sent/);
-    await quiet.sendRound(project.id, review.id, id, '', [ask.id]);
-    assert.deepEqual([store.getItem(ask.id)!.status, store.getItem(ask.id)!.kind], ['sent', 'fix']);
-    assert.equal((await service.resolveItem(sessions.getSession(id), ask.id, 'done', 'Did B')).status, 'done');
-    const retry = createReviewService(getDb(), { sendPrompt: async () => { throw new Error('Delivery failed'); } });
-    const ask2 = (await service.addDraft(project.id, { scope: 'general', kind: 'question', text: 'Again?' })).item;
-    await quiet.sendRound(project.id, review.id, id, '', [ask2.id]);
-    await service.resolveItem(sessions.getSession(id), ask2.id, 'answered', 'Yes');
-    await assert.rejects(retry.sendRound(project.id, review.id, id, '', [ask2.id]), /Delivery failed/);
-    assert.deepEqual([store.getItem(ask2.id)!.status, store.getItem(ask2.id)!.kind], ['answered', 'question'], 'A failed delivery restores the item');
+    assert.equal(store.getItem(question.id)!.status, 'done');
+    const queued = store.listMessages(review.id, question.id).filter(m => m.author === 'developer' && !m.sent);
+    assert.equal(queued.length, 1);
+    assert.equal(store.listRounds(review.id).length, 3);
+    await assert.rejects(quiet.sendRound(project.id, review.id, id, '', [item.id]), /Nothing to send/);
+    await service.removeMessage(project.id, review.id, question.id, queued[0].id);
+    await service.closeItem(project.id, review.id, question.id, 'accept');
+    // «Остановить»: the agent stops; threads it did not answer return to the queue and can be sent again.
+    const stuck = (await service.addDraft(project.id, { scope: 'general', kind: 'fix', text: 'Stuck' })).item;
+    await quiet.sendRound(project.id, review.id, id);
+    sessions.updateSession(id, { status: 'thinking' });
+    assert.equal((await service.current(project.id)).agent_working, true);
+    assert.equal(store.getItem(stuck.id)!.status, 'sent', 'A working agent keeps its threads');
+    const stopper = createReviewService(getDb(), { cancelSession: async sid => { sessions.updateSession(sid, { status: 'ready' }); }, closeSession: async () => {} });
+    assert.equal((await stopper.stop(project.id, review.id)).stopped, 1);
+    assert.equal(store.getItem(stuck.id)!.status, 'draft');
+    assert.equal(store.getItem(stuck.id)!.round_id, null);
+    assert.equal((await service.current(project.id)).agent_working, false);
     const scope = { writable: [project.repo_path] };
     for (const command of ['git status', 'git commit -m x', 'git -C repo push', '"C:\\Program Files\\Git\\bin\\git.exe" reset', 'cmd /c git switch main']) {
       for (const policy of ['ask', 'allow-all', 'allow-edits'] as const)

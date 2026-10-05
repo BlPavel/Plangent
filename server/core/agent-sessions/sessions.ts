@@ -26,7 +26,9 @@ export function initSessions(): void {
       id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
       file TEXT NOT NULL, line INTEGER NOT NULL, severity TEXT NOT NULL, message TEXT NOT NULL
     );
-    UPDATE agent_sessions SET status='waiting', reason='Приложение перезапущено. Продолжите сессию.'
+    -- A code fixer is driven by review rounds, not by a reply in its chat: after a restart it is simply idle.
+    UPDATE agent_sessions SET status=CASE role WHEN 'code-fixer' THEN 'ready' ELSE 'waiting' END,
+      reason='Приложение перезапущено. Продолжите сессию.'
       WHERE status IN ('starting', 'thinking', 'waiting');
   `);
 }

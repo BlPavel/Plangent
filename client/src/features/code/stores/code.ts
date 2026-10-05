@@ -46,6 +46,7 @@ export const useCodeStore = defineStore('code', () => {
   const branch = computed(() => repository.value?.branch ?? null)
   const review = computed(() => openedReview.value?.review ?? current.value?.review ?? null)
   const items = computed(() => openedReview.value?.items ?? current.value?.items ?? [])
+  const messages = computed(() => openedReview.value?.messages ?? current.value?.messages ?? [])
   const rounds = computed(() => openedReview.value?.rounds ?? current.value?.rounds ?? [])
   const readOnly = computed(() => openedReview.value?.read_only ?? false)
 
@@ -99,10 +100,14 @@ export const useCodeStore = defineStore('code', () => {
     } finally { if (requests.get(key) === controller) requests.delete(key) }
   }
   const loadTree = (path = '') => read('tree:' + path, (p, signal) => codeApi.tree(p, path, includeIgnored.value, signal), value => { trees.value[path] = value })
+  /** The selected file is gone from disk (deleted by the developer or the agent): not an error. */
+  let fileMissing = false
   const loadFile = (path: string) => read('file', async (p, signal) => {
+    fileMissing = false
     try { return await codeApi.file(p, path, signal) }
     catch (cause) {
       if (!signal.aborted && selectedPath.value === path) file.value = null
+      if (/not found/i.test(String((cause as Error)?.message ?? cause))) { fileMissing = true; return null }
       throw cause
     }
   }, value => { file.value = value })
@@ -167,6 +172,9 @@ export const useCodeStore = defineStore('code', () => {
     if (current.value?.other_reviews.length && !historyLoaded) followUps.push(loadHistory())
     results.push(...await Promise.allSettled(followUps))
     if (revision !== generation) return
+    // A deleted file stays open while its deletion shows in the changes; once nothing is left to show, it closes.
+    const gone = selectedPath.value
+    if (gone !== null && fileMissing && !shownChanges.value.some(change => change.path === gone)) { selectedPath.value = null; fileMissing = false }
     continuedHead.value = liveReview.value ? continued.get(liveReview.value.id) ?? null : null
     loading.value = false
     const failed = results.find(result => result.status === 'rejected')
@@ -240,8 +248,12 @@ export const useCodeStore = defineStore('code', () => {
   const updateDraft = (r: string, i: string, data: DraftPatch) => mutate(p => codeReviewsApi.updateDraft(p, r, i, data))
   const removeItem = (r: string, i: string) => mutate(p => codeReviewsApi.removeItem(p, r, i))
   const makeGeneral = (r: string, i: string) => mutate(p => codeReviewsApi.makeGeneral(p, r, i))
-  const decideItem = (r: string, i: string, decision: 'agree' | 'insist') => mutate(p => codeReviewsApi.decideItem(p, r, i, decision))
+  const addMessage = (r: string, i: string, data: { kind: 'text' | 'implement'; text: string; choice?: number }) => mutate(p => codeReviewsApi.addMessage(p, r, i, data))
+  const removeMessage = (r: string, i: string, m: string) => mutate(p => codeReviewsApi.removeMessage(p, r, i, m))
+  const closeItem = (r: string, i: string, resolution: 'accept' | 'answered' | 'reject' | 'reopen') => mutate(p => codeReviewsApi.closeItem(p, r, i, resolution))
   const sendRound = (r: string, sessionId: string, note?: string, itemIds?: string[]) => mutate(p => codeReviewsApi.sendRound(p, r, sessionId, note, itemIds))
+  /** Stops the review's agent; threads it left without a reply return to the queue. */
+  const stopAgent = (r: string) => mutate(p => codeReviewsApi.stop(p, r))
   const markViewed = (r: string, path: string, viewed: boolean) => mutate(p => codeReviewsApi.markViewed(p, r, path, viewed))
   /** «Просмотрено» flips the mark; before the first remark it opens the review of the branch by itself. */
   function toggleViewed(path: string, origin: 'project' | 'task' = 'project', originId?: string) {
@@ -263,6 +275,6 @@ export const useCodeStore = defineStore('code', () => {
   return { projectId, repository, head, branch, changes, stats, trees, files, includeIgnored, selectedPath, file, current, openedReviewId, openedReview, review, items, rounds, readOnly, history, loading, error, watchError,
     base, baseRound, baseData, screen, unresolved, liveReview, agentWorking, effectiveBase, shownChanges, shownStats, diffEnds, viewedState, viewedCount, commitBannerShown, otherReview, runningElsewhere, setBase, continueReview, toggleViewed,
     matches, searchSummary, searching, searchError, start, stop, refresh, loadTree, selectFile, openReview, loadHistory, setIncludeIgnored, search, cancelSearch, clearSearch, diff,
-    addDraft, updateDraft, removeItem, makeGeneral, decideItem, sendRound, markViewed, finish, removeReview }
+    messages, addDraft, updateDraft, removeItem, makeGeneral, addMessage, removeMessage, closeItem, sendRound, stopAgent, markViewed, finish, removeReview }
 })
 

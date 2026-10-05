@@ -456,6 +456,36 @@ function migrateCodeReviews(db: Database.Database): void {
         PRIMARY KEY(review_id, path)
       );
     `);
+    const itemColumns = db.prepare('PRAGMA table_info(code_review_item)').all() as { name: string }[];
+    if (!itemColumns.some(column => column.name === 'closed')) {
+      db.exec('ALTER TABLE code_review_item ADD COLUMN closed INTEGER NOT NULL DEFAULT 0 CHECK(closed IN (0,1))');
+      db.exec("UPDATE code_review_item SET closed=1 WHERE status IN ('done','answered','rejected')");
+    }
+    // Sent threads used to go stale when the agent edited their lines; only drafts can be outdated.
+    db.exec("UPDATE code_review_item SET outdated=0 WHERE outdated=1 AND status<>'draft'");
+    if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='code_review_message'").get()) {
+      db.exec(`
+        CREATE TABLE code_review_message (
+          id TEXT PRIMARY KEY,
+          item_id TEXT NOT NULL REFERENCES code_review_item(id) ON DELETE CASCADE,
+          author TEXT NOT NULL CHECK(author IN ('developer','agent')),
+          kind TEXT NOT NULL CHECK(kind IN ('text','implement','answer','options','questions','change','disagree')),
+          text TEXT NOT NULL,
+          options TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(options)),
+          choice INTEGER,
+          files TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(files)),
+          round_id TEXT REFERENCES code_review_round(id) ON DELETE SET NULL,
+          sent INTEGER NOT NULL DEFAULT 0 CHECK(sent IN (0,1)),
+          created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f','now'))
+        );
+        CREATE INDEX code_review_message_item ON code_review_message(item_id, created_at);
+      `);
+      // Answers given before threads existed become the first agent message of their thread.
+      db.exec(`INSERT INTO code_review_message(id,item_id,author,kind,text,round_id,sent)
+        SELECT lower(hex(randomblob(16))), id, 'agent',
+          CASE status WHEN 'done' THEN 'change' WHEN 'needs_decision' THEN 'disagree' ELSE 'answer' END, answer, round_id, 1
+        FROM code_review_item WHERE answer IS NOT NULL AND answer<>''`);
+    }
     const reviewColumns = db.prepare('PRAGMA table_info(code_review)').all() as { name: string }[];
     if (!reviewColumns.some(column => column.name === 'head_last')) {
       db.exec("ALTER TABLE code_review ADD COLUMN head_last TEXT NOT NULL DEFAULT ''");

@@ -179,14 +179,27 @@ test('attention refreshes on review events and removes projects no longer tracke
 })
 
 
-test('deleted selected file clears stale content during watcher refresh', async () => {
+test('deleted selected file closes quietly during watcher refresh', async () => {
   const h = harness()
   await h.store.start('p')
   await h.store.selectFile('deleted.ts')
   h.codeApi.file = async () => { throw new Error('File not found') }
   await h.store.refresh()
   assert.equal(h.store.file, null)
-  assert.match(h.store.error, /File not found/)
+  assert.equal(h.store.error, null)
+  assert.equal(h.store.selectedPath, null)
+  h.store.stop()
+})
+
+test('deleted file that still shows as a change stays open for its diff', async () => {
+  const h = harness()
+  await h.store.start('p')
+  await h.store.selectFile('deleted.ts')
+  h.codeApi.file = async () => { throw new Error('File not found') }
+  h.codeApi.changes = async () => [{ path: 'deleted.ts', status: 'D' }]
+  await h.store.refresh()
+  assert.equal(h.store.error, null)
+  assert.equal(h.store.selectedPath, 'deleted.ts')
   h.store.stop()
 })
 
@@ -256,7 +269,7 @@ test('screen state is one value computed from the server data', () => {
   assert.equal(state(0, live({ head_changed: true })), 'all-committed')
   assert.equal(state(0, live({ head_changed: true, agent_working: true })), 'agent-working', 'a running agent hides the commit banner')
   assert.equal(state(0, live(), { review }), 'history')
-  assert.equal(countUnresolved([{ status: 'draft' }, { status: 'sent' }, { status: 'needs_decision' }, { status: 'done' }, { status: 'answered' }, { status: 'rejected' }]), 3)
+  assert.equal(countUnresolved([{ closed: false }, { closed: false }, { closed: true }, { closed: false }]), 3, 'every open thread is unresolved')
 })
 
 test('viewed marks open the review, comparison bases fall back, the committed summary stays', async () => {

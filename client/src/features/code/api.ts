@@ -1,5 +1,5 @@
 ﻿import { api } from '@core/api'
-import type { RepositoryInfo, GitChange, LineStat, TreeEntry, CodeFile, DiffOptions, SearchOptions, SearchEvent, ReviewDraft, DraftPatch, CodeReview, CodeReviewItem, CodeReviewRound, CodeReviewFileView, ReviewDetail, CurrentReview, ReviewHistory, ReviewAttention, BaseChanges } from './types'
+import type { RepositoryInfo, GitChange, LineStat, TreeEntry, CodeFile, DiffOptions, SearchOptions, SearchEvent, ReviewDraft, DraftPatch, CodeReview, CodeReviewItem, CodeReviewMessage, CodeReviewRound, CodeReviewFileView, ReviewDetail, CurrentReview, ReviewHistory, ReviewAttention, BaseChanges } from './types'
 const id = encodeURIComponent
 function query(values: object): string {
   const params = new URLSearchParams()
@@ -35,8 +35,11 @@ export const codeReviewsApi = {
   updateDraft: (p: string, r: string, i: string, data: DraftPatch) => api.patch<CodeReviewItem>(item(p, r, i), data),
   removeItem: (p: string, r: string, i: string) => api.delete<void>(item(p, r, i)),
   makeGeneral: (p: string, r: string, i: string) => api.post<CodeReviewItem>(item(p, r, i) + '/general', {}),
-  decideItem: (p: string, r: string, i: string, decision: 'agree' | 'insist') => api.post<CodeReviewItem>(item(p, r, i) + '/decision', { decision }),
+  addMessage: (p: string, r: string, i: string, data: { kind: 'text' | 'implement'; text: string; choice?: number }) => api.post<CodeReviewMessage>(item(p, r, i) + '/messages', data),
+  removeMessage: (p: string, r: string, i: string, m: string) => api.delete<void>(item(p, r, i) + '/messages/' + id(m)),
+  closeItem: (p: string, r: string, i: string, resolution: 'accept' | 'answered' | 'reject' | 'reopen') => api.post<CodeReviewItem>(item(p, r, i) + '/close', { resolution }),
   sendRound: (p: string, r: string, sessionId: string, note?: string, itemIds?: string[]) => api.post<{ round: CodeReviewRound; items: CodeReviewItem[] }>(review(p, r) + '/rounds', { session_id: sessionId, note, item_ids: itemIds }),
+  stop: (p: string, r: string) => api.post<{ stopped: number }>(review(p, r) + '/stop', {}),
   fileItems: (p: string, r: string, path: string, side: 'new' | 'old' = 'new', signal?: AbortSignal) => api.get<CodeReviewItem[]>(review(p, r) + '/file-items' + query({ path, side }), signal),
   diff: (p: string, r: string, path: string, signal?: AbortSignal) => api.get<{ diff: string }>(review(p, r) + '/diff' + query({ path }), signal),
   baseChanges: (p: string, r: string, base: 'agent' | 'review', round?: string, signal?: AbortSignal) => api.get<BaseChanges>(review(p, r) + '/changes' + query({ base, round }), signal),

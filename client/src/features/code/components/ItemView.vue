@@ -4,8 +4,11 @@
     @save="save" @cancel="editing = false"
   />
   <ItemCard
-    v-else :item="item" :read-only="readOnly" :show-location="showLocation" :busy="busy" :agent-working="agentWorking" :selectable="selectable" :selected="selected"
-    @toggle="emit('toggle')" @implement="emit('implement')" @edit="editing = true" @remove="remove" @general="general" @goto="emit('goto')" @discuss="emit('discuss')" @decide="decide" @open-ref="emit('open-ref', $event)"
+    v-else :item="item" :thread="thread" :state="state" :read-only="readOnly" :show-location="showLocation" :busy="busy"
+    :agent-busy="agent.busy" :working="working" :permissions="working ? agent.permissions : []"
+    @edit="editing = true" @remove="remove" @general="general" @goto="emit('goto')" @open-ref="emit('open-ref', $event)"
+    @send-now="agent.send([item.id])" @reply="reply" @remove-message="removeMessage" @close="close"
+    @permission="(permission, option) => agent.answerPermission(permission, option)" @show-change="(round, file) => emit('show-change', round, file)"
   />
 </template>
 
@@ -13,18 +16,25 @@
 import { computed, ref } from 'vue'
 import { useAppStore } from '@core/stores/app'
 import { useCodeStore } from '../stores/code'
+import { useReviewAgentStore } from '../stores/review-agent'
 import type { CodeReviewItem } from '../types'
+import { threadState } from '../utils/thread'
 import ItemCard from './ItemCard.vue'
 import ItemComposer from './ItemComposer.vue'
 
-const props = defineProps<{ item: CodeReviewItem; readOnly?: boolean; showLocation?: boolean; agentWorking?: boolean; selectable?: boolean; selected?: boolean }>()
-const emit = defineEmits<{ goto: []; discuss: []; toggle: []; implement: []; 'open-ref': [ref: string] }>()
+/** A review item with its thread, wired to the review store and the review's agent. */
+const props = defineProps<{ item: CodeReviewItem; readOnly?: boolean; showLocation?: boolean }>()
+const emit = defineEmits<{ goto: []; 'open-ref': [ref: string]; 'show-change': [roundId: string, file?: string] }>()
 const store = useCodeStore()
+const agent = useReviewAgentStore()
 const app = useAppStore()
 const editing = ref(false)
 const busy = ref(false)
 const error = ref('')
 
+const thread = computed(() => store.messages.filter(m => m.item_id === props.item.id))
+const state = computed(() => threadState(props.item, store.messages))
+const working = computed(() => agent.busy && agent.focusItem === props.item.id)
 const where = computed(() => {
   const { scope, file, line_start, line_end, side } = props.item
   if (scope === 'general') return 'Общее замечание'
@@ -44,5 +54,8 @@ async function save(value: { kind: 'fix' | 'question'; text: string; refs: strin
 }
 const remove = () => run(() => store.removeItem(props.item.review_id, props.item.id), 'Не удалось удалить')
 const general = () => run(() => store.makeGeneral(props.item.review_id, props.item.id), 'Не удалось превратить в общий')
-const decide = (decision: 'agree' | 'insist') => run(() => store.decideItem(props.item.review_id, props.item.id, decision), 'Не удалось применить решение')
+const reply = (kind: 'text' | 'implement', text: string, choice?: number) =>
+  run(() => store.addMessage(props.item.review_id, props.item.id, { kind, text, ...(choice !== undefined ? { choice } : {}) }), 'Не удалось сохранить ответ')
+const removeMessage = (id: string) => run(() => store.removeMessage(props.item.review_id, props.item.id, id), 'Не удалось убрать ответ')
+const close = (resolution: 'accept' | 'answered' | 'reject' | 'reopen') => run(() => store.closeItem(props.item.review_id, props.item.id, resolution), 'Не удалось изменить статус')
 </script>

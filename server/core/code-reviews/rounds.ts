@@ -10,33 +10,37 @@ function count(n: number, one: string, few: string, many: string): string {
   return `${n} ${word}`;
 }
 
-/** Items the developer can hand to an agent: drafts, answered questions to implement, disputed items to insist on. */
-export function sendable(item: CodeReviewItem): boolean {
-  return !item.outdated && (item.status === 'draft' || item.status === 'needs_decision' || (item.status === 'answered' && item.kind === 'question'));
+/** What the next batch carries: new drafts and threads with the developer's queued replies. */
+export function pendingItems(store: ReturnType<typeof createReviewStore>, reviewId: string): CodeReviewItem[] {
+  const queued = new Set(store.listMessages(reviewId).filter(m => m.author === 'developer' && !m.sent).map(m => m.item_id));
+  return store.listItems(reviewId).filter(item => (item.status === 'draft' && !item.outdated) || queued.has(item.id));
 }
 
 /**
  * Capture outside the transaction; caller holds the project lifecycle lock. Without `itemIds` the
- * round takes all drafts. An answered question sent again becomes a fix: sending it is the agreement.
+ * round takes everything pending; «Отправить сейчас» passes one thread.
  */
 export async function captureRound(db: Database.Database, review: CodeReview, session: AgentSession,
   root: string, ensureCurrent: () => Promise<void>, itemIds?: string[]) {
   const store = createReviewStore(db);
-  const all = store.listItems(review.id);
-  if (itemIds && itemIds.some(id => !all.some(item => item.id === id && sendable(item))))
-    throw new CodeError('Only drafts, answered questions and disputed items can be sent', 409);
-  const drafts = itemIds ? all.filter(item => itemIds.includes(item.id)) : all.filter(item => item.status === 'draft');
-  if (!drafts.length) throw new CodeError('No draft items', 409);
+  const pending = pendingItems(store, review.id);
+  if (itemIds && itemIds.some(id => !pending.some(item => item.id === id)))
+    throw new CodeError('Nothing to send for this item: write a reply first', 409);
+  const chosen = itemIds ? pending.filter(item => itemIds.includes(item.id)) : pending;
+  if (!chosen.length) throw new CodeError('Nothing to send', 409);
   const tree = await snapshot(root);
   await ensureCurrent();
   return db.transaction(() => {
     const round = store.createRound({ review_id: review.id, snapshot_tree: tree ?? '', session_id: session.id });
-    const items = drafts.map(item => store.updateItem(item.id, { round_id: round.id, status: 'sent', ...(item.status === 'answered' ? { kind: 'fix' as const } : {}) })!);
-    const fixes = items.filter(item => item.kind === 'fix').length;
-    const questions = items.length - fixes;
+    const items = chosen.map(item => {
+      store.sendMessages(item.id, round.id);
+      return store.updateItem(item.id, { round_id: round.id, status: 'sent', closed: false })!;
+    });
+    const fresh = chosen.filter(item => item.status === 'draft').length;
+    const replies = items.length - fresh;
     // The items themselves travel through get_review; the chat only announces the round.
-    const counts = [fixes && count(fixes, 'замечание', 'замечания', 'замечаний'), questions && count(questions, 'вопрос', 'вопроса', 'вопросов')].filter(Boolean);
+    const counts = [fresh && count(fresh, 'новый пункт', 'новых пункта', 'новых пунктов'), replies && count(replies, 'ответ в обсуждении', 'ответа в обсуждениях', 'ответов в обсуждениях')].filter(Boolean);
     const text = `Ревью #${review.number}, раунд ${round.n}: ${counts.join(' и ')}. Возьми их через get_review.`;
-    return { round, items, text, previous: drafts };
+    return { round, items, text, previous: chosen };
   })();
 }

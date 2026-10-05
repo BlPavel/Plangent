@@ -2,16 +2,22 @@ import { randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { getDb } from '../../infrastructure/db/schema';
 import type {
-  CodeReview, CodeReviewRound, CodeReviewItem, CodeReviewFileView,
+  CodeReview, CodeReviewRound, CodeReviewItem, CodeReviewFileView, CodeReviewMessage,
   CreateCodeReview, UpdateCodeReview, CreateCodeReviewRound,
   CreateCodeReviewItem, UpdateCodeReviewItem,
 } from '../../models/code-review';
 
-type ItemRow = Omit<CodeReviewItem, 'refs' | 'outdated'> & { refs: string; outdated: number };
+type ItemRow = Omit<CodeReviewItem, 'refs' | 'outdated' | 'closed'> & { refs: string; outdated: number; closed: number };
+type MessageRow = Omit<CodeReviewMessage, 'options' | 'files' | 'sent'> & { options: string; files: string; sent: number };
 
 function parseItem(row: ItemRow): CodeReviewItem {
-  return { ...row, refs: JSON.parse(row.refs), outdated: row.outdated === 1 };
+  return { ...row, refs: JSON.parse(row.refs), outdated: row.outdated === 1, closed: row.closed === 1 };
 }
+function parseMessage(row: MessageRow): CodeReviewMessage {
+  return { ...row, options: JSON.parse(row.options), files: JSON.parse(row.files), sent: row.sent === 1 };
+}
+export type CreateCodeReviewMessage = Pick<CodeReviewMessage, 'item_id' | 'author' | 'kind' | 'text'>
+  & Partial<Pick<CodeReviewMessage, 'options' | 'choice' | 'files' | 'round_id' | 'sent'>>;
 
 function encodeRefs(refs: string[]): string {
   if (!Array.isArray(refs) || refs.some(ref => typeof ref !== 'string')) {
@@ -128,13 +134,13 @@ export function createReviewStore(db: Database.Database = getDb()) {
       const id = randomUUID();
       db.prepare(`INSERT INTO code_review_item(
         id,review_id,round_id,author,scope,file,line_start,line_end,side,kind,text,refs,
-        code_snippet,status,answer,outdated,carried_from_item_id
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+        code_snippet,status,answer,outdated,carried_from_item_id,closed
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
         id, data.review_id, data.round_id ?? null, data.author ?? 'developer',
         data.scope, data.file ?? null, data.line_start ?? null, data.line_end ?? null,
         data.side ?? 'new', data.kind, data.text, encodeRefs(data.refs ?? []),
         data.code_snippet ?? '', data.status ?? 'draft', data.answer ?? null,
-        data.outdated ? 1 : 0, data.carried_from_item_id ?? null);
+        data.outdated ? 1 : 0, data.carried_from_item_id ?? null, data.closed ? 1 : 0);
       return getItem(id)!;
     })();
   }
@@ -146,7 +152,7 @@ export function createReviewStore(db: Database.Database = getDb()) {
       // Only declared mutable fields enter SQL; ids and timestamps cannot be overwritten by callers.
       const u = { ...current };
       const keys = ['round_id','author','scope','file','line_start','line_end','side','kind','text',
-        'refs','code_snippet','status','answer','outdated','carried_from_item_id'] as const;
+        'refs','code_snippet','status','answer','outdated','carried_from_item_id','closed'] as const;
       for (const key of keys) {
         if (data[key] !== undefined) Object.assign(u, { [key]: data[key] });
       }
@@ -154,16 +160,52 @@ export function createReviewStore(db: Database.Database = getDb()) {
       if (u.carried_from_item_id === id) throw new Error('An item cannot carry itself');
       db.prepare(`UPDATE code_review_item SET round_id=?,author=?,scope=?,file=?,line_start=?,line_end=?,
         side=?,kind=?,text=?,refs=?,code_snippet=?,status=?,answer=?,outdated=?,carried_from_item_id=?,
-        updated_at=datetime('now') WHERE id=?`).run(
+        closed=?,updated_at=datetime('now') WHERE id=?`).run(
         u.round_id, u.author, u.scope, u.file, u.line_start, u.line_end, u.side,
         u.kind, u.text, encodeRefs(u.refs), u.code_snippet, u.status, u.answer,
-        u.outdated ? 1 : 0, u.carried_from_item_id, id);
+        u.outdated ? 1 : 0, u.carried_from_item_id, u.closed ? 1 : 0, id);
       return getItem(id);
     })();
   }
 
   function deleteItem(id: string): boolean {
     return db.prepare('DELETE FROM code_review_item WHERE id=?').run(id).changes > 0;
+  }
+
+  /** Threads of a review (or of one item), oldest first. */
+  function listMessages(review_id: string, item_id?: string): CodeReviewMessage[] {
+    const rows = item_id
+      ? db.prepare('SELECT * FROM code_review_message WHERE item_id=? ORDER BY created_at, rowid').all(item_id)
+      : db.prepare(`SELECT m.* FROM code_review_message m JOIN code_review_item i ON i.id=m.item_id
+          WHERE i.review_id=? ORDER BY m.created_at, m.rowid`).all(review_id);
+    return (rows as MessageRow[]).map(parseMessage);
+  }
+
+  function getMessage(id: string): CodeReviewMessage | null {
+    const row = db.prepare('SELECT * FROM code_review_message WHERE id=?').get(id) as MessageRow | undefined;
+    return row ? parseMessage(row) : null;
+  }
+
+  function createMessage(data: CreateCodeReviewMessage): CodeReviewMessage {
+    const id = randomUUID();
+    db.prepare(`INSERT INTO code_review_message(id,item_id,author,kind,text,options,choice,files,round_id,sent)
+      VALUES (?,?,?,?,?,?,?,?,?,?)`).run(id, data.item_id, data.author, data.kind, data.text,
+      JSON.stringify(data.options ?? []), data.choice ?? null, JSON.stringify(data.files ?? []), data.round_id ?? null, data.sent ? 1 : 0);
+    return getMessage(id)!;
+  }
+
+  /** The developer's queued replies of an item leave with a round. */
+  function sendMessages(item_id: string, round_id: string): void {
+    db.prepare("UPDATE code_review_message SET sent=1, round_id=? WHERE item_id=? AND author='developer' AND sent=0").run(round_id, item_id);
+  }
+
+  /** A round that failed to reach the agent puts its replies back in the queue. */
+  function unsendRound(round_id: string): void {
+    db.prepare("UPDATE code_review_message SET sent=0, round_id=NULL WHERE round_id=? AND author='developer'").run(round_id);
+  }
+
+  function deleteMessage(id: string): boolean {
+    return db.prepare('DELETE FROM code_review_message WHERE id=?').run(id).changes > 0;
   }
 
   function markFileViewed(review_id: string, path: string, content_hash: string): CodeReviewFileView {
@@ -192,5 +234,6 @@ export function createReviewStore(db: Database.Database = getDb()) {
   return { getReview, listReviews, getOpenReview, createReview, updateReview, deleteReview,
     getRound, listRounds, createRound, updateRound, deleteRound,
     getItem, listItems, createItem, updateItem, deleteItem,
+    listMessages, getMessage, createMessage, sendMessages, unsendRound, deleteMessage,
     markFileViewed, listFileViews, isFileViewed, deleteFileView };
 }

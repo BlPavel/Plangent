@@ -50,35 +50,36 @@ objects through an isolated temporary index; refs and the developer index stay i
 
 ## Code fixer rounds (p8)
 
-POST /:reviewId/rounds accepts { session_id, note?, item_ids? }. Without item_ids the round
-takes all drafts; with them only those items, which may also be answered questions (they
-become fixes: sending is the developer's agreement) and needs_decision items (insisting).
-A failed delivery restores each item's previous status, round and kind. Create a project chat with
-POST /agent-sessions and role=code-fixer first; agent/model/mode/config selection uses
-the existing session API. An existing chat is reusable only within the same review.
-The server snapshots through the isolated Git index, atomically creates the round
-and assigns all drafts, then sends the summary to the chat. Delivery failure restores
-the drafts and removes the round. No-Git projects use an empty snapshot_tree.
-starting/thinking/waiting review chats block sending and finishing. Project lifecycle
-locks are shared by service instances, and branch identity is rechecked after capture.
+Every item is a thread (code_review_message). The developer's replies are queued
+(sent=0) and leave with the next batch; agent replies are typed: answer, options
+(choices, one recommended), questions, change (files), disagree. The UI uses one agent
+session per review (the latest round's chat); there is no separate chat view.
 
-The round message only announces the counts (plus the developer note); the items travel
-through MCP. get_review returns protocol (how fixes and questions are resolved, built in),
-assigned (this chat's items in status sent) and history (other sent items as context).
-A new chat is titled «Доработка · ревью #N».
+POST /:reviewId/rounds accepts { session_id, note?, item_ids? } and sends a batch: all
+drafts and every thread with queued replies (item_ids: only those, «Отправить сейчас»).
+Create the session with POST /agent-sessions and role=code-fixer first; agent/model/mode
+selection uses the existing session API. A session serves only one review.
+The server snapshots through the isolated Git index, atomically creates the round, marks
+the items sent and their queued replies sent, then announces the counts (plus the note)
+in the chat. Delivery failure restores the items, re-queues the replies and removes the
+round. No-Git projects use an empty snapshot_tree. starting/thinking/waiting review
+sessions block sending and finishing. Project lifecycle locks are shared by service
+instances, and branch identity is rechecked after capture.
 
-Code fixers receive only get_review and resolve_review_item(id, status, answer).
-The session's project and round ownership constrain access; agents cannot reject
-items or resolve drafts/another chat's items. answered applies only to questions.
-A question can become done after a reply and a later developer chat message, with
-the answer marked "по итогам обсуждения"; the instruction requires the agent to
-verify explicit agreement before making the change.
+Thread routes: POST /:reviewId/items/:itemId/messages { kind: text|implement, text,
+choice? } queues a reply (writing to a closed thread reopens it); DELETE
+.../messages/:messageId removes a queued reply; POST .../close { resolution:
+accept|answered|reject|reopen } records the developer's verdict (closed=1; reject also
+sets status rejected). Open threads are unresolved; threads where the agent replied are
+the attention count. GET /attention reports them per open review.
 
-POST /:reviewId/items/:itemId/decision accepts decision=agree (rejected) or
-decision=insist (sent, plus "Сделай как в замечании" in the assigned chat).
-GET /attention reports open reviews needing developer decisions.
+Code fixers receive get_review (protocol, assigned threads with history, other items),
+start_review_item(id) (adds a review_focus event: permission requests show in that card)
+and reply_review_item(id, kind, text, options?, files?), one reply per item per turn.
+The session's round ownership constrains access. A question gets a change reply only
+after the developer replied in its thread.
 code_review_updated events include projectId, reviewId, item, attention and unresolved;
-code_review_needs_decision adds itemId and reason for notifications.
+code_review_needs_decision (agent disagrees) adds itemId and reason for notifications.
 
 The hidden first-message briefing is the role line plus the developer's instruction (what
 the agent may touch, how it reports). Instructions resolve project → group → global → built-in; code-fixer-instruction

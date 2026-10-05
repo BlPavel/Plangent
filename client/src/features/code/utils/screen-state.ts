@@ -33,6 +33,5 @@ export function screenState({ changes, current, opened }: ScreenInput): ScreenSt
   return current.rounds.length ? 'agent-replied' : 'reviewing'
 }
 
-const PENDING = ['draft', 'sent', 'needs_decision']
-/** Items that keep a review from being closed without a decision about them. */
-export const countUnresolved = (items: { status: string }[]) => items.filter(item => PENDING.includes(item.status)).length
+/** Items that keep a review from being closed without a decision about them: every open thread. */
+export const countUnresolved = (items: { closed: boolean }[]) => items.filter(item => !item.closed).length

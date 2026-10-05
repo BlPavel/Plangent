@@ -1,97 +1,155 @@
 <template>
   <section class="rp">
-    <div class="rp-actions">
-      <AppButton size="xs" variant="ghost" :disabled="readOnly || composing" title="Замечание не к конкретной строке: структура, несколько файлов, общее впечатление" @click="composing = true">+ Общее</AppButton>
-      <SendButton
-        v-if="!readOnly" :label="sendLabel" :chats="targets" :default-target="chats.latest.value?.session.id ?? ''"
-        :disabled="!toSend.length || agentWorking" :reason="agentWorking ? 'Агент отвечает: дождитесь конца ответа' : 'Нет черновиков. Отметьте пункты, чтобы отправить их снова'"
-        @send="send"
-      />
-      <span v-if="agentWorking" class="rp-working">агент работает…</span>
-      <FinishReview v-if="store.liveReview && !readOnly" class="rp-finish" />
-    </div>
-    <div v-if="selected.size" class="rp-selection">
-      Выбрано {{ selected.size }}: «Отправить» отдаст агенту только их<template v-if="pickedAnswered"> · отвеченные вопросы агент сделает по своему ответу</template>
-      <button type="button" class="rp-link" @click="selected.clear()">Сбросить</button>
-    </div>
-    <div class="rp-meta">
-      <template v-if="review">Ревью #{{ review.number }}<template v-if="rounds"> · раунд {{ rounds }}</template></template>
-      <span v-if="readOnly" class="rp-ro" title="Это ревью другой ветки или завершено: только чтение">только чтение</span>
+    <!-- The review's agent: who it is, what it does now, its full log on demand. -->
+    <div class="rp-agent">
+      <template v-if="agent.session">
+        <span class="rp-dot" :class="agent.session.status" />
+        <span class="rp-agent-name" :title="agent.session.title">{{ agentName || 'Агент' }}</span>
+        <span class="rp-agent-status">{{ statusLabel(agent.session.status) }}</span>
+        <span class="rp-spacer" />
+        <AppButton v-if="agent.busy && !readOnly" size="xs" variant="ghost" :disabled="agent.stopping" title="Прервать агента; пункты без ответа вернутся в очередь" @click="agent.stop()">{{ agent.stopping ? 'Останавливаю…' : 'Стоп' }}</AppButton>
+        <AppButton size="xs" variant="ghost" :title="journal ? 'Вернуться к замечаниям' : 'Полный лог агента: рассуждения, команды, настройки модели'" @click="journal = !journal">{{ journal ? '← Замечания' : 'Журнал' }}</AppButton>
+      </template>
+      <span v-else class="rp-muted">Агент выбирается при первой отправке</span>
     </div>
 
-    <div class="rp-list">
-      <ItemComposer v-if="composing" where="Общее замечание" general :busy="busy" :error="error" @save="saveGeneral" @cancel="composing = false" />
-      <div v-if="!items.length && !composing" class="rp-empty">
-        Замечаний пока нет. Нажмите на номер строки в коде, 💬 в шапке файла или «+ Общее». Черновики сохраняются, агенту ничего не уходит, пока вы не нажмёте «Отправить».
+    <template v-if="journal && agent.sessionId">
+      <ChatView :key="agent.sessionId" :session-id="agent.sessionId" class="rp-journal" />
+    </template>
+
+    <template v-else-if="agent.setup">
+      <div class="rp-setup-head">
+        <span>Агент для ревью</span>
+        <button type="button" class="rp-link" @click="agent.setup = null">Отмена</button>
       </div>
-      <RecentReviews v-if="store.screen === 'clean'" />
-      <ItemView
-        v-for="item in active" :key="item.id" :item="item" :read-only="readOnly" show-location :agent-working="agentWorking"
-        :selectable="!readOnly && sendable(item)" :selected="selected.has(item.id)" @toggle="toggle(item)"
-        @implement="emit('send', [item.id], chats.chatOf(item)?.session.id ?? chats.latest.value?.session.id ?? '')"
-        @goto="emit('goto', item)" @discuss="emit('discuss', item)" @open-ref="emit('open-ref', $event)"
+      <NewChatPanel
+        class="rp-setup" :project-id="projectId" :default-agent-id="defaultAgentId" title="Кто будет дорабатывать"
+        :text="`Уйдёт ${setupCount} ${plural(setupCount, 'пункт', 'пункта', 'пунктов')}. Дальше вы переписываетесь с агентом прямо в карточках; ответы копятся и уходят по «Отправить». git ему запрещён.`"
+        placeholder="Комментарий к ревью (необязательно)" :initial-text="DEFAULT_NOTE" :busy="agent.sending" :error="agent.error"
+        @start="agent.start(projectId, $event, DEFAULT_NOTE)"
       />
-      <template v-if="outdated.length">
-        <div class="rp-section">Устарели ({{ outdated.length }})</div>
-        <ItemView v-for="item in outdated" :key="item.id" :item="item" :read-only="readOnly" show-location @open-ref="emit('open-ref', $event)" />
-      </template>
-    </div>
+    </template>
+
+    <template v-else>
+      <div class="rp-actions">
+        <AppButton size="xs" variant="ghost" :disabled="readOnly || composing" title="Замечание не к конкретной строке: структура, несколько файлов, общее впечатление" @click="composing = true">+ Общее</AppButton>
+        <AppButton
+          v-if="!readOnly" size="xs" variant="blue" :disabled="!pending || agent.busy || agent.sending"
+          :title="agent.busy ? 'Агент работает: дождитесь конца хода' : pending ? 'Отправить агенту новые пункты и ваши ответы в обсуждениях' : 'Нечего отправлять'"
+          @click="agent.send()"
+        >{{ agent.sending ? 'Отправка…' : `Отправить${pending ? ' ' + pending : ''}` }}</AppButton>
+        <FinishReview v-if="store.liveReview && !readOnly" class="rp-finish" />
+      </div>
+      <div v-if="agent.error" class="rp-error">{{ agent.error }}</div>
+
+      <!-- A permission the agent asked outside any item (it did not say what it works on). -->
+      <div v-for="permission in loosePermissions" :key="permission.permissionId" class="rp-permission">
+        <div class="rp-permission-head">Агент просит разрешение</div>
+        <div class="rp-permission-title">{{ permission.toolCall.title }}</div>
+        <div class="rp-permission-actions">
+          <AppButton
+            v-for="option in permission.options" :key="option.optionId" size="xs" :variant="option.kind.startsWith('allow') ? 'blue' : 'ghost'"
+            @click="agent.answerPermission(permission.permissionId, option.optionId)"
+          >{{ option.name }}</AppButton>
+        </div>
+      </div>
+
+      <div v-if="items.length" class="rp-filters" role="tablist" aria-label="Какие пункты показать">
+        <button
+          v-for="f in filters" :key="f.id" type="button" role="tab" class="rp-filter" :class="{ on: filter === f.id, warn: f.id === 'waiting' && f.count }"
+          :aria-selected="filter === f.id" @click="filter = f.id"
+        >{{ f.label }}<span class="rp-filter-count">{{ f.count }}</span></button>
+      </div>
+      <div class="rp-meta">
+        <template v-if="review">Ревью #{{ review.number }}<template v-if="rounds"> · отправок {{ rounds }}</template></template>
+        <span v-if="readOnly" class="rp-ro" title="Это ревью другой ветки или завершено: только чтение">только чтение</span>
+      </div>
+
+      <div class="rp-list">
+        <ItemComposer v-if="composing" where="Общее замечание" general :busy="busy" :error="error" @save="saveGeneral" @cancel="composing = false" />
+        <div v-if="!items.length && !composing" class="rp-empty">
+          Замечаний пока нет. Нажмите на номер строки в коде, 💬 в шапке файла или «+ Общее». Пункты копятся, агенту ничего не уходит, пока вы не нажмёте «Отправить».
+          Потом переписывайтесь с агентом прямо в карточках: ответы тоже копятся и уходят одной отправкой.
+        </div>
+        <div v-else-if="!shown.length && !composing" class="rp-empty">Здесь пусто.</div>
+        <RecentReviews v-if="store.screen === 'clean'" />
+        <template v-for="(item, index) in shown" :key="item.id">
+          <div v-if="state(item) === 'closed' && (index === 0 || state(shown[index - 1]) !== 'closed') && filter === 'all'" class="rp-section">Закрытые</div>
+          <ItemView
+            :item="item" :read-only="readOnly" show-location
+            @goto="emit('goto', item)" @open-ref="emit('open-ref', $event)" @show-change="(round, file) => emit('show-change', round, file)"
+          />
+        </template>
+        <template v-if="outdated.length && filter === 'all'">
+          <div class="rp-section">Устарели ({{ outdated.length }})</div>
+          <ItemView v-for="item in outdated" :key="item.id" :item="item" :read-only="readOnly" show-location @open-ref="emit('open-ref', $event)" />
+        </template>
+      </div>
+    </template>
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import AppButton from '@shared/ui/AppButton.vue'
 import { useAppStore } from '@core/stores/app'
+import { useAgentsStore } from '@features/agents'
+import { ChatView, NewChatPanel, statusLabel } from '@features/agent-chat'
 import { useCodeStore } from '../stores/code'
-import { useReviewChats } from '../composables/review-chats'
+import { useReviewAgentStore } from '../stores/review-agent'
 import type { CodeReviewItem } from '../types'
+import { STATE_ORDER, threadState, type ThreadState } from '../utils/thread'
 import FinishReview from './FinishReview.vue'
 import ItemComposer from './ItemComposer.vue'
 import RecentReviews from './RecentReviews.vue'
 import ItemView from './ItemView.vue'
-import SendButton from './SendButton.vue'
 
 const props = defineProps<{
+  projectId: string
   origin: { type: 'project' | 'task'; id: string }
-  agentWorking?: boolean
+  /** Agent preselected when the review's agent is set up: the task's agent, else the project's. */
+  defaultAgentId?: string | null
 }>()
-const emit = defineEmits<{
-  /** `ids` null: all drafts. `target` is a chat id, '' for a new chat. */
-  send: [ids: string[] | null, target: string]
-  goto: [item: CodeReviewItem]; discuss: [item: CodeReviewItem]; 'open-ref': [ref: string]
-}>()
+const emit = defineEmits<{ goto: [item: CodeReviewItem]; 'open-ref': [ref: string]; 'show-change': [roundId: string, file?: string] }>()
 const store = useCodeStore()
+const agent = useReviewAgentStore()
+const agents = useAgentsStore()
 const app = useAppStore()
-const chats = useReviewChats()
 const composing = ref(false)
+const journal = ref(false)
 const busy = ref(false)
 const error = ref('')
-const selected = reactive(new Set<string>())
+const filter = ref<'all' | 'waiting' | 'agent' | 'closed'>('all')
+
+const DEFAULT_NOTE = 'Выполни замечания ревью.'
+const plural = (n: number, one: string, few: string, many: string) =>
+  n % 10 === 1 && n % 100 !== 11 ? one : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? few : many
 
 const review = computed(() => store.review)
 const items = computed(() => store.items)
 const readOnly = computed(() => store.readOnly || (!!store.openedReviewId && store.openedReview?.review.status !== 'open'))
 const rounds = computed(() => store.openedReview?.rounds.length ?? store.current?.summary?.rounds ?? 0)
-// Decisions first: they block the review; then the order of creation.
-const RANK: Record<string, number> = { needs_decision: 0 }
-const active = computed(() => items.value.filter(i => !i.outdated).sort((a, b) => (RANK[a.status] ?? 1) - (RANK[b.status] ?? 1)))
+const agentName = computed(() => agents.agents.find(a => a.id === agent.session?.agent_id)?.name ?? '')
+const state = (item: CodeReviewItem): ThreadState => threadState(item, store.messages)
+const live = computed(() => items.value.filter(i => !i.outdated))
 const outdated = computed(() => items.value.filter(i => i.outdated))
-const targets = computed(() => chats.list.value.map(c => ({ id: c.session.id, title: c.session.title, status: c.session.status })))
-
-/** What the server accepts in a round: drafts, answered questions (to implement), disputed items (to insist on). */
-const sendable = (item: CodeReviewItem) => !item.outdated && (item.status === 'draft' || item.status === 'needs_decision' || (item.status === 'answered' && item.kind === 'question'))
-// A selection that is no longer sendable (sent meanwhile, deleted) drops out by itself.
-watch(items, list => { for (const id of [...selected]) if (!list.some(i => i.id === id && sendable(i))) selected.delete(id) })
-const toggle = (item: CodeReviewItem) => (selected.has(item.id) ? selected.delete(item.id) : selected.add(item.id))
-const toSend = computed(() => (selected.size ? [...selected] : items.value.filter(i => i.status === 'draft').map(i => i.id)))
-const pickedAnswered = computed(() => items.value.some(i => selected.has(i.id) && i.status === 'answered'))
-const sendLabel = computed(() => `Отправить${toSend.value.length ? ' ' + toSend.value.length : ''}`)
-
-function send(target: string) {
-  emit('send', selected.size ? [...selected] : null, target)
-  selected.clear()
-}
+/** What «Отправить» carries: new drafts and threads with queued replies. */
+const pending = computed(() => live.value.filter(i => ['draft', 'queued'].includes(state(i))).length)
+const setupCount = computed(() => agent.setup?.ids?.length ?? pending.value)
+const count = (states: ThreadState[]) => live.value.filter(i => states.includes(state(i))).length
+const filters = computed(() => [
+  { id: 'all' as const, label: 'Все', count: live.value.length },
+  { id: 'waiting' as const, label: 'Ждут вас', count: count(['waiting']) },
+  { id: 'agent' as const, label: 'У агента', count: count(['agent', 'queued']) },
+  { id: 'closed' as const, label: 'Закрытые', count: count(['closed']) },
+])
+const FILTER_STATES: Record<typeof filter.value, ThreadState[] | null> = { all: null, waiting: ['waiting'], agent: ['agent', 'queued'], closed: ['closed'] }
+const shown = computed(() => {
+  const states = FILTER_STATES[filter.value]
+  return live.value.filter(i => !states || states.includes(state(i))).sort((a, b) => STATE_ORDER[state(a)] - STATE_ORDER[state(b)])
+})
+/** Permissions not attached to a card: the agent did not say which item it works on. */
+const loosePermissions = computed(() => (agent.focusItem && items.value.some(i => i.id === agent.focusItem) ? [] : agent.permissions))
 
 async function saveGeneral(value: { kind: 'fix' | 'question'; text: string; refs: string[] }) {
   busy.value = true; error.value = ''
@@ -105,11 +163,34 @@ async function saveGeneral(value: { kind: 'fix' | 'question'; text: string; refs
 
 <style scoped>
 .rp { display: flex; flex-direction: column; min-height: 0; height: 100%; }
+.rp-agent { display: flex; align-items: center; gap: 6px; flex-shrink: 0; min-height: 36px; padding: 0 8px 0 12px; border-bottom: 1px solid var(--border); font-size: 12px; }
+.rp-agent-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rp-agent-status { color: var(--text-muted); white-space: nowrap; }
+.rp-spacer { flex: 1; }
+.rp-muted { color: var(--text-muted); }
+.rp-dot { width: 7px; height: 7px; flex-shrink: 0; border-radius: 50%; background: var(--border-strong); }
+.rp-dot.thinking, .rp-dot.starting { background: var(--blue-hover); animation: rp-pulse 1.4s ease-in-out infinite; }
+.rp-dot.waiting { background: var(--warning-text); }
+.rp-dot.complete, .rp-dot.ready { background: var(--accent-hover); }
+.rp-dot.error { background: var(--danger-hover); }
+@keyframes rp-pulse { 50% { opacity: 0.35; } }
+.rp-journal { flex: 1; min-height: 0; }
+.rp-setup-head { display: flex; justify-content: space-between; padding: 8px 12px 0; font-size: 13px; font-weight: 600; }
+.rp-setup { flex: 1; min-height: 0; }
+.rp-link { padding: 0; font: inherit; font-size: 12px; font-weight: 400; color: var(--blue-hover); background: none; border: none; cursor: pointer; }
 .rp-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; padding: 8px 12px 4px; }
 .rp-finish { margin-left: auto; }
-.rp-working { font-size: 11px; color: var(--blue-hover); }
-.rp-selection { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; margin: 2px 12px 4px; padding: 4px 8px; font-size: 11px; color: var(--text-muted); background: var(--blue-soft); border-radius: var(--radius-sm); }
-.rp-link { margin-left: auto; padding: 0; font: inherit; color: var(--blue-hover); background: none; border: none; cursor: pointer; }
+.rp-error { margin: 0 12px 4px; font-size: 12px; color: var(--danger-hover); }
+.rp-permission { margin: 4px 12px; padding: 6px 8px; font-size: 12px; border: 1px solid var(--blue); border-radius: var(--radius-sm); background: var(--blue-soft); }
+.rp-permission-head { font-size: 11px; font-weight: 600; color: var(--text-muted); }
+.rp-permission-title { margin: 2px 0 6px; font-family: monospace; font-size: 11.5px; overflow-wrap: anywhere; }
+.rp-permission-actions { display: flex; flex-wrap: wrap; gap: 4px; }
+.rp-filters { display: flex; flex-wrap: wrap; gap: 4px; flex-shrink: 0; padding: 4px 12px; }
+.rp-filter { display: inline-flex; align-items: center; gap: 5px; padding: 1px 8px; font: inherit; font-size: 11px; color: var(--text-muted); background: none; border: 1px solid var(--border-strong); border-radius: var(--radius-pill); cursor: pointer; }
+.rp-filter:hover { color: var(--text); }
+.rp-filter.on { color: var(--text); border-color: var(--blue); background: var(--blue-soft); }
+.rp-filter.warn .rp-filter-count { background: var(--warning-text); color: var(--bg); }
+.rp-filter-count { min-width: 14px; padding: 0 4px; font-size: 10px; font-weight: 600; text-align: center; border-radius: var(--radius-pill); background: var(--bg3); }
 .rp-meta { display: flex; align-items: center; gap: 8px; flex-shrink: 0; min-height: 20px; padding: 0 12px 4px; font-size: 11px; color: var(--text-muted); }
 .rp-ro { padding: 0 6px; font-size: 10px; border-radius: var(--radius-pill); background: var(--bg3); color: var(--warning-text); }
 .rp-list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding: 0 12px 12px; }

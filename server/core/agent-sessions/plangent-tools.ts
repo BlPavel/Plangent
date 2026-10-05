@@ -20,10 +20,13 @@ export const plangentTools = {
   complete_step: { description: 'Finish all assigned steps with a summary.', fields: { summary: { type: 'string' } } },
   request_help: { description: 'Ask the developer for help.', fields: { question: { type: 'string' } } },
   report_progress: { description: 'Report progress.', fields: { note: { type: 'string' } } },
-  get_review: { description: 'Read the review items assigned to this chat (assigned), the rules for resolving them (protocol) and earlier items as context (history), with refs and original snippets. Call first in every round.', fields: {} },
-  resolve_review_item: {
-    description: 'Resolve an assigned item. done: fix applied; answered: question answered without changes; needs_decision: you disagree, explain why and the developer decides. For a question done requires explicit developer agreement in this chat; mention "по итогам обсуждения".',
-    fields: { id: { type: 'string' }, status: { type: 'string', enum: ['done', 'answered', 'needs_decision'] }, answer: { type: 'string' } },
+  get_review: { description: 'Read the review threads waiting for you (assigned, each with its whole thread), the rules (protocol) and other items as context (history). Call first in every round.', fields: {} },
+  start_review_item: { description: 'Say which assigned item you start working on, before reading or changing code for it; permission requests then show in that item.', fields: { id: { type: 'string' } } },
+  reply_review_item: {
+    description: 'Reply in an assigned item\'s thread; the thread then waits for the developer. kind: answer (plain reply), options (an open choice: as many options as really differ, at least two, mark one recommended), questions (clarifying questions, options optional), change (you changed code: say what, list files), disagree (you will not do it: give arguments).',
+    fields: { id: { type: 'string' }, kind: { type: 'string', enum: ['answer', 'options', 'questions', 'change', 'disagree'] }, text: { type: 'string' },
+      options: { type: 'array', items: { type: 'object', properties: { label: { type: 'string' }, recommended: { type: 'boolean' } }, required: ['label'] } },
+      files: { type: 'array', items: { type: 'string' } } },
   },
   get_review_context: { description: 'Get assigned plan and executor context.', fields: {} },
   add_finding: { description: 'Report a review finding.', fields: { file: { type: 'string' }, line: { type: 'integer', minimum: 1 }, severity: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] }, message: { type: 'string' } } },

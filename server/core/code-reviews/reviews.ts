@@ -6,7 +6,7 @@ import { getDb } from '../../infrastructure/db/schema';
 import { CodeError, codePath, readCodeFile } from '../code/files';
 import { repositoryInfo, localBranches, localBranchHead, reviewCommitCount, oldFile, diffFile, treeChanges, snapshot } from '../code/git';
 import type { RepositoryInfo } from '../code/git';
-import type { CodeReview, CodeReviewItem, CreateCodeReviewItem, UpdateCodeReviewItem } from '../../models/code-review';
+import type { CodeReview, CodeReviewItem, CodeReviewMessageKind, CreateCodeReviewItem, UpdateCodeReviewItem } from '../../models/code-review';
 import { createReviewStore } from './store';
 import { captureRound } from './rounds';
 import type { AgentSession } from '../agent-sessions/types';
@@ -15,7 +15,9 @@ import { CODE_FIXER_PROTOCOL } from '../library/code-fixer-instruction';
 
 type Draft = Omit<CreateCodeReviewItem, 'review_id' | 'round_id' | 'author' | 'status' | 'answer' | 'carried_from_item_id' | 'outdated'>;
 type CloseMode = 'require_resolved' | 'carry' | 'close';
-const unresolved = (item: CodeReviewItem) => ['draft', 'sent', 'needs_decision'].includes(item.status);
+const unresolved = (item: CodeReviewItem) => !item.closed;
+/** The agent replied and the thread waits for the developer (no reply of theirs queued yet). */
+const waiting = (item: CodeReviewItem) => !item.closed && ['done', 'answered', 'needs_decision'].includes(item.status);
 const projectLocks = new WeakMap<Database.Database, Map<string, Promise<unknown>>>();
 const noGitHead = ''; // Non-null identity reserved for projects without Git; never a Git revision.
 const missingHash = 'missing'; // Viewed mark of a file that is absent from the worktree (a deletion).
@@ -24,6 +26,7 @@ export function createReviewService(db: Database.Database = getDb(), dependencie
   repository?: typeof repositoryInfo;
   branches?: typeof localBranches;
   closeSession?: (id: string) => Promise<void>;
+  cancelSession?: (id: string) => Promise<void>;
   startSession?: (id: string) => Promise<unknown>;
   sendPrompt?: (id: string, content: { type: 'text'; text: string }[]) => Promise<void>;
 } = {}) {
@@ -190,6 +193,42 @@ export function createReviewService(db: Database.Database = getDb(), dependencie
       ? db.prepare("SELECT id,status FROM agent_sessions WHERE id=? AND status IN ('starting','thinking','waiting')").all(round.session_id)
       : []) as { id: string; status: string }[];
   }
+  /**
+   * Threads the agent left without a reply once its turn is over (stopped, crashed, restarted or just
+   * skipped): each goes back to where it was before the round, so the developer can send it again.
+   */
+  function releaseUnanswered(reviewId: string) {
+    if (activeSessions(reviewId).length) return false;
+    const stuck = store.listItems(reviewId).filter(item => item.status === 'sent');
+    if (!stuck.length) return false;
+    db.transaction(() => {
+      for (const item of stuck) {
+        db.prepare("UPDATE code_review_message SET sent=0, round_id=NULL WHERE item_id=? AND round_id=? AND author='developer'").run(item.id, item.round_id);
+        const lastAgent = store.listMessages(reviewId, item.id).filter(m => m.author === 'agent').pop();
+        store.updateItem(item.id, lastAgent ? { status: REPLY_STATUS[lastAgent.kind] ?? 'answered' } : { status: 'draft', round_id: null });
+      }
+    })();
+    return true;
+  }
+  /** «Остановить»: interrupts the agent's turn; one that does not stop in a few seconds is shut down. */
+  async function stop(projectId: string, reviewId: string) {
+    reviewFor(projectId, reviewId);
+    const host = dependencies.cancelSession && dependencies.closeSession ? null : await import('../agent-sessions/acp-host');
+    const cancel = dependencies.cancelSession ?? host!.cancelSession;
+    const close = dependencies.closeSession ?? host!.closeSession;
+    const running = () => [...new Set(activeSessions(reviewId).map(session => session.id))];
+    const sessions = running();
+    for (const id of sessions) await cancel(id).catch(() => undefined);
+    for (let waited = 0; waited < 5000 && running().length; waited += 250) await new Promise(resolve => setTimeout(resolve, 250));
+    for (const id of running()) {
+      await close(id).catch(() => undefined);
+      db.prepare("UPDATE agent_sessions SET status='ready', reason='Остановлено разработчиком' WHERE id=?").run(id);
+    }
+    return exclusive(projectId, async () => {
+      if (releaseUnanswered(reviewId)) notify(reviewId);
+      return { stopped: sessions.length };
+    });
+  }
   function sessionFor(id: string): AgentSession {
     const row = db.prepare('SELECT * FROM agent_sessions WHERE id=?').get(id) as
       (Omit<AgentSession, 'metadata' | 'step_ids'> & { metadata: string; step_ids: string }) | undefined;
@@ -206,16 +245,15 @@ export function createReviewService(db: Database.Database = getDb(), dependencie
   function notify(reviewId: string, item?: CodeReviewItem) {
     const review = store.getReview(reviewId)!;
     const items = store.listItems(reviewId);
-    const attention = items.filter(item => item.status === 'needs_decision');
     broadcast({ type: 'code_review_updated', projectId: review.project_id, reviewId, item,
-      attention: attention.length, unresolved: items.filter(unresolved).length });
+      attention: items.filter(waiting).length, unresolved: items.filter(unresolved).length });
     if (item?.status === 'needs_decision') broadcast({ type: 'code_review_needs_decision',
       projectId: review.project_id, reviewId, itemId: item.id, reason: item.answer });
   }
   function attention(projectId: string) {
     project(projectId);
     return store.listReviews(projectId, 'open').flatMap(review => {
-      const items = store.listItems(review.id).filter(item => item.status === 'needs_decision');
+      const items = store.listItems(review.id).filter(waiting);
       return items.length ? [{ project_id: projectId, review_id: review.id, origin: review.origin,
         origin_id: review.origin_id, count: items.length, items }] : [];
     });
@@ -248,8 +286,9 @@ export function createReviewService(db: Database.Database = getDb(), dependencie
           sessionId, [{ type: 'text', text: note.trim() ? `${sent.text}\n\nКомментарий разработчика: ${note.trim().slice(0, 4000)}` : sent.text }]);
       } catch (error) {
         db.transaction(() => {
-          // Restore what each item was before the round, not just drafts.
-          for (const item of sent.previous) store.updateItem(item.id, { status: item.status, round_id: item.round_id, kind: item.kind });
+          // Restore each item and put its replies back in the queue.
+          store.unsendRound(sent.round.id);
+          for (const item of sent.previous) store.updateItem(item.id, { status: item.status, round_id: item.round_id, closed: item.closed });
           store.deleteRound(sent.round.id);
         })();
         notify(reviewId);
@@ -259,16 +298,20 @@ export function createReviewService(db: Database.Database = getDb(), dependencie
       return { round: sent.round, items: sent.items };
     });
   }
-  /** What get_review gives the code fixer: the rules, its pending items, and the rest of the review as context. */
+  /** What get_review gives the code fixer: the rules, the threads waiting for it, and the rest of the review as context. */
   async function getAgentReview(session: AgentSession) {
     const review = boundReview(session);
     const rounds = store.listRounds(review.id);
     const mine = new Set(rounds.filter(round => round.session_id === session.id).map(round => round.id));
     const roundOf = new Map(rounds.map(round => [round.id, round.n]));
+    const messages = store.listMessages(review.id).filter(m => m.sent);
     const brief = (item: CodeReviewItem) => ({ id: item.id, round: item.round_id ? roundOf.get(item.round_id) : null,
       kind: item.kind, scope: item.scope, file: item.file, line_start: item.line_start, line_end: item.line_end,
       side: item.side, text: item.text, refs: item.refs, code_snippet: item.code_snippet, status: item.status,
-      answer: item.answer, outdated: item.outdated });
+      closed: item.closed, outdated: item.outdated,
+      thread: messages.filter(m => m.item_id === item.id).map(m => ({ author: m.author, kind: m.kind, text: m.text,
+        ...(m.options.length ? { options: m.options } : {}), ...(m.choice !== null ? { choice: m.choice } : {}),
+        ...(m.files.length ? { files: m.files } : {}) })) });
     const sent = store.listItems(review.id).filter(item => item.round_id);
     const assigned = (item: CodeReviewItem) => mine.has(item.round_id!) && item.status === 'sent';
     return { protocol: CODE_FIXER_PROTOCOL,
@@ -276,54 +319,95 @@ export function createReviewService(db: Database.Database = getDb(), dependencie
       assigned: sent.filter(assigned).map(brief),
       history: sent.filter(item => !assigned(item)).map(brief) };
   }
-  async function resolveItem(session: AgentSession, itemId: string, status: string, answer: string) {
+  /** An item handed to this chat in its latest round. */
+  function assignedItem(session: AgentSession, itemId: string) {
+    const review = boundReview(session);
+    const item = itemFor(review.id, itemId);
+    const round = item.round_id ? store.getRound(item.round_id) : null;
+    if (!round || round.session_id !== session.id) throw new CodeError('Item belongs to another chat', 403);
+    return { review, item };
+  }
+  /** start_review_item: the item the agent works on now, so its permission requests show in that card. */
+  function focusItem(session: AgentSession, itemId: string) {
+    const { item } = assignedItem(session, itemId);
+    if (item.status !== 'sent') throw new CodeError('Item is not waiting for you', 409);
+    return { id: item.id, text: item.text };
+  }
+  const REPLY_STATUS: Record<string, CodeReviewItem['status']> = { change: 'done', answer: 'answered', options: 'answered', questions: 'answered', disagree: 'needs_decision' };
+  /** reply_review_item: the agent's message in the item's thread; the thread then waits for the developer. */
+  async function replyItem(session: AgentSession, itemId: string, input: { kind?: unknown; text?: unknown; options?: unknown; files?: unknown }) {
     return exclusive(session.project_id, async () => {
-      const review = boundReview(session);
+      const { review, item } = assignedItem(session, itemId);
       const { info } = await context(session.project_id);
       editable(review, info);
-      const item = itemFor(review.id, itemId);
-      const round = item.round_id ? store.getRound(item.round_id) : null;
-      if (!round || round.session_id !== session.id) throw new CodeError('Item belongs to another chat', 403);
-      if (!['done', 'answered', 'needs_decision'].includes(status) || !answer.trim())
-        throw new CodeError('Invalid resolution');
-      if (!['sent', 'answered', 'needs_decision'].includes(item.status)) throw new CodeError('Item is not pending', 409);
-      if (status === 'answered' && item.kind !== 'question') throw new CodeError('Only questions can be answered');
-      if (status === 'done' && item.kind === 'question') {
-        const resolution = db.prepare("SELECT seq FROM agent_session_events WHERE session_id=? AND type='resolve_review_item' AND json_extract(payload,'$.id')=? ORDER BY seq DESC LIMIT 1")
-          .get(session.id, item.id) as { seq: number } | undefined;
-        const discussed = resolution && db.prepare("SELECT 1 FROM agent_session_events WHERE session_id=? AND type='user' AND seq>?")
-          .get(session.id, resolution.seq);
-        if (!discussed || !answer.includes('по итогам обсуждения'))
-          throw new CodeError('Answer the question first; changes require explicit developer agreement in chat and the discussion note', 409);
-      }
-      const updated = store.updateItem(item.id, { status: status as CodeReviewItem['status'], answer })!;
+      const kind = String(input.kind ?? '');
+      const text = typeof input.text === 'string' ? input.text.trim() : '';
+      if (!REPLY_STATUS[kind] || !text) throw new CodeError('Invalid reply: kind is answer|options|questions|change|disagree and text is required');
+      if (item.status !== 'sent') throw new CodeError('Item is not waiting for you', 409);
+      const options = Array.isArray(input.options) ? input.options.flatMap(option => {
+        const value = option as { label?: unknown; recommended?: unknown };
+        return typeof value?.label === 'string' && value.label.trim() ? [{ label: value.label.trim(), ...(value.recommended === true ? { recommended: true } : {}) }] : [];
+      }) : [];
+      if (kind === 'options' && options.length < 2) throw new CodeError('options needs at least two options');
+      const files = Array.isArray(input.files) ? input.files.filter((file): file is string => typeof file === 'string' && !!file.trim()) : [];
+      // A question changes code only after the developer has replied in its thread («Сделать так» or an explicit request).
+      if (kind === 'change' && item.kind === 'question' && !store.listMessages(review.id, item.id).some(m => m.author === 'developer' && m.sent))
+        throw new CodeError('Do not change code for a question until the developer asks for it in the thread; answer it or offer options', 409);
+      const updated = db.transaction(() => {
+        store.createMessage({ item_id: item.id, author: 'agent', kind: kind as CodeReviewMessageKind, text, options, files, round_id: item.round_id, sent: true });
+        return store.updateItem(item.id, { status: REPLY_STATUS[kind], answer: text, closed: false })!;
+      })();
       notify(review.id, updated);
       return updated;
     });
   }
-  async function decideItem(projectId: string, reviewId: string, itemId: string, decision: string) {
+  /** A developer reply queued in an item's thread until the next batch; writing to a closed thread reopens it. */
+  async function addMessage(projectId: string, reviewId: string, itemId: string, input: { kind?: unknown; text?: unknown; choice?: unknown }) {
     return exclusive(projectId, async () => {
       const { info } = await context(projectId);
       editable(reviewFor(projectId, reviewId), info);
       const item = itemFor(reviewId, itemId);
-      if (item.status !== 'needs_decision') throw new CodeError('Item does not need a decision', 409);
-      if (!['agree', 'insist'].includes(decision)) throw new CodeError('Invalid decision');
-      if (decision === 'agree') {
-        const updated = store.updateItem(item.id, { status: 'rejected' })!;
-        notify(reviewId, updated);
-        return updated;
-      }
-      const round = item.round_id ? store.getRound(item.round_id) : null;
-      if (!round?.session_id) throw new CodeError('Review chat was deleted; create a new draft to resend', 409);
-      if (activeSessions(reviewId).length) throw new CodeError('Agent is working', 409);
-      const updated = store.updateItem(item.id, { status: 'sent' })!;
-      try {
-        await (dependencies.sendPrompt ?? (await import('../agent-sessions/acp-host')).sendPrompt)(
-          round.session_id, [{ type: 'text', text: `Сделай как в замечании: разработчик настаивает на пункте ${item.id}, он снова в assigned у get_review.` }]);
-      } catch (error) {
-        store.updateItem(item.id, { status: 'needs_decision' });
-        throw error;
-      }
+      if (item.status === 'draft') throw new CodeError('Edit the draft instead', 409);
+      const kind = input.kind === 'implement' ? 'implement' : 'text';
+      const text = typeof input.text === 'string' ? input.text.trim().slice(0, 8000) : '';
+      if (!text) throw new CodeError('Message text required');
+      const choice = Number.isInteger(input.choice) ? Number(input.choice) : null;
+      const message = db.transaction(() => {
+        const created = store.createMessage({ item_id: item.id, author: 'developer', kind, text, choice });
+        if (item.closed) store.updateItem(item.id, { closed: false, ...(item.status === 'rejected' ? { status: 'needs_decision' as const } : {}) });
+        return created;
+      })();
+      notify(reviewId);
+      return message;
+    });
+  }
+  async function removeMessage(projectId: string, reviewId: string, itemId: string, messageId: string) {
+    return exclusive(projectId, async () => {
+      const { info } = await context(projectId);
+      editable(reviewFor(projectId, reviewId), info);
+      itemFor(reviewId, itemId);
+      const message = store.getMessage(messageId);
+      if (!message || message.item_id !== itemId) throw new CodeError('Message not found', 404);
+      if (message.author !== 'developer' || message.sent) throw new CodeError('Only unsent replies can be removed', 409);
+      store.deleteMessage(messageId);
+      notify(reviewId);
+    });
+  }
+  /**
+   * The developer's verdict on a thread: accept (a change), answered (a reply is enough), reject
+   * (agree with the agent / drop the item), reopen. Queued replies must be sent or removed first.
+   */
+  async function closeItem(projectId: string, reviewId: string, itemId: string, resolution: string) {
+    return exclusive(projectId, async () => {
+      const { info } = await context(projectId);
+      editable(reviewFor(projectId, reviewId), info);
+      const item = itemFor(reviewId, itemId);
+      if (!['accept', 'answered', 'reject', 'reopen'].includes(resolution)) throw new CodeError('Invalid resolution');
+      if (item.status === 'draft' || item.status === 'sent') throw new CodeError('Wait for the agent\'s reply first', 409);
+      if (resolution !== 'reopen' && store.listMessages(reviewId, itemId).some(m => m.author === 'developer' && !m.sent))
+        throw new CodeError('Send or remove your queued reply first', 409);
+      const updated = store.updateItem(itemId, resolution === 'reopen' ? { closed: false }
+        : { closed: true, ...(resolution === 'reject' ? { status: 'rejected' as const } : {}) })!;
       notify(reviewId, updated);
       return updated;
     });
@@ -336,6 +420,7 @@ export function createReviewService(db: Database.Database = getDb(), dependencie
       if (review.status === 'closed') throw new CodeError('Review already closed', 409);
       if (review.status !== 'abandoned') editable(review, info);
       if (activeSessions(reviewId).length) throw new CodeError('Agent is working', 409);
+      releaseUnanswered(reviewId);
       const pending = store.listItems(reviewId).filter(unresolved);
       if (pending.length && mode === 'require_resolved') throw new CodeError('Unresolved review items', 409);
       if (mode === 'carry' && review.status === 'abandoned') throw new CodeError('Cannot carry from a missing branch', 409);
@@ -348,9 +433,9 @@ export function createReviewService(db: Database.Database = getDb(), dependencie
         if (mode === 'carry' && pending.length) {
           next = createCurrent(projectId, info, review.origin, review.origin_id);
           for (const item of pending) store.createItem({ ...item, review_id: next.id, round_id: null,
-            author: 'developer', status: 'draft', answer: null, carried_from_item_id: item.id });
+            author: 'developer', status: 'draft', answer: null, closed: false, carried_from_item_id: item.id });
         } else if (mode === 'close') {
-          for (const item of pending) store.updateItem(item.id, { status: 'rejected' });
+          for (const item of pending) store.updateItem(item.id, { status: 'rejected', closed: true });
         }
         return { review: closed, next_review: next };
       })();
@@ -432,7 +517,12 @@ export function createReviewService(db: Database.Database = getDb(), dependencie
       const original = item.line_start! - 1;
       const found = matchesAt(original) ? original : lines.findIndex((_, at) => matchesAt(at));
       if (found < 0) {
-        if (!item.outdated) store.updateItem(item.id, { outdated: true });
+        // Only a draft goes stale: once sent, the thread lives on and the agent changing those lines is the point.
+        if (item.status === 'draft' && !item.outdated) store.updateItem(item.id, { outdated: true });
+        else if (item.status !== 'draft' && (item.outdated || item.line_end! > lines.length)) {
+          const end = Math.max(1, Math.min(item.line_end ?? original + 1, lines.length));
+          store.updateItem(item.id, { line_start: Math.min(original + 1, end), line_end: end, outdated: false });
+        }
       } else if (item.outdated || found !== original) {
         store.updateItem(item.id, { line_start: found + 1, line_end: found + selected.length, outdated: false });
       }
@@ -471,7 +561,7 @@ export function createReviewService(db: Database.Database = getDb(), dependencie
     });
     const info = await repository(project(projectId).repo_path);
     return { review, read_only: review.status !== 'open' || !matches(review, info),
-      items: store.listItems(reviewId), rounds, chats, file_views: store.listFileViews(reviewId) };
+      items: store.listItems(reviewId), messages: store.listMessages(reviewId), rounds, chats, file_views: store.listFileViews(reviewId) };
   }
   async function current(projectId: string) {
     return exclusive(projectId, async () => {
@@ -479,15 +569,16 @@ export function createReviewService(db: Database.Database = getDb(), dependencie
       const review = openCurrent(projectId, info);
       const other_reviews = store.listReviews(projectId, 'open').filter(row => row.id !== review?.id);
       const running_other_reviews = other_reviews.filter(row => activeSessions(row.id).length > 0);
+      if (review && releaseUnanswered(review.id)) notify(review.id);
       const items = review ? store.listItems(review.id) : [];
       const commits = review?.head_start && info?.head
         ? await reviewCommitCount(root, review.head_start, info.head).catch(() => null) : null;
-      return { repository: info, review, items, rounds: review ? store.listRounds(review.id) : [],
+      return { repository: info, review, items, messages: review ? store.listMessages(review.id) : [], rounds: review ? store.listRounds(review.id) : [],
         summary: review ? { head_start: review.head_start, head_current: info?.head ?? null, commits,
           rounds: store.listRounds(review.id).length, items: items.length, unresolved: items.filter(unresolved).length } : null,
         file_views: review && info ? await viewedFiles(root, review.id) : [], other_reviews, running_other_reviews,
         agent_working: review ? activeSessions(review.id).length > 0 : false,
-        attention: items.filter(item => item.status === 'needs_decision').length,
+        attention: items.filter(waiting).length,
         head_changed: !!review && review.head_start !== (info?.head ?? noGitHead) };
     });
   }
@@ -561,7 +652,7 @@ export function createReviewService(db: Database.Database = getDb(), dependencie
     });
   }
   return { addDraft, updateDraft, removeItem, makeGeneral, finish, markViewed, openFile, current,
-    history, detail, reviewDiff, baseChanges, removeReview, markViewedCurrent, sendRound, getAgentReview, resolveItem, decideItem, attention };
+    history, detail, reviewDiff, baseChanges, removeReview, markViewedCurrent, sendRound, stop, getAgentReview, focusItem, replyItem, addMessage, removeMessage, closeItem, attention };
 }
 
 let service: ReturnType<typeof createReviewService> | undefined;

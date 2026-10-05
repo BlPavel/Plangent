@@ -8,6 +8,10 @@
         <AppButton v-if="abandoned" variant="ghost" size="xs" title="Брошенное ревью: незакрытые пункты будут отклонены" @click="finishAbandoned">Завершить</AppButton>
         <AppButton variant="danger-ghost" size="xs" title="Удалить ревью вместе с его чатами с агентом" @click="removeOpened">Удалить</AppButton>
       </template>
+      <AppButton
+        v-else-if="banner.id === 'working'" variant="ghost" size="xs" :disabled="agent.stopping"
+        title="Прервать агента; если он завис, его процесс будет закрыт. Пункты без ответа вернутся в очередь, их можно отправить заново" @click="agent.stop()"
+      >{{ agent.stopping ? 'Останавливаю…' : 'Остановить агента' }}</AppButton>
       <AppButton v-else-if="banner.id === 'other'" variant="ghost" size="xs" @click="store.openReview(store.otherReview!.review.id)">Открыть только для чтения</AppButton>
       <template v-else-if="banner.id === 'committed'">
         <FinishReview inline label="Завершить" variant="blue" @open-items="emit('open-items')" />
@@ -26,12 +30,14 @@ import { computed } from 'vue'
 import AppButton from '@shared/ui/AppButton.vue'
 import { useAppStore } from '@core/stores/app'
 import { useCodeStore } from '../stores/code'
+import { useReviewAgentStore } from '../stores/review-agent'
 import { commitWord, plural, remarkWord, roundWord } from '../utils/words'
 import FinishReview from './FinishReview.vue'
 
 const emit = defineEmits<{ 'open-items': [] }>()
 const store = useCodeStore()
 const app = useAppStore()
+const agent = useReviewAgentStore()
 
 type Banner = { id: 'opened' | 'other' | 'elsewhere' | 'working' | 'committed' | 'summary'; tone: 'info' | 'warn'; text: string }
 const short = (hash: string | null | undefined) => (hash ? hash.slice(0, 7) : '—')

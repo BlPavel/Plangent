@@ -29,8 +29,16 @@ export function createCodeReviewsRouter(service: () => ReturnType<typeof createR
     if (typeof session_id !== 'string' || !session_id.trim()) throw new CodeError('Session required');
     res.status(201).json(await service().sendRound(req.params.projectId, req.params.reviewId, session_id, note, item_ids));
   }));
-  router.post('/:reviewId/items/:itemId/decision', guard(async (req, res) => res.json(await service().decideItem(
-    req.params.projectId, req.params.reviewId, req.params.itemId, body(req).decision))));
+  router.post('/:reviewId/stop', guard(async (req, res) => res.json(await service().stop(req.params.projectId, req.params.reviewId))));
+  // Threads: the developer's queued replies and verdicts.
+  router.post('/:reviewId/items/:itemId/messages', guard(async (req, res) => res.status(201).json(await service().addMessage(
+    req.params.projectId, req.params.reviewId, req.params.itemId, body(req)))));
+  router.delete('/:reviewId/items/:itemId/messages/:messageId', guard(async (req, res) => {
+    await service().removeMessage(req.params.projectId, req.params.reviewId, req.params.itemId, req.params.messageId);
+    res.sendStatus(204);
+  }));
+  router.post('/:reviewId/items/:itemId/close', guard(async (req, res) => res.json(await service().closeItem(
+    req.params.projectId, req.params.reviewId, req.params.itemId, String(body(req).resolution)))));
   router.put('/current/viewed', guard(async (req, res) => {
     const { path, viewed, origin = 'project', origin_id = req.params.projectId } = body(req);
     if (typeof path !== 'string' || typeof viewed !== 'boolean') throw new CodeError('Invalid viewed file');

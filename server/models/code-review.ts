@@ -46,9 +46,32 @@ export interface CodeReviewItem {
   status: CodeReviewItemStatus;
   answer: string | null;
   outdated: boolean;
+  /** The developer closed the thread (accepted, answered or rejected); writing to it reopens it. */
+  closed: boolean;
   carried_from_item_id: string | null;
   created_at: string;
   updated_at: string;
+}
+
+/** Developer: free text or «Сделать так» (implement, optionally a chosen option). Agent: one reply of a typed kind. */
+export type CodeReviewMessageKind = 'text' | 'implement' | 'answer' | 'options' | 'questions' | 'change' | 'disagree';
+
+/** One message in an item's thread. Developer messages wait (sent=false) until the next batch is sent. */
+export interface CodeReviewMessage {
+  id: string;
+  item_id: string;
+  author: 'developer' | 'agent';
+  kind: CodeReviewMessageKind;
+  text: string;
+  /** Choices offered by the agent; `recommended` marks its pick. */
+  options: { label: string; recommended?: boolean }[];
+  /** Index of the option the developer chose («Сделать так»). */
+  choice: number | null;
+  /** Files the agent reports it changed for this item. */
+  files: string[];
+  round_id: string | null;
+  sent: boolean;
+  created_at: string;
 }
 
 export interface CodeReviewFileView {

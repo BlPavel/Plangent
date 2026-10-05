@@ -378,7 +378,13 @@ export async function sendPrompt(id: string, content: ACP.ContentBlock[]): Promi
 }
 export async function cancelSession(id: string): Promise<void> {
   const state = live.get(id);
-  if (!state) return;
+  if (!state) {
+    // Nothing runs behind a "busy" status (the process died or the app restarted): stopping just clears it.
+    const session = getSession(id);
+    const stale = ['starting', 'thinking', ...(session.role === 'code-fixer' ? ['waiting'] : [])];
+    if (!starting.has(id) && stale.includes(session.status)) updateSession(id, { status: 'ready', reason: '' });
+    return;
+  }
   state.cancelled = true;
   for (const [permissionId, pending] of state.permissions) {
     pending.resolve({ outcome: { outcome: 'cancelled' } });
