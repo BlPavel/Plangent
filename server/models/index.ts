@@ -195,7 +195,7 @@ export interface Run {
   finished_at?: string;
 }
 
-export type LibraryItemType = 'skill' | 'command' | 'main' | 'plan-template' | 'instruction-guide';
+export type LibraryItemType = 'skill' | 'command' | 'main' | 'plan-template' | 'instruction-guide' | 'code-fixer-instruction';
 // global: everywhere. project: only the groups/projects listed in `targets` (a group covers its projects).
 export type LibraryScope = 'global' | 'project';
 

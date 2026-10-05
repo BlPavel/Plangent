@@ -79,7 +79,13 @@ export function history(id: string): SessionEvent[] {
     .map(e => ({ ...e, payload: JSON.parse(e.payload) }));
 }
 export function deleteSession(id: string): void {
-  getDb().prepare('DELETE FROM agent_sessions WHERE id=?').run(id);
+  const db = getDb();
+  db.transaction(() => {
+    // Sessions predate code reviews; support installations/tests without the review tables.
+    if (db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='code_review_round'").get())
+      db.prepare('UPDATE code_review_round SET session_id=NULL WHERE session_id=?').run(id);
+    db.prepare('DELETE FROM agent_sessions WHERE id=?').run(id);
+  })();
   broadcast({ type: 'agent_session_deleted', sessionId: id });
 }
 export interface ReviewFinding { id: string; session_id: string; file: string; line: number; severity: 'low' | 'medium' | 'high' | 'critical'; message: string }

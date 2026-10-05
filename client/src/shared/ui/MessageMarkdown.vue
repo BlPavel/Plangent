@@ -6,7 +6,7 @@
 import { computed, inject } from 'vue'
 import { DocumentLinksKey } from '@shared/composables/documentLinks'
 import { useSmoothText } from '@shared/composables/useSmoothText'
-import { renderMarkdown } from '../utils/markdown'
+import { renderMarkdown } from '@shared/utils/markdown'
 
 /** Markdown message body; text that grows after mount is typed out smoothly. */
 const props = defineProps<{ text: string; live?: boolean }>()

@@ -54,6 +54,9 @@ function getContentPath(item: LibraryItem): string {
   if (item.type === 'main') {
     return path.join(mainContentDir(item), `${item.slug}.md`);
   }
+  if (item.type === 'code-fixer-instruction') {
+    return path.join(contentDir(item.type, item.slug, item), 'CODE_FIXER_INSTRUCTION.md');
+  }
   if (item.type === 'instruction-guide') {
     return path.join(contentDir(item.type, item.slug, item), 'INSTRUCTION_GUIDE.md');
   }

@@ -1,3 +1,4 @@
+import { resolveCodeFixerInstruction } from '../library/code-fixer-instruction';
 import { buildLibrarianPrompt } from '../orchestration/prompts';
 import type * as ACP from '@agentclientprotocol/sdk';
 import { Readable, Writable } from 'stream';
@@ -145,7 +146,7 @@ async function permission(id: string, request: ACP.RequestPermissionRequest): Pr
   const announced = history(id).filter(e => e.type === 'tool_call' && e.payload.toolCallId === request.toolCall.toolCallId).pop()?.payload;
   const toolCall = { ...(announced as Partial<ACP.ToolCallUpdate> | undefined), ...Object.fromEntries(Object.entries(request.toolCall).filter(([, v]) => v != null)) } as ACP.ToolCallUpdate;
   const decision = permissionDecision(session.policy, { ...request, toolCall }, project?.config.dangerous_commands,
-    project ? { writable: writableRoots(project), readOnly: readOnlyRoots() } : undefined);
+    project ? { writable: session.role === 'code-fixer' ? [project.repo_path] : writableRoots(project), readOnly: readOnlyRoots() } : undefined, session.role);
   const option = request.options.find(o => o.kind === (decision === 'allow' ? 'allow_once' : 'reject_once'));
   if (decision !== 'ask' && option) {
     addEvent(id, 'permission_result', { title: toolCall.title, decision });
@@ -344,7 +345,8 @@ export async function sendPrompt(id: string, content: ACP.ContentBlock[]): Promi
   // The workspace note (group projects, reference catalog) goes with the first message of every chat.
   const project = getProject(session.project_id);
   const workspace = project ? workspaceBriefing(project) : '';
-  const roleBriefing = session.role === 'librarian' ? buildLibrarianPrompt(project?.name ?? session.project_id) : '';
+  const roleBriefing = session.role === 'code-fixer' ? resolveCodeFixerInstruction(session.project_id)
+    : session.role === 'librarian' ? buildLibrarianPrompt(project?.name ?? session.project_id) : '';
   const briefing = [workspace, roleBriefing || (typeof session.metadata.briefing === 'string' ? session.metadata.briefing : '')].filter(Boolean).join('\n\n');
   const withBriefing = briefing && (!session.metadata.briefed || session.metadata.needsContext);
   const prompt: ACP.ContentBlock[] = [

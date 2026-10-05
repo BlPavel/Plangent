@@ -20,6 +20,11 @@ export const plangentTools = {
   complete_step: { description: 'Finish all assigned steps with a summary.', fields: { summary: { type: 'string' } } },
   request_help: { description: 'Ask the developer for help.', fields: { question: { type: 'string' } } },
   report_progress: { description: 'Report progress.', fields: { note: { type: 'string' } } },
+  get_review: { description: 'Read the review bound to this chat, with rounds, full items, refs and original snippets. Call first.', fields: {} },
+  resolve_review_item: {
+    description: 'Resolve an item assigned to this chat. done: fix applied; answered: question answered without changes; needs_decision: disagree and request the developer decision. For a question done requires explicit developer agreement in this chat; mention "по итогам обсуждения".',
+    fields: { id: { type: 'string' }, status: { type: 'string', enum: ['done', 'answered', 'needs_decision'] }, answer: { type: 'string' } },
+  },
   get_review_context: { description: 'Get assigned plan and executor context.', fields: {} },
   add_finding: { description: 'Report a review finding.', fields: { file: { type: 'string' }, line: { type: 'integer', minimum: 1 }, severity: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] }, message: { type: 'string' } } },
   submit_review: { description: 'Submit review verdict.', fields: { verdict: { type: 'string', enum: ['approved', 'changes_requested'] } } },

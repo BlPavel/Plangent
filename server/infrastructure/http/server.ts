@@ -8,6 +8,9 @@ import { createServer } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import path from 'path';
 import fs from 'fs';
+import { codeRouter } from './routes/code';
+import { codeReviewsRouter } from './routes/code-reviews';
+import { attachCodeSubscriptions } from './code-subscriptions';
 import { projectsRouter } from './routes/projects';
 import { tasksRouter } from './routes/tasks';
 import { plansRouter } from './routes/plans';
@@ -68,6 +71,8 @@ export function createApp() {
   app.use('/api/agents', agentsRouter);
   app.use('/api/agent-sessions', agentSessionsRouter);
   app.use('/mcp', mcpRouter);
+  app.use('/api/projects/:projectId/code', codeRouter);
+  app.use('/api/projects/:projectId/code-reviews', codeReviewsRouter);
   app.use('/api/projects', projectsRouter);
   app.use('/api/projects/:projectId/tasks', tasksRouter);
   app.use('/api/projects/:projectId/tasks/:taskId/plans', plansRouter);
@@ -98,6 +103,7 @@ export function createApp() {
 
     if (url.pathname === '/ws/events') {
       addEventsClient(ws);
+      attachCodeSubscriptions(ws);
       return;
     }
 

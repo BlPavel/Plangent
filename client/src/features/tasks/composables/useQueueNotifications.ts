@@ -1,3 +1,5 @@
+import type { Router } from 'vue-router'
+import { announceChanges } from '@features/code'
 import { onServerEvent } from '@core/api/events'
 import { platform } from '@core/platform'
 import { useAppStore } from '@core/stores/app'
@@ -17,9 +19,13 @@ export function taskTarget(taskId: string, projectId?: string | null, chatId?: s
  * notification (opening the task on click) while it is not. "The agent needs you" is raised by
  * the agent-chat store when the chat turns `waiting`, so here it is only a toast.
  */
-export function startQueueNotifications() {
+export function startQueueNotifications(router: Router) {
   const app = useAppStore()
   const focused = () => document.hasFocus()
+  // A finished stage that left changes in the repository offers the way to review them (only while the app is in front).
+  const announce = (event: { taskId: string; taskKey?: string; projectId?: string }) => {
+    if (focused() && event.projectId && event.taskKey) void announceChanges(router, event.projectId, { id: event.taskId, key: event.taskKey })
+  }
   onServerEvent<OrchestratorEvent>(event => {
     if (!event.taskKey) return
     const key = event.taskKey
@@ -35,9 +41,11 @@ export function startQueueNotifications() {
         break
       case 'queue_paused':
         alert('очередь на паузе', 'Этап выполнен — проверьте результат и продолжите очередь', 'warning')
+        void announce(event)
         break
       case 'queue_finished':
         alert('очередь выполнена', event.failed ? `Готово, но пропущено шагов: ${event.failed}` : 'Все шаги выполнены — можно проверять изменения', event.failed ? 'warning' : 'success')
+        void announce(event)
         break
       case 'session_failed':
         alert('шаг не выполнен', event.reason, 'error')

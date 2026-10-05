@@ -10,6 +10,7 @@
       <button class="stab" :class="{ active: tab === 'skills' }" @click="tab = 'skills'">Скиллы</button>
       <button class="stab" :class="{ active: tab === 'plan-template' }" @click="tab = 'plan-template'">Шаблон плана</button>
       <button class="stab" :class="{ active: tab === 'instruction-guide' }" @click="tab = 'instruction-guide'">Руководство по инструкциям</button>
+      <button class="stab" :class="{ active: tab === 'code-fixer' }" @click="tab = 'code-fixer'">Агент доработки</button>
       <button class="stab" :class="{ active: tab === 'notes' }" @click="tab = 'notes'">Доработки</button>
     </div>
 
@@ -87,6 +88,12 @@
     <div v-show="tab === 'instruction-guide'" class="tab-body">
       <p class="hint">Глобальное руководство действует во всех проектах, если проект или группа не переопределили его во вкладке «Инструкции» → «Руководство для агента».</p>
       <InstructionGuideEditor scope="global" />
+    </div>
+
+    <!-- Code-fixer agent instruction (global) -->
+    <div v-show="tab === 'code-fixer'" class="tab-body">
+      <p class="hint">Глобальная инструкция действует во всех проектах, если проект или группа не переопределили её во вкладке «Инструкции» → «Агент доработки».</p>
+      <CodeFixerInstructionEditor scope="global" />
     </div>
 
     <!-- Personal improvement notes -->
@@ -178,7 +185,7 @@ import FormField from '@shared/ui/FormField.vue'
 import AppSelect from '@shared/ui/AppSelect.vue'
 import AppButton from '@shared/ui/AppButton.vue'
 import IconTrash from '@shared/ui/IconTrash.vue'
-import { InstructionGuideEditor, PlanTemplateEditor, SkillsManager } from '@features/library'
+import { CodeFixerInstructionEditor, InstructionGuideEditor, PlanTemplateEditor, SkillsManager } from '@features/library'
 import ConnectionsSettings from '../components/ConnectionsSettings.vue'
 import ImprovementNotes from '../components/ImprovementNotes.vue'
 
@@ -186,7 +193,7 @@ const appStore = useAppStore()
 const agentsStore = useAgentsStore()
 const chatStore = useChatStore()
 
-type Tab = 'agents' | 'skills' | 'plan-template' | 'instruction-guide' | 'notes' | 'connections'
+type Tab = 'agents' | 'skills' | 'plan-template' | 'instruction-guide' | 'code-fixer' | 'notes' | 'connections'
 // Other screens link straight to a tab, e.g. a docs source's «Изменить пароль» → ?tab=connections&fix=<id>.
 const route = useRoute()
 const tab = ref<Tab>(route.query.tab === 'connections' ? 'connections' : 'agents')

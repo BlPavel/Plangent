@@ -35,7 +35,7 @@
           :class="{ active: activeTab === t.id, disabled: t.disabled }"
           :disabled="t.disabled"
           @click="activeTab = t.id"
-        >{{ t.label }}</button>
+        >{{ t.label }}<span v-if="t.count" class="tab-count warn" :title="t.countTitle">{{ t.count }}</span></button>
       </div>
 
       <div v-show="activeTab === 'agents'" class="tab-content"><AgentChats :project-id="currentProject.id" :default-agent-id="projectsStore.agentFor(currentProject)" /></div>
@@ -94,6 +94,8 @@
       </div>
 
       <!-- Tab: Инструкции -->
+      <!-- Mounted only while open: the screen watches the project folder. -->
+      <div v-if="activeTab === 'code' && !isGroup" class="tab-content"><CodeTab :project-id="currentProject.id" :task="codeTask" :default-agent-id="projectsStore.agentFor(currentProject)" @back="backToTask" /></div>
       <div v-show="activeTab === 'instructions'" class="tab-content instructions-tab">
         <InstructionsWorkspace v-if="currentProject" :project-id="currentProject.id" :default-agent-id="projectsStore.agentFor(currentProject)" />
       </div>
@@ -142,7 +144,7 @@
 </template>
 
 <script lang="ts">
-type HomeTab = 'agents' | 'projects' | 'terminal' | 'tasks' | 'instructions' | 'integrations' | 'docs'
+type HomeTab = 'agents' | 'projects' | 'terminal' | 'tasks' | 'code' | 'instructions' | 'integrations' | 'docs'
 // Module-level so it survives HomeView being unmounted while a task is open.
 const lastTab: { projectId: string | null; tab: HomeTab } = { projectId: null, tab: 'agents' }
 </script>
@@ -150,8 +152,9 @@ const lastTab: { projectId: string | null; tab: HomeTab } = { projectId: null, t
 <script setup lang="ts">
 import { TerminalsView } from '@features/terminal'
 import { AgentChats } from '@features/agent-chat'
+import { CodeTab, useCodeAttentionStore } from '@features/code'
 import { ref, computed, watch, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '@core/stores/app'
 import { useProjectsStore } from '../stores/projects'
 import { useAgentsStore } from '@features/agents'
@@ -169,6 +172,7 @@ import GroupProjects from '../components/GroupProjects.vue'
 import SourceView from '../components/SourceView.vue'
 
 const router = useRouter()
+const route = useRoute()
 const appStore = useAppStore()
 const projectsStore = useProjectsStore()
 const agentsStore = useAgentsStore()
@@ -182,15 +186,36 @@ const tasks = ref<Task[]>([])
 // A freshly opened project starts on «Агенты»; coming back from a task restores the tab you left.
 const activeTab = ref<HomeTab>(lastTab.projectId && lastTab.projectId === appStore.currentProject?.id ? lastTab.tab : 'agents')
 watch(activeTab, tab => { if (currentProject.value) Object.assign(lastTab, { projectId: currentProject.value.id, tab }) }, { immediate: true })
-const tabs = computed(() => [
+type TabItem = { id: HomeTab; label: string; disabled: boolean; count?: number; countTitle?: string }
+const tabs = computed<TabItem[]>(() => [
   ...(isGroup.value ? [{ id: 'projects' as const, label: `Проекты · ${members.value.length}`, disabled: false }] : []),
   { id: 'agents' as const, label: 'Агенты', disabled: false },
   { id: 'terminal' as const, label: 'Терминал', disabled: false },
   { id: 'tasks' as const, label: 'Задачи', disabled: false },
+  ...(isGroup.value ? [] : [{ id: 'code' as const, label: 'Код', disabled: false, count: codeAttentionCount.value, countTitle: 'Пункты, по которым нужно ваше решение' }]),
   { id: 'instructions' as const, label: 'Инструкции', disabled: false },
   { id: 'integrations' as const, label: 'Интеграции', disabled: true },
   { id: 'docs' as const, label: 'Доки', disabled: true },
 ])
+
+// «Код» opened from a task (query set by the task's button or a notification) shows the way back to it.
+const codeAttentionStore = useCodeAttentionStore()
+const codeAttentionCount = computed(() => (currentProject.value ? codeAttentionStore.countFor(codeAttentionStore.forProject(currentProject.value.id)) : 0))
+const codeTaskId = ref<string | null>(null)
+const codeTask = computed(() => {
+  const task = tasks.value.find(t => t.id === codeTaskId.value)
+  return task ? { id: task.id, key: task.key } : null
+})
+function backToTask() {
+  if (codeTask.value) void router.push('/task/' + codeTask.value.id)
+}
+watch(() => route.query, query => {
+  if (query.tab !== 'code' || !currentProject.value || isGroup.value) return
+  activeTab.value = 'code'
+  codeTaskId.value = typeof query.task === 'string' ? query.task : null
+  void router.replace({ path: '/' })
+}, { immediate: true })
+watch(activeTab, tab => { if (tab !== 'code') codeTaskId.value = null })
 
 const showTaskModal = ref(false)
 const showProjectModal = ref(false)
@@ -380,6 +405,8 @@ async function deleteTaskCard(t: Task) {
   transition: color 0.12s, border-color 0.12s;
   margin-bottom: -1px;
 }
+.tab-count { min-width: 18px; height: 18px; margin-left: 6px; padding: 0 5px; border-radius: var(--radius-pill); font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
+.tab-count.warn { background: var(--warning); color: #0d1117; }
 .tab-btn:hover:not(:disabled) { color: var(--text); }
 .tab-btn.active { color: var(--text); border-bottom-color: var(--blue); }
 .tab-btn.disabled, .tab-btn:disabled { opacity: 0.35; cursor: default; }

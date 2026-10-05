@@ -111,8 +111,12 @@ export const useLibraryStore = defineStore('library', () => {
     return (await api.get<{ content: string }>('/library/instruction-guide/defaults')).content
   }
 
+  async function getCodeFixerInstructionDefault(): Promise<string> {
+    return (await api.get<{ content: string }>('/library/code-fixer-instruction/defaults')).content
+  }
+
   return {
     items, loading, load, getItem, findMainId, create, update, remove, syncAll, detach, exclude, getPlanTemplateDefaults, getOverride, setOverride, deleteOverride,
-    proposals, loadProposals, proposalsFor, applyProposal, rejectProposal, getInstructionGuideDefault,
+    proposals, loadProposals, proposalsFor, applyProposal, rejectProposal, getInstructionGuideDefault, getCodeFixerInstructionDefault,
   }
 })

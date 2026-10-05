@@ -8,6 +8,7 @@
         <StatusBadge :status="task?.status" />
       </div>
       <div class="actions">
+        <CodeButton v-if="pid && task" :project-id="pid" :task="{ id: task.id, key: task.key }" />
         <AppButton
           v-if="task?.status !== 'done'"
           variant="primary"
@@ -127,6 +128,7 @@ import StepDetailPanel from '../components/StepDetailPanel.vue'
 import StatusBadge from '@shared/ui/StatusBadge.vue'
 import AppButton from '@shared/ui/AppButton.vue'
 import IconTrash from '@shared/ui/IconTrash.vue'
+import { CodeButton } from '@features/code'
 import { useChatStore, type NewChatRequest, type ContentBlock } from '@features/agent-chat'
 import { useTaskQueue, TaskQueueKey } from '../composables/useTaskQueue'
 import { sessionState } from '../utils/queue-status'

@@ -1,3 +1,4 @@
+import { reviews } from '../../core/code-reviews/reviews';
 import { analysisToolContext, saveAnalystSection } from '../../core/orchestration/analysis-context';
 import { Router } from 'express';
 import { randomBytes, randomUUID } from 'crypto';
@@ -35,6 +36,7 @@ export function allowed(session: AgentSession): PlangentTool[] {
   if (session.role === 'executor') return session.policy === 'read-only' ? ['request_help', 'report_progress'] : ['complete_step', 'request_help', 'report_progress'];
   if (session.role === 'reviewer') return ['get_review_context', 'add_finding', 'submit_review'];
   if (session.role === 'analyst') return ['get_analysis', 'save_section'];
+  if (session.role === 'code-fixer') return ['get_review', 'resolve_review_item'];
   if (session.role === 'librarian') return ['get_library', 'get_library_item', 'propose_library_change'];
   if (session.role === 'planner') return ['get_plan', 'submit_plan'];
   return [];
@@ -71,6 +73,14 @@ mcpRouter.post('/', async (req, res) => {
     const args = request.params.arguments ?? {};
     for (const field of ['save_section', 'propose_library_change'].includes(name) ? [] : Object.keys(tools[name].fields)) {
       if (field === 'line' ? !Number.isInteger(args[field]) || Number(args[field]) < 1 : typeof args[field] !== 'string' || !String(args[field]).trim()) throw new Error(`Invalid ${field}`);
+    }
+    if (name === 'get_review' || name === 'resolve_review_item') {
+      try {
+        const result = name === 'get_review' ? await reviews().getAgentReview(session)
+          : await reviews().resolveItem(session, String(args.id), String(args.status), String(args.answer));
+        if (name === 'resolve_review_item') addEvent(id, name, { item_id: String(args.id), ...args });
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+      } catch (e) { return { isError: true, content: [{ type: 'text', text: e instanceof Error ? e.message : String(e) }] }; }
     }
     if (name === 'get_library' || name === 'get_library_item' || name === 'propose_library_change') {
       try {
