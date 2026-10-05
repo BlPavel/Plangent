@@ -4,8 +4,8 @@
     @save="save" @cancel="editing = false"
   />
   <ItemCard
-    v-else :item="item" :read-only="readOnly" :show-location="showLocation" :busy="busy" :agent-working="agentWorking"
-    @edit="editing = true" @remove="remove" @general="general" @goto="emit('goto')" @discuss="emit('discuss')" @decide="decide" @open-ref="emit('open-ref', $event)"
+    v-else :item="item" :read-only="readOnly" :show-location="showLocation" :busy="busy" :agent-working="agentWorking" :selectable="selectable" :selected="selected"
+    @toggle="emit('toggle')" @implement="emit('implement')" @edit="editing = true" @remove="remove" @general="general" @goto="emit('goto')" @discuss="emit('discuss')" @decide="decide" @open-ref="emit('open-ref', $event)"
   />
 </template>
 
@@ -17,8 +17,8 @@ import type { CodeReviewItem } from '../types'
 import ItemCard from './ItemCard.vue'
 import ItemComposer from './ItemComposer.vue'
 
-const props = defineProps<{ item: CodeReviewItem; readOnly?: boolean; showLocation?: boolean; agentWorking?: boolean }>()
-const emit = defineEmits<{ goto: []; discuss: []; 'open-ref': [ref: string] }>()
+const props = defineProps<{ item: CodeReviewItem; readOnly?: boolean; showLocation?: boolean; agentWorking?: boolean; selectable?: boolean; selected?: boolean }>()
+const emit = defineEmits<{ goto: []; discuss: []; toggle: []; implement: []; 'open-ref': [ref: string] }>()
 const store = useCodeStore()
 const app = useAppStore()
 const editing = ref(false)

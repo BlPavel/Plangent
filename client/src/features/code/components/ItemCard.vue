@@ -1,12 +1,18 @@
 <template>
-  <div class="it" :class="[item.status, { open, outdated: item.outdated }]">
-    <button type="button" class="it-line" :aria-expanded="open" @click="open = !open">
-      <span class="it-dot" :title="statusLabel" />
-      <span class="it-kind" :title="item.kind === 'question' ? 'Вопрос' : 'Замечание'">{{ item.kind === 'question' ? '?' : '!' }}</span>
-      <span v-if="location" class="it-loc">{{ location }}</span>
-      <span class="it-summary">{{ summary }}</span>
-      <span class="it-status">{{ statusLabel }}</span>
-    </button>
+  <div class="it" :class="[item.status, { open, outdated: item.outdated, picked: selected }]">
+    <div class="it-head">
+      <input
+        v-if="selectable" type="checkbox" class="it-check" :checked="selected" :aria-label="'Выбрать: ' + summary"
+        title="Выбрать для отправки агенту" @change="emit('toggle')"
+      />
+      <button type="button" class="it-line" :aria-expanded="open" @click="open = !open">
+        <span class="it-dot" :title="statusLabel" />
+        <span class="it-kind" :title="item.kind === 'question' ? 'Вопрос' : 'Замечание'">{{ item.kind === 'question' ? '?' : '!' }}</span>
+        <span v-if="location" class="it-loc">{{ location }}</span>
+        <span class="it-summary">{{ summary }}</span>
+        <span class="it-status">{{ statusLabel }}</span>
+      </button>
+    </div>
     <div v-if="open" class="it-body">
       <pre v-if="item.outdated && item.code_snippet" class="it-snippet" title="Код, к которому относилось замечание">{{ item.code_snippet }}</pre>
       <div v-if="item.outdated" class="it-note">Код изменился, строка не найдена. Удалите пункт или превратите его в общий.</div>
@@ -24,6 +30,9 @@
             <AppButton v-if="!item.outdated" size="xs" variant="ghost" @click="emit('edit')">Править</AppButton>
             <AppButton v-if="item.outdated" size="xs" variant="ghost" @click="emit('general')">Сделать общим</AppButton>
             <AppButton size="xs" variant="danger-ghost" @click="emit('remove')">Удалить</AppButton>
+          </template>
+          <template v-else-if="item.status === 'answered' && item.kind === 'question'">
+            <AppButton size="xs" variant="ghost" :disabled="busy || agentWorking" :title="agentWorking ? 'Агент отвечает' : 'Согласен с ответом: агент внесёт изменение'" @click="emit('implement')">Сделать</AppButton>
           </template>
           <template v-else-if="item.status === 'needs_decision'">
             <AppButton size="xs" variant="ghost" :disabled="busy" title="Принять довод агента: пункт закроется как отклонённый" @click="emit('decide', 'agree')">Согласен с агентом</AppButton>
@@ -55,10 +64,14 @@ const props = defineProps<{
   showLocation?: boolean
   busy?: boolean
   agentWorking?: boolean
+  /** Shows a checkbox: the item can be sent to an agent. */
+  selectable?: boolean
+  selected?: boolean
 }>()
 const emit = defineEmits<{
   edit: []; remove: []; general: []; goto: []; discuss: []
   decide: [decision: 'agree' | 'insist']
+  toggle: []; implement: []
   'open-ref': [ref: string]
 }>()
 const open = ref(props.item.status === 'needs_decision')
@@ -86,7 +99,10 @@ const location = computed(() => {
 .it.needs_decision { border-left-color: var(--warning-text); background: var(--warning-bg, var(--bg2)); }
 .it.rejected { border-left-color: var(--border-strong); opacity: 0.8; }
 .it.outdated { border-left-color: var(--warning-text); border-style: dashed; }
-.it-line { display: flex; align-items: center; gap: 6px; width: 100%; padding: 3px 8px; font: inherit; text-align: left; color: var(--text); background: none; border: none; cursor: pointer; }
+.it.picked { border-color: var(--blue); }
+.it-head { display: flex; align-items: center; }
+.it-check { flex-shrink: 0; margin: 0 0 0 8px; accent-color: var(--blue); cursor: pointer; }
+.it-line { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; width: 100%; padding: 3px 8px; font: inherit; text-align: left; color: var(--text); background: none; border: none; cursor: pointer; }
 .it-dot { width: 7px; height: 7px; flex-shrink: 0; border-radius: 50%; background: currentColor; color: var(--text-faint); }
 .it.sent .it-dot { color: var(--blue-hover); }
 .it.done .it-dot, .it.answered .it-dot { color: var(--accent-hover); }

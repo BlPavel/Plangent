@@ -20,9 +20,9 @@ export const plangentTools = {
   complete_step: { description: 'Finish all assigned steps with a summary.', fields: { summary: { type: 'string' } } },
   request_help: { description: 'Ask the developer for help.', fields: { question: { type: 'string' } } },
   report_progress: { description: 'Report progress.', fields: { note: { type: 'string' } } },
-  get_review: { description: 'Read the review bound to this chat, with rounds, full items, refs and original snippets. Call first.', fields: {} },
+  get_review: { description: 'Read the review items assigned to this chat (assigned), the rules for resolving them (protocol) and earlier items as context (history), with refs and original snippets. Call first in every round.', fields: {} },
   resolve_review_item: {
-    description: 'Resolve an item assigned to this chat. done: fix applied; answered: question answered without changes; needs_decision: disagree and request the developer decision. For a question done requires explicit developer agreement in this chat; mention "по итогам обсуждения".',
+    description: 'Resolve an assigned item. done: fix applied; answered: question answered without changes; needs_decision: you disagree, explain why and the developer decides. For a question done requires explicit developer agreement in this chat; mention "по итогам обсуждения".',
     fields: { id: { type: 'string' }, status: { type: 'string', enum: ['done', 'answered', 'needs_decision'] }, answer: { type: 'string' } },
   },
   get_review_context: { description: 'Get assigned plan and executor context.', fields: {} },

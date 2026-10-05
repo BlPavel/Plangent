@@ -6,6 +6,7 @@
         <span v-if="agentName" class="chat-agent">{{ agentName }}</span>
       </div>
       <span class="status-badge" :class="statusTone(snap.session.status)">{{ statusLabel(snap.session.status) }}</span>
+      <slot name="actions" />
     </header>
 
     <div v-if="snap.session.status === 'error'" class="banner banner-error">

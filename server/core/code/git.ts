@@ -112,10 +112,22 @@ export async function changedFiles(root: string): Promise<GitChange[]> {
   return parseStatus(await run(root, ['status', '--porcelain=v2', '-z', '--untracked-files=all', '--']));
 }
 
+// Git knows the empty tree in every repository, even when it is not stored.
+const emptyTrees: Record<string, string> = {
+  sha1: '4b825dc642cb6eb9a060e54bf8d69288fbee4904',
+  sha256: '6ef19b41225c5369f1c104d45d8d85efa9b057b53b14b4b9b939dd74decc5321',
+};
+
 // Resolve safe refs to tree IDs; disallow options and arbitrary revision expressions.
 async function revision(root: string, base: string): Promise<string> {
   if (!/^(?:HEAD|[a-fA-F0-9]{4,64}|[a-zA-Z0-9_][a-zA-Z0-9_./-]*)$/.test(base) || base.includes('..')) throw new Error('Invalid git base');
-  return (await run(root, ['rev-parse', '--verify', '--end-of-options', `${base}^{tree}`])).trim();
+  try { return (await run(root, ['rev-parse', '--verify', '--end-of-options', `${base}^{tree}`])).trim(); }
+  catch (error) {
+    // A branch without commits yet: everything in the worktree is new, so HEAD is the empty tree.
+    if (base !== 'HEAD' || await run(root, ['rev-parse', '--verify', '--quiet', 'HEAD']).then(() => true, () => false)) throw error;
+    const format = (await run(root, ['rev-parse', '--show-object-format']).catch(() => 'sha1')).trim();
+    return emptyTrees[format] ?? emptyTrees.sha1;
+  }
 }
 
 export async function oldFile(root: string, file: string, base = 'HEAD'): Promise<string> {
@@ -160,11 +172,11 @@ export async function snapshot(root: string): Promise<string | null> {
 }
 export interface LineStat { added: number; deleted: number; binary?: boolean }
 
-/** `--numstat -z` of the working tree against HEAD, keyed by the new path. A repository without commits has no base. */
+/** `--numstat -z` of the working tree against HEAD (the empty tree before the first commit), keyed by the new path. */
 export async function trackedStats(root: string): Promise<Record<string, LineStat>> {
   if (!await isRepository(root)) return {};
   let output: string;
-  try { output = await run(root, ['diff', '--no-ext-diff', '--no-textconv', '-M', '--numstat', '-z', 'HEAD', '--']); }
+  try { output = await run(root, ['diff', '--no-ext-diff', '--no-textconv', '-M', '--numstat', '-z', await revision(root, 'HEAD'), '--']); }
   catch { return {}; }
   return parseNumstat(output);
 }

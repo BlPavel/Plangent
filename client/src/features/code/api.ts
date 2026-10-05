@@ -36,7 +36,7 @@ export const codeReviewsApi = {
   removeItem: (p: string, r: string, i: string) => api.delete<void>(item(p, r, i)),
   makeGeneral: (p: string, r: string, i: string) => api.post<CodeReviewItem>(item(p, r, i) + '/general', {}),
   decideItem: (p: string, r: string, i: string, decision: 'agree' | 'insist') => api.post<CodeReviewItem>(item(p, r, i) + '/decision', { decision }),
-  sendRound: (p: string, r: string, sessionId: string, note?: string) => api.post<{ round: CodeReviewRound; items: CodeReviewItem[] }>(review(p, r) + '/rounds', { session_id: sessionId, note }),
+  sendRound: (p: string, r: string, sessionId: string, note?: string, itemIds?: string[]) => api.post<{ round: CodeReviewRound; items: CodeReviewItem[] }>(review(p, r) + '/rounds', { session_id: sessionId, note, item_ids: itemIds }),
   fileItems: (p: string, r: string, path: string, side: 'new' | 'old' = 'new', signal?: AbortSignal) => api.get<CodeReviewItem[]>(review(p, r) + '/file-items' + query({ path, side }), signal),
   diff: (p: string, r: string, path: string, signal?: AbortSignal) => api.get<{ diff: string }>(review(p, r) + '/diff' + query({ path }), signal),
   baseChanges: (p: string, r: string, base: 'agent' | 'review', round?: string, signal?: AbortSignal) => api.get<BaseChanges>(review(p, r) + '/changes' + query({ base, round }), signal),

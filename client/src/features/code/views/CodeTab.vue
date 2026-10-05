@@ -24,12 +24,17 @@
     <ReviewBanners @open-items="openFirstUnresolved" />
     <div v-if="store.error" class="ct-error">{{ store.error }} <button type="button" class="ct-link" @click="store.refresh()">Повторить</button></div>
 
-    <div class="ct-body" :style="{ gridTemplateColumns: `${leftWidth}px 0 minmax(0, 1fr) 0 ${rightWidth}px` }">
-      <aside class="ct-left">
+    <div class="ct-body" :style="{ gridTemplateColumns: `${leftCollapsed ? RAIL : leftWidth}px 0 minmax(0, 1fr) 0 ${rightCollapsed ? RAIL : rightWidth}px` }">
+      <PaneRail
+        v-if="leftCollapsed" side="left" shortcut="Ctrl+B" @expand="leftCollapsed = false" @pick="selectLeft($event as LeftTab)"
+        :items="leftTabs.map(t => ({ id: t.id, label: t.label, icon: t.id, count: t.count }))"
+      />
+      <aside v-show="!leftCollapsed" class="ct-left">
         <div class="ct-tabs" role="tablist">
           <button v-for="t in leftTabs" :key="t.id" type="button" role="tab" class="ct-tab" :class="{ active: leftTab === t.id }" :aria-selected="leftTab === t.id" @click="selectLeft(t.id)">
             {{ t.label }}<span v-if="t.count" class="ct-count">{{ t.count }}</span>
           </button>
+          <button type="button" class="ct-collapse" title="Свернуть панель (Ctrl+B)" aria-label="Свернуть левую панель" @click="leftCollapsed = true">«</button>
         </div>
         <div v-show="leftTab === 'changes'" class="ct-pane">
           <BaseSwitcher />
@@ -50,10 +55,10 @@
           />
         </div>
         <div v-show="leftTab === 'search'" class="ct-pane">
-          <SearchPanel ref="search" @open="(path, line) => open(path, 'file', line)" />
+          <SearchPanel ref="search" @open="openFound" />
         </div>
       </aside>
-      <div class="ct-resizer" role="separator" aria-orientation="vertical" aria-label="Ширина левой панели" title="Потяните, чтобы изменить ширину; двойной клик — сбросить" tabindex="0" @pointerdown="startResize($event, 'left')" @dblclick="leftWidth = 300" @keydown="resizeKey($event, 'left')" />
+      <div class="ct-resizer" :class="{ off: leftCollapsed }" role="separator" aria-orientation="vertical" aria-label="Ширина левой панели" title="Потяните, чтобы изменить ширину; двойной клик — сбросить" tabindex="0" @pointerdown="startResize($event, 'left')" @dblclick="leftWidth = 300" @keydown="resizeKey($event, 'left')" />
 
       <main class="ct-center">
         <FileViewer
@@ -71,13 +76,13 @@
           </template>
           <template #notes="{ path }">
             <div v-if="fileNotes.length || composing?.scope === 'file'" class="ct-notes">
-              <ItemView v-for="item in fileNotes" :key="item.id" :item="item" :read-only="reviewReadOnly" :agent-working="agentWorking" @open-ref="openRef" />
+              <ItemView v-for="item in fileNotes" :key="item.id" :item="item" :read-only="reviewReadOnly" :agent-working="agentWorking" @open-ref="openRef" @implement="implement(item)" />
               <ItemComposer v-if="composing?.scope === 'file'" :where="path" :busy="draftBusy" :error="draftError" @save="saveDraft" @cancel="cancelCompose" />
             </div>
           </template>
           <template #widget="{ line, side }">
             <div class="ct-widget">
-              <ItemView v-for="item in itemsAt(line, side)" :key="item.id" :item="item" :read-only="reviewReadOnly" :agent-working="agentWorking" @open-ref="openRef" />
+              <ItemView v-for="item in itemsAt(line, side)" :key="item.id" :item="item" :read-only="reviewReadOnly" :agent-working="agentWorking" @open-ref="openRef" @implement="implement(item)" />
               <ItemComposer
                 v-if="composing?.scope === 'line' && composing.side === side && composing.end === line" :where="composeWhere"
                 :busy="draftBusy" :error="draftError" @save="saveDraft" @cancel="cancelCompose"
@@ -86,11 +91,28 @@
           </template>
         </FileViewer>
       </main>
-      <div class="ct-resizer" role="separator" aria-orientation="vertical" aria-label="Ширина правой панели" title="Потяните, чтобы изменить ширину; двойной клик — сбросить" tabindex="0" @pointerdown="startResize($event, 'right')" @dblclick="rightWidth = 380" @keydown="resizeKey($event, 'right')" />
+      <div class="ct-resizer" :class="{ off: rightCollapsed }" role="separator" aria-orientation="vertical" aria-label="Ширина правой панели" title="Потяните, чтобы изменить ширину; двойной клик — сбросить" tabindex="0" @pointerdown="startResize($event, 'right')" @dblclick="rightWidth = 380" @keydown="resizeKey($event, 'right')" />
 
-      <aside class="ct-right">
-        <div class="ct-review-pane"><ReviewPanel :origin="origin" :agent-working="agentWorking" @send="chatsPanel?.beginSend()" @goto="goto" @discuss="discuss" @open-ref="openRef" /></div>
-        <ChatsPanel ref="chatsPanel" :project-id="projectId" :default-agent-id="defaultAgentId" :agent-working="agentWorking" @goto="goto" @open-ref="openRef" />
+      <PaneRail
+        v-if="rightCollapsed" side="right" shortcut="Ctrl+Alt+B" :items="rightRail" @expand="rightCollapsed = false" @pick="showRight($event as RightTab)"
+      />
+      <!-- Both tabs stay mounted: the chat keeps its scroll and draft while the remarks are shown. -->
+      <aside v-show="!rightCollapsed" class="ct-right">
+        <div class="ct-tabs" role="tablist">
+          <button type="button" role="tab" class="ct-tab" :class="{ active: rightTab === 'remarks' }" :aria-selected="rightTab === 'remarks'" @click="rightTab = 'remarks'">
+            Замечания<span v-if="store.items.length" class="ct-count" :class="{ warning: attention }" :title="attention ? `Нужно ваше решение: ${attention}` : ''">{{ attention || store.items.length }}</span>
+          </button>
+          <button type="button" role="tab" class="ct-tab" :class="{ active: rightTab === 'chat' }" :aria-selected="rightTab === 'chat'" @click="rightTab = 'chat'">
+            <span v-if="chatStatus" class="ct-dot" :class="chatStatus" :title="statusLabel(chatStatus)" />Чат с агентом
+          </button>
+          <button type="button" class="ct-collapse" title="Свернуть панель (Ctrl+Alt+B)" aria-label="Свернуть правую панель" @click="rightCollapsed = true">»</button>
+        </div>
+        <div v-show="rightTab === 'remarks'" class="ct-pane">
+          <ReviewPanel :origin="origin" :agent-working="agentWorking" @send="sendItems" @goto="goto" @discuss="discuss" @open-ref="openRef" />
+        </div>
+        <div v-show="rightTab === 'chat'" class="ct-pane">
+          <ChatsPanel ref="chatsPanel" :project-id="projectId" :default-agent-id="defaultAgentId" :agent-working="agentWorking" @goto="goto" @open-ref="openRef" />
+        </div>
       </aside>
     </div>
 
@@ -107,8 +129,10 @@ const lastOpened = new Map<string, string>()
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { FileTree, type CodeSide, type LineMarker, type LineSelection } from '@shared/code-viewer'
 import { useAppStore } from '@core/stores/app'
+import { statusLabel } from '@features/agent-chat'
 import { codeReviewsApi } from '../api'
 import { useCodeStore } from '../stores/code'
+import { useReviewChats } from '../composables/review-chats'
 import type { CodeReviewItem, GitChange, ReviewHistory } from '../types'
 import BaseSwitcher from '../components/BaseSwitcher.vue'
 import ChangesList from '../components/ChangesList.vue'
@@ -117,6 +141,7 @@ import HistoryMenu from '../components/HistoryMenu.vue'
 import ChatsPanel from '../components/ChatsPanel.vue'
 import ItemComposer from '../components/ItemComposer.vue'
 import ItemView from '../components/ItemView.vue'
+import PaneRail from '../components/PaneRail.vue'
 import QuickOpen from '../components/QuickOpen.vue'
 import ReviewBanners from '../components/ReviewBanners.vue'
 import ReviewPanel from '../components/ReviewPanel.vue'
@@ -137,7 +162,11 @@ const viewer = ref<InstanceType<typeof FileViewer>>()
 const tree = ref<InstanceType<typeof FileTree>>()
 const search = ref<InstanceType<typeof SearchPanel>>()
 const chatsPanel = ref<InstanceType<typeof ChatsPanel>>()
-const leftTab = ref<'changes' | 'files' | 'search'>('changes')
+type LeftTab = 'changes' | 'files' | 'search'
+type RightTab = 'remarks' | 'chat'
+const leftTab = ref<LeftTab>('changes')
+const rightTab = ref<RightTab>('remarks')
+const reviewChats = useReviewChats()
 const mode = ref<'diff' | 'file'>('diff')
 const quickOpen = ref(false)
 const loaded = ref(false)
@@ -149,6 +178,12 @@ const leftWidth = ref(stored('code.leftWidth', 300))
 const rightWidth = ref(stored('code.rightWidth', 380))
 watch(leftWidth, value => localStorage.setItem('code.leftWidth', String(value)))
 watch(rightWidth, value => localStorage.setItem('code.rightWidth', String(value)))
+// A collapsed side panel becomes a rail of icons; the code gets the width.
+const RAIL = 40
+const leftCollapsed = ref(localStorage.getItem('code.leftCollapsed') === '1')
+const rightCollapsed = ref(localStorage.getItem('code.rightCollapsed') === '1')
+watch(leftCollapsed, value => localStorage.setItem('code.leftCollapsed', value ? '1' : '0'))
+watch(rightCollapsed, value => localStorage.setItem('code.rightCollapsed', value ? '1' : '0'))
 function startResize(event: PointerEvent, side: 'left' | 'right') {
   const startX = event.clientX
   const start = side === 'left' ? leftWidth.value : rightWidth.value
@@ -289,7 +324,8 @@ watch([() => store.selectedPath, () => store.file, () => store.review?.id], () =
 watch(() => store.selectedPath, () => { composing.value = null })
 
 // --- navigation ------------------------------------------------------------
-async function selectLeft(tab: 'changes' | 'files' | 'search') {
+async function selectLeft(tab: LeftTab) {
+  leftCollapsed.value = false
   leftTab.value = tab
   if (tab === 'search') { await nextTick(); search.value?.focus() }
 }
@@ -308,6 +344,7 @@ async function open(path: string, as: 'diff' | 'file', line?: number, side: Code
 const openChange = (change: GitChange) => open(change.path, 'diff')
 
 async function showInTree(path: string) {
+  leftCollapsed.value = false
   leftTab.value = 'files'
   await nextTick()
   tree.value?.reveal(path)
@@ -319,17 +356,45 @@ function goto(item: CodeReviewItem) {
   void open(item.file, as, item.scope === 'line' ? item.line_start ?? undefined : undefined, item.side)
 }
 function discuss(item: CodeReviewItem) {
-  const session = store.rounds.find(r => r.id === item.round_id)?.session_id
-  if (session) void chatsPanel.value?.openChat(session, `По пункту «${item.text.replace(/\s+/g, ' ').slice(0, 80)}»: `)
+  const session = reviewChats.chatOf(item)?.session.id
+  if (!session) return
+  showRight('chat')
+  void chatsPanel.value?.openChat(session,`По пункту «${item.text.replace(/\s+/g, ' ').slice(0, 80)}»: `)
 }
+// --- right panel: remarks and the agent chat -----------------------------------
+const attention = computed(() => store.items.filter(i => i.status === 'needs_decision').length)
+const chatStatus = computed(() => chatsPanel.value?.status ?? '')
+const rightRail = computed(() => [
+  { id: 'remarks', label: 'Замечания', icon: 'remarks' as const, count: attention.value || store.items.length, tone: attention.value ? 'warning' as const : undefined },
+  { id: 'chat', label: 'Чат с агентом', icon: 'chat' as const, dot: chatStatus.value },
+])
+function showRight(tab: RightTab) { rightCollapsed.value = false; rightTab.value = tab }
+/** Hands items to a chat (`ids` null: all drafts; `target` '': a new chat) and shows the chat. */
+function sendItems(ids: string[] | null, target: string) {
+  showRight('chat')
+  void chatsPanel.value?.send(ids, target)
+}
+/** «Сделать» on an answered question: the agreement goes to the chat that answered it. */
+const implement = (item: CodeReviewItem) => sendItems([item.id], reviewChats.chatOf(item)?.session.id ?? reviewChats.latest.value?.session.id ?? '')
+/** A search hit: a line opens the file there; a file found by name opens like in the changes list. */
+const openFound = (path: string, line?: number) => open(path, line || !store.changes.some(c => c.path === path) ? 'file' : 'diff', line)
+
 function openRef(ref: string) {
   if (store.files.includes(ref)) void open(ref, 'file')
   else void showInTree(ref)
 }
 
 function onKey(event: KeyboardEvent) {
-  if (!(event.ctrlKey || event.metaKey) || event.altKey) return
+  if (!(event.ctrlKey || event.metaKey)) return
   const key = event.key.toLowerCase()
+  // Ctrl+B / Ctrl+Alt+B toggle the side panels, as in VS Code; `code` works in any keyboard layout.
+  if (event.code === 'KeyB' && !event.shiftKey) {
+    event.preventDefault()
+    if (event.altKey) rightCollapsed.value = !rightCollapsed.value
+    else leftCollapsed.value = !leftCollapsed.value
+    return
+  }
+  if (event.altKey) return
   if (key === 'p' && !event.shiftKey) { event.preventDefault(); quickOpen.value = true }
   else if (key === 'f' && event.shiftKey) {
     event.preventDefault()
@@ -391,14 +456,32 @@ watch(() => props.projectId, id => { void begin(id) }, { immediate: true })
 .ct-tab { flex: 1; padding: 7px 4px; font: inherit; font-size: 12px; font-weight: 500; color: var(--text-muted); background: none; border: none; border-bottom: 2px solid transparent; margin-bottom: -1px; cursor: pointer; white-space: nowrap; }
 .ct-tab:hover { color: var(--text); }
 .ct-tab.active { color: var(--text); border-bottom-color: var(--blue); }
+.ct-count.warning { background: var(--warning-text); color: var(--bg); }
+.ct-collapse { flex-shrink: 0; width: 28px; font: inherit; font-size: 13px; color: var(--text-faint); background: none; border: none; cursor: pointer; }
+.ct-collapse:hover { color: var(--text); }
+.ct-collapse:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
+.ct-resizer.off { pointer-events: none; }
+.ct-dot { display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: var(--border-strong); vertical-align: 1px; }
+.ct-dot.thinking, .ct-dot.starting { background: var(--blue-hover); animation: ct-pulse 1.4s ease-in-out infinite; }
+.ct-dot.waiting { background: var(--warning-text); }
+.ct-dot.complete, .ct-dot.ready { background: var(--accent-hover); }
+.ct-dot.error { background: var(--danger-hover); }
+@keyframes ct-pulse { 50% { opacity: 0.35; } }
 .ct-count { margin-left: 5px; padding: 0 5px; font-size: 10px; font-weight: 600; border-radius: var(--radius-pill); background: var(--bg3); color: var(--text-muted); }
 .ct-pane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.ct-pane > * { flex: 1; min-height: 0; }
+/* The last block fills the pane; toolbars above it (comparison switch) keep their height. */
+.ct-pane > * { flex-shrink: 0; }
+.ct-pane > :last-child { flex: 1; min-height: 0; }
 .ct-center { min-width: 0; min-height: 0; }
 .ct-right { display: flex; flex-direction: column; min-height: 0; min-width: 0; border-left: 1px solid var(--border); background: var(--bg); }
-.ct-review-pane { flex: 1 1 0; min-height: 160px; }
 .ct-notes { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; max-height: 40%; overflow-y: auto; padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--bg2); }
 .ct-widget { display: flex; flex-direction: column; gap: 4px; }
+/* A remark inside the code must not read as another code line: raised card, blue frame, shadow. */
+.ct-widget :deep(.it) {
+  background: var(--bg3); border-top-color: var(--blue); border-right-color: var(--blue); border-bottom-color: var(--blue);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+}
+.ct-widget :deep(.it-summary) { font-weight: 500; }
 .ct-viewed { display: inline-flex; align-items: center; gap: 4px; padding: 0 6px; font-size: 12px; color: var(--text-muted); cursor: pointer; white-space: nowrap; }
 .ct-viewed.stale { color: var(--warning-text); }
 .ct-viewed input { margin: 0; accent-color: var(--blue); }

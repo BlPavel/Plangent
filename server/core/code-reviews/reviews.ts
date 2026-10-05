@@ -11,6 +11,7 @@ import { createReviewStore } from './store';
 import { captureRound } from './rounds';
 import type { AgentSession } from '../agent-sessions/types';
 import { broadcast } from '../shared/events';
+import { CODE_FIXER_PROTOCOL } from '../library/code-fixer-instruction';
 
 type Draft = Omit<CreateCodeReviewItem, 'review_id' | 'round_id' | 'author' | 'status' | 'answer' | 'carried_from_item_id' | 'outdated'>;
 type CloseMode = 'require_resolved' | 'carry' | 'close';
@@ -219,7 +220,7 @@ export function createReviewService(db: Database.Database = getDb(), dependencie
         origin_id: review.origin_id, count: items.length, items }] : [];
     });
   }
-  async function sendRound(projectId: string, reviewId: string, sessionId: string, note = '') {
+  async function sendRound(projectId: string, reviewId: string, sessionId: string, note = '', itemIds?: string[]) {
     return exclusive(projectId, async () => {
       const { root, info } = await context(projectId);
       const review = reviewFor(projectId, reviewId);
@@ -239,13 +240,16 @@ export function createReviewService(db: Database.Database = getDb(), dependencie
         await ensureSame(root, info);
         if (activeSessions(reviewId).length || !['ready', 'complete', 'error'].includes(sessionFor(sessionId).status))
           throw new CodeError('Agent is working', 409);
-      });
+      }, itemIds);
+      // Name a new chat after the review instead of the round announcement.
+      db.prepare("UPDATE agent_sessions SET title=? WHERE id=? AND title='Новый чат'").run(`Доработка · ревью #${review.number}`, sessionId);
       try {
         await (dependencies.sendPrompt ?? (await import('../agent-sessions/acp-host')).sendPrompt)(
           sessionId, [{ type: 'text', text: note.trim() ? `${sent.text}\n\nКомментарий разработчика: ${note.trim().slice(0, 4000)}` : sent.text }]);
       } catch (error) {
         db.transaction(() => {
-          for (const item of sent.items) store.updateItem(item.id, { status: 'draft', round_id: null });
+          // Restore what each item was before the round, not just drafts.
+          for (const item of sent.previous) store.updateItem(item.id, { status: item.status, round_id: item.round_id, kind: item.kind });
           store.deleteRound(sent.round.id);
         })();
         notify(reviewId);
@@ -255,9 +259,22 @@ export function createReviewService(db: Database.Database = getDb(), dependencie
       return { round: sent.round, items: sent.items };
     });
   }
+  /** What get_review gives the code fixer: the rules, its pending items, and the rest of the review as context. */
   async function getAgentReview(session: AgentSession) {
     const review = boundReview(session);
-    return detail(session.project_id, review.id);
+    const rounds = store.listRounds(review.id);
+    const mine = new Set(rounds.filter(round => round.session_id === session.id).map(round => round.id));
+    const roundOf = new Map(rounds.map(round => [round.id, round.n]));
+    const brief = (item: CodeReviewItem) => ({ id: item.id, round: item.round_id ? roundOf.get(item.round_id) : null,
+      kind: item.kind, scope: item.scope, file: item.file, line_start: item.line_start, line_end: item.line_end,
+      side: item.side, text: item.text, refs: item.refs, code_snippet: item.code_snippet, status: item.status,
+      answer: item.answer, outdated: item.outdated });
+    const sent = store.listItems(review.id).filter(item => item.round_id);
+    const assigned = (item: CodeReviewItem) => mine.has(item.round_id!) && item.status === 'sent';
+    return { protocol: CODE_FIXER_PROTOCOL,
+      review: { id: review.id, number: review.number, branch: review.branch },
+      assigned: sent.filter(assigned).map(brief),
+      history: sent.filter(item => !assigned(item)).map(brief) };
   }
   async function resolveItem(session: AgentSession, itemId: string, status: string, answer: string) {
     return exclusive(session.project_id, async () => {
@@ -302,7 +319,7 @@ export function createReviewService(db: Database.Database = getDb(), dependencie
       const updated = store.updateItem(item.id, { status: 'sent' })!;
       try {
         await (dependencies.sendPrompt ?? (await import('../agent-sessions/acp-host')).sendPrompt)(
-          round.session_id, [{ type: 'text', text: `Сделай как в замечании [${item.id}]: ${item.text}` }]);
+          round.session_id, [{ type: 'text', text: `Сделай как в замечании: разработчик настаивает на пункте ${item.id}, он снова в assigned у get_review.` }]);
       } catch (error) {
         store.updateItem(item.id, { status: 'needs_decision' });
         throw error;

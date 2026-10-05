@@ -12,10 +12,14 @@
 
     <div class="sp-status">
       <template v-if="error">{{ error }}</template>
-      <template v-else-if="!query.trim()">Введите запрос</template>
+      <template v-else-if="!query.trim()">Введите запрос: ищется и в именах файлов, и в их тексте</template>
       <template v-else-if="store.searching">Поиск… {{ store.matches.length }}</template>
       <template v-else-if="summary">
-        {{ summary.matches ? `${summary.matches} ${plural(summary.matches, 'совпадение', 'совпадения', 'совпадений')} в ${summary.files} ${plural(summary.files, 'файле', 'файлах', 'файлах')}` : 'Ничего не найдено' }}
+        <template v-if="!summary.matches && !pathHits.length">Ничего не найдено</template>
+        <template v-else>
+          <template v-if="pathHits.length">{{ pathHits.length }}{{ pathHits.length === MAX_PATHS ? '+' : '' }} по имени</template><template v-if="pathHits.length && summary.matches"> · </template>
+          <template v-if="summary.matches">{{ summary.matches }} {{ plural(summary.matches, 'совпадение', 'совпадения', 'совпадений') }} в {{ summary.files }} {{ plural(summary.files, 'файле', 'файлах', 'файлах') }}</template>
+        </template>
         <span v-if="summary.truncated" class="sp-warn"> · показаны первые {{ summary.matches }}, уточните запрос</span>
       </template>
     </div>
@@ -24,7 +28,15 @@
       <div class="sp-body" :style="{ height: rows.length * ROW + 'px' }">
         <div class="sp-window" :style="{ transform: `translateY(${first * ROW}px)` }">
           <template v-for="index in visible" :key="rows[index].key">
-            <button v-if="rows[index].kind === 'file'" type="button" class="sp-file" :title="rows[index].path" @click="toggle(rows[index].path)">
+            <div v-if="rows[index].kind === 'heading'" class="sp-heading">{{ rows[index].label }}</div>
+            <button v-else-if="rows[index].kind === 'path'" type="button" class="sp-file sp-path" :title="rows[index].path" @click="emit('open', rows[index].path)">
+              <!-- eslint-disable-next-line vue/no-v-html -- bundled icon set, not user input -->
+              <span class="sp-icon" v-html="iconSvg(fileIconName(rows[index].path.split('/').pop() ?? ''))" />
+              <!-- eslint-disable-next-line vue/no-v-html -- escaped text with <mark> only -->
+              <span class="sp-file-name" v-html="rows[index].html" />
+              <span class="sp-file-dir">{{ dirOf(rows[index].path) }}</span>
+            </button>
+            <button v-else-if="rows[index].kind === 'file'" type="button" class="sp-file" :title="rows[index].path" @click="toggle(rows[index].path)">
               <span class="sp-chevron" :class="{ open: !collapsed.has(rows[index].path) }">›</span>
               <!-- eslint-disable-next-line vue/no-v-html -- bundled icon set, not user input -->
               <span class="sp-icon" v-html="iconSvg(fileIconName(rows[index].path.split('/').pop() ?? ''))" />
@@ -53,7 +65,8 @@ const ROW = 22
 const OVERSCAN = 10
 const MAX_TEXT = 240
 
-const emit = defineEmits<{ open: [path: string, line: number] }>()
+const MAX_PATHS = 50
+const emit = defineEmits<{ open: [path: string, line?: number] }>()
 const store = useCodeStore()
 const input = ref<HTMLInputElement>()
 const scroller = ref<HTMLElement>()
@@ -67,6 +80,8 @@ const scrollTop = ref(0)
 const height = ref(400)
 
 type Row =
+  | { kind: 'heading'; key: string; label: string }
+  | { kind: 'path'; key: string; path: string; html: string }
   | { kind: 'file'; key: string; path: string; count: number }
   | { kind: 'match'; key: string; path: string; line: number; html: string }
 
@@ -78,16 +93,34 @@ const plural = (n: number, one: string, few: string, many: string) =>
 const summary = computed(() => store.searchSummary)
 const error = computed(() => store.searchError ?? (query.value.trim() ? findPattern({ query: query.value, regex: regex.value }).error : undefined))
 
-/** One file row followed by its matching lines, in the order the server streamed them. */
+/** Files whose path matches the query (the text search below only looks inside files); name hits first. */
+const pathHits = computed(() => {
+  const pattern = query.value.trim() ? findPattern({ query: query.value.trim(), caseSensitive: caseSensitive.value, wholeWord: wholeWord.value, regex: regex.value }).pattern : null
+  if (!pattern) return []
+  const name = (path: string) => path.slice(path.lastIndexOf('/') + 1)
+  const hits = store.files.filter(path => findInLine(path, pattern).length > 0)
+  const byName = (path: string) => (findInLine(name(path), pattern).length ? 0 : 1)
+  return hits.sort((a, b) => byName(a) - byName(b) || a.length - b.length || a.localeCompare(b)).slice(0, MAX_PATHS)
+})
+
+/** File-name hits, then one file row followed by its matching lines, in the order the server streamed them. */
 const rows = computed<Row[]>(() => {
   const pattern = findPattern({ query: query.value, caseSensitive: caseSensitive.value, wholeWord: wholeWord.value, regex: regex.value }).pattern
+  const result: Row[] = []
+  if (pathHits.value.length && pattern) {
+    result.push({ kind: 'heading', key: 'h:paths', label: 'Файлы по имени' })
+    for (const path of pathHits.value) {
+      const name = path.slice(path.lastIndexOf('/') + 1)
+      result.push({ kind: 'path', key: 'p:' + path, path, html: markHtml(escapeHtml(name), findInLine(name, pattern)) })
+    }
+    if (store.matches.length) result.push({ kind: 'heading', key: 'h:text', label: 'В тексте' })
+  }
   const groups = new Map<string, typeof store.matches>()
   for (const match of store.matches) {
     const group = groups.get(match.path)
     if (group) group.push(match)
     else groups.set(match.path, [match])
   }
-  const result: Row[] = []
   for (const [path, matches] of groups) {
     result.push({ kind: 'file', key: 'f:' + path, path, count: matches.length })
     if (collapsed.has(path)) continue
@@ -153,6 +186,9 @@ defineExpose({ focus })
 .sp-file, .sp-match { display: flex; align-items: center; gap: 6px; width: 100%; height: 22px; padding: 0 8px; font: inherit; font-size: 12px; text-align: left; color: var(--text); background: none; border: none; cursor: pointer; overflow: hidden; }
 .sp-file:hover, .sp-match:hover { background: var(--bg3); }
 .sp-file { font-weight: 600; }
+.sp-path { font-weight: 400; padding-left: 12px; }
+.sp-file-name :deep(mark) { color: inherit; background: rgba(255, 196, 0, 0.35); border-radius: 2px; }
+.sp-heading { display: flex; align-items: center; height: 22px; padding: 0 10px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-faint); }
 .sp-chevron { width: 10px; flex-shrink: 0; color: var(--text-muted); transition: transform 0.1s; }
 .sp-chevron.open { transform: rotate(90deg); }
 .sp-icon { display: inline-flex; flex-shrink: 0; }

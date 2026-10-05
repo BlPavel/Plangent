@@ -23,10 +23,11 @@ export function createCodeReviewsRouter(service: () => ReturnType<typeof createR
   };
   router.get('/attention', guard((req, res) => res.json(service().attention(req.params.projectId))));
   router.post('/:reviewId/rounds', guard(async (req, res) => {
-    const { session_id, note } = body(req);
+    const { session_id, note, item_ids } = body(req);
     if (note !== undefined && typeof note !== 'string') throw new CodeError('Invalid note');
+    if (item_ids !== undefined && (!Array.isArray(item_ids) || !item_ids.length || item_ids.some(id => typeof id !== 'string'))) throw new CodeError('Invalid item_ids');
     if (typeof session_id !== 'string' || !session_id.trim()) throw new CodeError('Session required');
-    res.status(201).json(await service().sendRound(req.params.projectId, req.params.reviewId, session_id, note));
+    res.status(201).json(await service().sendRound(req.params.projectId, req.params.reviewId, session_id, note, item_ids));
   }));
   router.post('/:reviewId/items/:itemId/decision', guard(async (req, res) => res.json(await service().decideItem(
     req.params.projectId, req.params.reviewId, req.params.itemId, body(req).decision))));

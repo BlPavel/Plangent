@@ -1,5 +1,5 @@
 <template>
-  <div class="code-view" :class="{ 'diff-mode': effectiveMode === 'diff' }">
+  <div class="code-view" :class="{ 'diff-mode': effectiveMode === 'diff' }" :style="{ '--digits': gutter.digits, '--cols': gutter.columns }">
     <div class="cv-header">
       <!-- eslint-disable-next-line vue/no-v-html -- bundled icon set, not user input -->
       <span class="cv-icon" v-html="iconSvg(fileIconName(file.path.split('/').pop() ?? ''))" />
@@ -71,11 +71,8 @@
                   @mousedown.stop
                   @click.stop="emit('marker-click', lineOf(rows[index]), sideOf(rows[index]))"
                 >💬<sup v-if="(markerFor(rows[index])?.count ?? 0) > 1">{{ markerFor(rows[index])?.count }}</sup></button>
-                <template v-if="effectiveMode === 'diff'">
-                  <span class="cv-number cv-old">{{ oldNumber(rows[index]) }}</span>
-                  <span class="cv-number">{{ newNumber(rows[index]) }}</span>
-                </template>
-                <span v-else class="cv-number">{{ newNumber(rows[index]) }}</span>
+                <span v-if="gutter.old" class="cv-number cv-old">{{ oldNumber(rows[index]) }}</span>
+                <span v-if="gutter.new" class="cv-number">{{ newNumber(rows[index]) }}</span>
               </span>
               <span v-if="effectiveMode === 'diff'" class="cv-sign">{{ signOf(rows[index]) }}</span>
               <!-- eslint-disable-next-line vue/no-v-html -- highlight.js output is escaped -->
@@ -159,6 +156,14 @@ const rows = computed<DiffRow[]>(() => {
   return effectiveMode.value === 'diff'
     ? diffRows(hunkList.value, lineCount.value, { expanded, expandAll: expandAll.value })
     : fileRows(lineCount.value)
+})
+/** Width of the line numbers; a diff shows only the sides it has (a new file has no old numbers). */
+const gutter = computed(() => {
+  const diff = effectiveMode.value === 'diff'
+  const old = diff && rows.value.some(row => row.kind === 'deleted' || (row.kind === 'context' && row.oldLine !== undefined))
+  const fresh = !diff || rows.value.some(row => row.kind === 'added' || row.kind === 'context')
+  const last = Math.max(lineCount.value, ...hunkList.value.map(hunk => hunk.oldStart + hunk.oldLines))
+  return { old, new: fresh, digits: Math.max(2, String(last).length), columns: Number(old) + Number(fresh) }
 })
 const hasFolds = computed(() => expandAll.value || expanded.size > 0 || rows.value.some(row => row.kind === 'fold'))
 
@@ -410,11 +415,18 @@ defineExpose({ scrollToLine, clearSelection, step, openFind })
 .code-view {
   --hl-text: #e6edf3; --hl-keyword: #ff7b72; --hl-title: #d2a8ff; --hl-attr: #79c0ff; --hl-string: #a5d6ff;
   --hl-comment: #8b949e; --hl-built-in: #ffa657; --hl-name: #7ee787; --hl-meta: #79c0ff; --hl-addition: #aff5b4; --hl-deletion: #ffdcd7;
+  /* Changed lines: a tinted line, a stronger tint under the numbers and a coloured edge, as in GitHub. */
+  --cv-add: #3fb950; --cv-add-line: rgba(46, 160, 67, 0.22); --cv-add-gutter: rgba(63, 185, 80, 0.38);
+  --cv-del: #f85149; --cv-del-line: rgba(248, 81, 73, 0.2); --cv-del-gutter: rgba(248, 81, 73, 0.38);
+  /* Marker slot, then one column per number side; `ch` resolves in the monospace gutter. */
+  --gutter: calc(18px + var(--cols, 1) * (var(--digits, 3) * 1ch + 8px) + 6px);
   display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%; background: var(--bg);
 }
 :global(:root[data-theme='light']) .code-view {
   --hl-text: #24292f; --hl-keyword: #cf222e; --hl-title: #8250df; --hl-attr: #0550ae; --hl-string: #0a3069;
   --hl-comment: #6e7781; --hl-built-in: #953800; --hl-name: #116329; --hl-meta: #0550ae; --hl-addition: #116329; --hl-deletion: #82071e;
+  --cv-add: #1a7f37; --cv-add-line: rgba(26, 127, 55, 0.13); --cv-add-gutter: rgba(26, 127, 55, 0.28);
+  --cv-del: #cf222e; --cv-del-line: rgba(207, 34, 46, 0.11); --cv-del-gutter: rgba(207, 34, 46, 0.25);
 }
 .cv-header { display: flex; align-items: center; gap: 8px; flex-shrink: 0; min-height: 34px; padding: 4px 12px; border-bottom: 1px solid var(--border); background: var(--bg2); }
 .cv-icon { display: inline-flex; flex-shrink: 0; }
@@ -429,15 +441,19 @@ defineExpose({ scrollToLine, clearSelection, step, openFind })
 .cv-image { overflow: auto; background: repeating-conic-gradient(var(--bg2) 0% 25%, var(--bg) 0% 50%) 0 / 16px 16px; }
 .cv-image img { max-width: 100%; max-height: 100%; object-fit: contain; }
 .cv-preview { flex: 1; min-height: 0; overflow: auto; padding: 16px 24px; }
-.cv-scroll { flex: 1; min-height: 0; overflow: auto; font-family: 'Cascadia Code', 'JetBrains Mono', Consolas, monospace; font-size: 12.5px; }
-.code-view.diff-mode { --gutter: 96px; }
+.cv-scroll { flex: 1; min-height: 0; overflow: auto; container-type: inline-size; font-family: 'Cascadia Code', 'JetBrains Mono', Consolas, monospace; font-size: 12.5px; }
 .cv-body { position: relative; min-width: 100%; }
 .cv-window { position: absolute; top: 0; left: 0; min-width: 100%; width: max-content; }
 .cv-line { display: flex; height: 20px; line-height: 20px; }
 .cv-line.selected { background: var(--blue-soft); }
-.cv-line.added { background: var(--accent-soft); }
-.cv-line.deleted { background: var(--danger-soft); }
+.cv-line.added { background: var(--cv-add-line); }
+.cv-line.deleted { background: var(--cv-del-line); }
 .cv-line.added.selected, .cv-line.deleted.selected { background: var(--blue-soft); }
+/* The gutter is sticky over scrolled code, so its tint is laid over an opaque background. */
+.cv-line.added .cv-gutter { background: linear-gradient(var(--cv-add-gutter), var(--cv-add-gutter)), var(--bg); box-shadow: inset 3px 0 0 var(--cv-add); color: var(--text); }
+.cv-line.deleted .cv-gutter { background: linear-gradient(var(--cv-del-gutter), var(--cv-del-gutter)), var(--bg); box-shadow: inset 3px 0 0 var(--cv-del); color: var(--text); }
+.cv-line.added .cv-sign { color: var(--cv-add); font-weight: 700; }
+.cv-line.deleted .cv-sign { color: var(--cv-del); font-weight: 700; }
 .cv-fold { background: var(--bg2); }
 .cv-fold-button { position: sticky; left: var(--gutter, 64px); flex: 1; padding: 0 8px; text-align: left; font-size: 12px; line-height: 20px; color: var(--text-muted); background: none; border: none; cursor: pointer; }
 .cv-fold-button:hover { color: var(--text); }
@@ -468,14 +484,15 @@ defineExpose({ scrollToLine, clearSelection, step, openFind })
 .cv-line:hover .cv-number { color: var(--text); }
 .cv-gutter {
   position: sticky; left: 0; z-index: 1; display: flex; align-items: center; justify-content: flex-end; gap: 2px;
-  flex-shrink: 0; width: var(--gutter, 64px); padding-right: 10px; background: var(--bg); color: var(--text-faint); cursor: pointer; user-select: none;
+  box-sizing: border-box; flex-shrink: 0; width: var(--gutter); padding-right: 6px; background: var(--bg); color: var(--text-faint); cursor: pointer; user-select: none;
 }
 .cv-line.selected .cv-gutter { background: var(--bg2); }
-.cv-number { min-width: 3ch; text-align: right; }
+.cv-number { flex-shrink: 0; width: calc(var(--digits, 3) * 1ch); margin-left: 8px; text-align: right; }
 .cv-marker { padding: 0; font-size: 11px; line-height: 1; background: none; border: none; cursor: pointer; }
 .cv-marker sup { font-size: 9px; color: var(--text-muted); }
 .cv-text { flex: 1; padding-left: 8px; padding-right: 16px; white-space: pre; background: none; color: var(--hl-text); font-family: inherit; font-size: inherit; }
-.cv-widget { position: sticky; left: var(--gutter, 64px); box-sizing: border-box; width: min(720px, calc(100vw - 96px)); padding: 4px 12px 4px calc(var(--gutter, 64px) + 8px); font-family: var(--font, sans-serif); white-space: normal; }
+/* Comments under a line start at the left edge: they belong to the review, not to the code's indentation. */
+.cv-widget { position: sticky; left: 0; box-sizing: border-box; width: min(760px, 100cqw); padding: 4px 12px 4px 8px; font-family: var(--font, sans-serif); white-space: normal; }
 .cv-text :deep(.hljs-keyword), .cv-text :deep(.hljs-doctag), .cv-text :deep(.hljs-template-tag), .cv-text :deep(.hljs-template-variable), .cv-text :deep(.hljs-type) { color: var(--hl-keyword); }
 .cv-text :deep(.hljs-title) { color: var(--hl-title); }
 .cv-text :deep(.hljs-attr), .cv-text :deep(.hljs-attribute), .cv-text :deep(.hljs-literal), .cv-text :deep(.hljs-number), .cv-text :deep(.hljs-operator),

@@ -241,7 +241,7 @@ export const useCodeStore = defineStore('code', () => {
   const removeItem = (r: string, i: string) => mutate(p => codeReviewsApi.removeItem(p, r, i))
   const makeGeneral = (r: string, i: string) => mutate(p => codeReviewsApi.makeGeneral(p, r, i))
   const decideItem = (r: string, i: string, decision: 'agree' | 'insist') => mutate(p => codeReviewsApi.decideItem(p, r, i, decision))
-  const sendRound = (r: string, sessionId: string, note?: string) => mutate(p => codeReviewsApi.sendRound(p, r, sessionId, note))
+  const sendRound = (r: string, sessionId: string, note?: string, itemIds?: string[]) => mutate(p => codeReviewsApi.sendRound(p, r, sessionId, note, itemIds))
   const markViewed = (r: string, path: string, viewed: boolean) => mutate(p => codeReviewsApi.markViewed(p, r, path, viewed))
   /** «Просмотрено» flips the mark; before the first remark it opens the review of the branch by itself. */
   function toggleViewed(path: string, origin: 'project' | 'task' = 'project', originId?: string) {

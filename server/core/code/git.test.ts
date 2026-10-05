@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { changedFiles, diffFile, isRepository, listFiles, oldFile, parseStatus, repositoryInfo, snapshot } from './git';
+import { changedFiles, diffFile, isRepository, listFiles, oldFile, parseStatus, repositoryInfo, snapshot, trackedStats } from './git';
 import { resolveProjectPath } from '../projects/files';
 
 function git(root: string, ...args: string[]): string {
@@ -77,6 +77,12 @@ test('empty repositories and non-git projects degrade without using parent repos
   const tree = (await snapshot(root))!;
   assert.equal(await oldFile(root, 'first.txt', tree), 'first');
   assert.equal(git(root, 'status', '--porcelain'), '?? first.txt\n');
+  // Before the first commit HEAD is the empty tree: untracked and staged files diff as added.
+  assert.match(await diffFile(root, 'first.txt'), /^\+first$/m);
+  await fs.writeFile(path.join(root, 'staged.txt'), 'staged\n'); git(root, 'add', 'staged.txt');
+  assert.match(await diffFile(root, 'staged.txt'), /^\+staged$/m);
+  assert.deepEqual(await trackedStats(root), { 'staged.txt': { added: 1, deleted: 0 } });
+  await assert.rejects(diffFile(root, 'first.txt', { base: 'main' }));
   const nested = path.join(root, 'nested'); await fs.mkdir(nested);
   await fs.writeFile(path.join(nested, 'plain.txt'), 'plain');
   assert.equal(await isRepository(nested), false);

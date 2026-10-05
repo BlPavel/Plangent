@@ -1,4 +1,4 @@
-import { resolveCodeFixerInstruction } from '../library/code-fixer-instruction';
+import { buildCodeFixerBriefing } from '../library/code-fixer-instruction';
 import { buildLibrarianPrompt } from '../orchestration/prompts';
 import type * as ACP from '@agentclientprotocol/sdk';
 import { Readable, Writable } from 'stream';
@@ -345,7 +345,7 @@ export async function sendPrompt(id: string, content: ACP.ContentBlock[]): Promi
   // The workspace note (group projects, reference catalog) goes with the first message of every chat.
   const project = getProject(session.project_id);
   const workspace = project ? workspaceBriefing(project) : '';
-  const roleBriefing = session.role === 'code-fixer' ? resolveCodeFixerInstruction(session.project_id)
+  const roleBriefing = session.role === 'code-fixer' ? buildCodeFixerBriefing(session.project_id)
     : session.role === 'librarian' ? buildLibrarianPrompt(project?.name ?? session.project_id) : '';
   const briefing = [workspace, roleBriefing || (typeof session.metadata.briefing === 'string' ? session.metadata.briefing : '')].filter(Boolean).join('\n\n');
   const withBriefing = briefing && (!session.metadata.briefed || session.metadata.needsContext);

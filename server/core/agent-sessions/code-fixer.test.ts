@@ -106,7 +106,9 @@ test('code fixer rounds, MCP isolation, developer decisions and instruction inhe
     sessions.updateSession(id, { status: 'ready' });
     const first = sessions.history(id).find(e => e.type === 'user')!;
     assert.equal(first.payload.briefing, true);
-    assert.match(String(first.payload.text), /раунд 1: 1 замечаний, 1 вопросов/);
+    // The round message only announces the items; their text comes from get_review.
+    assert.match(String(first.payload.text), /раунд 1: 1 замечание и 1 вопрос\. Возьми их через get_review/);
+    assert.doesNotMatch(String(first.payload.text), /Fix code/);
     const config = sessionMcpConfig(sessions.getSession(id), true)[0] as { headers: { name: string; value: string }[] };
     const call = async (name: string, args: unknown = {}, method = 'tools/call') => {
       const response = await fetch(base + '/mcp', { method: 'POST', headers: { 'Content-Type': 'application/json',
@@ -117,7 +119,11 @@ test('code fixer rounds, MCP isolation, developer decisions and instruction inhe
     assert.deepEqual((await call('', {}, 'tools/list')).result.tools?.map(t => t.name), ['get_review', 'resolve_review_item']);
     assert.ok((await call('get_review')).error, 'MCP requires an active turn');
     sessions.updateSession(id, { status: 'thinking' });
-    assert.equal(JSON.parse((await call('get_review')).result.content[0].text).review.id, review.id);
+    const fetched = JSON.parse((await call('get_review')).result.content[0].text);
+    assert.equal(fetched.review.id, review.id);
+    assert.ok(fetched.protocol.some((rule: string) => rule.includes('needs_decision')));
+    assert.deepEqual(fetched.assigned.map((i: { id: string }) => i.id).sort(), [item.id, question.id].sort());
+    assert.deepEqual(fetched.history, []);
     assert.ok((await call('get_library')).error);
     assert.equal((await call('resolve_review_item', { id: item.id, status: 'rejected', answer: 'No' })).result.isError, true);
     assert.equal((await call('resolve_review_item', { id: question.id, status: 'done', answer: 'по итогам обсуждения' })).result.isError, true);
@@ -158,6 +164,22 @@ test('code fixer rounds, MCP isolation, developer decisions and instruction inhe
     await assert.rejects(failing.sendRound(project.id, review.id, id), /Delivery failed/);
     assert.equal(store.getItem(thirdDraft.id)!.status, 'draft');
     assert.equal(store.listRounds(review.id).length, 2);
+    // Chosen items only; an answered question sent again is the developer's agreement and becomes a fix.
+    const quiet = createReviewService(getDb(), { sendPrompt: async () => {} });
+    const ask = (await service.addDraft(project.id, { scope: 'general', kind: 'question', text: 'Which way?' })).item;
+    await quiet.sendRound(project.id, review.id, id, '', [ask.id]);
+    assert.equal(store.getItem(thirdDraft.id)!.status, 'draft');
+    await service.resolveItem(sessions.getSession(id), ask.id, 'answered', 'A or B; B recommended');
+    await assert.rejects(quiet.sendRound(project.id, review.id, id, '', [item.id]), /can be sent/);
+    await quiet.sendRound(project.id, review.id, id, '', [ask.id]);
+    assert.deepEqual([store.getItem(ask.id)!.status, store.getItem(ask.id)!.kind], ['sent', 'fix']);
+    assert.equal((await service.resolveItem(sessions.getSession(id), ask.id, 'done', 'Did B')).status, 'done');
+    const retry = createReviewService(getDb(), { sendPrompt: async () => { throw new Error('Delivery failed'); } });
+    const ask2 = (await service.addDraft(project.id, { scope: 'general', kind: 'question', text: 'Again?' })).item;
+    await quiet.sendRound(project.id, review.id, id, '', [ask2.id]);
+    await service.resolveItem(sessions.getSession(id), ask2.id, 'answered', 'Yes');
+    await assert.rejects(retry.sendRound(project.id, review.id, id, '', [ask2.id]), /Delivery failed/);
+    assert.deepEqual([store.getItem(ask2.id)!.status, store.getItem(ask2.id)!.kind], ['answered', 'question'], 'A failed delivery restores the item');
     const scope = { writable: [project.repo_path] };
     for (const command of ['git status', 'git commit -m x', 'git -C repo push', '"C:\\Program Files\\Git\\bin\\git.exe" reset', 'cmd /c git switch main']) {
       for (const policy of ['ask', 'allow-all', 'allow-edits'] as const)
