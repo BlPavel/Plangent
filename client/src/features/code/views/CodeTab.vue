@@ -121,6 +121,7 @@ import { useAppStore } from '@core/stores/app'
 import { codeReviewsApi } from '../api'
 import { useCodeStore } from '../stores/code'
 import { useReviewAgentStore } from '../stores/review-agent'
+import { threadState } from '../utils/thread'
 import type { CodeReviewItem, GitChange, ReviewHistory } from '../types'
 import BaseSwitcher from '../components/BaseSwitcher.vue'
 import ChangesList from '../components/ChangesList.vue'
@@ -339,7 +340,7 @@ function goto(item: CodeReviewItem) {
   void open(item.file, as, item.scope === 'line' ? item.line_start ?? undefined : undefined, item.side)
 }
 // --- right panel: the review and its agent ---------------------------------------
-const attention = computed(() => store.items.filter(i => !i.closed && ['done', 'answered', 'needs_decision'].includes(i.status)).length)
+const attention = computed(() => store.items.filter(item => threadState(item, store.messages) === 'waiting').length)
 const rightRail = computed(() => [
   { id: 'remarks', label: 'Замечания', icon: 'remarks' as const, count: attention.value || store.items.length, tone: attention.value ? 'warning' as const : undefined, dot: agent.session?.status },
 ])

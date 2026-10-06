@@ -52,7 +52,7 @@ objects through an isolated temporary index; refs and the developer index stay i
 
 Every item is a thread (code_review_message). The developer's replies are queued
 (sent=0) and leave with the next batch; agent replies are typed: answer, options
-(choices, one recommended), questions, change (files), disagree. The UI uses one agent
+(a numbered list in message text, with a recommendation), questions, change (files), disagree. Suggestions are ordinary discussion; the developer replies in their own words. Older structured options remain readable as text. The UI uses one agent
 session per review (the latest round's chat); there is no separate chat view.
 
 POST /:reviewId/rounds accepts { session_id, note?, item_ids? } and sends a batch: all
@@ -75,7 +75,7 @@ the attention count. GET /attention reports them per open review.
 
 Code fixers receive get_review (protocol, assigned threads with history, other items),
 start_review_item(id) (adds a review_focus event: permission requests show in that card)
-and reply_review_item(id, kind, text, options?, files?), one reply per item per turn.
+and reply_review_item(id, kind, text, files?), one reply per item per turn.
 The session's round ownership constrains access. A question gets a change reply only
 after the developer replied in its thread.
 code_review_updated events include projectId, reviewId, item, attention and unresolved;

@@ -2,6 +2,8 @@
   <form class="composer" :class="{ focused, dragging }" @submit.prevent="submit" @dragover.prevent="dragging = true" @dragleave="dragging = false" @drop.prevent="drop">
     <SuggestMenu
       v-if="suggest"
+      :anchor="input"
+      @dismiss="suggest = null; clearFiles()"
       :title="suggest.kind === 'file' ? 'Файлы проекта' : 'Команды'"
       :items="suggestItems"
       :active="active"
@@ -58,13 +60,11 @@
 
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
-import { api } from '@core/api'
+import { useMentionFiles } from '../composables/useMentionFiles'
 import AppButton from '@shared/ui/AppButton.vue'
 import SuggestMenu, { type SuggestItem } from './SuggestMenu.vue'
 
 export type ContentBlock = Record<string, unknown>
-// ref: a reference source or another project (@key/…), listed after the project's own files.
-interface FileHit { path: string; dir: boolean; uri: string; ref?: boolean; section?: SuggestItem['section']; detail?: string }
 interface Attachment { name: string; preview?: string; block: ContentBlock }
 
 const props = withDefaults(defineProps<{
@@ -86,13 +86,10 @@ const canSend = computed(() => !!text.value.trim() || attachments.value.length >
 
 // ── @files and /commands suggestions ──────────────────────────────────────
 const suggest = ref<{ kind: 'file' | 'command'; start: number; end: number; query: string } | null>(null)
-const files = ref<FileHit[]>([])
-const loadingFiles = ref(false)
+const { files, suggestions: fileSuggestions, loading: loadingFiles, search: searchFiles, clear: clearFiles } = useMentionFiles(() => props.projectId)
 const active = ref(0)
 const mentions = new Map<string, string>() // inserted path -> file URI
 let dismissedAt = -1
-let request = 0
-let timer: ReturnType<typeof setTimeout> | undefined
 
 const suggestItems = computed<SuggestItem[]>(() => {
   if (!suggest.value) return []
@@ -101,11 +98,7 @@ const suggestItems = computed<SuggestItem[]>(() => {
     return props.commands.filter(c => c.name.toLowerCase().includes(q)).slice(0, 50)
       .map(c => ({ value: c.name, label: '/' + c.name, detail: c.description, command: true }))
   }
-  return files.value.map(f => {
-    const trimmed = f.dir ? f.path.slice(0, -1) : f.path
-    const cut = trimmed.lastIndexOf('/') + 1
-    return { value: f.path, prefix: trimmed.slice(0, cut), label: trimmed.slice(cut) + (f.dir ? '/' : ''), dir: f.dir, ref: f.ref, section: f.section, detail: f.detail }
-  })
+  return fileSuggestions.value
 })
 
 function detect() {
@@ -121,19 +114,6 @@ function detect() {
   const changedQuery = next.kind !== suggest.value?.kind || next.query !== suggest.value?.query
   suggest.value = next
   if (changedQuery) { active.value = 0; if (next.kind === 'file') searchFiles(next.query) }
-}
-
-function searchFiles(query: string) {
-  clearTimeout(timer)
-  loadingFiles.value = true
-  const id = ++request
-  timer = setTimeout(async () => {
-    try {
-      const rows = await api.get<FileHit[]>(`/projects/${props.projectId}/mentions?q=${encodeURIComponent(query)}`)
-      if (id === request) files.value = rows
-    } catch { if (id === request) files.value = [] }
-    finally { if (id === request) loadingFiles.value = false }
-  }, query ? 70 : 0)
 }
 
 async function replaceRange(start: number, end: number, value: string) {
@@ -238,7 +218,7 @@ function filesSelected(event: Event) { const el = event.target as HTMLInputEleme
 function drop(event: DragEvent) { dragging.value = false; void addFiles(Array.from(event.dataTransfer?.files ?? [])) }
 function paste(event: ClipboardEvent) { if (event.clipboardData?.files.length) { event.preventDefault(); void addFiles(Array.from(event.clipboardData.files)) } }
 
-watch(() => props.projectId, () => { files.value = []; mentions.clear() })
+watch(() => props.projectId, () => { clearFiles(); mentions.clear() })
 
 defineExpose({
   focus: () => input.value?.focus(),

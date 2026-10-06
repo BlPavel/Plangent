@@ -23,9 +23,8 @@ export const plangentTools = {
   get_review: { description: 'Read the review threads waiting for you (assigned, each with its whole thread), the rules (protocol) and other items as context (history). Call first in every round.', fields: {} },
   start_review_item: { description: 'Say which assigned item you start working on, before reading or changing code for it; permission requests then show in that item.', fields: { id: { type: 'string' } } },
   reply_review_item: {
-    description: 'Reply in an assigned item\'s thread; the thread then waits for the developer. kind: answer (plain reply), options (an open choice: as many options as really differ, at least two, mark one recommended), questions (clarifying questions, options optional), change (you changed code: say what, list files), disagree (you will not do it: give arguments).',
+    description: 'Reply in an assigned item\'s thread; the thread then waits for the developer. kind: answer (plain reply), options (discuss approaches as a numbered list in text, marking your recommendation), questions (clarifying questions in text), change (you changed code: say what, list files), disagree (you will not do it: give arguments). The developer replies in their own words; all suggestions belong in text.',
     fields: { id: { type: 'string' }, kind: { type: 'string', enum: ['answer', 'options', 'questions', 'change', 'disagree'] }, text: { type: 'string' },
-      options: { type: 'array', items: { type: 'object', properties: { label: { type: 'string' }, recommended: { type: 'boolean' } }, required: ['label'] } },
       files: { type: 'array', items: { type: 'string' } } },
   },
   get_review_context: { description: 'Get assigned plan and executor context.', fields: {} },

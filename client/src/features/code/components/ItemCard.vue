@@ -28,18 +28,7 @@
             <button v-if="!readOnly" type="button" class="it-link" title="Убрать ответ из очереди" @click="emit('remove-message', message.id)">убрать</button>
           </template>
         </div>
-        <MessageMarkdown :text="message.text" />
-        <div v-if="message.options.length" class="it-options" role="radiogroup">
-          <label
-            v-for="(option, index) in message.options" :key="index" class="it-option"
-            :class="{ picked: pickable(message) ? pick === index : chosenFor(message) === index, recommended: option.recommended }"
-          >
-            <input v-if="pickable(message)" v-model="pick" type="radio" :value="index" />
-            <span class="it-option-n">{{ index + 1 }}</span>
-            <span class="it-option-text">{{ option.label }}</span>
-            <span v-if="option.recommended" class="it-badge">рекомендую</span>
-          </label>
-        </div>
+        <MessageMarkdown :text="discussionText(message)" />
         <div v-if="message.files.length || (message.kind === 'change' && message.round_id)" class="it-files">
           <span v-for="file in message.files" :key="file" class="it-file">{{ file }}</span>
           <button v-if="message.round_id" type="button" class="it-link" title="Diff правок агента за этот заход" @click="emit('show-change', message.round_id, message.files[0])">Посмотреть правку</button>
@@ -56,7 +45,7 @@
           >{{ option.name }}</AppButton>
         </div>
       </div>
-      <div v-if="working && !permissions.length" class="it-working">Агент работает над этим пунктом…</div>
+      <div v-if="working && !permissions.length" class="it-working">{{ label }}</div>
 
       <div v-if="!readOnly" class="it-actions">
         <template v-if="state === 'draft'">
@@ -65,29 +54,11 @@
           <AppButton size="xs" variant="danger-ghost" @click="emit('remove')">Удалить</AppButton>
           <AppButton v-if="!item.outdated" size="xs" variant="ghost" :disabled="agentBusy" :title="busyTitle" @click="emit('send-now')">Отправить сейчас</AppButton>
         </template>
-        <template v-else-if="state === 'waiting'">
-          <template v-if="item.status === 'done'">
-            <AppButton size="xs" variant="blue" :disabled="busy" title="Правка устраивает: пункт закроется" @click="emit('close', 'accept')">Принять</AppButton>
-          </template>
-          <template v-else-if="item.status === 'needs_decision'">
-            <AppButton size="xs" variant="ghost" :disabled="busy" title="Принять довод агента: пункт закроется как отклонённый" @click="emit('close', 'reject')">Согласен с агентом</AppButton>
-            <AppButton size="xs" variant="ghost" :disabled="busy" title="Агент сделает как в замечании (уйдёт со следующей отправкой)" @click="reply('implement', 'Настаиваю: сделай как в замечании.')">Настаиваю</AppButton>
-          </template>
-          <template v-else>
-            <AppButton
-              v-if="lastOptions" size="xs" variant="blue" :disabled="busy || pick === null"
-              :title="pick === null ? 'Выберите вариант выше' : 'Агент сделает выбранный вариант (уйдёт со следующей отправкой)'" @click="implementPick"
-            >Сделать выбранный</AppButton>
-            <AppButton v-else size="xs" variant="ghost" :disabled="busy" title="Агент внесёт изменение по своему ответу" @click="reply('implement', 'Согласен, сделай так.')">Сделать так</AppButton>
-            <AppButton size="xs" variant="ghost" :disabled="busy" @click="reply('text', 'Задай ещё уточняющие вопросы, прежде чем менять код.')">Задай ещё вопросы</AppButton>
-            <AppButton size="xs" variant="ghost" :disabled="busy" title="Ответа достаточно: пункт закроется" @click="emit('close', 'answered')">Закрыть</AppButton>
-          </template>
+        <template v-else-if="state === 'waiting' && !item.closed">
+          <AppButton size="xs" variant="ghost" :disabled="busy" title="Закрыть обсуждение этого пункта" @click="closeThread">Закрыть</AppButton>
         </template>
         <template v-else-if="state === 'queued'">
           <AppButton size="xs" variant="ghost" :disabled="agentBusy" :title="busyTitle" @click="emit('send-now')">Отправить сейчас</AppButton>
-        </template>
-        <template v-else-if="state === 'closed'">
-          <AppButton size="xs" variant="ghost" :disabled="busy" @click="emit('close', 'reopen')">Открыть снова</AppButton>
         </template>
         <AppButton v-if="item.outdated && state !== 'draft'" size="xs" variant="ghost" @click="emit('general')">Сделать общим</AppButton>
         <AppButton v-if="showLocation && item.file && !item.outdated" size="xs" variant="ghost" @click="emit('goto')">К коду</AppButton>
@@ -115,7 +86,7 @@ import { computed, ref, watch } from 'vue'
 import AppButton from '@shared/ui/AppButton.vue'
 import MessageMarkdown from '@shared/ui/MessageMarkdown.vue'
 import type { CodeReviewItem, CodeReviewMessage } from '../types'
-import { stateLabel, type ThreadState } from '../utils/thread'
+import { discussionText, stateLabel, type ThreadState } from '../utils/thread'
 
 const props = defineProps<{
   item: CodeReviewItem
@@ -133,7 +104,7 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{
   edit: []; remove: []; general: []; goto: []; 'send-now': []
-  reply: [kind: 'text' | 'implement', text: string, choice?: number]
+  reply: [text: string]
   'remove-message': [id: string]
   close: [resolution: 'accept' | 'answered' | 'reject' | 'reopen']
   permission: [permissionId: string, optionId: string]
@@ -148,10 +119,10 @@ const permissions = computed(() => props.permissions ?? [])
 // Collapsed by default: the developer opens a thread themselves. Only a permission request opens it, since the agent is blocked on it.
 const open = ref(permissions.value.length > 0)
 watch(() => permissions.value.length > 0, value => { if (value) open.value = true })
+watch(() => props.item.closed, closed => { if (closed) open.value = false })
 const text = ref('')
-const pick = ref<number | null>(null)
 
-const label = computed(() => (props.item.outdated ? 'Устарело' : stateLabel(props.item, props.state)))
+const label = computed(() => (props.item.outdated ? 'Устарело' : stateLabel(props.item, props.state, props.working)))
 const summary = computed(() => props.item.text.replace(/\s+/g, ' ').trim())
 const busyTitle = computed(() => (props.agentBusy ? 'Агент работает: дождитесь конца хода' : 'Отправить только этот пункт, не дожидаясь остальных'))
 const location = computed(() => {
@@ -162,25 +133,12 @@ const location = computed(() => {
   if (scope === 'file') return name
   return `${name}:${line_start}${line_end && line_end !== line_start ? '–' + line_end : ''}${side === 'old' ? ' (было)' : ''}`
 })
-/** The agent's last message, when it offers options the developer can still pick from. */
-const lastAgent = computed(() => [...props.thread].reverse().find(m => m.author === 'agent') ?? null)
-const lastOptions = computed(() => (props.state === 'waiting' && lastAgent.value?.options.length ? lastAgent.value : null))
-const pickable = (message: CodeReviewMessage) => !props.readOnly && message === lastOptions.value
-/** The option a later «Сделать выбранный» of the developer picked from this message. */
-const chosenFor = (message: CodeReviewMessage) => {
-  const index = props.thread.indexOf(message)
-  return props.thread.slice(index + 1).find(m => m.author === 'developer' && m.choice !== null)?.choice ?? null
-}
-watch(lastOptions, message => { pick.value = message ? message.options.findIndex(o => o.recommended) : null; if (pick.value === -1) pick.value = null }, { immediate: true })
-
-function reply(kind: 'text' | 'implement', value: string, choice?: number) { emit('reply', kind, value, choice) }
-function implementPick() {
-  const option = lastOptions.value?.options[pick.value ?? -1]
-  if (option) reply('implement', `Сделай вариант ${pick.value! + 1}: ${option.label}`, pick.value!)
+function closeThread() {
+  emit('close', props.item.status === 'done' ? 'accept' : props.item.status === 'needs_decision' ? 'reject' : 'answered')
 }
 function submitText() {
   if (!text.value.trim() || props.busy) return
-  reply('text', text.value.trim())
+  emit('reply', text.value.trim())
   text.value = ''
 }
 </script>
@@ -224,13 +182,6 @@ function submitText() {
 .it-refs, .it-files { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 4px; }
 .it-ref { padding: 0 6px; font: inherit; font-size: 11px; color: var(--blue-hover); background: var(--bg2); border: 1px solid var(--border-strong); border-radius: var(--radius-pill); cursor: pointer; }
 .it-file { padding: 0 6px; font-family: monospace; font-size: 11px; color: var(--text-muted); background: var(--bg2); border-radius: var(--radius-pill); }
-.it-options { display: flex; flex-direction: column; gap: 3px; margin-top: 4px; }
-.it-option { display: flex; align-items: baseline; gap: 6px; padding: 4px 6px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); cursor: pointer; }
-.it-option input { margin: 0; accent-color: var(--blue); }
-.it-option.picked { border-color: var(--blue); background: var(--blue-soft); }
-.it-option-n { flex-shrink: 0; font-weight: 600; color: var(--text-muted); }
-.it-option-text { flex: 1; min-width: 0; }
-.it-badge { flex-shrink: 0; padding: 0 6px; font-size: 10px; border-radius: var(--radius-pill); background: var(--accent-soft); color: var(--accent-hover); }
 .it-permission { padding: 6px 8px; border: 1px solid var(--blue); border-radius: var(--radius-sm); background: var(--blue-soft); }
 .it-permission-title { margin-bottom: 6px; font-family: monospace; font-size: 11.5px; overflow-wrap: anywhere; }
 .it-working { font-size: 11px; color: var(--blue-hover); }

@@ -8,14 +8,14 @@
       <span class="ic-where">{{ where }}</span>
     </div>
     <div class="ic-field">
-      <SuggestMenu v-if="suggestions.length" title="Файлы и папки проекта" :items="suggestions" :active="active" @pick="insert" @hover="active = $event" />
+      <SuggestMenu v-if="token" :anchor="area" @dismiss="token = null; clear()" title="Файлы и папки" :loading="loading" empty="Ничего не найдено" :items="suggestions" :active="active" @pick="insert" @hover="active = $event" />
       <textarea
         ref="area" v-model="text" class="ic-text" rows="3" :placeholder="placeholder" spellcheck="false"
         @input="onInput" @keydown="onKey" @click="updateToken" @keyup="onKeyUp"
       />
     </div>
     <div class="ic-actions">
-      <span class="ic-hint">Markdown. <template v-if="general">@ — ссылка на файл или папку. </template>Ctrl+Enter — сохранить</span>
+      <span class="ic-hint">Markdown. @ — ссылка на файл или папку. Ctrl+Enter — сохранить</span>
       <AppButton type="button" size="xs" variant="ghost" @click="emit('cancel')">Отмена</AppButton>
       <AppButton type="submit" size="xs" variant="blue" :disabled="!text.trim() || busy">Сохранить</AppButton>
     </div>
@@ -26,17 +26,17 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import AppButton from '@shared/ui/AppButton.vue'
-import { SuggestMenu, type SuggestItem } from '@features/agent-chat'
+import { SuggestMenu, useMentionFiles, type SuggestItem } from '@features/agent-chat'
 import { useCodeStore } from '../stores/code'
-import { fuzzyFiles } from '../utils/fuzzy'
 import { extractRefs } from '../utils/refs'
 
 const props = defineProps<{
   where: string
-  /** A general item: `@` references to files and folders are offered and saved in `refs`. */
+  /** Whether the item belongs to the whole review rather than a file or line. */
   general?: boolean
   initialKind?: 'fix' | 'question'
   initialText?: string
+  initialRefs?: string[]
   busy?: boolean
   error?: string
 }>()
@@ -47,6 +47,8 @@ const area = ref<HTMLTextAreaElement>()
 const text = ref(props.initialText ?? '')
 const kind = ref<'fix' | 'question'>(props.initialKind ?? (text.value.trimStart().startsWith('?') ? 'question' : 'fix'))
 const active = ref(0)
+const knownRefs = new Set(props.initialRefs ?? [])
+const { suggestions, loading, search, clear } = useMentionFiles(() => store.projectId)
 const token = ref<{ start: number; end: number; query: string } | null>(null)
 const placeholder = computed(() => (kind.value === 'question' ? 'Что непонятно? Агент только ответит, код не тронет' : 'Что исправить? (? в начале — вопрос)'))
 
@@ -60,48 +62,47 @@ function onInput() {
 const paths = computed(() => {
   const dirs = new Set<string>()
   for (const file of store.files) for (let i = file.indexOf('/'); i >= 0; i = file.indexOf('/', i + 1)) dirs.add(file.slice(0, i))
-  return { all: [...[...dirs].map(d => d + '/'), ...store.files], dirs }
-})
-const suggestions = computed<SuggestItem[]>(() => {
-  if (!props.general || !token.value) return []
-  return fuzzyFiles(paths.value.all, token.value.query, 8).map(hit => ({
-    value: hit.path, label: hit.path.endsWith('/') ? hit.path.slice(hit.path.slice(0, -1).lastIndexOf('/') + 1) : hit.path.slice(hit.path.lastIndexOf('/') + 1),
-    detail: hit.path.includes('/') ? hit.path.slice(0, hit.path.slice(0, -1).lastIndexOf('/') + 1) : '', dir: hit.path.endsWith('/'),
-  }))
+  return { dirs }
 })
 watch(suggestions, () => { active.value = 0 })
 
 function updateToken() {
-  if (!props.general || !area.value) { token.value = null; return }
+  if (!area.value || area.value.selectionStart !== area.value.selectionEnd) { token.value = null; clear(); return }
   const caret = area.value.selectionStart
   const match = /(?:^|\s)@([^\s@]*)$/.exec(text.value.slice(0, caret))
+  const previous = token.value
   token.value = match ? { start: caret - match[1].length - 1, end: caret, query: match[1] } : null
+  if (!token.value) clear()
+  else if (!previous || previous.query !== token.value.query) search(token.value.query)
 }
 const onKeyUp = (event: KeyboardEvent) => { if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) updateToken() }
 
-function insert(item: SuggestItem) {
+function insert(item: SuggestItem, commit = false) {
   const t = token.value
   if (!t) return
-  const value = '@' + item.value + (item.dir ? '' : ' ')
+  knownRefs.add(item.value.replace(/\/$/, ''))
+  const drill = item.dir && !commit
+  const value = '@' + item.value + (drill ? '' : ' ')
   text.value = text.value.slice(0, t.start) + value + text.value.slice(t.end)
   token.value = null
   const caret = t.start + value.length
-  void nextTick(() => { area.value?.focus(); area.value?.setSelectionRange(caret, caret); updateToken() })
+  void nextTick(() => { area.value?.focus(); area.value?.setSelectionRange(caret, caret); if (drill) updateToken(); else clear() })
 }
 
 function onKey(event: KeyboardEvent) {
+  if (event.isComposing) return
+  if (event.key === 'Escape' && token.value) { event.preventDefault(); event.stopPropagation(); token.value = null; clear(); return }
   if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); save(); return }
   if (!suggestions.value.length) return
   if (event.key === 'ArrowDown') { event.preventDefault(); active.value = (active.value + 1) % suggestions.value.length }
   else if (event.key === 'ArrowUp') { event.preventDefault(); active.value = (active.value - 1 + suggestions.value.length) % suggestions.value.length }
-  else if (event.key === 'Tab' || event.key === 'Enter') { event.preventDefault(); insert(suggestions.value[active.value]) }
-  else if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); token.value = null }
+  else if ((event.key === 'Tab' || event.key === 'Enter') && !event.shiftKey) { event.preventDefault(); insert(suggestions.value[active.value], event.key === 'Tab') }
 }
 
 function save() {
   const value = text.value.trim()
   if (!value || props.busy) return
-  emit('save', { kind: kind.value, text: value, refs: props.general ? extractRefs(value, new Set(store.files), paths.value.dirs) : [] })
+  emit('save', { kind: kind.value, text: value, refs: extractRefs(value, new Set([...store.files, ...knownRefs]), paths.value.dirs) })
 }
 onMounted(() => { area.value?.focus() })
 </script>

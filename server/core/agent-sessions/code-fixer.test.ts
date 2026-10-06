@@ -131,10 +131,10 @@ test('code fixer rounds, MCP isolation, developer decisions and instruction inhe
     assert.equal((await call('start_review_item', { id: question.id })).result.isError, undefined);
     assert.ok(sessions.history(id).some(e => e.type === 'review_focus' && e.payload.item_id === question.id));
     assert.equal((await call('reply_review_item', { id: question.id, kind: 'options', text: 'Pick', options: [{ label: 'A' }] })).result.isError, true);
-    assert.equal((await call('reply_review_item', { id: question.id, kind: 'options', text: 'Two ways',
-      options: [{ label: 'A' }, { label: 'B', recommended: true }] })).result.isError, undefined);
+    assert.equal((await call('reply_review_item', { id: question.id, kind: 'options', text: '1. A\n2. B (recommended)' })).result.isError, undefined);
     assert.equal(store.getItem(question.id)!.status, 'answered');
-    assert.deepEqual(store.listMessages(review.id, question.id)[0].options, [{ label: 'A' }, { label: 'B', recommended: true }]);
+    assert.deepEqual(store.listMessages(review.id, question.id)[0].options, []);
+    assert.equal(store.listMessages(review.id, question.id)[0].text, '1. A\n2. B (recommended)');
     await call('reply_review_item', { id: item.id, kind: 'disagree', text: 'Conflicts with architecture' });
     assert.equal(service.attention(project.id)[0].count, 2, 'Both threads wait for the developer');
     assert.ok(events.some(e => e.type === 'code_review_needs_decision' && e.itemId === item.id));
@@ -144,7 +144,9 @@ test('code fixer rounds, MCP isolation, developer decisions and instruction inhe
     // The developer answers in the threads; replies wait for the batch.
     await assert.rejects(service.addMessage(project.id, review.id, item.id, { text: ' ' }), /text required/);
     await service.addMessage(project.id, review.id, item.id, { kind: 'implement', text: 'Настаиваю: сделай как в замечании' });
-    await service.addMessage(project.id, review.id, question.id, { kind: 'implement', text: 'Сделай вариант B', choice: 1 });
+    await service.addMessage(project.id, review.id, question.id, { kind: 'text', text: 'Сделай вариант B' });
+    assert.deepEqual(service.attention(project.id), [], 'queued developer replies no longer need their attention');
+    assert.equal((await service.current(project.id)).attention, 0);
     await assert.rejects(service.closeItem(project.id, review.id, question.id, 'accept'), /queued reply/);
     const quiet = createReviewService(getDb(), { sendPrompt: async () => {} });
     const batch = await quiet.sendRound(project.id, review.id, id);
@@ -152,7 +154,7 @@ test('code fixer rounds, MCP isolation, developer decisions and instruction inhe
     assert.ok(store.listMessages(review.id).filter(m => m.author === 'developer').every(m => m.sent && m.round_id === batch.round.id));
     sessions.updateSession(id, { status: 'thinking' });
     const thread = JSON.parse((await call('get_review')).result.content[0].text).assigned.find((i: { id: string }) => i.id === question.id).thread;
-    assert.deepEqual(thread.at(-1), { author: 'developer', kind: 'implement', text: 'Сделай вариант B', choice: 1 });
+    assert.deepEqual(thread.at(-1), { author: 'developer', kind: 'text', text: 'Сделай вариант B' });
     assert.equal((await call('reply_review_item', { id: question.id, kind: 'change', text: 'Did B', files: ['code.ts'] })).result.isError, undefined);
     await call('reply_review_item', { id: item.id, kind: 'change', text: 'Done as asked' });
     sessions.updateSession(id, { status: 'ready' });

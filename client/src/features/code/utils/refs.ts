@@ -1,5 +1,5 @@
 /**
- * `@path` references of a general item that name an existing file or folder, in order, without repeats.
+ * `@path` references of a review item that name an existing file or folder, in order, without repeats.
  * Folders are written with or without a trailing slash and saved without it.
  */
 export function extractRefs(text: string, files: ReadonlySet<string>, dirs: ReadonlySet<string>): string[] {

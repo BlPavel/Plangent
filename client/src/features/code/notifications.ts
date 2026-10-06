@@ -2,6 +2,7 @@ import type { Router } from 'vue-router'
 import { onServerEvent } from '@core/api/events'
 import { platform } from '@core/platform'
 import { useAppStore } from '@core/stores/app'
+import { useChatStore } from '@features/agent-chat'
 import { codeApi } from './api'
 import { codeTarget } from './navigation'
 
@@ -13,13 +14,23 @@ export async function announceChanges(router: Router, projectId: string, task: {
   useAppStore().toast(`${task.key}: Есть изменения для просмотра`, 'info', { label: 'Посмотреть изменения', run: () => void router.push(codeTarget(projectId, task)) })
 }
 
-/**
- * An agent that disputes a remark asks for the developer's decision: same channel as a blocked queue —
- * a toast while the app is in front, a system notification (opening the «Код» tab) while it is not.
- */
+/** Completed review rounds and requests for a decision use the shared toast/system channels. */
 export function startCodeNotifications(router: Router) {
   const app = useAppStore()
-  onServerEvent<{ type: string; projectId?: string }>(event => {
+  const chats = useChatStore()
+  const completed = new Map<string, number>()
+  return onServerEvent<{ type: string; projectId?: string; event?: { type: string; session_id: string; seq: number; payload: { stopReason?: string } } }>(event => {
+    const turn = event.event
+    if (event.type === 'agent_event' && turn?.type === 'turn_end' && turn.payload.stopReason !== 'cancelled') {
+      const session = chats.sessions.find(session => session.id === turn.session_id)
+      if (!session || session.role !== 'code-fixer' || turn.seq <= (completed.get(session.id) ?? 0)) return
+      completed.set(session.id, turn.seq)
+      const target = codeTarget(session.project_id)
+      const text = `${session.title}: агент завершил обработку замечаний`
+      if (document.hasFocus()) app.toast(text, 'success', { label: 'Открыть код', run: () => void router.push(target) })
+      platform.notify?.('Ревью: агент закончил работу', text, target)
+      return
+    }
     if (event.type !== 'code_review_needs_decision' || !event.projectId) return
     const projectId = event.projectId
     const target = codeTarget(projectId)

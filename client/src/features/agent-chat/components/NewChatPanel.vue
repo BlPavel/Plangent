@@ -1,6 +1,6 @@
 <template>
-  <div class="new-chat">
-    <div class="new-chat-center">
+  <div class="new-chat" :class="{ compact }">
+    <div v-if="!compact" class="new-chat-center">
       <h2 class="new-chat-title">{{ title }}</h2>
       <p class="new-chat-text">{{ text }}</p>
       <div class="new-chat-options">
@@ -8,13 +8,26 @@
       </div>
     </div>
     <div class="new-chat-dock">
-      <ChatComposer :initial-text="initialText" :project-id="projectId" :placeholder="placeholder" :disabled="!agentId || busy" @send="start" @error="localError = $event">
+      <template v-if="compact">
+        <div class="new-chat-row">
+          <span class="new-chat-label">{{ title }}</span>
+          <AppSelect v-model="agentId" :options="agentList" placeholder="Агент" size="sm" />
+          <slot name="actions" />
+        </div>
+        <p v-if="text" class="new-chat-hint">{{ text }}</p>
+      </template>
+      <ChatComposer v-if="!compact" :initial-text="initialText" :project-id="projectId" :placeholder="placeholder" :disabled="!agentId || busy" @send="start" @error="localError = $event">
         <template #status><UsageMeter v-if="agentId" :agent-id="agentId" /></template>
       </ChatComposer>
       <AgentSettingsBar :policy="fixedPolicy ?? policy" :selects="resolvedSelects" :locked="!!fixedPolicy" @policy="policy = $event" @change="(select, value) => (choices[select.configId] = value)">
         <span v-if="optionsState === 'loading'" class="options-note">Загружаю модели агента…</span>
         <span v-else-if="optionsState" class="options-note" :title="optionsState">Не удалось получить настройки агента · <button type="button" @click="store.fetchAgentOptions(agentId, true)">повторить</button></span>
       </AgentSettingsBar>
+      <!-- Compact: no message to write, the first message is `initialText` as is. -->
+      <div v-if="compact" class="new-chat-foot">
+        <UsageMeter v-if="agentId" :agent-id="agentId" />
+        <AppButton class="new-chat-send" variant="blue" size="sm" :disabled="!agentId || busy" @click="start([{ type: 'text', text: initialText ?? '' }])">{{ busy ? 'Отправка…' : sendLabel || 'Начать' }}</AppButton>
+      </div>
       <div v-if="error || localError" class="new-chat-error">{{ error || localError }}</div>
     </div>
   </div>
@@ -24,6 +37,7 @@
 import { ref, computed, watch } from 'vue'
 import { useAgentsStore } from '@features/agents'
 import AppSelect from '@shared/ui/AppSelect.vue'
+import AppButton from '@shared/ui/AppButton.vue'
 import ChatComposer, { type ContentBlock } from './ChatComposer.vue'
 import UsageMeter from './UsageMeter.vue'
 import AgentSettingsBar from './AgentSettingsBar.vue'
@@ -54,6 +68,10 @@ const props = defineProps<{
   fixedPolicy?: string
   busy?: boolean
   error?: string
+  /** Only the dock (agent, message, settings) for a narrow side panel, without the chat start screen. */
+  compact?: boolean
+  /** The start button of the compact panel. */
+  sendLabel?: string
 }>()
 const emit = defineEmits<{ start: [request: NewChatRequest] }>()
 const store = useChatStore(), agents = useAgentsStore()
@@ -102,5 +120,13 @@ function start(content: ContentBlock[]) {
 .new-chat-dock { width: 100%; max-width: 820px; margin: 0 auto; padding: 0 var(--sp-5) var(--sp-4); }
 .options-note { font-size: 12px; color: var(--text-faint); padding: 0 6px; white-space: nowrap; }
 .options-note button { background: none; border: none; padding: 0; color: var(--blue-hover); font: inherit; cursor: pointer; }
+.new-chat.compact { flex: none; height: auto; }
+.compact .new-chat-dock { max-width: none; padding: 8px 12px 10px; }
+.new-chat-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.new-chat-label { font-size: 13px; font-weight: 600; white-space: nowrap; }
+.new-chat-row .select { flex: 1; min-width: 0; }
+.new-chat-foot { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.new-chat-send { margin-left: auto; }
+.new-chat-hint { margin: 0 0 6px; font-size: 11.5px; line-height: 1.4; color: var(--text-faint); }
 .new-chat-error { margin-top: 6px; font-size: 12px; color: var(--danger-hover); }
 </style>

@@ -242,18 +242,22 @@ export function createReviewService(db: Database.Database = getDb(), dependencie
     if (!row) throw new CodeError('Chat is not bound to a review', 403);
     return reviewFor(session.project_id, row.review_id);
   }
+  function waitingItems(reviewId: string) {
+    const queued = new Set(store.listMessages(reviewId).filter(message => message.author === 'developer' && !message.sent).map(message => message.item_id));
+    return store.listItems(reviewId).filter(item => waiting(item) && !queued.has(item.id));
+  }
   function notify(reviewId: string, item?: CodeReviewItem) {
     const review = store.getReview(reviewId)!;
     const items = store.listItems(reviewId);
     broadcast({ type: 'code_review_updated', projectId: review.project_id, reviewId, item,
-      attention: items.filter(waiting).length, unresolved: items.filter(unresolved).length });
+      attention: waitingItems(reviewId).length, unresolved: items.filter(unresolved).length });
     if (item?.status === 'needs_decision') broadcast({ type: 'code_review_needs_decision',
       projectId: review.project_id, reviewId, itemId: item.id, reason: item.answer });
   }
   function attention(projectId: string) {
     project(projectId);
     return store.listReviews(projectId, 'open').flatMap(review => {
-      const items = store.listItems(review.id).filter(waiting);
+      const items = waitingItems(review.id);
       return items.length ? [{ project_id: projectId, review_id: review.id, origin: review.origin,
         origin_id: review.origin_id, count: items.length, items }] : [];
     });
@@ -348,9 +352,9 @@ export function createReviewService(db: Database.Database = getDb(), dependencie
         const value = option as { label?: unknown; recommended?: unknown };
         return typeof value?.label === 'string' && value.label.trim() ? [{ label: value.label.trim(), ...(value.recommended === true ? { recommended: true } : {}) }] : [];
       }) : [];
-      if (kind === 'options' && options.length < 2) throw new CodeError('options needs at least two options');
+      if (kind === 'options' && options.length > 0 && options.length < 2) throw new CodeError('options needs at least two options');
       const files = Array.isArray(input.files) ? input.files.filter((file): file is string => typeof file === 'string' && !!file.trim()) : [];
-      // A question changes code only after the developer has replied in its thread («Сделать так» or an explicit request).
+      // A question changes code only after the developer has replied in its thread; the agent reads their request.
       if (kind === 'change' && item.kind === 'question' && !store.listMessages(review.id, item.id).some(m => m.author === 'developer' && m.sent))
         throw new CodeError('Do not change code for a question until the developer asks for it in the thread; answer it or offer options', 409);
       const updated = db.transaction(() => {
@@ -578,7 +582,7 @@ export function createReviewService(db: Database.Database = getDb(), dependencie
           rounds: store.listRounds(review.id).length, items: items.length, unresolved: items.filter(unresolved).length } : null,
         file_views: review && info ? await viewedFiles(root, review.id) : [], other_reviews, running_other_reviews,
         agent_working: review ? activeSessions(review.id).length > 0 : false,
-        attention: items.filter(waiting).length,
+        attention: review ? waitingItems(review.id).length : 0,
         head_changed: !!review && review.head_start !== (info?.head ?? noGitHead) };
     });
   }

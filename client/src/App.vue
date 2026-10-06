@@ -16,7 +16,7 @@
 
       <ProjectTree
         :current-id="isSettingsRoute ? null : appStore.currentProject?.id ?? null"
-        :blocked="blockedQueues.forProject"
+        :blocked="projectAttention"
         @select="selectProject"
         @create="openCreate"
         @regroup="regroup"
@@ -71,6 +71,14 @@ const blockedQueues = useBlockedQueuesStore()
 // Decisions the code-fixer agents wait for, per project: the «Код» tab and the task button show them.
 watch(() => projectsStore.projects, list => codeAttention.start(list.filter(p => p.kind === 'project').map(p => p.id)), { immediate: true })
 blockedQueues.start()
+const projectAttention = (projectId: string) => [
+  ...blockedQueues.forProject(projectId),
+  ...chatStore.sessions.filter(session => session.project_id === projectId && session.role === 'code-fixer' && session.status === 'waiting')
+    .map(session => ({ taskKey: 'Код', reason: session.reason || 'Агент ждёт разрешения' })),
+  ...codeAttention.forProject(projectId).flatMap(review => review.items.map(item => ({
+    taskKey: 'Код', reason: `${item.file ?? 'Общее замечание'}: ${item.text.replace(/\s+/g, ' ').trim()}`,
+  }))),
+]
 // A clicked notification opens its task, switching to the task's project first.
 platform.onNotificationClick?.(async target => {
   const projectId = new URL(target, location.origin).searchParams.get('project')

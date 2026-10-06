@@ -1,4 +1,4 @@
-﻿import { computed, onScopeDispose, ref } from 'vue'
+import { computed, onScopeDispose, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { onServerEvent, subscribeCodeProject } from '@core/api/events'
 import { codeApi, codeReviewsApi } from '../api'
@@ -195,12 +195,15 @@ export const useCodeStore = defineStore('code', () => {
   }
   async function start(p: string) {
     stop(); projectId.value = p
-    stopEvents = onServerEvent<{ type: string; projectId?: string; error?: string }>(event => {
+    stopEvents = onServerEvent<{ type: string; projectId?: string; error?: string; session?: { project_id: string; role: string } }>(event => {
       if (event.type === 'events:disconnected') watchError.value = 'Connection lost; reconnecting'
-      if (event.projectId !== projectId.value) return
+      // Session lifecycle events carry the project inside session, rather than at the top level.
+      const reviewSessionChanged = event.type === 'agent_session' && event.session?.role === 'code-fixer'
+      const eventProject = reviewSessionChanged ? event.session?.project_id : event.projectId
+      if (eventProject !== projectId.value) return
       if (event.type === 'code:error') { watchError.value = event.error ?? 'Cannot watch project'; return }
       if (event.type === 'code:subscribed') watchError.value = null
-      if (['code:subscribed', 'code:changed', 'code_review_updated', 'code_review_needs_decision'].includes(event.type)) {
+      if (reviewSessionChanged || ['code:subscribed', 'code:changed', 'code_review_updated', 'code_review_needs_decision'].includes(event.type)) {
         clearTimeout(timer); timer = setTimeout(() => void refresh(), 100)
       }
     })

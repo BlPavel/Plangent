@@ -13,25 +13,26 @@
       <span v-else class="rp-muted">Агент выбирается при первой отправке</span>
     </div>
 
+    <div v-if="agent.session" class="rp-agent-usage">
+      <span>Контекст и лимиты</span>
+      <UsageMeter :agent-id="agent.session.agent_id" :usage="usage" placement="below" show-unavailable />
+    </div>
+
     <template v-if="journal && agent.sessionId">
       <ChatView :key="agent.sessionId" :session-id="agent.sessionId" class="rp-journal" />
     </template>
 
-    <template v-else-if="agent.setup">
-      <div class="rp-setup-head">
-        <span>Агент для ревью</span>
-        <button type="button" class="rp-link" @click="agent.setup = null">Отмена</button>
-      </div>
-      <NewChatPanel
-        class="rp-setup" :project-id="projectId" :default-agent-id="defaultAgentId" title="Кто будет дорабатывать"
-        :text="`Уйдёт ${setupCount} ${plural(setupCount, 'пункт', 'пункта', 'пунктов')}. Дальше вы переписываетесь с агентом прямо в карточках; ответы копятся и уходят по «Отправить». git ему запрещён.`"
-        placeholder="Комментарий к ревью (необязательно)" :initial-text="DEFAULT_NOTE" :busy="agent.sending" :error="agent.error"
-        @start="agent.start(projectId, $event, DEFAULT_NOTE)"
-      />
-    </template>
-
     <template v-else>
-      <div class="rp-actions">
+      <!-- First «Отправить»: only who does the work and how; the items stay in view below. -->
+      <NewChatPanel
+        v-if="agent.setup" compact class="rp-setup" :project-id="projectId" :default-agent-id="defaultAgentId" title="Агент"
+        :text="`Уйдёт ${setupCount} ${plural(setupCount, 'пункт', 'пункта', 'пунктов')}. Отвечать агенту можно прямо в карточках. git ему запрещён.`"
+        :initial-text="DEFAULT_NOTE" :send-label="`Отправить ${setupCount}`" :busy="agent.sending" :error="agent.error"
+        @start="agent.start(projectId, $event, DEFAULT_NOTE)"
+      >
+        <template #actions><button type="button" class="rp-link" @click="agent.setup = null">Отмена</button></template>
+      </NewChatPanel>
+      <div v-else class="rp-actions">
         <AppButton size="xs" variant="ghost" :disabled="readOnly || composing" title="Замечание не к конкретной строке: структура, несколько файлов, общее впечатление" @click="composing = true">+ Общее</AppButton>
         <AppButton
           v-if="!readOnly" size="xs" variant="blue" :disabled="!pending || agent.busy || agent.sending"
@@ -40,7 +41,7 @@
         >{{ agent.sending ? 'Отправка…' : `Отправить${pending ? ' ' + pending : ''}` }}</AppButton>
         <FinishReview v-if="store.liveReview && !readOnly" class="rp-finish" />
       </div>
-      <div v-if="agent.error" class="rp-error">{{ agent.error }}</div>
+      <div v-if="agent.error && !agent.setup" class="rp-error">{{ agent.error }}</div>
 
       <!-- A permission the agent asked outside any item (it did not say what it works on). -->
       <div v-for="permission in loosePermissions" :key="permission.permissionId" class="rp-permission">
@@ -94,7 +95,7 @@ import { computed, ref } from 'vue'
 import AppButton from '@shared/ui/AppButton.vue'
 import { useAppStore } from '@core/stores/app'
 import { useAgentsStore } from '@features/agents'
-import { ChatView, NewChatPanel, statusLabel } from '@features/agent-chat'
+import { ChatView, NewChatPanel, UsageMeter, statusLabel, type UsageInfo } from '@features/agent-chat'
 import { useCodeStore } from '../stores/code'
 import { useReviewAgentStore } from '../stores/review-agent'
 import type { CodeReviewItem } from '../types'
@@ -129,6 +130,7 @@ const review = computed(() => store.review)
 const items = computed(() => store.items)
 const readOnly = computed(() => store.readOnly || (!!store.openedReviewId && store.openedReview?.review.status !== 'open'))
 const rounds = computed(() => store.openedReview?.rounds.length ?? store.current?.summary?.rounds ?? 0)
+const usage = computed(() => (agent.session?.metadata.usage as UsageInfo | undefined) ?? null)
 const agentName = computed(() => agents.agents.find(a => a.id === agent.session?.agent_id)?.name ?? '')
 const state = (item: CodeReviewItem): ThreadState => threadState(item, store.messages)
 const live = computed(() => items.value.filter(i => !i.outdated))
@@ -164,6 +166,7 @@ async function saveGeneral(value: { kind: 'fix' | 'question'; text: string; refs
 <style scoped>
 .rp { display: flex; flex-direction: column; min-height: 0; height: 100%; }
 .rp-agent { display: flex; align-items: center; gap: 6px; flex-shrink: 0; min-height: 36px; padding: 0 8px 0 12px; border-bottom: 1px solid var(--border); font-size: 12px; }
+.rp-agent-usage { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 2px 8px 4px 12px; border-bottom: 1px solid var(--border); color: var(--text-muted); font-size: 11px; flex-shrink: 0; }
 .rp-agent-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rp-agent-status { color: var(--text-muted); white-space: nowrap; }
 .rp-spacer { flex: 1; }
@@ -175,8 +178,7 @@ async function saveGeneral(value: { kind: 'fix' | 'question'; text: string; refs
 .rp-dot.error { background: var(--danger-hover); }
 @keyframes rp-pulse { 50% { opacity: 0.35; } }
 .rp-journal { flex: 1; min-height: 0; }
-.rp-setup-head { display: flex; justify-content: space-between; padding: 8px 12px 0; font-size: 13px; font-weight: 600; }
-.rp-setup { flex: 1; min-height: 0; }
+.rp-setup { flex-shrink: 0; border-bottom: 1px solid var(--border); background: var(--bg2); }
 .rp-link { padding: 0; font: inherit; font-size: 12px; font-weight: 400; color: var(--blue-hover); background: none; border: none; cursor: pointer; }
 .rp-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; padding: 8px 12px 4px; }
 .rp-finish { margin-left: auto; }

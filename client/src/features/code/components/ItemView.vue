@@ -1,6 +1,6 @@
 <template>
   <ItemComposer
-    v-if="editing" :where="where" :general="item.scope === 'general'" :initial-kind="item.kind" :initial-text="item.text" :busy="busy" :error="error"
+    v-if="editing" :where="where" :general="item.scope === 'general'" :initial-kind="item.kind" :initial-text="item.text" :initial-refs="item.refs" :busy="busy" :error="error"
     @save="save" @cancel="editing = false"
   />
   <ItemCard
@@ -34,7 +34,7 @@ const error = ref('')
 
 const thread = computed(() => store.messages.filter(m => m.item_id === props.item.id))
 const state = computed(() => threadState(props.item, store.messages))
-const working = computed(() => agent.busy && agent.focusItem === props.item.id)
+const working = computed(() => state.value === 'agent' && agent.busy && agent.focusItem === props.item.id)
 const where = computed(() => {
   const { scope, file, line_start, line_end, side } = props.item
   if (scope === 'general') return 'Общее замечание'
@@ -49,13 +49,13 @@ async function run(action: () => Promise<unknown>, fallback: string) {
   finally { busy.value = false }
 }
 async function save(value: { kind: 'fix' | 'question'; text: string; refs: string[] }) {
-  const patch = props.item.scope === 'general' ? value : { kind: value.kind, text: value.text }
+  const patch = value
   if (await run(() => store.updateDraft(props.item.review_id, props.item.id, patch), 'Не удалось сохранить')) editing.value = false
 }
 const remove = () => run(() => store.removeItem(props.item.review_id, props.item.id), 'Не удалось удалить')
 const general = () => run(() => store.makeGeneral(props.item.review_id, props.item.id), 'Не удалось превратить в общий')
-const reply = (kind: 'text' | 'implement', text: string, choice?: number) =>
-  run(() => store.addMessage(props.item.review_id, props.item.id, { kind, text, ...(choice !== undefined ? { choice } : {}) }), 'Не удалось сохранить ответ')
+const reply = (text: string) =>
+  run(() => store.addMessage(props.item.review_id, props.item.id, { kind: 'text', text }), 'Не удалось сохранить ответ')
 const removeMessage = (id: string) => run(() => store.removeMessage(props.item.review_id, props.item.id, id), 'Не удалось убрать ответ')
 const close = (resolution: 'accept' | 'answered' | 'reject' | 'reopen') => run(() => store.closeItem(props.item.review_id, props.item.id, resolution), 'Не удалось изменить статус')
 </script>
