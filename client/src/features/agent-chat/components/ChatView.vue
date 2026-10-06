@@ -6,6 +6,7 @@
         <span v-if="agentName" class="chat-agent">{{ agentName }}</span>
       </div>
       <span class="status-badge" :class="statusTone(snap.session.status)">{{ statusLabel(snap.session.status) }}</span>
+      <slot name="actions" />
     </header>
 
     <div v-if="snap.session.status === 'error'" class="banner banner-error">
@@ -138,7 +139,7 @@ import { api } from '@core/api'
 import { useAgentsStore } from '@features/agents'
 import AppButton from '@shared/ui/AppButton.vue'
 import ChatComposer, { type ContentBlock } from './ChatComposer.vue'
-import MessageMarkdown from './MessageMarkdown.vue'
+import MessageMarkdown from '@shared/ui/MessageMarkdown.vue'
 import ToolCallCard from './ToolCallCard.vue'
 import UsageMeter, { type UsageInfo } from './UsageMeter.vue'
 import AgentSettingsBar from './AgentSettingsBar.vue'

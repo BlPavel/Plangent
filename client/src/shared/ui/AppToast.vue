@@ -7,7 +7,10 @@
         class="toast"
         :class="t.type"
         @click="store.dismissToast(t.id)"
-      >{{ t.msg }}</div>
+      >
+        {{ t.msg }}
+        <button v-if="t.action" type="button" class="toast-action" @click.stop="store.dismissToast(t.id); t.action.run()">{{ t.action.label }}</button>
+      </div>
     </TransitionGroup>
   </div>
 </template>
@@ -37,6 +40,8 @@ const store = useAppStore()
   word-break: break-word;
   cursor: pointer;
 }
+.toast-action { display: block; margin-top: 6px; padding: 0; font: inherit; font-size: 12px; font-weight: 600; color: var(--blue-hover); background: none; border: none; cursor: pointer; }
+.toast-action:hover { text-decoration: underline; }
 .toast.error { border-color: var(--danger); }
 .toast.success { border-color: var(--accent); }
 .toast-enter-active, .toast-leave-active { transition: all 0.2s; }

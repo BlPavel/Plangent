@@ -1,6 +1,7 @@
 <template>
-  <div v-if="context || windows.length" ref="root" class="usage" @mouseenter="open = true" @mouseleave="open = false">
-    <button type="button" class="usage-trigger" @click="open = !open">
+  <div v-if="context || windows.length || showUnavailable" ref="root" class="usage" :class="{ 'usage-below': placement === 'below' }" @mouseenter="open = true" @mouseleave="open = false">
+    <button type="button" class="usage-trigger" aria-label="Контекст и лимиты агента" :aria-expanded="open" @click="open = !open">
+      <span v-if="!context && !tightest" class="meter-text">{{ limits ? 'Нет данных' : 'Загрузка…' }}</span>
       <span v-if="context" class="meter" :class="tone(context.percent)" title="Контекст">
         <svg class="ring" viewBox="0 0 20 20">
           <circle cx="10" cy="10" r="7.5" class="ring-track" />
@@ -53,7 +54,7 @@ import { useChatStore } from '../stores/sessions'
 export interface UsageInfo { used: number; size: number; cost?: { amount: number; currency: string } | null }
 
 /** Two rings: this chat's context window and the agent account's tightest subscription limit. */
-const props = defineProps<{ agentId: string; usage?: UsageInfo | null }>()
+const props = defineProps<{ agentId: string; usage?: UsageInfo | null; placement?: 'above' | 'below'; showUnavailable?: boolean }>()
 const store = useChatStore()
 const root = ref<HTMLElement>()
 const open = ref(false)
@@ -111,6 +112,7 @@ watch(() => props.agentId, poll)
 .danger .ring-fill { stroke: var(--danger-hover); }
 
 .usage-pop { position: absolute; right: 0; bottom: calc(100% + 8px); width: 290px; padding: 4px 14px 12px; background: var(--bg2); border: 1px solid var(--border-strong); border-radius: var(--radius); box-shadow: var(--shadow-md); z-index: 50; font-size: 12.5px; }
+.usage-below .usage-pop { top: calc(100% + 8px); bottom: auto; }
 .pop-section { margin: 10px 0 6px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); }
 .pop-section + .pop-row, .pop-section + .pop-limit { margin-top: 0; }
 .pop-section:not(:first-child) { padding-top: 10px; border-top: 1px solid var(--border); }

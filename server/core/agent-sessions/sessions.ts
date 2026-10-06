@@ -26,7 +26,9 @@ export function initSessions(): void {
       id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
       file TEXT NOT NULL, line INTEGER NOT NULL, severity TEXT NOT NULL, message TEXT NOT NULL
     );
-    UPDATE agent_sessions SET status='waiting', reason='Приложение перезапущено. Продолжите сессию.'
+    -- A code fixer is driven by review rounds, not by a reply in its chat: after a restart it is simply idle.
+    UPDATE agent_sessions SET status=CASE role WHEN 'code-fixer' THEN 'ready' ELSE 'waiting' END,
+      reason='Приложение перезапущено. Продолжите сессию.'
       WHERE status IN ('starting', 'thinking', 'waiting');
   `);
 }
@@ -79,7 +81,13 @@ export function history(id: string): SessionEvent[] {
     .map(e => ({ ...e, payload: JSON.parse(e.payload) }));
 }
 export function deleteSession(id: string): void {
-  getDb().prepare('DELETE FROM agent_sessions WHERE id=?').run(id);
+  const db = getDb();
+  db.transaction(() => {
+    // Sessions predate code reviews; support installations/tests without the review tables.
+    if (db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='code_review_round'").get())
+      db.prepare('UPDATE code_review_round SET session_id=NULL WHERE session_id=?').run(id);
+    db.prepare('DELETE FROM agent_sessions WHERE id=?').run(id);
+  })();
   broadcast({ type: 'agent_session_deleted', sessionId: id });
 }
 export interface ReviewFinding { id: string; session_id: string; file: string; line: number; severity: 'low' | 'medium' | 'high' | 'critical'; message: string }

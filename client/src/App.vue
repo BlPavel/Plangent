@@ -16,7 +16,7 @@
 
       <ProjectTree
         :current-id="isSettingsRoute ? null : appStore.currentProject?.id ?? null"
-        :blocked="blockedQueues.forProject"
+        :blocked="projectAttention"
         @select="selectProject"
         @create="openCreate"
         @regroup="regroup"
@@ -42,7 +42,7 @@
 
 <script setup lang="ts">
 import { useChatStore } from '@features/agent-chat'
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAppStore } from '@core/stores/app'
 import { ProjectFormModal, ProjectTree, useProjectsStore } from '@features/projects'
@@ -51,6 +51,7 @@ import type { Project, ProjectKind } from '@core/models'
 import { api } from '@core/api'
 import { platform } from '@core/platform'
 import { startQueueNotifications, useBlockedQueuesStore } from '@features/tasks'
+import { startCodeNotifications, useCodeAttentionStore } from '@features/code'
 import { UpdateStatus } from '@features/updates'
 import AppToast from '@shared/ui/AppToast.vue'
 import AppConfirm from '@shared/ui/AppConfirm.vue'
@@ -63,9 +64,21 @@ const appStore = useAppStore()
 const projectsStore = useProjectsStore()
 const agentsStore = useAgentsStore()
 
-startQueueNotifications()
+startQueueNotifications(router)
+startCodeNotifications(router)
+const codeAttention = useCodeAttentionStore()
 const blockedQueues = useBlockedQueuesStore()
+// Decisions the code-fixer agents wait for, per project: the «Код» tab and the task button show them.
+watch(() => projectsStore.projects, list => codeAttention.start(list.filter(p => p.kind === 'project').map(p => p.id)), { immediate: true })
 blockedQueues.start()
+const projectAttention = (projectId: string) => [
+  ...blockedQueues.forProject(projectId),
+  ...chatStore.sessions.filter(session => session.project_id === projectId && session.role === 'code-fixer' && session.status === 'waiting')
+    .map(session => ({ taskKey: 'Код', reason: session.reason || 'Агент ждёт разрешения' })),
+  ...codeAttention.forProject(projectId).flatMap(review => review.items.map(item => ({
+    taskKey: 'Код', reason: `${item.file ?? 'Общее замечание'}: ${item.text.replace(/\s+/g, ' ').trim()}`,
+  }))),
+]
 // A clicked notification opens its task, switching to the task's project first.
 platform.onNotificationClick?.(async target => {
   const projectId = new URL(target, location.origin).searchParams.get('project')

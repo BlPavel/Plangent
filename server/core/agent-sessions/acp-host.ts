@@ -1,3 +1,4 @@
+import { buildCodeFixerBriefing } from '../library/code-fixer-instruction';
 import { buildLibrarianPrompt } from '../orchestration/prompts';
 import type * as ACP from '@agentclientprotocol/sdk';
 import { Readable, Writable } from 'stream';
@@ -78,7 +79,7 @@ function probeAgent(agentId: string): Promise<AcpOptions> {
     try {
       return await Promise.race([
         (async () => {
-          const init = await connection.agent.request('initialize', { protocolVersion: sdk.PROTOCOL_VERSION, clientInfo: { name: 'Plangent', version: '0.3.0' }, clientCapabilities: {} });
+          const init = await connection.agent.request('initialize', { protocolVersion: sdk.PROTOCOL_VERSION, clientInfo: { name: 'Plangent', version: '0.5.0' }, clientCapabilities: {} });
           return saveAcpOptions(agentId, await connection.agent.request('session/new', { cwd: os.tmpdir(), mcpServers: [] }), init);
         })(),
         new Promise<never>((_, reject) => { child.on('error', reject); timer = setTimeout(() => reject(new Error('Агент не ответил за 90 секунд')), 90_000); }),
@@ -145,7 +146,7 @@ async function permission(id: string, request: ACP.RequestPermissionRequest): Pr
   const announced = history(id).filter(e => e.type === 'tool_call' && e.payload.toolCallId === request.toolCall.toolCallId).pop()?.payload;
   const toolCall = { ...(announced as Partial<ACP.ToolCallUpdate> | undefined), ...Object.fromEntries(Object.entries(request.toolCall).filter(([, v]) => v != null)) } as ACP.ToolCallUpdate;
   const decision = permissionDecision(session.policy, { ...request, toolCall }, project?.config.dangerous_commands,
-    project ? { writable: writableRoots(project), readOnly: readOnlyRoots() } : undefined);
+    project ? { writable: session.role === 'code-fixer' ? [project.repo_path] : writableRoots(project), readOnly: readOnlyRoots() } : undefined, session.role);
   const option = request.options.find(o => o.kind === (decision === 'allow' ? 'allow_once' : 'reject_once'));
   if (decision !== 'ask' && option) {
     addEvent(id, 'permission_result', { title: toolCall.title, decision });
@@ -213,7 +214,7 @@ async function boot(id: string): Promise<LiveSession> {
   const timeout = setTimeout(() => { failed('Адаптер не ответил за 90 секунд'); void terminate(child.pid); }, 90_000);
   try {
     const initialized = await connection.agent.request('initialize', { protocolVersion: sdk.PROTOCOL_VERSION,
-      clientInfo: { name: 'Plangent', version: '0.3.0' }, clientCapabilities: {} });
+      clientInfo: { name: 'Plangent', version: '0.5.0' }, clientCapabilities: {} });
     updateSession(id, { metadata: { ...session.metadata, ...initialized } });
     const mcpServers = mcpConfig(session, !!initialized.agentCapabilities?.mcpCapabilities?.http);
     if (session.acp_session_id && !initialized.agentCapabilities?.loadSession) {
@@ -344,7 +345,8 @@ export async function sendPrompt(id: string, content: ACP.ContentBlock[]): Promi
   // The workspace note (group projects, reference catalog) goes with the first message of every chat.
   const project = getProject(session.project_id);
   const workspace = project ? workspaceBriefing(project) : '';
-  const roleBriefing = session.role === 'librarian' ? buildLibrarianPrompt(project?.name ?? session.project_id) : '';
+  const roleBriefing = session.role === 'code-fixer' ? buildCodeFixerBriefing(session.project_id)
+    : session.role === 'librarian' ? buildLibrarianPrompt(project?.name ?? session.project_id) : '';
   const briefing = [workspace, roleBriefing || (typeof session.metadata.briefing === 'string' ? session.metadata.briefing : '')].filter(Boolean).join('\n\n');
   const withBriefing = briefing && (!session.metadata.briefed || session.metadata.needsContext);
   const prompt: ACP.ContentBlock[] = [
@@ -376,7 +378,13 @@ export async function sendPrompt(id: string, content: ACP.ContentBlock[]): Promi
 }
 export async function cancelSession(id: string): Promise<void> {
   const state = live.get(id);
-  if (!state) return;
+  if (!state) {
+    // Nothing runs behind a "busy" status (the process died or the app restarted): stopping just clears it.
+    const session = getSession(id);
+    const stale = ['starting', 'thinking', ...(session.role === 'code-fixer' ? ['waiting'] : [])];
+    if (!starting.has(id) && stale.includes(session.status)) updateSession(id, { status: 'ready', reason: '' });
+    return;
+  }
   state.cancelled = true;
   for (const [permissionId, pending] of state.permissions) {
     pending.resolve({ outcome: { outcome: 'cancelled' } });

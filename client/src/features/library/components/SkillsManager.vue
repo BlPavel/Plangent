@@ -128,7 +128,7 @@ const typeOptions = [
 ].filter(t => t.value === '' || availableTypeValues.value.includes(t.value))
 
 function typeLabel(t: LibraryItemType) {
-  return { skill: 'скилл', command: 'команда', main: 'main', 'plan-template': 'шаблон плана', 'instruction-guide': 'руководство по инструкциям' }[t]
+  return { 'code-fixer-instruction': 'Агент доработки', skill: 'скилл', command: 'команда', main: 'main', 'plan-template': 'шаблон плана', 'instruction-guide': 'руководство по инструкциям' }[t]
 }
 
 // A project lists everything that applies to it; the global list (settings) shows every item.

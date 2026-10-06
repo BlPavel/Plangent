@@ -43,6 +43,10 @@
       <AppButton v-else-if="state.attention" variant="ghost" size="xs" @click.stop="$emit('open')">Ответить</AppButton>
     </div>
 
+    <div v-if="session.status === 'complete' && codeLink" class="session-detail">
+      <AppButton variant="ghost" size="xs" title="Открыть изменения проекта на вкладке «Код»" @click.stop="viewChanges">Посмотреть изменения</AppButton>
+    </div>
+
     <div v-if="showSettings && editable" class="settings" @click.stop>
       <label><span>Агент</span><AppSelect :model-value="session.agentId" :options="agentOptions" size="sm" @update:model-value="patch({ agentId: $event, model: undefined, reasoningEffort: undefined })" /></label>
       <label v-if="modelChoices.length"><span>Модель</span><AppSelect :model-value="session.model ?? agent?.model ?? ''" :options="modelChoices" size="sm" placeholder="По умолчанию" @update:model-value="patch({ model: $event })" /></label>
@@ -56,6 +60,9 @@
 
 <script setup lang="ts">
 import { computed, inject, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
+import { useAppStore } from '@core/stores/app'
+import { codeTarget } from '@features/code'
 import type { Agent, ExecutionPolicy, OrchestratorQueueSession, PlanStep, QueueSessionMode, QueueStage } from '@core/models'
 import AppButton from '@shared/ui/AppButton.vue'
 import AppSelect from '@shared/ui/AppSelect.vue'
@@ -79,6 +86,12 @@ const emit = defineEmits<{ select: []; open: []; dragStart: [id: string]; dragEn
 const queue = inject(TaskQueueKey)!
 const chatStore = useChatStore()
 const showSettings = ref(false)
+
+// The step's changes are the project's uncommitted changes: the link opens the «Код» tab with a way back to this task.
+const router = useRouter()
+const app = useAppStore()
+const codeLink = computed(() => (app.currentProject && app.currentTask ? { projectId: app.currentProject.id, task: { id: app.currentTask.id, key: app.currentTask.key } } : null))
+function viewChanges() { if (codeLink.value) void router.push(codeTarget(codeLink.value.projectId, codeLink.value.task)) }
 
 const agent = computed(() => props.agents.find(a => a.id === props.session.agentId))
 const agentName = computed(() => agent.value?.name ?? props.session.agentId)

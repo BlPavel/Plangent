@@ -215,7 +215,7 @@ interface SyncTarget {
 }
 
 function targetsForItem(item: LibraryItem, agent: Agent, project: Project | null): SyncTarget[] {
-  if (item.type === 'plan-template' || item.type === 'instruction-guide') return [];
+  if (item.type === 'plan-template' || item.type === 'instruction-guide' || item.type === 'code-fixer-instruction') return [];
 
   const profile = getLayoutProfile(agent);
   if (!profile) return [];
@@ -285,7 +285,7 @@ export function unsyncItem(item: LibraryItem, only?: Project[]): void {
 
   for (const agent of agents) {
     for (const project of projects) {
-      if (item.type === 'plan-template' || item.type === 'instruction-guide') continue;
+      if (item.type === 'plan-template' || item.type === 'instruction-guide' || item.type === 'code-fixer-instruction') continue;
 
       const profile = getLayoutProfile(agent);
       if (!profile) continue;
