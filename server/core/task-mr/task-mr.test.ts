@@ -30,7 +30,7 @@ test('manual task MR: preview, agent draft, confirmation, origin push, recovery 
   git(root,'branch','--set-upstream-to','origin/main');
   const db=getDb();migrate(db);
   const agent=db.prepare('SELECT id FROM agents LIMIT 1').get() as {id:string};
-  const project=createProject({name:'Task MR',repo_path:root,default_agent_id:agent.id,git_settings:{base_branch:'main',mr_description_template:'{title} · {key} · {url}',mr_reviewers:['12'],mr_labels:['backend'],mr_squash:true}});
+  const project=createProject({name:'Task MR',repo_path:root,default_agent_id:agent.id,git_settings:{base_branch:'main',mr_description_prompt:'Пиши кратко',mr_reviewers:['12'],mr_squash:true}});
   const task=createTask({project_id:project.id,key:'Local-1',title:'Task title'});updateTask(task.id,{external_key:'PROJ-123',base_branch:'origin/main',branch_name:'feature/task',jira_url:'https://jira.test/PROJ-123'});
   const mainBefore=git(remote,'rev-parse','refs/heads/main');
   let creates=0,found:MergeRequest|null=null,createError:Error|undefined;
@@ -41,7 +41,7 @@ test('manual task MR: preview, agent draft, confirmation, origin push, recovery 
   } as unknown as CodeHost;
   const resolve=async()=>({host,connectionId:'connection',baseUrl:'https://gitlab.test',projectPath:'team/repo'});
   let generated=0;
-  const service=createTaskMrService(resolve,async(_project,_agent,prompt)=>{generated++;assert.match(prompt,/PROJ-123/);assert.match(prompt,/changed/);assert.match(prompt,/Контекст задачи/);return 'Agent draft';});
+  const service=createTaskMrService(resolve,async(_project,_agent,prompt)=>{generated++;assert.match(prompt,/PROJ-123/);assert.match(prompt,/Пиши кратко/);assert.match(prompt,/changed/);assert.match(prompt,/Контекст задачи/);return 'Agent draft';});
   const preview=await service.preview(project.id,task.id);
   assert.equal(preview.target_branch,'main');assert.equal(preview.source_branch,'feature/task');assert.equal(preview.title,'PROJ-123 Task title');assert.match(preview.description!,/https:\/\/jira/);assert.deepEqual(preview.reviewer_ids,[12]);assert.equal(creates,0);
   assert.equal((await service.describe(project.id,preview)).description,'Agent draft');

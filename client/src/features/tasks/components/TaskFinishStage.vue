@@ -12,7 +12,7 @@
         <select v-model="scenario" class="control control-sm" :disabled="busy" @change="save"><option value="">Из настроек · {{ labels[defaults.finish_scenario || 'nothing'] }}</option><option v-for="(label, value) in labels" :key="value" :value="value">{{ label }}</option></select>
       </label>
       <label><span>Целевая ветка МР</span>
-        <input v-model="target" class="control control-sm" list="task-finish-branches" :placeholder="defaults.mr_target_branch || defaults.base_branch || 'Из настроек'" :disabled="busy" @change="save" />
+        <input v-model="target" class="control control-sm" list="task-finish-branches" :placeholder="defaults.base_branch || 'Из настроек'" :disabled="busy" @change="save" />
       </label>
     </div>
     <datalist id="task-finish-branches"><option v-for="branch in branches" :key="branch.ref" :value="branch.name" /></datalist>

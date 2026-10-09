@@ -174,6 +174,10 @@ export class GitLab implements CodeHost {
   async unapprove(iid: number) {
     await this.request(this.mr(iid) + '/unapprove', 'POST');
   }
+  async listMembers() {
+    const rows = await this.list<{ id: number; username: string; name: string; state: string }>(this.prefix + '/members/all');
+    return rows.filter(m => m.state === 'active').map(m => ({ value: String(m.id), login: m.username, name: m.name }));
+  }
   createMergeRequest(input: CreateMergeRequest) {
     return this.request<MergeRequest>(this.prefix + '/merge_requests', 'POST', input);
   }

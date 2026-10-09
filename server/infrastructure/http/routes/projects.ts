@@ -1,4 +1,5 @@
 import { defaultGitSettings } from '../../../core/projects/git-settings';
+import { resolveCodeHost } from '../../../core/code-hosts';
 import { localOrigin } from '../local-origin';
 import { randomUUID } from 'node:crypto';
 import { broadcast } from '../../../core/shared/events';
@@ -47,6 +48,7 @@ projectsRouter.get('/:id', (req: Request, res: Response) => {
   res.json(p);
 });
 
+projectsRouter.get('/:id/host-members', guard(async (req, res) => res.json(await (await resolveCodeHost(req.params.id)).host.listMembers())));
 projectsRouter.get('/:id/git-settings', guard((req, res) => res.json(effectiveGitSettings(req.params.id))));
 
 projectsRouter.get('/:id/files', async (req: Request, res: Response) => {

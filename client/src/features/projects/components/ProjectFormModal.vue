@@ -17,28 +17,26 @@
       <AvailabilityField v-model="availability" hint="Где агент знает о справочнике без упоминания. Через @ его можно указать где угодно." />
     </template>
 
+    <!-- A new project or group asks only for what creating it needs; the rest lives on its «Настройки» tab. -->
     <template v-else>
       <FormField v-model="form.name" label="Название" :placeholder="kind === 'group' ? 'Микрофронты' : 'My Project'" />
       <template v-if="kind === 'project'">
-        <FormField v-model="form.key" label="Ключ (для @)" :placeholder="suggestedKey" hint="Другие проекты и группы ссылаются на этот проект как @ключ. Пусто — из названия." />
-        <template v-if="!editing">
-          <FormField v-model="creationMode" label="Откуда" type="select"><option value="folder">Папка на диске</option><option value="clone">Клонировать из Git</option></FormField>
-          <template v-if="creationMode === 'clone'">
-            <FormField v-model="cloneUrl" label="Ссылка для клонирования" placeholder="git@gitlab.example.com:team/repo.git" :hint="CLONE_HINT" :disabled="cloning" />
-            <div class="form-field"><label>Родительская папка</label><FolderPicker v-model="parentFolder" /></div>
-            <FormField v-model="cloneFolder" label="Имя папки" :placeholder="suggestedCloneFolder" :hint="parentFolder ? 'Проект появится в ' + parentFolder.replace(/[\\/]+$/, '') + '/' + (cloneFolder.trim() || suggestedCloneFolder) : ''" :disabled="cloning" />
-            <div v-if="cloning || cloneOutput || reuseExisting" class="clone-box" :class="{ running: cloning }">
-              <div class="clone-head">
-                <span>{{ cloning ? 'Клонирование…' : reuseExisting ? 'Папка уже содержит этот репозиторий' : cloneError || 'Клонирование не удалось' }}</span>
-                <span class="clone-spacer" />
-                <AppButton v-if="cloning" type="button" size="xs" variant="danger-ghost" @click="cancelClone">Отменить клонирование</AppButton>
-                <AppButton v-if="reuseExisting && !cloning" type="button" size="xs" variant="blue" @click="save(true)">Использовать существующий репозиторий</AppButton>
-              </div>
-              <pre v-if="cloneOutput">{{ cloneOutput }}</pre>
+        <FormField v-model="creationMode" label="Откуда" type="select"><option value="folder">Папка на диске</option><option value="clone">Клонировать из Git</option></FormField>
+        <template v-if="creationMode === 'clone'">
+          <FormField v-model="cloneUrl" label="Ссылка для клонирования" placeholder="git@gitlab.example.com:team/repo.git" :hint="CLONE_HINT" :disabled="cloning" />
+          <div class="form-field"><label>Родительская папка</label><FolderPicker v-model="parentFolder" /></div>
+          <FormField v-model="cloneFolder" label="Имя папки" :placeholder="suggestedCloneFolder" :hint="parentFolder ? 'Проект появится в ' + parentFolder.replace(/[\\/]+$/, '') + '/' + (cloneFolder.trim() || suggestedCloneFolder) : ''" :disabled="cloning" />
+          <div v-if="cloning || cloneOutput || reuseExisting" class="clone-box" :class="{ running: cloning }">
+            <div class="clone-head">
+              <span>{{ cloning ? 'Клонирование…' : reuseExisting ? 'Папка уже содержит этот репозиторий' : cloneError || 'Клонирование не удалось' }}</span>
+              <span class="clone-spacer" />
+              <AppButton v-if="cloning" type="button" size="xs" variant="danger-ghost" @click="cancelClone">Отменить клонирование</AppButton>
+              <AppButton v-if="reuseExisting && !cloning" type="button" size="xs" variant="blue" @click="save(true)">Использовать существующий репозиторий</AppButton>
             </div>
-          </template>
+            <pre v-if="cloneOutput">{{ cloneOutput }}</pre>
+          </div>
         </template>
-        <div v-if="editing || creationMode === 'folder'" class="form-field">
+        <div v-else class="form-field">
           <label>Путь к репозиторию</label>
           <FolderPicker v-model="form.repo_path" />
         </div>
@@ -47,41 +45,10 @@
           <option v-for="g in projectsStore.groups" :key="g.id" :value="g.id">🗂 {{ g.name }}</option>
         </FormField>
       </template>
-      <div v-if="kind === 'group'" class="projects-note">
+      <div v-else class="projects-note">
         <b>Проекты группы</b>
-        <template v-if="editing">
-          Добавляются, настраиваются и удаляются на вкладке «Проекты» этой группы.
-          <button type="button" class="note-link" @click="manageProjects">Открыть вкладку</button>
-        </template>
-        <template v-else>Добавить проекты можно сразу после создания: откройте группу, вкладка «Проекты» → «+ Проект» или «добавить существующий».</template>
+        Добавить проекты можно сразу после создания: откройте группу, вкладка «Проекты» → «+ Проект» или «добавить существующий».
       </div>
-      <fieldset v-if="kind === 'project'" class="git-box">
-        <legend>Git и хостинг кода</legend>
-        <p v-if="editing" class="git-origin">Фактический origin: <code>{{ actualOrigin || 'не задан' }}</code></p>
-        <p v-if="gitError" role="alert" class="git-error">{{ gitError }}</p>
-        <FormField v-if="editing || creationMode === 'folder'" v-model="cloneUrl" label="Ссылка для клонирования" placeholder="Из origin папки" hint="Попадает в README группы, чтобы коллеги и агенты знали, откуда брать код." />
-        <FormField v-model="hostPath" label="Путь проекта на хостинге" placeholder="team/repo" hint="Пусто — определяется по origin. Нужен для МР и ревью." />
-        <FormField v-model="connectionId" label="Подключение к хостингу" type="select" :hint="connections.length ? '' : 'Подключений пока нет: добавьте GitLab в «Настройки → Подключения».'"><option v-if="!editing" value="auto">Автоматически по origin</option><option value="">— Не выбрано —</option><option v-for="connection in connections" :key="connection.id" :value="connection.id">{{ connection.name }}</option></FormField>
-      </fieldset>
-      <GitSettingsFields v-if="kind === 'project' || kind === 'group'" v-model="gitSettings" :inherited="inherited" :sources="inheritedSources"  />
-      <FormField v-model="form.default_agent_id" label="Агент по умолчанию" type="select">
-        <option value="">— выбрать —</option>
-        <option v-for="a in agentsStore.agents" :key="a.id" :value="a.id">{{ a.name }}</option>
-      </FormField>
-      <FormField
-        v-model="form.description" label="Описание для агента" type="textarea" :rows="2"
-        :placeholder="kind === 'group' ? 'Микрофронтенды личного кабинета, общий shell' : 'Необязательно'"
-        :hint="kind === 'group' ? 'Попадает в README рабочей папки группы.' : 'Показывается агентам соседних проектов рядом с @ключом.'"
-      />
-      <FormField
-        v-if="editing && kind === 'project'"
-        v-model="form.dangerous_commands"
-        label="Опасные команды"
-        type="textarea"
-        :rows="3"
-        placeholder="git push --force&#10;git reset --hard&#10;rm -rf&#10;git clean -fd"
-        hint="По одной команде на строку. Даже в режиме «без вопросов» такая команда переведёт сессию в «ждёт вас»."
-      />
     </template>
   </AppModal>
 </template>
@@ -89,12 +56,9 @@
 <script setup lang="ts">
 import { computed, ref, watch, onScopeDispose } from 'vue'
 import { onServerEvent } from '@core/api/events'
-import GitSettingsFields from './GitSettingsFields.vue'
 import { api } from '@core/api'
-import type { ProjectGitSettings } from '@core/models'
 import type { Project, ProjectKind } from '@core/models'
 import { useAppStore } from '@core/stores/app'
-import { useAgentsStore } from '@features/agents'
 import AppModal from '@shared/ui/AppModal.vue'
 import FormField from '@shared/ui/FormField.vue'
 import FolderPicker from '@shared/ui/FolderPicker.vue'
@@ -112,10 +76,10 @@ const CLONE_ERRORS: ErrorDictionary = [
   [/Permission denied \(publickey|Host key verification failed/i, 'Git не смог войти по SSH. Проверьте, что SSH-ключ добавлен в GitLab и сервер известен (ssh -T git@хост).'],
 ]
 
+/** Creates a project or group and creates or edits a source; editing a project or group is the «Настройки» tab. */
 const props = defineProps<{ modelValue: boolean; kind: ProjectKind; project?: Project | null; groupId?: string | null }>()
-const emit = defineEmits<{ 'update:modelValue': [open: boolean]; saved: [project: Project]; 'manage-projects': [] }>()
+const emit = defineEmits<{ 'update:modelValue': [open: boolean]; saved: [project: Project] }>()
 const appStore = useAppStore()
-const agentsStore = useAgentsStore()
 const projectsStore = useProjectsStore()
 
 const creationMode = ref('folder'), parentFolder = ref(''), cloneFolder = ref(''), cloneOutput = ref(''), cloneError = ref(''), cloning = ref(false), reuseExisting = ref(false), operationId = ref('')
@@ -130,42 +94,17 @@ async function cancelClone() {
 const editing = computed(() => !!props.project)
 const title = computed(() => {
   const noun = { project: 'проект', group: 'группа', source: 'справочник' }[props.kind]
-  return editing.value ? `Настройки: ${props.project!.kind === 'source' ? '@' + props.project!.key : props.project!.name}`
+  return editing.value ? `Настройки: @${props.project!.key}`
     : props.kind === 'group' ? 'Новая группа' : `Новый ${noun}`
 })
 
-const blank = () => ({ name: '', key: '', repo_path: '', group_id: '', description: '', default_agent_id: '', dangerous_commands: '' })
+const blank = () => ({ name: '', key: '', repo_path: '', group_id: '', description: '', default_agent_id: '' })
 const form = ref(blank())
-const gitSettings = ref<ProjectGitSettings>({})
-const cloneUrl = ref(''), hostPath = ref(''), connectionId = ref('')
-const connections = ref<{ id: string; name: string }[]>([])
-const inherited = ref<ProjectGitSettings>({}), inheritedSources = ref<Record<string, string>>({})
-const actualOrigin = ref(''), gitError = ref('')
-let settingsGeneration = 0
-watch(() => [props.modelValue, form.value.group_id, props.kind], async () => {
- const mine = ++settingsGeneration
- if (!props.modelValue || props.kind === 'source') return
- const group = props.kind === 'project' ? form.value.group_id : ''
- try {
-  const data = await api.get<{ values: ProjectGitSettings; sources: Record<string, string> }>(group ? '/projects/' + encodeURIComponent(group) + '/git-settings' : '/projects/git-defaults')
-  if (mine !== settingsGeneration) return
-  inherited.value = data.values
-  inheritedSources.value = Object.fromEntries(Object.entries(data.sources).map(([key, source]) => [key, group && source !== 'default' ? 'group' : 'default']))
- } catch (cause) { if (mine === settingsGeneration) gitError.value = errorText(cause) }
-}, { immediate: true })
-watch(() => [props.modelValue, props.project?.id], async () => {
- actualOrigin.value = ''; gitError.value = ''
- const p = props.project
- if (!props.modelValue || props.kind !== 'project' || !p) return
- try {
-  const data = await api.post<{ clone_url: string }>('/projects/git-preview', { repo_path: p.repo_path })
-  if (props.modelValue && props.project?.id === p.id) actualOrigin.value = data.clone_url
- } catch (cause) { if (props.modelValue && props.project?.id === p.id) gitError.value = errorText(cause) }
-}, { immediate: true })
+const cloneUrl = ref(''), hostPath = ref('')
 let previewSequence = 0
 watch(() => form.value.repo_path, async folder => {
  const sequence = ++previewSequence
- if (!props.modelValue || props.kind !== 'project' || props.project || creationMode.value !== 'folder' || !folder) return
+ if (!props.modelValue || props.kind !== 'project' || creationMode.value !== 'folder' || !folder) return
  const oldUrl = cloneUrl.value, oldHost = hostPath.value
  try {
   const metadata = await api.post<{ clone_url: string; host_project_path: string }>('/projects/git-preview', { repo_path: folder })
@@ -178,31 +117,22 @@ const sourceType = ref('folder'), docsValid = ref(true)
 const docsForm = ref<DocsForm>({ connection_id: '', docs_config: {}, docs_selection: [] })
 const availability = ref<Availability>({ everywhere: false, targets: [] })
 
-const suggestedKey = computed(() => form.value.name.toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'my-project')
+const suggestedCloneFolder = computed(() => cloneUrl.value.replace(/[?#].*$/, '').replace(/\/+$/, '').replace(/\.git$/, '').split(/[/:]/).pop() || 'repository')
 
 watch(() => props.modelValue, open => {
   if (!open) { if (cloning.value) void cancelClone(); return }
-  void agentsStore.load()
   creationMode.value = 'folder'; parentFolder.value = localStorage.getItem('plangent:last-clone-parent') || projectsStore.members(props.groupId || '')[0]?.repo_path.replace(/[\\/][^\\/]+$/, '') || ''; cloneFolder.value = ''; cloneOutput.value = ''; cloneError.value = ''; reuseExisting.value = false
   const p = props.project
-  gitSettings.value = { ...p?.git_settings }
-  cloneUrl.value = p?.clone_url ?? ''; hostPath.value = p?.host_project_path ?? ''; connectionId.value = p ? p.connection_id ?? '' : 'auto'
-  void api.get<{ id: string; name: string }[]>('/integrations/connections').then(value => connections.value = value).catch(() => {})
+  cloneUrl.value = ''; hostPath.value = ''
   sourceType.value = p?.source_type || 'folder'; docsValid.value = true
   docsForm.value = { connection_id: p?.connection_id || '', docs_config: JSON.parse(JSON.stringify(p?.docs_config || {})), docs_selection: JSON.parse(JSON.stringify(p?.docs_selection || [])) }
   form.value = p ? {
-    name: p.name, key: p.key ?? '', repo_path: p.kind === 'group' ? '' : p.repo_path, group_id: p.group_id ?? '',
-    description: p.description, default_agent_id: p.default_agent_id ?? '', dangerous_commands: (p.config.dangerous_commands ?? []).join('\n'),
+    name: p.name, key: p.key ?? '', repo_path: p.repo_path,
+    group_id: p.group_id ?? '', description: p.description, default_agent_id: p.default_agent_id ?? '',
   } : { ...blank(), group_id: props.groupId ?? '' }
   availability.value = { everywhere: !!p?.config.available_everywhere, targets: [...(p?.targets ?? (props.groupId ? [props.groupId] : []))] }
 }, { immediate: true })
 
-function manageProjects() {
-  emit('update:modelValue', false)
-  emit('manage-projects')
-}
-
-const suggestedCloneFolder = computed(() => cloneUrl.value.replace(/[?#].*$/, '').replace(/\/+$/, '').replace(/\.git$/, '').split(/[/:]/).pop() || 'repository')
 async function save(useExisting: unknown = false) {
   if (cloning.value) return
   const f = form.value
@@ -224,13 +154,11 @@ async function save(useExisting: unknown = false) {
   const config = {
     ...props.project?.config,
     ...(kind === 'source' ? { available_everywhere: availability.value.everywhere } : {}),
-    ...(kind === 'project' && editing.value ? { dangerous_commands: f.dangerous_commands.split('\n').map(s => s.trim()).filter(Boolean) } : {}),
   }
   const data = {
     kind,
     ...(isClone ? { creation_mode: 'clone' as const, operationId: operationId.value = crypto.randomUUID(), reuse_existing: useExisting === true } : {}),
-    ...(kind === 'project' || kind === 'group' ? { git_settings: gitSettings.value } : {}),
-    ...(kind === 'project' ? { clone_url: cloneUrl.value, host_project_path: hostPath.value, ...(connectionId.value === 'auto' ? {} : { connection_id: connectionId.value || null }) } : {}),
+    ...(kind === 'project' ? { clone_url: cloneUrl.value, host_project_path: hostPath.value } : {}),
     // A source shows only its key, so the key doubles as its name.
     name: kind === 'source' ? f.key.trim() : f.name.trim(),
     ...(kind === 'group' ? {} : { key: f.key.trim() || null, repo_path: f.repo_path.trim() }),
@@ -264,14 +192,8 @@ async function save(useExisting: unknown = false) {
 .clone-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .clone-spacer { flex: 1; }
 pre { max-height: 180px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11.5px; color: var(--text-muted); }
-.git-box { display: flex; flex-direction: column; gap: 12px; padding: 10px 12px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); }
-.git-box legend { padding: 0 6px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
-.git-origin { font-size: 12px; color: var(--text-muted); overflow-wrap: anywhere; }
-.git-error { font-size: 12px; color: var(--danger-hover); }
 .form-field { display: flex; flex-direction: column; gap: 4px; }
 label { font-size: 12px; color: var(--text-muted); }
 .projects-note { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; background: var(--bg3); border: 1px dashed var(--border-strong); border-radius: var(--radius-sm); font-size: 12px; line-height: 1.45; color: var(--text-muted); }
 .projects-note b { color: var(--text); font-size: 12.5px; }
-.note-link { align-self: flex-start; padding: 0; background: none; border: none; color: var(--blue-hover); font: inherit; cursor: pointer; }
-.note-link:hover { text-decoration: underline; }
 </style>

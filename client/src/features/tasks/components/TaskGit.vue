@@ -12,7 +12,7 @@
         <span class="tg-inline"><input v-model="url" class="control control-sm" placeholder="https://…" :disabled="busy" @change="save" /><a v-if="safeUrl" :href="safeUrl" target="_blank" rel="noopener noreferrer" class="btn btn-subtle btn-sm" title="Открыть внешнюю задачу">↗</a></span>
       </label>
       <label><span>Базовая ветка</span><input v-model="base" class="control control-sm" :list="branchList" placeholder="main" :disabled="busy" @change="save" /></label>
-      <label><span>Имя рабочей ветки</span><input v-model="name" class="control control-sm" :disabled="busy" @keydown.enter.prevent="create" /></label>
+      <label><span>Имя рабочей ветки</span><BranchNameInput v-model="name" :prefixes="prefixes" :disabled="busy" @enter.prevent="create" /></label>
     </div>
     <datalist :id="branchList"><option v-for="b in branches" :key="b.ref" :value="b.name" /></datalist>
     <div class="tg-actions">
@@ -28,17 +28,19 @@ import { api } from '@core/api'
 import { useAppStore } from '@core/stores/app'
 import { gitApi, type GitBranch } from '@features/code'
 import { errorText } from '@shared/utils/errorText'
+import BranchNameInput from '@shared/ui/BranchNameInput.vue'
 import type { Task, ProjectGitSettings } from '@core/models'
 const props=defineProps<{ projectId: string; task: Task }>()
 const app=useAppStore(), external=ref(''), url=ref(''), base=ref(''), name=ref(''), busy=ref(false), creating=ref(false), error=ref(''), saved=ref(false), branches=ref<GitBranch[]>([])
 const branchList=computed(()=>'task-base-'+props.task.id)
 const safeUrl=computed(()=>{try{const u=new URL(url.value.trim());return ['http:','https:'].includes(u.protocol)?u.href:undefined}catch{return undefined}})
 const root=()=>'/projects/'+encodeURIComponent(props.projectId)+'/tasks/'+encodeURIComponent(props.task.id)
-let template='{key}/{slug}', generation=0, savedTimer: ReturnType<typeof setTimeout> | undefined
+const prefixes=ref<string[]>([])
+let generation=0, savedTimer: ReturnType<typeof setTimeout> | undefined
 onScopeDispose(()=>clearTimeout(savedTimer))
-function suggested(){const slug=(props.task.title||props.task.key).toLowerCase().replace(/[^a-z0-9а-яё]+/gi,'-').replace(/^-|-$/g,'');return template.replaceAll('{key}',external.value||props.task.key).replaceAll('{slug}',slug)}
+function suggested(){const slug=(props.task.title||props.task.key).toLowerCase().replace(/[^a-z0-9а-яё]+/gi,'-').replace(/^-|-$/g,'');return (prefixes.value[0]?prefixes.value[0]+'/':'')+(external.value||props.task.key)+'-'+slug}
 function flashSaved(){saved.value=true;clearTimeout(savedTimer);savedTimer=setTimeout(()=>{saved.value=false},2000)}
-watch(()=>props.task.id,async()=>{const mine=++generation;external.value=props.task.external_key||'';url.value=props.task.jira_url||'';base.value=props.task.base_branch||'';name.value=props.task.branch_name||'';error.value='';try{const [prefs,bs]=await Promise.all([api.get<{values:ProjectGitSettings}>('/projects/'+encodeURIComponent(props.projectId)+'/git-settings'),gitApi.branches(props.projectId)]);if(mine!==generation)return;branches.value=bs;template=prefs.values.branch_template||'{key}/{slug}';base.value ||= prefs.values.base_branch||'';name.value ||= suggested()}catch(e){error.value=errorText(e)}},{immediate:true})
+watch(()=>props.task.id,async()=>{const mine=++generation;external.value=props.task.external_key||'';url.value=props.task.jira_url||'';base.value=props.task.base_branch||'';name.value=props.task.branch_name||'';error.value='';try{const [prefs,bs]=await Promise.all([api.get<{values:ProjectGitSettings}>('/projects/'+encodeURIComponent(props.projectId)+'/git-settings'),gitApi.branches(props.projectId)]);if(mine!==generation)return;branches.value=bs;prefixes.value=prefs.values.branch_prefixes??[];base.value ||= prefs.values.base_branch||'';name.value ||= suggested()}catch(e){error.value=errorText(e)}},{immediate:true})
 async function save(){busy.value=true;error.value='';try{await api.patch(root(),{external_key:external.value.trim()||null,jira_url:url.value.trim()||null,base_branch:base.value.trim()||null});if(!props.task.branch_name)name.value=suggested();flashSaved()}catch(e){error.value=errorText(e)}finally{busy.value=false}}
 async function create(){if(busy.value||!base.value||!name.value)return;busy.value=true;creating.value=true;error.value='';try{await api.post(root()+'/branch',{name:name.value,base:base.value});app.toast('Ветка '+name.value+' создана','success')}catch(e){const text=errorText(e);if(text.includes('незакоммиченные'))await app.confirm(text,{confirmLabel:'Понятно'});else error.value=text}finally{busy.value=false;creating.value=false}}
 </script>

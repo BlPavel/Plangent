@@ -21,7 +21,7 @@ test('remote normalization: nested paths, SSH, HTTPS, ports, credentials and inv
 test('git settings: per-field provenance, false/empty overrides, regex validation and defaults', () => {
   const result = resolveGitSettings({ base_branch: 'main', include_description: true }, { include_description: false, base_branch: '' });
   assert.equal(result.values.base_branch, ''); assert.equal(result.values.include_description, false);
-  assert.equal(result.sources.branch_template, 'default'); assert.equal(result.sources.include_description, 'project');
+  assert.equal(result.sources.branch_prefixes, 'default'); assert.equal(result.sources.include_description, 'project');
   assert.equal(resolveGitSettings({ base_branch: 'main' }).sources.base_branch, 'group');
   assert.throws(() => validateGitSettings({ commit_pattern: '[' }));
   assert.throws(() => validateGitSettings({ unknown: true }));

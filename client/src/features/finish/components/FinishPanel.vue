@@ -24,7 +24,7 @@
         </div>
         <datalist :id="branchList"><option v-for="candidate in branches" :key="candidate.ref" :value="candidate.name" /></datalist>
         <label v-if="sameBranch" class="fp-field fp-notice"><span>Вы сейчас на целевой ветке. Коммиты лягут в новую рабочую ветку:</span>
-          <input v-model="options.branchName" class="control control-sm" placeholder="feature/task-work" required />
+          <BranchNameInput :model-value="options.branchName ?? ''" @update:model-value="options.branchName = $event" :prefixes="prefixes" placeholder="task-work" />
         </label>
         <div class="fp-checks">
           <label class="fp-check"><input v-model="options.includeDescription" type="checkbox" /> Описание в коммитах</label>
@@ -115,6 +115,7 @@ import { api } from '@core/api'
 import { useAppStore } from '@core/stores/app'
 import { ChatView } from '@features/agent-chat'
 import { CommitDiff, gitApi, type GitBranch, type Coauthor } from '@features/code'
+import BranchNameInput from '@shared/ui/BranchNameInput.vue'
 import { useFinishStore } from '../stores/finish'
 import { finishApi } from '../api'
 import { scenarios, stages, statuses, type FinishOptions, type FinishCommit, type FinishContext } from '../types'
@@ -163,6 +164,7 @@ const selectedBase = computed(() => {
 })
 const editable = computed(() => store.run?.stage === 'confirmation' && ['waiting', 'error'].includes(store.run.status))
 const dirty = computed(() => JSON.stringify(draft.value.map(({ files, title, body }) => ({ files, title, body }))) !== JSON.stringify((store.run?.commits ?? []).map(({ files, title, body }) => ({ files, title, body }))))
+const prefixes = ref<string[]>([])
 let generation = 0
 onBeforeUnmount(() => { generation++ })
 watch(() => [props.projectId, props.task?.id], async () => {
@@ -174,7 +176,8 @@ watch(() => [props.projectId, props.task?.id], async () => {
    gitApi.branches(props.projectId), gitApi.coauthors(props.projectId),
   ])
   if (mine !== generation) return
-  options.value = { ...options.value, scenario: task?.finish_scenario ?? prefs.values.finish_scenario ?? 'nothing', targetBranch: task?.target_branch || task?.base_branch || prefs.values.mr_target_branch || prefs.values.base_branch || '', branchName: prefs.values.branch_template?.replaceAll('{key}', props.task?.key ?? 'work').replaceAll('{slug}', 'work'), includeDescription: prefs.values.include_description ?? false, includeCoauthors: false, coauthors: [] }
+  prefixes.value = prefs.values.branch_prefixes ?? []
+  options.value = { ...options.value, scenario: task?.finish_scenario ?? prefs.values.finish_scenario ?? 'nothing', targetBranch: task?.target_branch || task?.base_branch || prefs.values.base_branch || '', branchName: (prefs.values.branch_prefixes?.[0] ? prefs.values.branch_prefixes[0] + '/' : '') + (props.task?.key ?? 'work'), includeDescription: prefs.values.include_description ?? false, includeCoauthors: false, coauthors: [] }
   branches.value = bs; coauthors.value = cs
   let id: string | undefined
   if (props.task) { const state = await api.get<{ id: string } | null>('/projects/' + encodeURIComponent(props.projectId) + '/finish/task/' + encodeURIComponent(props.task.id)); id = state?.id }

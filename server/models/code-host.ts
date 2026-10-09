@@ -78,6 +78,12 @@ export interface CreateMergeRequest {
     remove_source_branch?: boolean;
     squash?: boolean;
 }
+/** Someone who can be asked to review: `value` is what the host expects in `reviewer_ids` (GitLab id) or `reviewer_logins` (GitHub login). */
+export interface HostMember {
+    value: string;
+    login: string;
+    name: string;
+}
 export interface CodeHost {
     readonly capabilities: HostCapabilities;
     getMergeRequest(iid: number): Promise<MergeRequest>;
@@ -97,6 +103,7 @@ export interface CodeHost {
     approve(iid: number, sha: string): Promise<void>;
     unapprove(iid: number): Promise<void>;
     createMergeRequest(input: CreateMergeRequest): Promise<MergeRequest>;
+    listMembers(): Promise<HostMember[]>;
     findMergeRequestForBranch(branch: string): Promise<MergeRequest | null>;
     mergeRequestRef(iid: number): string;
 }

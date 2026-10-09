@@ -38,7 +38,7 @@ export async function listBranches(projectId: string) {
   const project = repo(projectId), root = project.repo_path;
   const [all, info] = await Promise.all([branches(root), repositoryInfo(root)]);
   const settings = effectiveGitSettings(projectId).values;
-  const wanted = settings.mr_target_branch || settings.base_branch || 'main';
+  const wanted = settings.base_branch || 'main';
   const base = all.find(b => b.ref === 'refs/remotes/origin/' + wanted) ?? all.find(b => b.ref === 'refs/heads/' + wanted) ?? null;
   return { branches: all, current: info?.branch ?? null, default_base: base?.ref ?? null };
 }

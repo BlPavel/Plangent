@@ -1,81 +1,99 @@
 <template>
-  <details class="git-settings">
-    <summary>Git-настройки <span class="gs-count">{{ ownCount ? 'задано здесь: ' + ownCount : 'всё унаследовано' }}</span></summary>
-    <section v-for="section in sections" :key="section.title" class="gs-section">
-      <h4>{{ section.title }}</h4>
-      <div v-for="field in section.fields" :key="field.key" class="setting" :class="{ own: has(field.key) }">
-        <div class="gs-head">
-          <span class="gs-label">{{ field.label }}</span>
-          <span class="gs-source">{{ has(field.key) ? 'задано здесь' : sources?.[field.key] === 'group' ? 'из группы' : 'по умолчанию' }}</span>
-          <span class="gs-spacer" />
-          <button v-if="has(field.key)" type="button" class="gs-link" @click="toggle(field.key, false)">Сбросить к {{ sources?.[field.key] === 'group' ? 'значению группы' : 'значению по умолчанию' }}</button>
-          <button v-else type="button" class="gs-link" :disabled="inherited[field.key] === undefined" @click="toggle(field.key, true)">Переопределить</button>
-        </div>
-        <template v-if="has(field.key)">
-          <select v-if="field.key === 'finish_scenario'" class="control control-sm" :value="modelValue[field.key]" @change="set(field.key, ($event.target as HTMLSelectElement).value)"><option v-for="(label, value) in scenarios" :key="value" :value="value">{{ label }}</option></select>
-          <label v-else-if="field.kind === 'boolean'" class="gs-check"><input type="checkbox" :checked="Boolean(modelValue[field.key])" @change="set(field.key, ($event.target as HTMLInputElement).checked)" /> Да</label>
-          <input v-else-if="field.kind === 'line'" class="control control-sm" :value="String(modelValue[field.key] ?? '')" :placeholder="field.placeholder" @input="set(field.key, ($event.target as HTMLInputElement).value)" />
-          <textarea v-else class="control" rows="3" :placeholder="field.placeholder" :value="Array.isArray(modelValue[field.key]) ? (modelValue[field.key] as string[]).join('\n') : String(modelValue[field.key] ?? '')" @input="set(field.key, field.kind === 'list' ? ($event.target as HTMLTextAreaElement).value.split('\n').filter(Boolean) : ($event.target as HTMLTextAreaElement).value)" />
-        </template>
-        <div v-else class="gs-value">{{ display(field.key) }}</div>
-        <small v-if="field.key === 'branch_template'" class="gs-hint">{key} — ключ задачи, {slug} — название. Пример для BIL-42 «limits»: <code>{{ preview }}</code></small>
+  <div class="git-settings">
+    <div v-for="field in fields" :key="field.key" class="setting">
+      <div class="gs-head">
+        <label v-if="field.kind === 'boolean'" class="gs-check"><input type="checkbox" :checked="Boolean(value(field.key))" @change="set(field.key, ($event.target as HTMLInputElement).checked)" /> {{ field.label }}</label>
+        <span v-else class="gs-label">{{ field.label }}</span>
+        <!-- Only a value changed here can be reset; an inherited one is just shown. -->
+        <button v-if="changed(field.key)" type="button" class="gs-link" :title="'Вернуть ' + (sources?.[field.key] === 'group' ? 'значение группы' : 'значение по умолчанию')" @click="reset(field.key)">сбросить</button>
       </div>
-    </section>
-  </details>
+
+      <select v-if="field.key === 'finish_scenario'" class="control control-sm" :value="value(field.key)" @change="set(field.key, ($event.target as HTMLSelectElement).value)"><option v-for="(label, option) in scenarios" :key="option" :value="option">{{ label }}</option></select>
+      <template v-else-if="field.kind === 'boolean'" />
+      <select v-else-if="field.kind === 'branch' && branches?.length" class="control control-sm" :value="String(value(field.key) ?? '')" @change="set(field.key, ($event.target as HTMLSelectElement).value)">
+        <option value="">Не задана</option>
+        <option v-for="name in branchOptions(String(value(field.key) ?? ''))" :key="name" :value="name">{{ name }}</option>
+      </select>
+      <input v-else-if="field.kind === 'branch'" class="control control-sm" :value="String(value(field.key) ?? '')" :placeholder="field.placeholder" @input="set(field.key, ($event.target as HTMLInputElement).value)" />
+      <template v-else-if="field.kind === 'tags'">
+        <div class="gs-tags">
+          <span v-for="tag in tags(field.key)" :key="tag" class="gs-tag">{{ tagLabel(field.key, tag) }}<button type="button" class="gs-x" :aria-label="'Убрать ' + tag" @click="removeTag(field.key, tag)">×</button></span>
+          <input
+            v-if="!(field.key === 'mr_reviewers' && members?.length)" class="gs-tag-input" :placeholder="tags(field.key).length ? 'Добавить…' : field.placeholder"
+            @keydown.enter.prevent="addTag(field.key, $event)" @blur="addTag(field.key, $event)"
+          />
+          <MemberPicker v-else :members="freeMembers" @pick="set('mr_reviewers', [...tags('mr_reviewers'), $event])" />
+        </div>
+        <button v-if="field.defaults && !tags(field.key).length" type="button" class="gs-link gs-apply" @click="set(field.key, [...field.defaults])">Применить дефолтные: {{ field.defaults.join(', ') }}</button>
+      </template>
+      <textarea v-else class="control" rows="4" :placeholder="field.placeholder" :value="String(value(field.key) ?? '')" @input="set(field.key, ($event.target as HTMLTextAreaElement).value)" />
+
+      <small v-if="field.key === 'mr_reviewers' && membersNote" class="gs-hint">{{ membersNote }}</small>
+      <small v-if="field.hint" class="gs-hint">{{ field.hint }}</small>
+    </div>
+  </div>
 </template>
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { ProjectGitSettings } from '@core/models'
-const props = defineProps<{ modelValue: ProjectGitSettings; inherited: ProjectGitSettings; sources?: Record<string, string> }>()
+import MemberPicker from './MemberPicker.vue'
+type Member = { value: string; login: string; name: string }
+const props = defineProps<{ modelValue: ProjectGitSettings; inherited: ProjectGitSettings; sources?: Record<string, string>; section: 'branches' | 'mr'; branches?: string[]; members?: Member[]; membersNote?: string }>()
 const emit = defineEmits<{ 'update:modelValue': [value: ProjectGitSettings] }>()
 const scenarios = { nothing: 'Ничего', commits: 'Только коммиты', push: 'Коммиты и push', full: 'Полный цикл' }
+const DEFAULT_PREFIXES = ['feature', 'fix', 'hotfix']
 type Key = keyof ProjectGitSettings
-type Field = { key: Key; label: string; kind?: 'list' | 'boolean' | 'line'; placeholder?: string }
-const sections: { title: string; fields: Field[] }[] = [
- { title: 'Коммиты', fields: [
-  { key: 'include_description', label: 'Описание в коммите', kind: 'boolean' },
- ] },
- { title: 'Ветки и завершение работ', fields: [
+type Field = { key: Key; label: string; kind?: 'tags' | 'boolean' | 'branch'; placeholder?: string; hint?: string; defaults?: string[] }
+const sections: Record<'branches' | 'mr', Field[]> = {
+ branches: [
+  { key: 'branch_prefixes', label: 'Префиксы веток', kind: 'tags', placeholder: 'feature', defaults: DEFAULT_PREFIXES, hint: 'Доступны при создании ветки: feature/ABC-1. Enter — добавить, первый подставляется по умолчанию.' },
+  { key: 'base_branch', label: 'Базовая ветка', kind: 'branch', placeholder: 'main', hint: 'Ветки задач создаются от неё, и в неё по умолчанию направляется МР.' },
+ ],
+ mr: [
   { key: 'finish_scenario', label: 'Сценарий завершения работы' },
-  { key: 'branch_template', label: 'Шаблон имени ветки', kind: 'line', placeholder: 'feature/{key}-{slug}' },
-  { key: 'base_branch', label: 'Базовая ветка по умолчанию', kind: 'line', placeholder: 'main' },
- ] },
- { title: 'Merge request', fields: [
-  { key: 'mr_target_branch', label: 'Целевая ветка МР', kind: 'line', placeholder: 'main' },
-  { key: 'mr_description_template', label: 'Шаблон описания МР' },
-  { key: 'mr_remove_branch', label: 'Удалять исходную ветку', kind: 'boolean' },
-  { key: 'mr_squash', label: 'Squash', kind: 'boolean' },
-  { key: 'mr_reviewers', label: 'Ревьюеры МР (по одному на строку)', kind: 'list' },
-  { key: 'mr_labels', label: 'Метки МР (по одной на строку)', kind: 'list' },
- ] },
-]
+  { key: 'mr_description_prompt', label: 'Как описывать МР', placeholder: 'Коротко: что и зачем изменено. Без списка файлов. Упомяни миграции и breaking changes.', hint: 'Инструкция для агента, который пишет описание. Пусто — агент решает сам.' },
+  { key: 'mr_remove_branch', label: 'Удалять исходную ветку после слияния', kind: 'boolean' },
+  { key: 'mr_squash', label: 'Объединять коммиты при слиянии (squash)', kind: 'boolean' },
+  { key: 'mr_reviewers', label: 'Ревьюеры по умолчанию', kind: 'tags', placeholder: 'логин или ID' },
+ ],
+}
+const fields = computed(() => sections[props.section])
 const has = (key: Key) => Object.hasOwn(props.modelValue, key)
-const ownCount = computed(() => sections.flatMap(s => s.fields).filter(f => has(f.key)).length)
-const effective = (key: Key) => has(key) ? props.modelValue[key] : props.inherited[key]
-const preview = computed(() => String(effective('branch_template') ?? '').replaceAll('{key}', 'BIL-42').replaceAll('{slug}', 'limits'))
-function display(key: Key) { const value = effective(key); return key === 'finish_scenario' ? scenarios[value as keyof typeof scenarios] : typeof value === 'boolean' ? value ? 'Да' : 'Нет' : Array.isArray(value) ? value.join('; ') || 'Пусто' : String(value || 'Пусто') }
-function set(key: Key, value: unknown) { emit('update:modelValue', { ...props.modelValue, [key]: value }) }
-function toggle(key: Key, enabled: boolean) { const value = { ...props.modelValue }; if (enabled && props.inherited[key] !== undefined) Object.assign(value, { [key]: props.inherited[key] }); else delete value[key]; emit('update:modelValue', value) }
+// What applies now: the own value, else the group's or the built-in one.
+const value = (key: Key) => has(key) ? props.modelValue[key] : props.inherited[key]
+const changed = (key: Key) => has(key) && JSON.stringify(props.modelValue[key]) !== JSON.stringify(props.inherited[key])
+const tags = (key: Key) => (value(key) as string[] | undefined) ?? []
+const freeMembers = computed(() => (props.members ?? []).filter(m => !tags('mr_reviewers').includes(m.value)))
+const tagLabel = (key: Key, tag: string) => key === 'mr_reviewers' ? props.members?.find(m => m.value === tag)?.name ?? tag : tag
+// A stored branch that is not in the list (not fetched yet) stays selectable.
+const branchOptions = (current: string) => current && !props.branches?.includes(current) ? [current, ...props.branches!] : props.branches
+function set(key: Key, next: unknown) { emit('update:modelValue', { ...props.modelValue, [key]: next }) }
+function reset(key: Key) { const next = { ...props.modelValue }; delete next[key]; emit('update:modelValue', next) }
+function addTag(key: Key, event: Event) {
+  const input = event.target as HTMLInputElement
+  const raw = input.value.trim()
+  const tag = key === 'branch_prefixes' ? raw.replace(/^\/+|\/+$/g, '') : raw
+  input.value = ''
+  if (tag && !tags(key).includes(tag)) set(key, [...tags(key), tag])
+}
+function removeTag(key: Key, tag: string) { set(key, tags(key).filter(item => item !== tag)) }
 </script>
 <style scoped>
-.git-settings { border: 1px solid var(--border); border-radius: var(--radius-sm); }
-summary { padding: 8px 12px; font-size: 12px; font-weight: 600; color: var(--text); cursor: pointer; }
-.gs-count { margin-left: 6px; font-weight: 400; color: var(--text-faint); }
-.gs-section { display: flex; flex-direction: column; gap: 10px; padding: 8px 12px 12px; border-top: 1px solid var(--border); }
-h4 { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
+.git-settings { display: flex; flex-direction: column; gap: 18px; }
 .setting { display: flex; flex-direction: column; gap: 4px; }
-.gs-head { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
-.gs-label { font-size: 12px; font-weight: 500; color: var(--text-muted); }
-.setting.own .gs-label { color: var(--text); }
-.gs-source { font-size: 11px; color: var(--text-faint); }
-.setting.own .gs-source { color: var(--blue-hover); }
-.gs-spacer { flex: 1; }
-.gs-link { padding: 0; font: inherit; font-size: 11.5px; color: var(--blue-hover); background: none; border: none; cursor: pointer; }
-.gs-link:disabled { color: var(--text-faint); cursor: default; }
-.gs-value { padding: 4px 8px; font-size: 12px; color: var(--text-muted); white-space: pre-wrap; overflow-wrap: anywhere; border-left: 2px solid var(--border-strong); max-height: 72px; overflow: auto; }
+.gs-head { display: flex; align-items: center; gap: 8px; min-height: 18px; }
+.gs-label { font-size: 12.5px; font-weight: 500; color: var(--text); }
+.gs-link { padding: 0; font: inherit; font-size: 11.5px; color: var(--text-faint); background: none; border: none; cursor: pointer; }
+.gs-link:hover { color: var(--blue-hover); }
+.gs-apply { align-self: flex-start; }
 .control { width: 100%; }
 textarea.control { height: auto; padding: 6px 10px; resize: vertical; line-height: 1.45; }
-.gs-check { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; }
+.gs-check { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text); cursor: pointer; }
 .gs-check input { margin: 0; accent-color: var(--blue); }
 .gs-hint { font-size: 11px; color: var(--text-faint); overflow-wrap: anywhere; }
+.gs-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 4px 6px; background: var(--bg3); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); }
+.gs-tag { display: inline-flex; align-items: center; gap: 4px; padding: 1px 4px 1px 8px; font-size: 12px; background: var(--blue-soft); color: var(--blue-hover); border-radius: var(--radius-pill); }
+.gs-x { padding: 0 3px; font: inherit; line-height: 1; color: inherit; background: none; border: none; cursor: pointer; }
+.gs-tag-input { flex: 1; min-width: 90px; padding: 2px 4px; font: inherit; font-size: 12px; color: var(--text); background: none; border: none; }
+.gs-tag-input:focus { outline: none; }
 </style>

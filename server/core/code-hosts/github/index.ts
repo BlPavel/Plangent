@@ -43,6 +43,10 @@ export class GitHub implements CodeHost {
   async getMergeRequest(iid: number) {
     return this.map(await this.request<PullRequest>(this.prefix + '/pulls/' + this.number(iid)));
   }
+  async listMembers() {
+    const rows = await this.request<{ login: string }[]>(this.prefix + '/collaborators?per_page=100');
+    return rows.map(m => ({ value: m.login, login: m.login, name: m.login }));
+  }
   async findMergeRequestForBranch(branch: string) {
     const rows = await this.request<PullRequest[]>(this.prefix + '/pulls?state=open&head=' + encodeURIComponent(this.owner + ':' + branch));
     return rows[0] ? this.map(rows[0]) : null;

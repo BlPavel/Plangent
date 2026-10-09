@@ -6,6 +6,8 @@
         <button type="button" class="view" :class="{ active: view === 'guide' }" @click="view = 'guide'">Руководство для агента</button>
         <button type="button" class="view" :class="{ active: view === 'fixer' }" @click="view = 'fixer'">Агент доработки</button>
         <button type="button" class="view" :class="{ active: view === 'commits' }" @click="view = 'commits'">Коммиты</button>
+        <button type="button" class="view" :class="{ active: view === 'branches' }" @click="view = 'branches'">Ветки</button>
+        <button type="button" class="view" :class="{ active: view === 'mr' }" @click="view = 'mr'">Merge request</button>
       </div>
       <SkillsManager v-if="view === 'items'" scope="project" :project-id="projectId">
         <template #actions>
@@ -17,7 +19,11 @@
       </SkillsManager>
       <InstructionGuideEditor v-else-if="view === 'guide'" scope="project" :project-id="projectId" />
       <CodeFixerInstructionEditor v-else-if="view === 'fixer'" scope="project" :project-id="projectId" />
-      <CodeFixerInstructionEditor v-else scope="project" type="commit-rules" :project-id="projectId" />
+      <ProjectGitPanel v-else-if="view === 'branches' || view === 'mr'" :project-id="projectId" :section="view" />
+      <template v-else>
+        <CommitSettings :project-id="projectId" />
+        <CodeFixerInstructionEditor scope="project" type="commit-rules" :project-id="projectId" />
+      </template>
     </section>
     <LibrarianPanel v-if="panelOpen" class="panel" :project-id="projectId" :default-agent-id="defaultAgentId" @close="panelOpen = false" />
   </div>
@@ -26,16 +32,18 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import AppButton from '@shared/ui/AppButton.vue'
+import { ProjectGitPanel } from '@features/projects'
 import { useLibraryStore } from '../stores/library'
 import SkillsManager from './SkillsManager.vue'
 import LibrarianPanel from './LibrarianPanel.vue'
 import InstructionGuideEditor from './InstructionGuideEditor.vue'
 import CodeFixerInstructionEditor from './CodeFixerInstructionEditor.vue'
+import CommitSettings from './CommitSettings.vue'
 
 /** «Инструкции» of a project or group: the library list, its authoring guide, the code-fixer instruction and the librarian chat beside them. */
 const props = defineProps<{ projectId: string; defaultAgentId?: string | null }>()
 const store = useLibraryStore()
-const view = ref<'items' | 'guide' | 'fixer' | 'commits'>('items')
+const view = ref<'items' | 'guide' | 'fixer' | 'commits' | 'branches' | 'mr'>('items')
 const panelOpen = ref(false)
 const pending = computed(() => store.proposalsFor({ projectId: props.projectId }).filter(p => p.status === 'pending').length)
 

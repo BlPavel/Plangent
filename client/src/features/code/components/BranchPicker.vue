@@ -13,7 +13,7 @@
     </div>
     <form class="create" @submit.prevent="create">
       <div class="group-title">Новая ветка</div>
-      <input ref="nameInput" v-model="name" class="control control-sm" placeholder="Имя новой ветки" aria-label="Имя новой ветки" />
+      <BranchNameInput v-model="name" :prefixes="prefixes" placeholder="Имя новой ветки" label="Имя новой ветки" />
       <label class="from">от
         <select v-model="base" class="control control-sm" aria-label="От ветки"><option v-for="branch in git.branches" :key="branch.ref" :value="branch.name">{{ branch.name }}</option></select>
       </label>
@@ -21,29 +21,36 @@
       <div class="actions">
         <span class="muted hint">Esc — закрыть</span>
         <button type="button" class="btn btn-subtle btn-sm" @click="emit('close')">Закрыть</button>
-        <button type="submit" class="btn btn-blue btn-sm" :disabled="!name.trim() || !base || !!git.blocked" :title="git.blocked">Создать и переключиться</button>
+        <button type="submit" class="btn btn-blue btn-sm" :disabled="!name.trim() || name.endsWith('/') || !base || !!git.blocked" :title="git.blocked">Создать и переключиться</button>
       </div>
     </form>
   </div>
 </template>
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
+import BranchNameInput from '@shared/ui/BranchNameInput.vue'
 import { useGitStore } from '../stores/git'
 import type { GitBranch } from '../git-types'
 const props = defineProps<{ task?: { key: string } | null }>()
 const emit = defineEmits<{ close: [] }>()
 const git = useGitStore(), search = ref(''), name = ref(''), base = ref(git.repository?.branch ?? ''), error = ref('')
-const root = ref<HTMLElement>(), searchInput = ref<HTMLInputElement>(), nameInput = ref<HTMLInputElement>()
+const root = ref<HTMLElement>(), searchInput = ref<HTMLInputElement>()
 const current = computed(() => git.repository?.detached ? '' : git.repository?.branch ?? '')
 const filtered = computed(() => git.branches.filter(b => b.name.toLowerCase().includes(search.value.trim().toLowerCase())))
 const groups = computed(() => [{ title: 'Локальные', items: filtered.value.filter(b => !b.remote) }, { title: 'origin', items: filtered.value.filter(b => b.remote) }])
-watch(() => git.settings, prefs => { if (!name.value && prefs) name.value = prefs.branch_template.replaceAll('{key}', props.task?.key ?? '').replaceAll('{slug}', 'work') }, { immediate: true })
+const prefixes = computed(() => git.settings?.branch_prefixes ?? [])
+watch(() => git.settings, prefs => {
+  if (!prefs) return
+  if (!name.value && prefs.branch_prefixes[0]) name.value = prefs.branch_prefixes[0] + '/' + (props.task?.key ?? '')
+  // New branches start from the project's base branch when it exists here.
+  if (prefs.base_branch && git.branches.some(b => b.name === prefs.base_branch)) base.value = prefs.base_branch
+}, { immediate: true })
 const message = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause)).replace(/^Error:\s*/, '')
 function pickFirst() { const first = filtered.value.find(b => b.name !== current.value); if (first) void pick(first) }
 async function pick(branch: GitBranch) {
   error.value = ''
   // A remote branch is not checked out directly: it becomes the base of a new local branch.
-  if (branch.remote) { base.value = branch.name; nameInput.value?.focus(); return }
+  if (branch.remote) { base.value = branch.name; return }
   try { await git.run('switch', { branch: branch.name }); emit('close') } catch (cause) { error.value = message(cause) }
 }
 async function create() { error.value = ''; try { await git.run('branch', { name: name.value.trim(), base: base.value }); emit('close') } catch (cause) { error.value = message(cause) } }
