@@ -5,7 +5,7 @@ import { codeApi, codeReviewsApi } from '../api'
 import { countUnresolved, screenState } from '../utils/screen-state'
 import type { CodeFile, TreeEntry, RepositoryInfo, GitChange, LineStat, CurrentReview, ReviewDetail, ReviewHistory, ReviewDraft, DraftPatch, DiffOptions, SearchOptions, SearchEvent, BaseChanges } from '../types'
 
-export type CompareBase = 'head' | 'agent' | 'review'
+export type CompareBase = 'head' | 'agent' | 'review' | 'remote'
 /** «Продолжить» on the commit banner is remembered per review until HEAD moves again. */
 const continued = new Map<string, string | null>()
 
@@ -24,6 +24,7 @@ export const useCodeStore = defineStore('code', () => {
   const openedReview = ref<ReviewDetail | null>(null)
   const history = ref<ReviewHistory[]>([])
   const base = ref<CompareBase>('head')
+  const remoteRef = ref('')
   const baseRound = ref<string | null>(null)
   const baseData = ref<BaseChanges | null>(null)
   const continuedHead = ref<string | null>(null)
@@ -61,6 +62,7 @@ export const useCodeStore = defineStore('code', () => {
     if (openedReviewId.value) return 'review'
     if (base.value === 'agent') return liveReview.value && rounds.value.length ? 'agent' : 'head'
     if (base.value === 'review') return liveReview.value ? 'review' : 'head'
+    if (base.value === 'remote' && remoteRef.value) return 'remote'
     return 'head'
   })
   const baseReviewId = computed(() => openedReviewId.value ?? liveReview.value?.id ?? null)
@@ -126,11 +128,12 @@ export const useCodeStore = defineStore('code', () => {
   const loadBase = () => {
     const id = baseReviewId.value
     const kind = effectiveBase.value
+    if (kind === 'remote') return read('base', (p, signal) => codeReviewsApi.remoteComparison(p, remoteRef.value, signal), value => { baseData.value = value })
     if (kind === 'head' || !id) { baseData.value = null; return Promise.resolve() }
     return read('base', (p, signal) => codeReviewsApi.baseChanges(p, id, kind, kind === 'agent' ? baseRound.value ?? undefined : undefined, signal), value => { baseData.value = value })
   }
   async function setBase(value: CompareBase, round: string | null = null) {
-    base.value = value; baseRound.value = round; baseData.value = null
+    base.value = value; if (value === 'remote') remoteRef.value = round ?? remoteRef.value; baseRound.value = round; baseData.value = null
     requests.get('base')?.abort()
     try { await loadBase() } catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause) }
   }
@@ -190,7 +193,7 @@ export const useCodeStore = defineStore('code', () => {
     repository.value = null; changes.value = []; stats.value = {}; trees.value = {}; files.value = []
     selectedPath.value = null; file.value = null; current.value = null
     openedReviewId.value = null; openedReview.value = null; history.value = []
-    base.value = 'head'; baseRound.value = null; baseData.value = null; continuedHead.value = null
+    base.value = 'head'; remoteRef.value = ''; baseRound.value = null; baseData.value = null; continuedHead.value = null
     matches.value = []; searchSummary.value = null; error.value = null; watchError.value = null; searchError.value = null
   }
   async function start(p: string) {
@@ -276,7 +279,7 @@ export const useCodeStore = defineStore('code', () => {
   }
   onScopeDispose(stop)
   return { projectId, repository, head, branch, changes, stats, trees, files, includeIgnored, selectedPath, file, current, openedReviewId, openedReview, review, items, rounds, readOnly, history, loading, error, watchError,
-    base, baseRound, baseData, screen, unresolved, liveReview, agentWorking, effectiveBase, shownChanges, shownStats, diffEnds, viewedState, viewedCount, commitBannerShown, otherReview, runningElsewhere, setBase, continueReview, toggleViewed,
+    base, remoteRef, baseRound, baseData, screen, unresolved, liveReview, agentWorking, effectiveBase, shownChanges, shownStats, diffEnds, viewedState, viewedCount, commitBannerShown, otherReview, runningElsewhere, setBase, continueReview, toggleViewed,
     matches, searchSummary, searching, searchError, start, stop, refresh, loadTree, selectFile, openReview, loadHistory, setIncludeIgnored, search, cancelSearch, clearSearch, diff,
     messages, addDraft, updateDraft, removeItem, makeGeneral, addMessage, removeMessage, closeItem, sendRound, stopAgent, markViewed, finish, removeReview }
 })

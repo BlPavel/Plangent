@@ -96,6 +96,7 @@
       <!-- Tab: Инструкции -->
       <!-- Mounted only while open: the screen watches the project folder. -->
       <div v-if="activeTab === 'code' && !isGroup" class="tab-content"><CodeTab :project-id="currentProject.id" :task="codeTask" :default-agent-id="projectsStore.agentFor(currentProject)" @back="backToTask" /></div>
+      <div v-if="activeTab === 'review'" class="tab-content"><BranchReviewTab :key="currentProject.id" :project-id="currentProject.id" :members="isGroup ? projectsStore.members(currentProject.id) : undefined" /></div>
       <div v-show="activeTab === 'instructions'" class="tab-content instructions-tab">
         <InstructionsWorkspace v-if="currentProject" :project-id="currentProject.id" :default-agent-id="projectsStore.agentFor(currentProject)" />
       </div>
@@ -144,7 +145,7 @@
 </template>
 
 <script lang="ts">
-type HomeTab = 'agents' | 'projects' | 'terminal' | 'tasks' | 'code' | 'instructions' | 'integrations' | 'docs'
+type HomeTab = 'agents' | 'projects' | 'terminal' | 'tasks' | 'code' | 'review' | 'instructions' | 'integrations' | 'docs'
 // Module-level so it survives HomeView being unmounted while a task is open.
 const lastTab: { projectId: string | null; tab: HomeTab } = { projectId: null, tab: 'agents' }
 </script>
@@ -153,6 +154,7 @@ const lastTab: { projectId: string | null; tab: HomeTab } = { projectId: null, t
 import { TerminalsView } from '@features/terminal'
 import { AgentChats } from '@features/agent-chat'
 import { CodeTab, useCodeAttentionStore } from '@features/code'
+import { BranchReviewTab } from '@features/branch-review'
 import { ref, computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '@core/stores/app'
@@ -193,6 +195,7 @@ const tabs = computed<TabItem[]>(() => [
   { id: 'terminal' as const, label: 'Терминал', disabled: false },
   { id: 'tasks' as const, label: 'Задачи', disabled: false },
   ...(isGroup.value ? [] : [{ id: 'code' as const, label: 'Код', disabled: false, count: codeAttentionCount.value, countTitle: 'Пункты, по которым нужно ваше решение' }]),
+  { id: 'review' as const, label: 'Ревью', disabled: false },
   { id: 'instructions' as const, label: 'Инструкции', disabled: false },
   { id: 'integrations' as const, label: 'Интеграции', disabled: true },
   { id: 'docs' as const, label: 'Доки', disabled: true },

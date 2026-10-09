@@ -1,5 +1,10 @@
 <template>
-  <div v-if="options.length > 1" class="bs">
+  <div v-if="store.repository" class="bs">
+    <label v-if="!locked" class="bs-remote">Сравнить с:
+      <input v-model="search" list="review-remote-branches" placeholder="origin/main" @change="compare" />
+      <datalist id="review-remote-branches"><option v-for="branch in remoteBranches" :key="branch.ref" :value="branch.name" /></datalist>
+    </label>
+    <button v-if="kind === 'remote'" type="button" @click="store.setBase('head')">Незакоммиченные</button>
     <span class="bs-label">Показать</span>
     <div class="bs-group" role="radiogroup" aria-label="Какие изменения показать">
       <button
@@ -17,10 +22,20 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { useGitStore } from '../stores/git'
 import { useCodeStore } from '../stores/code'
 
 const store = useCodeStore()
+const search = ref(''), git = useGitStore()
+const remoteBranches = computed(() => git.branches.filter(b => b.remote && b.name.toLowerCase().includes(search.value.toLowerCase())))
+watch(() => store.projectId, () => { search.value = '' })
+watch(() => store.remoteRef, value => { search.value = value })
+function compare() {
+ const branch = git.branches.find(b => b.remote && b.name === search.value)
+ if (branch) void store.setBase('remote', branch.name)
+ else store.error = 'Выберите существующую ветку origin. Обновите её кнопкой Fetch.'
+}
 /** An opened historical review is always «everything that entered it»: the base cannot be changed there. */
 const locked = computed(() => !!store.openedReviewId)
 
@@ -44,6 +59,7 @@ function pick(value: string) {
 
 <style scoped>
 .bs { flex: 0 0 auto; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 10px; border-bottom: 1px solid var(--border); font-size: 12px; }
+.bs-remote { display: flex; gap: 6px; align-items: center; } .bs-remote input { width: 150px; color: var(--text); background: var(--bg2); border: 1px solid var(--border); }
 .bs-label { color: var(--text-muted); white-space: nowrap; }
 .bs-group { display: inline-flex; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); overflow: hidden; }
 .bs-option { padding: 2px 8px; font: inherit; font-size: 12px; color: var(--text-muted); background: none; border: none; cursor: pointer; white-space: nowrap; }

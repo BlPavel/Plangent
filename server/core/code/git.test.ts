@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { changedFiles, diffFile, isRepository, listFiles, oldFile, parseStatus, repositoryInfo, snapshot, trackedStats } from './git';
+import { changedFiles, diffFile, isRepository, listFiles, oldFile, parseStatus, repositoryInfo, snapshot, trackedStats, treeChanges, remoteMergeBase } from './git';
 import { resolveProjectPath } from '../projects/files';
 
 function git(root: string, ...args: string[]): string {
@@ -115,4 +115,24 @@ test('porcelain parser keeps unusual paths and unmerged records intact', () => {
   assert.equal(changes[0].path, 'tabs\tand\nnewline.txt');
   assert.equal(changes[1].originalPath, 'old name');
   assert.equal(changes[2].path, 'conflict.txt'); assert.equal(changes[2].status, 'U');
+});
+test('remote comparison uses merge-base and excludes unrelated base and worktree changes', async t => {
+  const root = await fixture(t);
+  await fs.writeFile(path.join(root, 'common.txt'), 'base\n');
+  git(root, 'add', '.'); git(root, 'commit', '-m', 'base');
+  const base = git(root, 'rev-parse', 'HEAD').trim();
+  await fs.writeFile(path.join(root, 'remote-only.txt'), 'remote\n');
+  git(root, 'add', '.'); git(root, 'commit', '-m', 'remote');
+  git(root, 'update-ref', 'refs/remotes/origin/main', 'HEAD');
+  git(root, 'checkout', '-b', 'feature', base);
+  await fs.writeFile(path.join(root, 'feature.txt'), 'feature\n');
+  git(root, 'add', '.'); git(root, 'commit', '-m', 'feature');
+  await fs.writeFile(path.join(root, 'common.txt'), 'uncommitted\n');
+  assert.equal(await remoteMergeBase(root, 'origin/main'), base);
+  git(root, 'update-ref', 'refs/remotes/origin/ветка', 'refs/remotes/origin/main');
+  assert.equal(await remoteMergeBase(root, 'origin/ветка'), base);
+  assert.deepEqual((await treeChanges(root, 'origin/main', 'HEAD')).changes.map(c => c.path), ['feature.txt']);
+  assert.match(await diffFile(root, 'feature.txt', { base: 'origin/main' }), /\+feature/);
+  assert.equal(await diffFile(root, 'common.txt', { base: 'origin/main' }), '');
+  await assert.rejects(remoteMergeBase(root, 'origin/../HEAD'));
 });

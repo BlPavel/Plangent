@@ -2,6 +2,14 @@ import type { ToolCallUpdate } from '@agentclientprotocol/sdk';
 
 /** Tools the Plangent MCP server gives agents (served by infrastructure/mcp/server.ts). */
 export const plangentTools = {
+  get_finish_context: { description: 'Read changed files, diffs, commit rules, task context, options and user revision note. Call first.', fields: {} },
+  set_commits: { description: 'Submit the full commit list. Include each changed file exactly once. Plangent creates commits. Correct errors and retry.', fields: {
+    commits: { type: 'array', minItems: 1, items: { type: 'object', additionalProperties: false, required: ['files','title'], properties: {
+      files: { type: 'array', minItems: 1, items: { type: 'string' } }, title: { type: 'string' }, body: { type: 'string' },
+    } } },
+  } },
+  finish_commits: { description: 'Hand completed commits to the user for confirmation. Never push yourself.', fields: {} },
+  create_merge_request: { description: 'Create the merge request after the push. Give only the title (one line) and the description following the template. Plangent sets target branch, reviewers, labels and options.', fields: { title: { type: 'string' }, description: { type: 'string' } } },
   get_library: { description: 'Get the project library catalog, instruction authoring guide and available levels. Call first.', fields: {} },
   get_library_item: { description: 'Read an available library item, including content.', fields: { id: { type: 'string' } } },
   propose_library_change: {

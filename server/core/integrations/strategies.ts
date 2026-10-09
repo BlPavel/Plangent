@@ -55,13 +55,32 @@ export const formStrategy: LoginStrategy = {
   },
   isAuthError,
 };
-export function strategyFor(session: AuthSession): LoginStrategy { return session.strategy === 'basic' ? basicStrategy : formStrategy; }
+export const tokenStrategy: LoginStrategy = {
+  async login(ctx, send) {
+    const session: AuthSession = { id: randomUUID(), strategy: 'token', cookies: [] };
+    verify(await send(ctx, session, (ctx.connection.auth_config as unknown as AuthConfig).check_path), ctx);
+    return session;
+  },
+  apply(ctx, _session, url) {
+    if (url.origin !== ctx.connection.base_url) throw new IntegrationError('Token must stay on the service origin', 'unsupported_auth', 422);
+    const config = ctx.connection.auth_config as unknown as AuthConfig;
+    if (!config.token_header || /[\r\n\0]/.test(ctx.password)) throw new IntegrationError('Invalid token', 'invalid_credentials', 401);
+    return { [config.token_header]: (config.token_prefix ?? '') + ctx.password };
+  },
+  isAuthError,
+};
+const strategies: Record<AuthSession['strategy'], LoginStrategy> = { basic: basicStrategy, form: formStrategy, token: tokenStrategy };
+export function strategyFor(session: AuthSession): LoginStrategy {
+  const strategy = strategies[session.strategy];
+  if (!strategy) throw new IntegrationError('Unsupported login strategy', 'unsupported_auth', 422);
+  return strategy;
+}
 export async function login(ctx: AuthContext,send: Send): Promise<AuthSession> {
   const c = ctx.connection.auth_config as unknown as AuthConfig;
   const list = ctx.connection.auth_strategy === 'auto' ? c.strategies! : [ctx.connection.auth_strategy];
   for (const s of list) {
-    if (s !== 'basic' && s !== 'form') throw new IntegrationError('Этот способ входа пока не поддерживается','unsupported_auth',422);
-    try { return await (s === 'basic' ? basicStrategy : formStrategy).login(ctx,send); }
+    if (s !== 'basic' && s !== 'form' && s !== 'token') throw new IntegrationError('Этот способ входа пока не поддерживается','unsupported_auth',422);
+    try { return await strategies[s].login(ctx,send); }
     catch (e) { if (!(e instanceof IntegrationError) || e.code !== 'unsupported_auth') throw e; }
   }
   throw new IntegrationError('Ни один настроенный способ входа не подходит','unsupported_auth',422);

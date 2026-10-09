@@ -46,12 +46,19 @@ export interface ProjectConfig {
 // can be pointed at with @key.
 export type ProjectKind = 'project' | 'group' | 'source';
 
+export interface ProjectGitSettings {
+  commit_instructions?: string; commit_pattern?: string; forbidden_patterns?: string[];
+  include_description?: boolean; finish_scenario?: 'nothing' | 'commits' | 'push' | 'full';
+  branch_template?: string; base_branch?: string; mr_target_branch?: string;
+  mr_description_template?: string; mr_remove_branch?: boolean; mr_squash?: boolean; mr_reviewers?: string[]; mr_labels?: string[];
+}
 export interface Project {
   id: string;
   kind: ProjectKind;
   name: string;
   // @-key of projects and sources, unique across both; null for groups.
   key: string | null;
+  clone_url?: string; host_project_path?: string; git_settings?: ProjectGitSettings;
   repo_path: string;
   group_id: string | null;
   icon: string;
@@ -73,6 +80,9 @@ export interface Project {
 }
 
 export interface Task {
+  external_key?: string | null;
+  base_branch?: string | null;
+  mr_link?: string | null;
   id: string;
   project_id: string;
   key: string;
@@ -80,6 +90,8 @@ export interface Task {
   description?: string;
   jira_url?: string;
   branch_name?: string;
+  finish_scenario?: 'nothing' | 'commits' | 'push' | 'full' | null;
+  target_branch?: string | null;
   status: 'open' | 'in_progress' | 'done';
   created_at: string;
 }

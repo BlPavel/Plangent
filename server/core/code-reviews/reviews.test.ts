@@ -255,3 +255,29 @@ test('viewed before any remark opens the review; deleted files are viewable; com
     await fs.rm(root, { recursive: true, force: true });
   }
 });
+
+test('remote comparison and removed-line threads keep the local branch review identity', async () => {
+ const root = await fs.mkdtemp(path.join(os.tmpdir(), 'plangent-remote-review-'))
+ const db = new Database(':memory:'); migrate(db)
+ db.prepare("INSERT INTO projects(id,name,repo_path,kind) VALUES ('project','Remote',?,'project')").run(root)
+ const git = (...args: string[]) => execFileSync('git', args, { cwd: root, encoding: 'utf8', windowsHide: true }).trim()
+ const service = createReviewService(db)
+ try {
+  git('init', '-b', 'main'); git('config', 'user.name', 'Test'); git('config', 'user.email', 'test@example.invalid')
+  await fs.writeFile(path.join(root, 'code.txt'), 'old line\n'); git('add', '.'); git('commit', '-m', 'base')
+  const base = git('rev-parse', 'HEAD'); git('update-ref', 'refs/remotes/origin/main', base); git('switch', '-c', 'feature')
+  await fs.writeFile(path.join(root, 'code.txt'), 'new line\n'); git('add', '.'); git('commit', '-m', 'feature')
+  const comparison = await service.remoteComparison('project', 'origin/main')
+  assert.equal(comparison.base, base); assert.deepEqual(comparison.changes.map(c => c.path), ['code.txt'])
+  assert.equal((await service.current('project')).review, null)
+  const old = await service.addDraft('project', { scope: 'line', file: 'code.txt', line_start: 1, side: 'old', kind: 'question', text: 'Why removed?', comparison_ref: 'origin/main' })
+  assert.equal(old.item.code_snippet, 'old line'); assert.equal(old.item.comparison_base, base); assert.equal(old.review.branch, 'feature')
+  const ordinary = await service.addDraft('project', { scope: 'file', file: 'code.txt', kind: 'question', text: 'Discuss' })
+  assert.equal(ordinary.review.id, old.review.id)
+  await service.openFile('project', old.review.id, 'code.txt', 'old')
+  const item = createReviewStore(db).getItem(old.item.id)!
+  assert.equal(item.outdated, false); assert.equal(item.code_snippet, 'old line')
+  await service.updateDraft('project', old.review.id, old.item.id, { line_start: 1, text: 'Edited' })
+  assert.equal(createReviewStore(db).getItem(old.item.id)!.code_snippet, 'old line')
+ } finally { db.close(); await fs.rm(root, { recursive: true, force: true }) }
+})

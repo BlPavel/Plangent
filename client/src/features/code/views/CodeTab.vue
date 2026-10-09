@@ -3,7 +3,6 @@
     <header class="ct-head">
       <button v-if="task" type="button" class="ct-crumb" @click="emit('back')">← Задача-{{ task.key }}</button>
       <template v-if="store.repository">
-        <span class="ct-branch" :title="store.repository.detached ? 'Detached HEAD' : 'Текущая ветка'">⎇ {{ store.repository.detached ? 'вне ветки' : store.branch }}</span>
         <span v-if="store.head" class="ct-head-commit" :title="store.repository.message ?? ''">
           HEAD <code>{{ store.head.slice(0, 7) }}</code><template v-if="store.repository.message"> «{{ store.repository.message }}»</template>
         </span>
@@ -21,6 +20,12 @@
       <button type="button" class="ct-refresh" :class="{ spinning: store.loading }" :disabled="store.loading" title="Обновить: статус, дерево и открытый файл" :aria-busy="store.loading" aria-label="Обновить" @click="store.refresh()">⟳</button>
       <HistoryMenu :history="store.history" :opened-id="store.openedReviewId" @open="store.loadHistory()" @select="store.openReview($event)" @remove="removeHistoryItem" />
     </header>
+    <!-- One git row: the MR and «Завершение» panels put their toolbars here and open their bodies below it. -->
+    <div v-if="store.repository" class="ct-git">
+      <GitHeader :task="task" />
+      <TaskMrPanel :project-id="projectId" :task-id="task?.id" inline />
+      <FinishPanel :key="projectId + (task?.id || '')" :project-id="projectId" :task="task" :blocked="git.blocked" :branch="store.branch" />
+    </div>
     <ReviewBanners @open-items="openFirstUnresolved" />
     <div v-if="store.error" class="ct-error">{{ store.error }} <button type="button" class="ct-link" @click="store.refresh()">Повторить</button></div>
 
@@ -40,7 +45,7 @@
           <BaseSwitcher />
           <ChangesList
             :changes="store.shownChanges" :stats="store.shownStats" :selected="store.selectedPath" :empty-text="emptyText"
-            :viewable="viewable" :viewed="store.viewedState" :viewed-count="store.viewedCount" @open="openChange" @toggle-viewed="toggleViewed"
+            :stageable="!!store.repository && store.effectiveBase === 'head' && !store.openedReviewId" :stage-disabled="git.blocked" @toggle-stage="toggleStage" :viewable="viewable" :viewed="store.viewedState" :viewed-count="store.viewedCount" @open="openChange" @toggle-viewed="toggleViewed"
           >
             <template #badges="{ change }">
               <span v-if="store.effectiveBase === 'agent' && !fileCounts[change.path]" class="ct-badge" title="Агент тронул этот файл, хотя замечаний к нему не было">без замечаний</span>
@@ -48,6 +53,7 @@
             </template>
           </ChangesList>
         </div>
+        <CommitPanel v-show="leftTab === 'changes'" :key="projectId" :task-id="task?.id" />
         <div v-show="leftTab === 'files'" class="ct-pane">
           <FileTree
             ref="tree" :trees="store.trees" :selected="store.selectedPath" :show-ignored="store.includeIgnored" :marks="fileCounts"
@@ -82,6 +88,7 @@
           </template>
           <template #widget="{ line, side }">
             <div class="ct-widget">
+              <ExternalThreadCard v-for="t in externalAt(line, side)" :key="t.id" :thread="t" :can-discuss="canDiscuss" @discuss="discussExternal" />
               <ItemView v-for="item in itemsAt(line, side)" :key="item.id" :item="item" :read-only="reviewReadOnly" @open-ref="openRef" @show-change="showChange" />
               <ItemComposer
                 v-if="composing?.scope === 'line' && composing.side === side && composing.end === line" :where="composeWhere"
@@ -99,6 +106,7 @@
           <span class="ct-title">Замечания<span v-if="store.items.length" class="ct-count" :class="{ warning: attention }" :title="attention ? `Ждут вашего ответа: ${attention}` : ''">{{ attention || store.items.length }}</span></span>
           <button type="button" class="ct-collapse" title="Свернуть панель (Ctrl+Alt+B)" aria-label="Свернуть правую панель" @click="rightCollapsed = true">»</button>
         </div>
+        <ExternalThreadsPanel :can-discuss="canDiscuss" @goto="gotoExternal" @discuss="discussExternal" />
         <div class="ct-pane">
           <ReviewPanel :project-id="projectId" :origin="origin" :default-agent-id="defaultAgentId" @goto="goto" @open-ref="openRef" @show-change="showChange" />
         </div>
@@ -115,6 +123,8 @@ const lastOpened = new Map<string, string>()
 </script>
 
 <script setup lang="ts">
+import { FinishPanel } from '@features/finish'
+import { TaskMrPanel } from '@features/task-mr'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { FileTree, type CodeSide, type LineMarker, type LineSelection } from '@shared/code-viewer'
 import { useAppStore } from '@core/stores/app'
@@ -123,12 +133,19 @@ import { useCodeStore } from '../stores/code'
 import { useReviewAgentStore } from '../stores/review-agent'
 import { threadState } from '../utils/thread'
 import type { CodeReviewItem, GitChange, ReviewHistory } from '../types'
+import { useGitStore } from '../stores/git'
+import GitHeader from '../components/GitHeader.vue'
+import CommitPanel from '../components/CommitPanel.vue'
 import BaseSwitcher from '../components/BaseSwitcher.vue'
 import ChangesList from '../components/ChangesList.vue'
 import FileViewer from '../components/FileViewer.vue'
 import HistoryMenu from '../components/HistoryMenu.vue'
 import ItemComposer from '../components/ItemComposer.vue'
 import ItemView from '../components/ItemView.vue'
+import ExternalThreadCard from '../components/ExternalThreadCard.vue'
+import ExternalThreadsPanel from '../components/ExternalThreadsPanel.vue'
+import { useExternalThreadsStore } from '../stores/external'
+import type { ExternalThread } from '../types'
 import PaneRail from '../components/PaneRail.vue'
 import QuickOpen from '../components/QuickOpen.vue'
 import ReviewBanners from '../components/ReviewBanners.vue'
@@ -144,6 +161,11 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ back: [] }>()
 
+const git = useGitStore()
+const external = useExternalThreadsStore()
+watch(() => props.projectId, id => external.reset(id), { immediate: true })
+async function toggleStage(change: GitChange) { try { await git.run(['.', ' ', '?'].includes(change.indexStatus) ? 'stage' : 'unstage', { paths: [change.path, ...(change.originalPath ? [change.originalPath] : [])] }); await store.refresh() } catch { /* git error displayed in panel */ } }
+watch(() => props.projectId, id => { void git.start(id) }, { immediate: true })
 const store = useCodeStore()
 const app = useAppStore()
 const viewer = ref<InstanceType<typeof FileViewer>>()
@@ -205,6 +227,7 @@ const leftTabs = computed(() => [
 const emptyText = computed(() => {
   if (!store.repository) return 'Папка не под git — изменений нет'
   if (store.effectiveBase === 'review') return 'В ревью не вошло ни одного файла'
+  if (store.effectiveBase === 'remote') return `Нет отличий от ${store.remoteRef}`
   if (store.effectiveBase === 'agent') return 'После последнего раунда агент ничего не менял'
   return `Нет изменений относительно ${store.head?.slice(0, 7) ?? 'HEAD'}`
 })
@@ -237,9 +260,12 @@ const fileCounts = computed(() => {
   for (const item of store.items) if (item.file) counts[item.file] = (counts[item.file] ?? 0) + 1
   return counts
 })
-const currentItems = computed(() => store.items.filter(item => item.file === store.selectedPath && !item.outdated))
+const currentItems = computed(() => store.items.filter(item => item.file === store.selectedPath && !item.outdated && (item.side !== 'old' || (item.comparison_base ? item.comparison_base === store.diffEnds?.base : store.effectiveBase !== 'remote'))))
 const fileNotes = computed(() => currentItems.value.filter(item => item.scope === 'file'))
 const endLine = (item: CodeReviewItem) => item.line_end ?? item.line_start ?? 0
+// Colleagues' threads of the branch's MR, shown on their lines beside the review items.
+const externalHere = computed(() => (external.data?.threads ?? []).filter(t => t.path === store.selectedPath))
+const externalAt = (line: number, side: CodeSide) => externalHere.value.filter(t => t.line === line && t.side === side)
 const markers = computed(() => {
   const result: Record<CodeSide, LineMarker[]> = { new: [], old: [] }
   for (const item of currentItems.value) {
@@ -249,11 +275,18 @@ const markers = computed(() => {
     if (found) found.count = (found.count ?? 1) + 1
     else list.push({ line: item.line_start, count: 1, title: 'Замечания к строке' })
   }
+  for (const t of externalHere.value) {
+    if (t.line == null) continue
+    const found = result[t.side].find(m => m.line === t.line)
+    if (found) found.count = (found.count ?? 1) + 1
+    else result[t.side].push({ line: t.line, count: 1, title: 'Комментарий из МР' })
+  }
   return result
 })
 const widgets = computed(() => {
   const result: Record<CodeSide, Set<number>> = { new: new Set(), old: new Set() }
   for (const item of currentItems.value) if (item.scope === 'line') result[item.side].add(endLine(item))
+  for (const t of externalHere.value) if (t.line != null) result[t.side].add(t.line)
   const c = composing.value
   if (c?.scope === 'line') result[c.side].add(c.end)
   return { new: [...result.new], old: [...result.old] }
@@ -282,7 +315,7 @@ async function saveDraft(value: { kind: 'fix' | 'question'; text: string; refs: 
   try {
     await store.addDraft(c.scope === 'file'
       ? { scope: 'file', file, ...value }
-      : { scope: 'line', file, side: c.side, line_start: c.start, line_end: c.end, ...value }, origin.value.type, origin.value.id)
+      : { scope: 'line', file, side: c.side, line_start: c.start, line_end: c.end, ...value, ...(store.effectiveBase === 'remote' ? { comparison_ref: store.remoteRef } : {}) }, origin.value.type, origin.value.id)
     cancelCompose()
   } catch (cause) { draftError.value = cause instanceof Error ? cause.message : 'Не удалось сохранить'; app.toast(draftError.value, 'error') }
   finally { draftBusy.value = false }
@@ -338,6 +371,23 @@ function goto(item: CodeReviewItem) {
   const changed = store.changes.some(c => c.path === item.file)
   const as = item.side === 'old' || (changed && store.selectedPath !== item.file) ? 'diff' : store.selectedPath === item.file ? mode.value : 'file'
   void open(item.file, as, item.scope === 'line' ? item.line_start ?? undefined : undefined, item.side)
+}
+function gotoExternal(t: ExternalThread) {
+  if (!t.path) return
+  const changed = store.changes.some(c => c.path === t.path)
+  void open(t.path, t.side === 'old' || changed ? 'diff' : 'file', t.line ?? undefined, t.side)
+}
+/** «Разобрать с агентом»: the colleague's comment becomes an ordinary review item, discussed in its thread. */
+const canDiscuss = computed(() => !!store.repository && !reviewReadOnly.value)
+async function discussExternal(t: ExternalThread) {
+  const quote = t.notes.map(n => '> **' + n.author + ':** ' + n.body.replace(/\r?\n/g, '\n> ')).join('\n>\n')
+  const text = 'Комментарий из МР:\n\n' + quote + '\n\nРазберись, прав ли коллега.'
+  try {
+    await store.addDraft(t.path && t.line != null && store.changes.some(c => c.path === t.path)
+      ? { scope: 'line', file: t.path, side: t.side, line_start: t.line, line_end: t.line, kind: 'question', text, refs: [] }
+      : { scope: 'general', kind: 'question', text, refs: [] }, origin.value.type, origin.value.id)
+    app.toast('Комментарий добавлен в замечания', 'success')
+  } catch (cause) { app.toast(cause instanceof Error ? cause.message : 'Не удалось добавить пункт', 'error') }
 }
 // --- right panel: the review and its agent ---------------------------------------
 const attention = computed(() => store.items.filter(item => threadState(item, store.messages) === 'waiting').length)
@@ -395,7 +445,7 @@ async function begin(projectId: string) {
 }
 
 onMounted(() => { window.addEventListener('keydown', onKey) })
-onBeforeUnmount(() => { window.removeEventListener('keydown', onKey); store.stop() })
+onBeforeUnmount(() => { window.removeEventListener('keydown', onKey); store.stop(); git.stop() })
 watch(() => props.projectId, id => { void begin(id) }, { immediate: true })
 </script>
 
@@ -404,7 +454,10 @@ watch(() => props.projectId, id => { void begin(id) }, { immediate: true })
 .ct-head { display: flex; align-items: center; gap: 8px; flex-shrink: 0; min-height: 38px; padding: 4px 14px; border-bottom: 1px solid var(--border); font-size: 13px; }
 .ct-crumb { padding: 2px 8px; font: inherit; font-size: 12px; color: var(--blue-hover); background: none; border: none; cursor: pointer; }
 .ct-crumb:hover { text-decoration: underline; }
-.ct-branch { font-weight: 600; white-space: nowrap; }
+.ct-git { position: relative; z-index: 3; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; flex-shrink: 0; padding: 5px 14px; border-bottom: 1px solid var(--border); }
+/* The panels' roots dissolve into the row: toolbars line up after the git actions, open bodies take a full line below. */
+.ct-git > .task-mr, .ct-git > .finish { display: contents; }
+.ct-git :deep(.git-drawer) { order: 1; flex-basis: 100%; min-width: 0; }
 .ct-head-commit { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); }
 .ct-head-commit code { font-size: 12px; }
 .ct-sep { color: var(--text-faint); }

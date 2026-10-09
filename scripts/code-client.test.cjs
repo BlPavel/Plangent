@@ -491,3 +491,91 @@ test('project sidebar adds Code decisions and permission requests to its existin
   assert.equal(result[2].reason, 'code.ts: Explain this')
   assert.equal(result[3].taskKey, 'Код')
 })
+
+test('remote review comparison preserves branch identity and ignores stale comparison responses', async () => {
+ const h = harness(), { store, codeReviewsApi } = h
+ await store.start('p')
+ let resolveOld
+ codeReviewsApi.remoteComparison = async (p, ref) => ref === 'origin/old'
+  ? new Promise(resolve => { resolveOld = resolve })
+  : { base: 'merge-base', end: 'head', changes: [{ path: 'feature.ts', status: 'M' }], stats: {} }
+ const old = store.setBase('remote', 'origin/old')
+ await store.setBase('remote', 'origin/main')
+ resolveOld({ base: 'stale', end: 'head', changes: [{ path: 'stale.ts' }], stats: {} })
+ await old
+ assert.equal(store.effectiveBase, 'remote')
+ assert.equal(store.remoteRef, 'origin/main')
+ assert.equal(store.shownChanges[0].path, 'feature.ts')
+ assert.equal(store.diffEnds.base, 'merge-base')
+ assert.equal(store.review, null, 'comparing never creates a review')
+ await store.setBase('head')
+ assert.equal(store.diffEnds, null)
+ store.$dispose()
+})
+
+test('finish confirmation saves manual edits before accept; moving, merging and splitting preserves files', async () => {
+ const { parse, compileScript } = require('@vue/compiler-sfc')
+ const { effectScope, reactive } = require('vue')
+ const file = 'client/src/features/finish/components/FinishPanel.vue'
+ const source = compileScript(parse(fs.readFileSync(file, 'utf8'), { filename: file }).descriptor, { id: 'finish-test' }).content
+ const initial = { id: 'run', project_id: 'p', base_head: 'base', status: 'waiting', stage: 'confirmation', scenario: 'commits',
+  options: { includeDescription: true }, commits: [{ title: 'First', body: 'Body', files: ['a', 'b'], sha: 'one' }, { title: 'Second', files: ['c'], sha: 'two' }] }
+ const calls = []
+ const store = reactive({ run: null, busy: false, error: '', load: async () => { store.run = plain(initial) },
+  save: async commits => { calls.push(['save', plain(commits)]); store.run.commits = commits.map(c => ({ ...c, sha: 'new' })); return store.run },
+  action: async name => { calls.push([name]); store.run.status = 'complete'; return store.run },
+ })
+ const component = moduleAt(file, {
+  'vue-router': { useRoute: () => ({ query: {} }) },
+  '@core/api': { api: { get: async () => ({ values: { finish_scenario: 'commits', branch_template: 'feature/{key}-{slug}' } }) } },
+  '@core/stores/app': { useAppStore: () => ({ confirm: async () => true }) },
+  '@features/agent-chat': { ChatView: {} },
+  '@features/code': { CommitDiff: {}, gitApi: { branches: async () => [], coauthors: async () => [] } },
+  '../stores/finish': { useFinishStore: () => store },
+  '../api': { finishApi: { context: async () => ({ changes: [], diffs: {} }) } },
+  '../types': moduleAt('client/src/features/finish/types.ts'),
+ }, {}, source).default
+ const scope = effectScope()
+ try {
+  const panel = scope.run(() => component.setup({ projectId: 'p', branch: 'feature' }, { expose() {} }))
+  await new Promise(resolve => setTimeout(resolve, 0))
+  panel.selected.value = { index: 0, path: 'a' }
+  assert.equal(panel.selectedBase.value, 'base')
+  panel.selected.value = { index: 1, path: 'c' }
+  assert.equal(panel.selectedBase.value, 'one')
+  panel.move(0, 1, 'b')
+  panel.merge(1)
+  panel.split(0)
+  assert.deepEqual(plain(panel.draft.value.flatMap(c => c.files)).sort(), ['a', 'b', 'c'])
+  panel.draft.value[0].title = 'Edited by user'
+  await panel.accept()
+  assert.equal(calls[0][0], 'save')
+  assert.equal(calls[0][1][0].title, 'Edited by user')
+  assert.equal(calls[1][0], 'accept')
+  assert.equal(store.run.status, 'complete')
+ } finally { scope.stop() }
+})
+
+test('group Git settings preview, overrides and resets do not affect another project', () => {
+ const { parse, compileScript } = require('@vue/compiler-sfc')
+ const { reactive } = require('vue')
+ const file = 'client/src/features/projects/components/GitSettingsFields.vue'
+ const source = compileScript(parse(fs.readFileSync(file, 'utf8'), { filename: file }).descriptor, { id: 'git-settings-test' }).content
+ const component = moduleAt(file, {}, {}, source).default
+ const group = reactive({ branch_template: 'feature/{key}-{slug}', include_description: true, forbidden_patterns: ['Claude'] })
+ const first = reactive({ modelValue: {}, inherited: group, sources: { branch_template: 'group' } })
+ const second = reactive({ modelValue: {}, inherited: group, sources: { branch_template: 'group' } })
+ const setup = props => component.setup(props, { expose() {}, emit: (_, value) => { props.modelValue = value } })
+ const a = setup(first), b = setup(second)
+ assert.equal(a.preview.value, 'feature/BIL-42-limits')
+ group.branch_template = 'team/{key}/{slug}'
+ assert.equal(a.preview.value, 'team/BIL-42/limits'); assert.equal(b.preview.value, a.preview.value)
+ a.toggle('branch_template', true); a.set('branch_template', 'custom/{key}')
+ assert.equal(a.preview.value, 'custom/BIL-42'); assert.equal(b.preview.value, 'team/BIL-42/limits')
+ a.toggle('branch_template', false)
+ assert.equal(a.preview.value, b.preview.value)
+ a.toggle('include_description', true); a.set('include_description', false)
+ assert.equal(first.modelValue.include_description, false); assert.equal(group.include_description, true)
+ a.toggle('include_description', false)
+ assert.equal(a.effective('include_description'), true)
+})

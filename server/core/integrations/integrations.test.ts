@@ -28,6 +28,12 @@ test('integration domain, configured authentication and HTTP API',async () => {
       res.setHeader('Set-Cookie',`opaque=secret-cookie-${cookieVersion}; Path=/; HttpOnly`);
       res.writeHead(302,{ Location: '/whoami' }); res.end(); return;
     }
+    if (req.url === '/token-check' || req.url === '/bearer-check') {
+      const accepted = req.url === '/token-check' ? req.headers['x-access-key'] === 'private-token-value' : req.headers.authorization === 'Bearer private-token-value';
+      if (!accepted) { res.writeHead(401); res.end(); return; }
+      if (deny) { res.writeHead(403); res.end(); return; }
+      res.setHeader('Content-Type', 'application/json'); res.end('{"person":{"name":"Alice"}}'); return;
+    }
     if (req.url === '/basic') {
       logins++;
       if (req.headers.authorization !== 'Basic ' + Buffer.from('alice:' + password).toString('base64')) { res.writeHead(401); res.end(); return; }
@@ -59,6 +65,33 @@ test('integration domain, configured authentication and HTTP API',async () => {
     return { status: r.status,body: text ? JSON.parse(text) : null };
   }
   try {
+    for (const [header, prefix, check_path] of [['X-Access-Key', '', '/token-check'], ['Authorization', 'Bearer ', '/bearer-check']]) {
+      const connection = d.saveConnection({ name: 'Token', base_url: base, credential_mode: 'own', own_credential: { username: 'unused-label' }, auth_strategy: 'token', auth_config: { check_path, user_path: 'person.name', expect_json: true, token_header: header, token_prefix: prefix } });
+      d.setPassword(connection.credential_id!, 'private-token-value');
+      assert.equal((await checkConnection(connection.id)).user, 'Alice');
+      assert.equal((await authenticatedRequest(connection.id, check_path)).status, 200, 'cached token sessions retain their strategy');
+      assert.ok(!JSON.stringify(d.getConnection(connection.id)).includes('private-token-value'));
+      assert.ok(!JSON.stringify(d.getCredential(connection.credential_id!)).includes('private-token-value'));
+      assert.equal((redact({ [header]: 'private-token-value' }, [header]) as Record<string, string>)[header], '[REDACTED]');
+      const blob = (getDb().prepare('SELECT secret_blob FROM integration_credentials WHERE id=?').get(connection.credential_id) as { secret_blob: Buffer }).secret_blob;
+      assert.ok(!blob.includes(Buffer.from('private-token-value')));
+      deny = true; assert.equal((await checkConnection(connection.id)).status, 'forbidden'); deny = false;
+      assert.equal(d.getCredential(connection.credential_id!)?.status, 'ready');
+      await assert.rejects(authenticatedRequest(connection.id, '/redirect-away'), (e: unknown) => (e as { code: string }).code === 'unsupported_auth');
+      d.setPassword(connection.credential_id!, 'wrong-token');
+      const invalid = await checkConnection(connection.id);
+      assert.equal(invalid.status, 'invalid_credentials'); assert.match(invalid.message, /Токен недействителен/);
+      assert.equal((await checkConnection(connection.id)).status, 'needs_update');
+      d.setPassword(connection.credential_id!, 'private-token-value');
+      assert.equal((await checkConnection(connection.id)).ok, true);
+      d.deleteConnection(connection.id);
+    }
+    for (const config of [
+      { check_path: '/token-check', token_header: 'X-Access-Key\\r\\nInjected' },
+      { check_path: '/token-check', token_header: 'Cookie' },
+      { check_path: '/token-check', token_header: 'Authorization', token_prefix: 'Bearer\\n' },
+      { check_path: '/token-check', token_header: 'X-Access-Key', headers: { 'PRIVATE-TOKEN': 'private-token-value' } },
+    ]) assert.throws(() => d.validateAuthConfig('token', config));
     const orgA = d.saveOrganization({ name: 'A' }), orgB = d.saveOrganization({ name: 'B' });
     const a = d.saveCredential({ name: 'Default A',organization_id: orgA.id,username: 'alice' });
     const b = d.saveCredential({ name: 'Default B',organization_id: orgB.id,username: 'bob' });
@@ -142,7 +175,7 @@ test('integration domain, configured authentication and HTTP API',async () => {
     assert.equal((await checkConnection(auto.id)).status,'invalid_credentials'); assert.equal(logins,1,'auto stops on definite wrong password');
     d.setPassword(a.id,password);
     html = true; assert.equal((await checkConnection(inherited.id)).status,'unsupported_auth'); html = false;
-    const token = d.saveConnection({ name: 'Future login',organization_id: orgA.id,base_url: base,auth_strategy: 'token',auth_config: { check_path: '/whoami' } });
+    const token = d.saveConnection({ name: 'Future login',organization_id: orgA.id,base_url: base,auth_strategy: 'browser',auth_config: { check_path: '/whoami' } });
     assert.equal((await checkConnection(token.id)).status,'unsupported_auth');
     assert.equal(d.getCredential(a.id)?.status,'ready');
     d.deleteConnection(own.id); assert.equal(d.getCredential(own.credential_id!),null);

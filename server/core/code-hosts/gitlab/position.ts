@@ -1,0 +1,1 @@
+export { buildPosition } from '../position';

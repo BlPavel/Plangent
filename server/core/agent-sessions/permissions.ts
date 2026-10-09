@@ -7,6 +7,30 @@ import { isInside } from '../shared/paths';
 
 export const dangerousCommands = ['git push --force', 'git reset --hard', 'rm -rf', 'git clean -fd'];
 
+/** Shell input only: edited prose and diffs are not executable commands.
+ * Unknown git subcommands, including aliases, are refused conservatively.
+ */
+function shellGitDecision(tool: RequestPermissionRequest['toolCall']): 'allow' | 'deny' | undefined {
+  if (!['execute', 'other'].includes(tool.kind ?? 'other')) return;
+  let found = false;
+  for (const text of toolStrings({ title: tool.title, input: tool.rawInput })) {
+    const tokens = (text.match(/"[^"\n]*"|'[^'\n]*'|[^\s;&|()]+/g) ?? []).map(t => t.replace(/^["']|["']$/g, '')).flatMap(t => /\s/.test(t) && !/(?:^|[/\\])git(?:\.exe)?$/i.test(t) ? t.split(/\s+/) : [t]);
+    for (let i = 0; i < tokens.length; i++) {
+      if (!/(?:^|[/\\])git(?:\.exe)?$/i.test(tokens[i])) continue;
+      found = true;
+      let j = i + 1;
+      while (tokens[j]?.startsWith('-')) {
+        const option = tokens[j++];
+        if (['-C', '--git-dir', '--work-tree', '--namespace'].includes(option)) j++;
+        else if (!/^(?:--(?:git-dir|work-tree|namespace)=|--literal-pathspecs$|--no-pager$|--no-optional-locks$)/.test(option)) return 'deny';
+      }
+      if (!['status', 'diff', 'log', 'show', 'blame', 'grep'].includes(tokens[j] ?? '')) return 'deny';
+      if (tokens.slice(j + 1).some(t => /^(?:--output(?:=|$)|--ext-diff$|--textconv$)/.test(t))) return 'deny';
+    }
+  }
+  return found ? 'allow' : undefined;
+}
+
 /** Files a tool call would touch, as the agent reported them (locations and diffs). */
 function touchedPaths(tool: RequestPermissionRequest['toolCall']): string[] {
   const fromContent = (tool.content ?? []).flatMap(c => (c.type === 'diff' ? [c.path] : []));
@@ -38,12 +62,9 @@ export interface FolderScope { writable: string[]; readOnly?: string[] }
 export function permissionDecision(policy: PermissionPolicy, request: RequestPermissionRequest, dangerous = dangerousCommands, scope?: FolderScope, role?: string): 'allow' | 'deny' | 'ask' {
   const tool = request.toolCall;
   if (isPlangentToolCall(tool)) return 'allow';
+  const gitDecision = shellGitDecision(tool);
+  if (gitDecision === 'deny') return 'deny';
   if (role === 'code-fixer') {
-    // Edit content may mention git as data; it is not a command.
-    const text = toolStrings({ title: tool.title,
-      input: ['execute', 'other'].includes(tool.kind ?? 'other') ? tool.rawInput : undefined }).join('\n');
-    // Inspect the reported command, including quoted Windows executable paths.
-    if (/(?:^|[\s/\\"'])git(?:\.exe)?(?:\s|["'])/i.test(text)) return 'deny';
     const writes = ['edit', 'delete', 'move'].includes(tool.kind ?? '') || (tool.content ?? []).some(c => c.type === 'diff');
     if (writes) {
       const files = touchedPaths(tool);

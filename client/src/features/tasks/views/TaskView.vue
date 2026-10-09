@@ -22,6 +22,8 @@
       </div>
     </div>
 
+    <TaskMrPanel v-if="pid && task" :project-id="pid" :task-id="task.id" />
+
     <!-- Tab bar -->
     <div class="task-tab-bar">
       <button class="tab-btn" :class="{ active: activeTab === 'analysis' }" @click="activeTab = 'analysis'">Анализ</button>
@@ -96,6 +98,8 @@
             @open="selectedQueueId = $event"
             @start="startQueue"
           />
+          <TaskGit v-if="pid && task" :key="task.id" :project-id="pid" :task="task" />
+          <TaskFinishStage v-if="pid && task" :key="task.id" :project-id="pid" :task="task" />
         </div>
         <aside class="exec-right">
           <StepDetailPanel :session="selectedSession" :stage-number="selectedStage + 1" :agents="agents" :steps="plan.steps" />
@@ -123,11 +127,14 @@ import { AnalysisNavigationKey } from '../composables/analysisNavigation'
 import type { AnalysisChatSnapshot } from '../stores/taskSession'
 import PlanPanel from '../components/PlanPanel.vue'
 import StepPicker from '../components/StepPicker.vue'
+import TaskGit from '../components/TaskGit.vue'
+import TaskFinishStage from '../components/TaskFinishStage.vue'
 import ExecutionQueue from '../components/ExecutionQueue.vue'
 import StepDetailPanel from '../components/StepDetailPanel.vue'
 import StatusBadge from '@shared/ui/StatusBadge.vue'
 import AppButton from '@shared/ui/AppButton.vue'
 import IconTrash from '@shared/ui/IconTrash.vue'
+import { TaskMrPanel } from '@features/task-mr'
 import { CodeButton } from '@features/code'
 import { useChatStore, type NewChatRequest, type ContentBlock } from '@features/agent-chat'
 import { useTaskQueue, TaskQueueKey } from '../composables/useTaskQueue'

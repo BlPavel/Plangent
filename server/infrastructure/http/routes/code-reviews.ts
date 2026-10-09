@@ -1,6 +1,8 @@
 import { Router, type Request, type Response } from 'express';
 import { CodeError } from '../../../core/code/files';
 import { reviews, createReviewService } from '../../../core/code-reviews/reviews';
+import { externalThreads } from '../../../core/code-reviews/external';
+import { IntegrationError } from '../../../core/integrations';
 import { localOrigin } from '../local-origin';
 
 export function createCodeReviewsRouter(service: () => ReturnType<typeof createReviewService> = reviews) {
@@ -8,7 +10,7 @@ export function createCodeReviewsRouter(service: () => ReturnType<typeof createR
   router.use(localOrigin);
   const guard = (handler: (req: Request, res: Response) => unknown) => (req: Request, res: Response) => {
     Promise.resolve().then(() => handler(req, res)).catch(error => {
-      const status = error instanceof CodeError ? error.status : 500;
+      const status = error instanceof CodeError || error instanceof IntegrationError ? error.status : 500;
       res.status(status).json({ error: status === 500 ? 'Review operation failed' : error.message });
     });
   };
@@ -21,6 +23,12 @@ export function createCodeReviewsRouter(service: () => ReturnType<typeof createR
     if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) throw new CodeError('Invalid body');
     return req.body;
   };
+  // Colleagues' discussions on the current branch's merge request; replies go to the hosting after confirmation.
+  router.get('/external', guard(async (req, res) => res.json(await externalThreads().pull(req.params.projectId))));
+  router.post('/external/:discussionId/reply', guard(async (req, res) => {
+    const { body: text, confirmed } = body(req);
+    res.json(await externalThreads().reply(req.params.projectId, req.params.discussionId, text, confirmed));
+  }));
   router.get('/attention', guard((req, res) => res.json(service().attention(req.params.projectId))));
   router.post('/:reviewId/rounds', guard(async (req, res) => {
     const { session_id, note, item_ids } = body(req);
@@ -44,6 +52,7 @@ export function createCodeReviewsRouter(service: () => ReturnType<typeof createR
     if (typeof path !== 'string' || typeof viewed !== 'boolean') throw new CodeError('Invalid viewed file');
     res.json(await service().markViewedCurrent(req.params.projectId, path, viewed, origin, origin_id));
   }));
+  router.get('/current/comparison', guard(async (req, res) => res.json(await service().remoteComparison(req.params.projectId, query(req, 'ref')))));
   router.get('/current', guard(async (req, res) => res.json(await service().current(req.params.projectId))));
   router.get('/', guard(async (req, res) => res.json(await service().history(req.params.projectId))));
   // No explicit "start review" endpoint: creating the first draft creates the review.

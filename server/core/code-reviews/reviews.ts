@@ -4,7 +4,7 @@ import path from 'node:path';
 import type Database from 'better-sqlite3';
 import { getDb } from '../../infrastructure/db/schema';
 import { CodeError, codePath, readCodeFile } from '../code/files';
-import { repositoryInfo, localBranches, localBranchHead, reviewCommitCount, oldFile, diffFile, treeChanges, snapshot } from '../code/git';
+import { repositoryInfo, localBranches, localBranchHead, reviewCommitCount, oldFile, diffFile, treeChanges, snapshot, remoteMergeBase } from '../code/git';
 import type { RepositoryInfo } from '../code/git';
 import type { CodeReview, CodeReviewItem, CodeReviewMessageKind, CreateCodeReviewItem, UpdateCodeReviewItem } from '../../models/code-review';
 import { createReviewStore } from './store';
@@ -13,7 +13,7 @@ import type { AgentSession } from '../agent-sessions/types';
 import { broadcast } from '../shared/events';
 import { CODE_FIXER_PROTOCOL } from '../library/code-fixer-instruction';
 
-type Draft = Omit<CreateCodeReviewItem, 'review_id' | 'round_id' | 'author' | 'status' | 'answer' | 'carried_from_item_id' | 'outdated'>;
+type Draft = { comparison_ref?: string } & Omit<CreateCodeReviewItem, 'review_id' | 'round_id' | 'author' | 'status' | 'answer' | 'carried_from_item_id' | 'outdated'>;
 type CloseMode = 'require_resolved' | 'carry' | 'close';
 const unresolved = (item: CodeReviewItem) => !item.closed;
 /** The agent replied and the thread waits for the developer (no reply of theirs queued yet). */
@@ -106,7 +106,11 @@ export function createReviewService(db: Database.Database = getDb(), dependencie
   async function snippet(root: string, info: RepositoryInfo | null, data: Draft): Promise<string> {
     if (data.scope !== 'line') return data.code_snippet ?? '';
     // The server captures the original selection rather than trusting a client-provided snippet.
-    const content = data.side === 'old'
+    const comparison = data.comparison_ref ? await remoteMergeBase(root, data.comparison_ref, info?.head ?? 'HEAD') : data.comparison_base ?? null;
+    const change = comparison ? (await treeChanges(root, comparison, info?.head ?? 'HEAD')).changes.find(c => c.path === data.file) : undefined;
+    const content = comparison
+      ? await oldFile(root, data.side === 'old' ? change?.originalPath ?? data.file! : data.file!, data.side === 'old' ? comparison : info?.head ?? 'HEAD')
+      : data.side === 'old'
       ? await oldFile(root, data.file!, info?.head ?? 'HEAD')
       : (await readCodeFile(root, data.file!)).content;
     if (content === undefined) throw new CodeError('Line items require a text file');
@@ -139,12 +143,14 @@ export function createReviewService(db: Database.Database = getDb(), dependencie
       const { root, info } = await context(projectId);
       const data = validateDraft(root, info, input);
       checkOrigin(projectId, origin, originId);
+      if (data.comparison_ref !== undefined && (typeof data.comparison_ref !== 'string' || !data.comparison_ref.startsWith('origin/'))) throw new CodeError('Invalid remote comparison');
+      const comparison_base = data.comparison_ref && data.side === 'old' ? await remoteMergeBase(root, data.comparison_ref, info?.head ?? 'HEAD') : null;
       const code_snippet = await snippet(root, info, data);
       await ensureSame(root, info);
       return db.transaction(() => {
         const review = openCurrent(projectId, info) ?? createCurrent(projectId, info, origin, originId);
         const item = store.createItem({ ...data, review_id: review.id, round_id: null, author: 'developer',
-          status: 'draft', answer: null, outdated: false, carried_from_item_id: null, code_snippet });
+          status: 'draft', answer: null, outdated: false, carried_from_item_id: null, code_snippet, comparison_base });
         return { review, item };
       })();
     });
@@ -514,7 +520,7 @@ export function createReviewService(db: Database.Database = getDb(), dependencie
   }
   async function relocate(review: CodeReview, file: string, content: string | null, side: 'new' | 'old') {
     const lines = content?.replace(/\r\n/g, '\n').split('\n') ?? [];
-    for (const item of store.listItems(review.id).filter(item => item.scope === 'line' && item.file === file && item.side === side)) {
+    for (const item of store.listItems(review.id).filter(item => item.scope === 'line' && item.file === file && item.side === side && !(side === 'old' && item.comparison_base))) {
       const selected = item.code_snippet.replace(/\r\n/g, '\n').split('\n');
       const matchesAt = (at: number) => item.code_snippet.length > 0
         && selected.every((line, offset) => lines[at + offset] === line);
@@ -617,6 +623,16 @@ export function createReviewService(db: Database.Database = getDb(), dependencie
    * «review» is everything that entered the review (head_start → its end), «agent» is the worktree now
    * against the snapshot of a round (the last one by default), i.e. what the agent changed after it.
    */
+  async function remoteComparison(projectId: string, ref: string) {
+    return exclusive(projectId, async () => {
+      const { root, info } = await context(projectId);
+      if (!info?.head || !ref.startsWith('origin/')) throw new CodeError('Choose an origin branch');
+      const base = await remoteMergeBase(root, ref, info.head), end = info.head;
+      const result = { base, end, ...await treeChanges(root, base, end) };
+      await ensureSame(root, info);
+      return result;
+    });
+  }
   async function baseChanges(projectId: string, reviewId: string, base: 'review' | 'agent', roundId?: string) {
     return exclusive(projectId, async () => {
       const { root, info } = await context(projectId);
@@ -656,7 +672,7 @@ export function createReviewService(db: Database.Database = getDb(), dependencie
     });
   }
   return { addDraft, updateDraft, removeItem, makeGeneral, finish, markViewed, openFile, current,
-    history, detail, reviewDiff, baseChanges, removeReview, markViewedCurrent, sendRound, stop, getAgentReview, focusItem, replyItem, addMessage, removeMessage, closeItem, attention };
+    history, detail, reviewDiff, remoteComparison, baseChanges, removeReview, markViewedCurrent, sendRound, stop, getAgentReview, focusItem, replyItem, addMessage, removeMessage, closeItem, attention };
 }
 
 let service: ReturnType<typeof createReviewService> | undefined;

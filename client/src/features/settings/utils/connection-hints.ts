@@ -45,6 +45,11 @@ export const CONNECTION = {
   presetNote: 'Преднастройка заполняет только «Параметры входа»; значения копируются в подключение, их можно поправить. Для незнакомого сервиса заполните параметры вручную.',
   ownUsername: 'Логин только для этого подключения — в общем списке учётных записей его нет.',
   ownPassword: 'Пароль шифруется и больше никогда не показывается. Оставьте пустым, чтобы не менять.',
+  ownToken: 'Токен шифруется и больше никогда не показывается. Оставьте пустым, чтобы не менять.',
+  gitlabToken: 'Нажмите «Создать токен»: GitLab откроется в браузере с уже заполненными именем Plangent и правами api. Войдите как обычно (в том числе через Keycloak), создайте токен и вставьте его в поле «Токен».',
+  githubToken: 'Нажмите «Создать токен»: GitHub откроется с именем Plangent и правом repo. Создайте токен (classic) и вставьте его в поле «Токен». Адрес API для github.com: https://api.github.com. Через это подключение Plangent создаёт Pull Request.',
+  gitlabGit: 'Git (clone/push) настраивается отдельно: SSH-ключ или HTTPS с этим же токеном вместо пароля.',
+  gitlabCheckFirst: 'Сохраните подключение — после этого его можно проверить.',
   autoCheck: 'После сохранения подключение будет проверено, если пароль задан.',
   authSummary: 'Параметры входа',
   authIntro: 'Как Plangent входит в сервис и как понимает, что вход удался. Все пути относительные: они приклеиваются к адресу сервиса, итоговый URL показан под полем. Пароль здесь не задаётся.',
@@ -59,6 +64,7 @@ export const CREDENTIAL_MODES: Record<string, { label: string; hint: string }> =
 }
 
 export const STRATEGIES: Record<string, { label: string; hint: string }> = {
+  token: { label: 'Токен', hint: 'Секрет передаётся в заголовке из настроек подключения и хранится в vault.' },
   auto: { label: 'Автоматически', hint: 'Пробует способы по порядку и запоминает сработавший. Однозначный «неверный пароль» останавливает перебор, чтобы не заблокировать учётную запись.' },
   basic: { label: 'Basic', hint: 'Логин и пароль уходят в заголовке каждого запроса. Подходит, если API сервиса принимает базовую аутентификацию.' },
   form: { label: 'Форма входа', hint: 'Один вход, как в браузере: логин и пароль отправляются в форму, дальше запросы идут с cookie сессии.' },
@@ -75,6 +81,10 @@ export function authFields(strategy: string): { title: string; fields: SettingFi
       { path: 'check_path', kind: 'path', required: true, label: 'Путь проверки «кто я»', placeholder: '/api/user/current', hint: 'Запрос, которым «Проверить» убеждается, что вход удался. Должен отвечать только вошедшему пользователю — обычно JSON с данными текущего пользователя.', find: 'В документации API сервиса ищите «current user», «me», «whoami». ' + OPEN_IN_BROWSER },
       { path: 'user_path', label: 'Поле имени в ответе', placeholder: 'displayName', hint: 'Путь через точку к имени пользователя в ответе проверки — из него берётся «Вошли как …». Пусто — проверяется только, что ответ успешный.', find: OPEN_IN_BROWSER + ' Найдите поле с вашим именем; вложенные поля пишутся через точку: user.name.' },
       { path: 'expect_json', kind: 'bool', label: 'Ответ должен быть JSON', hint: 'Если вместо JSON пришла HTML-страница, значит сервис показал страницу входа — вход считается неудачным.' },
+    ] },
+    { title: 'Вход по токену', fields: [
+      { path: 'token_header', required: true, label: 'Заголовок токена', placeholder: 'PRIVATE-TOKEN', hint: 'Название заголовка API. Сам токен вставляется в защищённое поле.', visible: () => strategy === 'token' },
+      { path: 'token_prefix', label: 'Префикс токена', placeholder: 'Bearer ', hint: 'Пусто для PRIVATE-TOKEN; Bearer с пробелом для Authorization.', visible: () => strategy === 'token' },
     ] },
     { title: 'Порядок способов', fields: [
       { path: 'strategies', kind: 'list', required: true, label: 'Способы по порядку', placeholder: 'basic, form', hint: 'Через запятую: basic, form. Первый сработавший запоминается для следующих запросов.', visible: () => strategy === 'auto' },

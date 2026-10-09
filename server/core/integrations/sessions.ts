@@ -4,11 +4,11 @@ import { getSecretVault } from '../../infrastructure/secrets';
 import { effectiveCredential, credentialRow, requireConnection, IntegrationError, markNeedsUpdate } from './index';
 
 export interface Cookie { name: string; value: string; path: string; secure: boolean; expires?: number }
-export interface AuthSession { id: string; strategy: 'basic' | 'form'; cookies: Cookie[] }
+export interface AuthSession { id: string; strategy: 'basic' | 'form' | 'token'; cookies: Cookie[] }
 export interface AuthContext { connection: IntegrationConnection; credential_id: string; revision: number; username: string; password: string; signature: string; last_url?: string }
 export function authContext(id: string): AuthContext {
   const connection = requireConnection(id), credential = effectiveCredential(connection);
-  if (!credential || !credential.hasSecret || credential.status === 'needs_update') throw new IntegrationError('Обновите пароль учётки','needs_update',409);
+  if (!credential || !credential.hasSecret || credential.status === 'needs_update') throw new IntegrationError(connection.auth_strategy === 'token' ? 'Обновите токен' : 'Обновите пароль учётки','needs_update',409);
   const row = credentialRow(credential.id)!;
   let password: string;
   try { password = getSecretVault().decrypt(row.secret_blob!); }
@@ -21,14 +21,14 @@ export function isCurrent(ctx: AuthContext): boolean {
 }
 export function rejectPassword(ctx: AuthContext): never {
   if (isCurrent(ctx)) markNeedsUpdate(ctx.credential_id,ctx.revision);
-  throw new IntegrationError('Неверные данные учётки. Обновите пароль','invalid_credentials',401);
+  throw new IntegrationError(ctx.connection.auth_strategy === 'token' ? 'Токен недействителен. Обновите токен' : 'Неверные данные учётки. Обновите пароль','invalid_credentials',401);
 }
 function load(ctx: AuthContext): AuthSession | null {
   const row = getDb().prepare('SELECT * FROM integration_sessions WHERE connection_id=?').get(ctx.connection.id) as { credential_id: string; credential_revision: number; secret_blob: Buffer; expires_at: string | null } | undefined;
   if (!row || row.credential_id !== ctx.credential_id || row.credential_revision !== ctx.revision || (row.expires_at && Date.parse(row.expires_at) <= Date.now())) return null;
   try {
     const session = JSON.parse(getSecretVault().decrypt(row.secret_blob)) as AuthSession;
-    if (typeof session.id !== 'string' || !['basic','form'].includes(session.strategy) || !Array.isArray(session.cookies)) throw new Error();
+    if (typeof session.id !== 'string' || !['basic','form','token'].includes(session.strategy) || !Array.isArray(session.cookies)) throw new Error();
     return session;
   } catch {
     getDb().prepare('DELETE FROM integration_sessions WHERE connection_id=?').run(ctx.connection.id);

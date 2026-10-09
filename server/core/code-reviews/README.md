@@ -87,3 +87,17 @@ library items are never exported into agent files. ACP denies git commands and e
 outside the physical project folder, including through external junctions/symlinks.
 Deleting a chat clears round.session_id and preserves the review items; deleting
 the review closes and deletes its owned chats.
+
+## Colleagues' MR discussions (external threads)
+
+`external.ts` pulls discussions of the merge request of the current local branch through
+`CodeHost.listDiscussions` (MR found by `findMergeRequestForBranch`). They are not stored and are kept apart
+from the developer's threads with the agent; there is no background sync: the client pulls on demand.
+
+| Method | Path | Behavior |
+| --- | --- | --- |
+| GET | /external | { mr: {iid,title,url,state} | null, threads }; system notes are dropped; thread = path, line, side (new/old), notes |
+| POST | /external/:discussionId/reply | { body, confirmed: true } -> CodeHost.replyToDiscussion, then fresh threads |
+
+A reply needs confirmed=true and a discussion that still belongs to the current branch's MR. The UI shows threads
+on their lines and in the right panel; «Разобрать с агентом» turns a thread into an ordinary question item.

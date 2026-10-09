@@ -37,8 +37,34 @@
         </FormField>
       </template>
       <div v-if="form.credential_mode === 'own'" class="row">
-        <FormField v-model="form.username" label="Собственный логин" :hint="CONNECTION.ownUsername" />
-        <FormField v-model="password" label="Пароль" type="password" :placeholder="ownHasSecret ? 'Сохранён — не меняется' : ''" :hint="CONNECTION.ownPassword" />
+        <FormField v-if="form.auth_strategy !== 'token'" v-model="form.username" label="Собственный логин" :hint="CONNECTION.ownUsername" />
+        <FormField v-model="password" :label="form.auth_strategy === 'token' ? 'Токен' : 'Пароль'" type="password" :placeholder="ownHasSecret ? 'Сохранён — не меняется' : form.auth_strategy === 'token' ? 'glpat-…' : ''" :hint="form.auth_strategy === 'token' ? CONNECTION.ownToken : CONNECTION.ownPassword" />
+      </div>
+      <div v-if="isGitHub" class="gitlab">
+        <div class="gitlab-row">
+          <a class="btn btn-ghost btn-sm" href="https://github.com/settings/tokens/new?description=Plangent&amp;scopes=repo" target="_blank" rel="noopener noreferrer">Создать токен ↗</a>
+        </div>
+        <p class="hint">{{ CONNECTION.githubToken }}</p>
+        <p class="hint">{{ CONNECTION.gitlabGit }}</p>
+      </div>
+      <div v-if="isGitLab" class="gitlab">
+        <div class="gitlab-row">
+          <a v-if="origin" class="btn btn-ghost btn-sm" :href="origin + '/-/user_settings/personal_access_tokens?name=Plangent&amp;scopes=api'" target="_blank" rel="noopener noreferrer">Создать токен ↗</a>
+          <span v-else class="hint">Укажите адрес GitLab, чтобы создать токен.</span>
+          <span class="gitlab-spacer" />
+          <AppButton v-if="connection" type="button" size="sm" :disabled="busy" @click="checkSaved">{{ busy ? 'Проверка…' : 'Проверить' }}</AppButton>
+          <span v-else class="hint">{{ CONNECTION.gitlabCheckFirst }}</span>
+        </div>
+        <p class="hint">{{ CONNECTION.gitlabToken }}</p>
+        <p class="hint">{{ CONNECTION.gitlabGit }}</p>
+        <div v-if="checkResult" role="status" class="check" :class="{ failed: !checkResult.ok }">
+          <span>{{ checkResult.ok ? '✓' : '✕' }} {{ checkResult.message }}</span>
+          <span v-if="checkResult.ok && (checkResult.user || checkResult.version || checkResult.token_expires_at)" class="check-meta">
+            <template v-if="checkResult.user">Пользователь: {{ checkResult.user }}</template>
+            <template v-if="checkResult.version"> · GitLab {{ checkResult.version }}</template>
+            <template v-if="checkResult.token_expires_at"> · токен действует до {{ checkResult.token_expires_at }}</template>
+          </span>
+        </div>
       </div>
     </fieldset>
 
@@ -74,7 +100,7 @@
 import ConnectionsGuide from '@shared/ui/ConnectionsGuide.vue'
 import { computed, ref, watch } from 'vue'
 import { api } from '@core/api'
-import type { Connection, Credential, IntegrationPreset, Organization } from '@core/models/integrations'
+import type { Connection, ConnectionCheck, Credential, IntegrationPreset, Organization } from '@core/models/integrations'
 import AppModal from '@shared/ui/AppModal.vue'
 import AppButton from '@shared/ui/AppButton.vue'
 import FormField from '@shared/ui/FormField.vue'
@@ -93,8 +119,19 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ 'update:modelValue': [open: boolean]; saved: [id: string, passwordChanged: boolean] }>()
 
-const blank = () => ({ name: '', base_url: '', organization_id: '', credential_mode: 'own', credential_id: '', username: '', auth_strategy: 'basic', auth_config: { expect_json: true } as Record<string, unknown> })
+const blank = () => ({ code_host: null as string | null, name: '', base_url: '', organization_id: '', credential_mode: 'own', credential_id: '', username: '', auth_strategy: 'basic', auth_config: { expect_json: true } as Record<string, unknown> })
 const form = ref(blank())
+const isGitHub = computed(() => form.value.code_host === 'github')
+const isGitLab = computed(() => form.value.auth_strategy === 'token' && form.value.auth_config.check_path === '/api/v4/user')
+const checkResult = ref<ConnectionCheck>()
+async function checkSaved() {
+  if (!props.connection || busy.value) return
+  const id = await saveSettings(false)
+  if (!id) return
+  busy.value = true
+  try { checkResult.value = await api.post<ConnectionCheck>('/integrations/connections/' + id + '/check') }
+  catch (cause) { error.value = errorText(cause, ERRORS) } finally { busy.value = false }
+}
 // Saved settings are copies: editing the form must not touch the list or the preset.
 const clone = (v: Record<string, unknown>) => JSON.parse(JSON.stringify(v)) as Record<string, unknown>
 const password = ref(''), ownHasSecret = ref(false)
@@ -102,11 +139,11 @@ const applied = ref(''), authOpen = ref(false), busy = ref(false), error = ref('
 const authText = ref(''), authTextError = ref(false)
 
 watch(() => props.modelValue, async open => {
-  password.value = ''; error.value = ''; applied.value = ''; ownHasSecret.value = false; authTextError.value = false
+  checkResult.value = undefined; password.value = ''; error.value = ''; applied.value = ''; ownHasSecret.value = false; authTextError.value = false
   if (!open) return
   const c = props.connection
   form.value = c
-    ? { ...blank(), name: c.name, base_url: c.base_url, organization_id: c.organization_id || '', credential_mode: c.credential_mode, credential_id: c.credential_id || '', auth_strategy: c.auth_strategy, auth_config: clone(c.auth_config) }
+    ? { ...blank(), code_host: c.code_host || null, name: c.name, base_url: c.base_url, organization_id: c.organization_id || '', credential_mode: c.credential_mode, credential_id: c.credential_id || '', auth_strategy: c.auth_strategy, auth_config: clone(c.auth_config) }
     : { ...blank(), organization_id: props.organizationId || '', credential_mode: props.organizationId ? 'inherit' : 'own' }
   // An unknown service starts from the manual settings; a known one from «Заполнить как».
   authOpen.value = !c && !props.presets.length
@@ -151,10 +188,13 @@ function setAuthText(text: string) {
 function applyPreset(id: string) {
   const p = props.presets.find(p => p.id === id)
   if (!p) return
+  form.value.code_host = p.code_host || null
   form.value.auth_strategy = p.auth_strategy
   form.value.auth_config = clone(p.auth_config)
   authTextError.value = false
   applied.value = id
+  if (id === 'github-token') { form.value.credential_mode = 'own'; form.value.username = 'token'; if (!form.value.name) form.value.name = 'GitHub'; if (!form.value.base_url) form.value.base_url = 'https://api.github.com' }
+  if (id === 'gitlab-token') { form.value.credential_mode = 'own'; form.value.username = 'token'; if (!form.value.name) form.value.name = 'GitLab' }
 }
 
 function validate(): string {
@@ -162,13 +202,13 @@ function validate(): string {
   if (!f.name.trim()) return 'Укажите название подключения.'
   if (!origin.value) return CONNECTION.baseUrlInvalid
   if (f.credential_mode === 'credential' && !f.credential_id) return 'Выберите учётную запись.'
-  if (f.credential_mode === 'own' && !f.username.trim()) return 'Укажите логин.'
+  if (f.credential_mode === 'own' && f.auth_strategy !== 'token' && !f.username.trim()) return 'Укажите логин.'
   if (authTextError.value) return CONNECTION.jsonInvalid
   if (typeof f.auth_config.check_path !== 'string' || !f.auth_config.check_path.trim()) { authOpen.value = true; return 'Укажите путь проверки в «Параметрах входа» или нажмите «Заполнить как».' }
   return ''
 }
 
-async function save() {
+async function saveSettings(close = true) {
   if (busy.value) return
   error.value = validate()
   if (error.value) return
@@ -177,24 +217,26 @@ async function save() {
     const f = form.value
     const normalized = await api.post<{ base_url: string }>('/integrations/normalize-url', { base_url: f.base_url.trim() })
     const data = {
-      name: f.name.trim(), base_url: normalized.base_url, organization_id: f.organization_id || null,
+      code_host: f.code_host, name: f.name.trim(), base_url: normalized.base_url, organization_id: f.organization_id || null,
       credential_mode: f.credential_mode, credential_id: f.credential_id || null,
-      own_credential: { username: f.username.trim() }, auth_strategy: f.auth_strategy, auth_config: f.auth_config,
+      own_credential: { username: f.auth_strategy === 'token' ? 'token' : f.username.trim() }, auth_strategy: f.auth_strategy, auth_config: f.auth_config,
     }
     const saved = props.connection
       ? await api.patch<Connection>('/integrations/connections/' + props.connection.id, data)
       : await api.post<Connection>('/integrations/connections', data)
     const passwordChanged = f.credential_mode === 'own' && !!password.value
     // The password is a separate write-only request; it never travels with the settings.
-    if (passwordChanged) await api.put('/integrations/connections/' + saved.id + '/password', { password: password.value })
+    if (passwordChanged) { await api.put('/integrations/connections/' + saved.id + '/password', { password: password.value }); ownHasSecret.value = true }
     password.value = ''
-    emit('saved', saved.id, passwordChanged)
-    emit('update:modelValue', false)
+    if (close) emit('saved', saved.id, passwordChanged)
+    if (close) emit('update:modelValue', false)
+    return saved.id
   } catch (e) {
     error.value = errorText(e, ERRORS)
     if (/параметр|путь|Пути|способ|поле/i.test(error.value)) authOpen.value = true
   } finally { busy.value = false }
 }
+async function save() { await saveSettings() }
 </script>
 
 <style scoped>
@@ -219,4 +261,11 @@ async function save() {
 .auth-body { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
 h4 { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-faint); margin-top: 6px; padding-top: 10px; border-top: 1px solid var(--border); }
 .json { display: flex; flex-direction: column; gap: 6px; }
+.gitlab { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; background: var(--bg3); border-radius: var(--radius-sm); }
+.gitlab-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.gitlab-row a.btn { text-decoration: none; }
+.gitlab-spacer { flex: 1; }
+.check { display: flex; flex-direction: column; gap: 2px; padding: 6px 10px; font-size: 12px; border-radius: var(--radius-sm); color: var(--accent-hover); background: var(--accent-soft); }
+.check.failed { color: var(--danger-hover); background: var(--danger-soft); }
+.check-meta { color: var(--text-muted); }
 </style>

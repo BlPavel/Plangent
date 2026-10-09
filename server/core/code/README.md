@@ -2,7 +2,8 @@
 
 HTTP prefix: /api/projects/:projectId/code. Uses the registered project root and local-origin guard.
 All paths are project-relative; containment includes existing symlink ancestors. Git internals are excluded.
-No endpoint writes files, changes branches, stages files or creates commits.
+The /code endpoints do not write files, change branches, stage files or create commits.
+Write operations live separately in git-write.ts and /api/projects/:projectId/git.
 
 GET endpoints:
 - /repository: RepositoryInfo or null for a non-repository.
@@ -38,3 +39,19 @@ and Git objects/logs. Git worktrees additionally watch their external Git metada
 Linux watches only HEAD/index (and packed-refs) in the Git metadata directory, without recursive project traversal;
 working-file updates there require manual refresh unless accompanied by an index/HEAD update.
 Watchers are closed after the last subscriber disconnects.
+
+Git endpoints: GET /repository, /branches; POST /stage and /unstage with paths[], /fetch, /pull (--ff-only), /push (sets origin upstream if missing), /switch with branch, /branch with name/base, /cancel with operationId.
+Writes are serialized by canonical repository path. Git write operations reject active agent execution and active finish workflows.
+Network/hook output is sent in git:progress events keyed by project_id and operationId (optional client-supplied ID). Disconnect aborts the operation; timeout defaults to 120 seconds. Cancellation terminates the Windows process tree. Authentication failures suggest PAT or SSH.
+resetForReassembly is an internal finish-only function and has no route; it requires the expected current HEAD and an ancestor base.
+
+POST /commit-message accepts title, body, includeDescription, includeCoauthors, coauthors[{name,email}]. Returns assembled message, line-based violations and cleaned text. Embedded Co-authored-by lines are stripped regardless of casing; only the explicitly enabled list adds human trailers.
+POST /commit takes the same fields and overrideForbidden (explicit boolean). Commit resolves inherited settings again inside the repository queue; forbidden patterns block unless overridden, format mismatch is a warning and does not block. git config provides author/committer; hook output and cancellation follow other operations. POST /generate-message uses a bounded read-only agent session with staged diff, rules and optional taskId; generated attribution is cleaned before returning title/body.
+
+Project Git data: projects.clone_url, host_project_path, connection_id and git_settings. Settings merge field by field from defaults, group and project; false, empty strings and empty arrays override inherited values. GET /api/projects/:id/git-settings returns values and sources. POST /api/projects/git-preview with repo_path inspects origin; a unique matching connection hostname is suggested. Project creation accepts creation_mode=folder|clone and operationId. Clone requires a new leaf under an existing parent; matching unregistered clones return reuse_existing and require explicit reuse_existing=true. POST /api/projects/clone-cancel aborts by operationId. Failed/cancelled clones remove only the newly reserved, identity-checked directory. Git CLI authentication uses the developer's Git configuration, separately from hosting API credentials.
+
+Finish workflow uses /api/projects/:projectId/finish and core/finish (see its README).
+Manual operations are blocked while a finish run is active, including its confirmation screen.
+Nested git-write calls within a workflow share one repository transaction; a reset/rebuild cannot
+interleave with a stage, branch switch or push from a second HTTP request.
+GET /git/repository includes busyReason; /git/settings and /git/coauthors feed the client panel.

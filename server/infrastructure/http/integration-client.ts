@@ -4,9 +4,9 @@ import { HttpReply, Send, login, strategyFor, matches } from '../../core/integra
 import { getDb } from '../db/schema';
 
 /** Use for diagnostics; callers must never log unfiltered request options. */
-export function redact(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(redact);
-  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([k,v]) => [k,/authorization|cookie|password|secret|token|body/i.test(k) ? '[REDACTED]' : redact(v)]));
+export function redact(value: unknown, secretHeaders: readonly string[] = []): unknown {
+  if (Array.isArray(value)) return value.map(entry => redact(entry, secretHeaders));
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([k,v]) => [k,/authorization|cookie|password|secret|token|body/i.test(k) || secretHeaders.some(header => header.toLowerCase() === k.toLowerCase()) ? '[REDACTED]' : redact(v, secretHeaders)]));
   return value;
 }
 export class IntegrationHttpError extends IntegrationError {
@@ -73,7 +73,7 @@ export async function authenticatedRequest(id: string,p: string,options?: Parame
     const active = ctx, c = ctx.connection.auth_config as unknown as AuthConfig;
     let session = await getSession(ctx,() => login(active,send));
     let reply = await send(ctx,session,p,options);
-    if (matches(reply,c.invalid_password)) rejectPassword(ctx);
+    if (matches(reply,c.invalid_password) || session.strategy === 'token' && reply.status === 401) rejectPassword(ctx);
     if (strategyFor(session).isAuthError(reply,c)) {
       clearSession(ctx,session);
       session = await getSession(ctx,() => login(active,send));
@@ -92,7 +92,7 @@ export async function authenticatedRequest(id: string,p: string,options?: Parame
     throw new IntegrationHttpError(new IntegrationError('Ошибка подключения','remote_error',502),target);
   }
 }
-export interface ConnectionCheck { ok: boolean; status: string; message: string; url: string; user?: string }
+export interface ConnectionCheck { ok: boolean; status: string; message: string; url: string; user?: string; version?: string; token_expires_at?: string }
 export async function checkConnection(id: string): Promise<ConnectionCheck> {
   const c = requireConnection(id), config = c.auth_config as unknown as AuthConfig;
   let result: ConnectionCheck;
@@ -111,6 +111,20 @@ export async function checkConnection(id: string): Promise<ConnectionCheck> {
   } catch (e) {
     if (!(e instanceof IntegrationHttpError)) throw e;
     result = { ok: false,status: e.code,message: e.message,url: e.url };
+  }
+  if (result.ok) for (const detail of config.check_details ?? []) {
+    try {
+      let value: unknown = JSON.parse((await authenticatedRequest(id, detail.path)).body);
+      for (const key of detail.value_path.split('.')) value = value && typeof value === 'object' && Object.hasOwn(value, key) ? (value as Record<string, unknown>)[key] : undefined;
+      if (typeof value === 'string') {
+        result[detail.result_key] = value;
+        result.message += ' · ' + detail.label + ' ' + value;
+      }
+    } catch (error) {
+      // Old server versions may not expose optional diagnostics.
+      if (error instanceof SyntaxError) continue;
+      if (!(error instanceof IntegrationHttpError) || ![403, 404, 405].includes(error.remote_status ?? error.status)) throw error;
+    }
   }
   if (result.status !== 'configuration_changed') getDb().prepare(`UPDATE integration_connections SET last_check_status=?,last_check_at=datetime('now'),last_check_message=? WHERE id=?`).run(result.ok ? 'ok' : ['needs_update','invalid_credentials'].includes(result.status) ? 'needs_update' : 'error',result.message,id);
   return result;

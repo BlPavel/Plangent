@@ -1,3 +1,4 @@
+import { createTaskBranch } from '../../../core/tasks/git';
 import { Router, Request, Response } from 'express';
 import { listTasks, getTask, createTask, updateTask, deleteTask } from '../../../core/tasks';
 import { getProject, groupMembers } from '../../../core/projects';
@@ -26,6 +27,10 @@ tasksRouter.post('/:taskId/move', async (req: Request, res: Response) => {
   catch (e) { res.status(400).json({ error: e instanceof Error ? e.message : String(e) }); }
 });
 
+tasksRouter.post('/:taskId/branch', async (req: Request,res: Response) => {
+  try { res.json(await createTaskBranch(req.params.projectId,req.params.taskId,req.body)); }
+  catch(e) { res.status((e as { status?: number }).status ?? 400).json({ error: e instanceof Error ? e.message : String(e) }); }
+});
 tasksRouter.get('/:taskId', (req: Request, res: Response) => {
   const t = getTask(req.params.taskId);
   if (!t) return res.status(404).json({ error: 'Not found' });
@@ -43,7 +48,10 @@ tasksRouter.post('/', (req: Request, res: Response) => {
 });
 
 tasksRouter.patch('/:taskId', (req: Request, res: Response) => {
-  const t = updateTask(req.params.taskId, req.body);
+  if (getTask(req.params.taskId)?.project_id !== req.params.projectId) return res.status(404).json({ error: 'Not found' });
+  let t;
+  try { const { title, jira_url, branch_name, status, finish_scenario, target_branch, external_key, base_branch } = req.body; t = updateTask(req.params.taskId, { title, jira_url, branch_name, status, finish_scenario, target_branch, external_key, base_branch }); }
+  catch (e) { return res.status(400).json({ error: e instanceof Error ? e.message : String(e) }); }
   if (!t) return res.status(404).json({ error: 'Not found' });
   res.json(t);
 });

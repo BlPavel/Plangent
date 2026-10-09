@@ -15,6 +15,7 @@ import { getAcpOptions, saveAcpOptions, type AcpOptions } from '../agents/acp-op
 import { enqueue, queuedPrompts, editQueued } from './prompt-queue';
 import { permissionDecision } from './permissions';
 import { agentEnv } from './env';
+import { agentSessionSettings } from './session-settings';
 import { agentPresets, presetForAgentId } from '../agents/presets';
 import type { AgentSession, PermissionPolicy } from './types';
 import type { Agent } from '../../models';
@@ -80,7 +81,7 @@ function probeAgent(agentId: string): Promise<AcpOptions> {
       return await Promise.race([
         (async () => {
           const init = await connection.agent.request('initialize', { protocolVersion: sdk.PROTOCOL_VERSION, clientInfo: { name: 'Plangent', version: '0.5.0' }, clientCapabilities: {} });
-          return saveAcpOptions(agentId, await connection.agent.request('session/new', { cwd: os.tmpdir(), mcpServers: [] }), init);
+          return saveAcpOptions(agentId, await connection.agent.request('session/new', { cwd: os.tmpdir(), mcpServers: [], ...agentSessionSettings(agent) }), init);
         })(),
         new Promise<never>((_, reject) => { child.on('error', reject); timer = setTimeout(() => reject(new Error('Агент не ответил за 90 секунд')), 90_000); }),
       ]);
@@ -223,7 +224,8 @@ async function boot(id: string): Promise<LiveSession> {
     let response: ACP.NewSessionResponse | ACP.LoadSessionResponse;
     // A group works in its service folder; its projects live elsewhere and join the session's scope.
     const extra = writableRoots(project).slice(1);
-    const where = { cwd: project.repo_path, mcpServers,
+    const sessionRoot = session.metadata.mr_private ? (await import('../mr-review/private')).reviewWorkspace(id) : project.repo_path;
+    const where = { cwd: sessionRoot, mcpServers, ...agentSessionSettings(agent),
       ...(extra.length && initialized.agentCapabilities?.sessionCapabilities?.additionalDirectories ? { additionalDirectories: extra } : {}) };
     if (session.acp_session_id) {
       try {
@@ -250,7 +252,7 @@ async function boot(id: string): Promise<LiveSession> {
     // 'discuss' is chosen before the agent's own mode list is known; map it onto its plan/read-only mode.
     const preferred = getSession(id).metadata.preferredMode as string | undefined;
     // Planner and librarian write through MCP; the agent's plan mode can interrupt that workflow.
-    const discuss = (session.policy === 'read-only' && session.role !== 'planner' && session.role !== 'librarian') || preferred === 'discuss';
+    const discuss = (session.policy === 'read-only' && session.role !== 'planner' && session.role !== 'librarian' && session.role !== 'committer') || preferred === 'discuss';
     const safeMode = (preferred && !isBypassMode(preferred) ? modes.find(m => m.id === preferred) : undefined)
       ?? (discuss ? modes.find(m => /^plan$|read.?only/i.test(m.id)) : undefined)
       ?? modes.find(m => m.id === 'default') ?? modes.find(m => m.id === 'read-only');
@@ -347,7 +349,7 @@ export async function sendPrompt(id: string, content: ACP.ContentBlock[]): Promi
   const workspace = project ? workspaceBriefing(project) : '';
   const roleBriefing = session.role === 'code-fixer' ? buildCodeFixerBriefing(session.project_id)
     : session.role === 'librarian' ? buildLibrarianPrompt(project?.name ?? session.project_id) : '';
-  const briefing = [workspace, roleBriefing || (typeof session.metadata.briefing === 'string' ? session.metadata.briefing : '')].filter(Boolean).join('\n\n');
+  const briefing = ['Do not commit or run git commands that modify the repository. The user makes commits through Plangent. Do not add agent attribution to commit messages or pull requests.', workspace, roleBriefing || (typeof session.metadata.briefing === 'string' ? session.metadata.briefing : '')].filter(Boolean).join('\n\n');
   const withBriefing = briefing && (!session.metadata.briefed || session.metadata.needsContext);
   const prompt: ACP.ContentBlock[] = [
     ...(withBriefing ? [{ type: 'text' as const, text: briefing }] : []),

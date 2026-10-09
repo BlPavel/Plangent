@@ -6,3 +6,7 @@ export { announceChanges, startCodeNotifications } from './notifications'
 export type * from './types'
 export { default as CodeButton } from './components/CodeButton.vue'
 export { default as CodeTab } from './views/CodeTab.vue'
+
+export { gitApi } from './api'
+export type { GitBranch, Coauthor } from './git-types'
+export { default as CommitDiff } from './components/CommitDiff.vue'

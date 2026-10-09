@@ -1,8 +1,12 @@
+import { defaultGitSettings } from '../../../core/projects/git-settings';
 import { localOrigin } from '../local-origin';
+import { randomUUID } from 'node:crypto';
+import { broadcast } from '../../../core/shared/events';
+import { GitOperationError } from '../../../core/code/git-write';
 import { Router, Request, Response, NextFunction } from 'express';
 import path from 'path';
 import { pathToFileURL } from 'url';
-import { listProjects, getProject, getProjectByKey, createProject, updateProject, deleteProject, groupMembers, ProjectError } from '../../../core/projects';
+import { listProjects, getProject, getProjectByKey, createProjectFromFolder, ExistingCloneError, updateProject, deleteProject, groupMembers, inspectProjectGit, effectiveGitSettings, ProjectError } from '../../../core/projects';
 import { searchFiles } from '../../../core/projects/files';
 import { resyncAfterRegroup } from '../../../core/library/syncer';
 import { getDb } from '../../db/schema';
@@ -19,8 +23,9 @@ projectsRouter.use('/:id/docs', docsRouter);
 const guard = (handler: (req: Request, res: Response) => unknown) => (req: Request, res: Response, next: NextFunction) => {
 
   Promise.resolve().then(() => handler(req, res)).catch(e => {
-    if (e instanceof ProjectError || e instanceof DocsSourceError) return res.status(400).json({ error: e.message });
+    if (e instanceof ProjectError || e instanceof DocsSourceError) return res.status(400).json({ error: e.message, ...(e instanceof ExistingCloneError ? { code: e.code } : {}) });
     if (e instanceof IntegrationError) return res.status(e.status).json({ error: e.message, code: e.code });
+    if (e instanceof GitOperationError) return res.status(e.status).json({ error: e.message, output: e.output, code: e.code });
     res.status(500).json({ error: 'Project operation failed' });
   });
 
@@ -33,11 +38,16 @@ projectsRouter.get('/', (_req: Request, res: Response) => {
   res.json(listProjects().map(p => ({ ...p, active_tasks: active.get(p.id) ?? 0 })));
 });
 
+projectsRouter.post('/git-preview', guard(async (req, res) => res.json(await inspectProjectGit(req.body?.repo_path))));
+
+projectsRouter.get('/git-defaults', (_req, res) => res.json({ values: defaultGitSettings, sources: Object.fromEntries(Object.keys(defaultGitSettings).map(key => [key, 'default'])) }));
 projectsRouter.get('/:id', (req: Request, res: Response) => {
   const p = getProject(req.params.id);
   if (!p) return res.status(404).json({ error: 'Not found' });
   res.json(p);
 });
+
+projectsRouter.get('/:id/git-settings', guard((req, res) => res.json(effectiveGitSettings(req.params.id))));
 
 projectsRouter.get('/:id/files', async (req: Request, res: Response) => {
   const p = getProject(req.params.id);
@@ -78,8 +88,26 @@ projectsRouter.get('/:id/mentions', async (req: Request, res: Response) => {
   } catch (e) { res.status(500).json({ error: String(e) }); }
 });
 
-projectsRouter.post('/', guard((req: Request, res: Response) => {
-  const p = createProject(req.body);
+const clones = new Map<string, AbortController>();
+projectsRouter.post('/clone-cancel', guard((req, res) => {
+  const controller = clones.get(req.body?.operationId);
+  if (!controller) return res.status(404).json({ error: 'Clone not found' });
+  controller.abort(); res.status(204).end();
+}));
+projectsRouter.post('/', guard(async (req: Request, res: Response) => {
+  if (req.body?.creation_mode !== undefined && !['folder', 'clone'].includes(req.body.creation_mode)) throw new ProjectError('Invalid creation mode');
+  const operationId = req.body?.operationId ?? randomUUID();
+  if (typeof operationId !== 'string' || !/^[a-zA-Z0-9-]{1,100}$/.test(operationId) || clones.has(operationId)) throw new ProjectError('Invalid operation ID');
+  const controller = new AbortController(); clones.set(operationId, controller);
+  const cancel = () => { if (!res.writableEnded) controller.abort(); }; res.once('close', cancel);
+  let p: Project;
+  try {
+    p = await createProjectFromFolder(req.body, req.body?.creation_mode === 'clone', {
+      reuseExisting: req.body?.reuse_existing === true, signal: controller.signal,
+      onOutput: output => broadcast({ type: 'project:clone-progress', operationId, output }),
+    });
+  } finally { clones.delete(operationId); res.off('close', cancel); }
+
   if (p.group_id) resyncAfterRegroup({ ...p, group_id: null }, p);
   res.status(201).json(p);
 }));

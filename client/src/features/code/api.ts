@@ -1,5 +1,5 @@
 ﻿import { api } from '@core/api'
-import type { RepositoryInfo, GitChange, LineStat, TreeEntry, CodeFile, DiffOptions, SearchOptions, SearchEvent, ReviewDraft, DraftPatch, CodeReview, CodeReviewItem, CodeReviewMessage, CodeReviewRound, CodeReviewFileView, ReviewDetail, CurrentReview, ReviewHistory, ReviewAttention, BaseChanges } from './types'
+import type { RepositoryInfo, GitChange, LineStat, TreeEntry, CodeFile, DiffOptions, SearchOptions, SearchEvent, ReviewDraft, DraftPatch, CodeReview, CodeReviewItem, CodeReviewMessage, CodeReviewRound, CodeReviewFileView, ReviewDetail, CurrentReview, ReviewHistory, ReviewAttention, BaseChanges, ExternalThreads } from './types'
 const id = encodeURIComponent
 function query(values: object): string {
   const params = new URLSearchParams()
@@ -27,6 +27,7 @@ export const codeApi = {
   },
 }
 export const codeReviewsApi = {
+  remoteComparison: (p: string, ref: string, signal?: AbortSignal) => api.get<BaseChanges>(reviews(p) + '/current/comparison' + query({ ref }), signal),
   current: (p: string, signal?: AbortSignal) => api.get<CurrentReview>(reviews(p) + '/current', signal),
   detail: (p: string, r: string, signal?: AbortSignal) => api.get<ReviewDetail>(review(p, r), signal),
   history: (p: string, signal?: AbortSignal) => api.get<ReviewHistory[]>(reviews(p), signal),
@@ -47,4 +48,17 @@ export const codeReviewsApi = {
   finish: (p: string, r: string, mode: 'require_resolved' | 'carry' | 'close' = 'require_resolved') => api.post<{ review: CodeReview; next_review: CodeReview | null }>(review(p, r) + '/finish', { mode }),
   markViewedCurrent: (p: string, path: string, viewed: boolean, origin: 'project' | 'task' = 'project', originId = p) => api.put<{ review: CodeReview | null; view: CodeReviewFileView | null }>(reviews(p) + '/current/viewed', { path, viewed, origin, origin_id: originId }),
   removeReview: (p: string, r: string) => api.delete<void>(review(p, r)),
+  external: (p: string, signal?: AbortSignal) => api.get<ExternalThreads>(reviews(p) + '/external', signal),
+  replyExternal: (p: string, discussion: string, body: string) => api.post<ExternalThreads>(reviews(p) + '/external/' + id(discussion) + '/reply', { body, confirmed: true }),
+}
+
+const git = (p: string) => '/projects/' + id(p) + '/git'
+export const gitApi = {
+  repository: (p: string) => api.get<import('./git-types').GitTracking | null>(git(p) + '/repository'),
+  branches: (p: string) => api.get<import('./git-types').GitBranch[]>(git(p) + '/branches'),
+  settings: (p: string) => api.get<import('./git-types').GitPreferences>(git(p) + '/settings'),
+  coauthors: (p: string) => api.get<import('./git-types').Coauthor[]>(git(p) + '/coauthors'),
+  operation: (p: string, action: string, input: object = {}) => api.post<{ output: string; operationId: string }>(git(p) + '/' + action, input),
+  checkMessage: (p: string, input: import('./git-types').CommitInput) => api.post<import('./git-types').MessageCheck>(git(p) + '/commit-message', input),
+  generateMessage: (p: string, input: { taskId?: string; includeDescription: boolean }) => api.post<{ title: string; body: string }>(git(p) + '/generate-message', input),
 }

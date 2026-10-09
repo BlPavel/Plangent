@@ -53,6 +53,7 @@ agentSessionsRouter.post('/:id/:action', async (req, res) => {
       case 'mode': await setMode(id, String(req.body.mode)); break;
       case 'config': await setConfig(id, String(req.body.configId), String(req.body.value)); break;
       case 'context': {
+        if (session.metadata.mr_private) throw new Error('Continue the private thread in the Review tab');
         const next = createSession({ project_id: session.project_id, agent_id: session.agent_id, role: session.role === 'code-fixer' ? 'code-fixer' : session.role === 'librarian' ? 'librarian' : 'chat', policy: session.role === 'librarian' ? 'read-only' : 'ask' });
         const context = history(id).filter(e => ['user', 'assistant'].includes(e.type)).map(e => `${e.type}: ${e.payload.text ?? ''}`).join('\n').slice(-60_000);
         await sendPrompt(next.id, [{ type: 'text', text: `Контекст предыдущего разговора (может быть обрезан):\n${context}\nПродолжим разговор.` }]);

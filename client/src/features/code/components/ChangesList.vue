@@ -15,6 +15,7 @@
             v-if="viewable" type="checkbox" class="cl-check" :checked="viewed[change.path] === 'viewed'" :title="viewed[change.path] === 'viewed' ? 'Снять отметку «Просмотрено»' : 'Отметить просмотренным'"
             :aria-label="'Просмотрено: ' + change.path" @click.stop="emit('toggle-viewed', change.path)"
           />
+          <input v-if="stageable" type="checkbox" class="cl-check" :checked="!['.', ' ', '?'].includes(change.indexStatus)" :disabled="!!stageDisabled" :title="stageDisabled || 'К коммиту'" :aria-label="'К коммиту: ' + change.path" @click.stop @change="emit('toggle-stage', change)" />
           <span class="cl-status" :class="'st-' + statusClass(change.status)" :title="statusTitle(change.status)">{{ change.status === '?' ? 'U' : change.status }}</span>
           <!-- eslint-disable-next-line vue/no-v-html -- bundled icon set, not user input -->
           <span class="cl-icon" v-html="iconSvg(fileIconName(nameOf(change.path)))" />
@@ -38,9 +39,9 @@ import type { GitChange, LineStat } from '../types'
 const props = withDefaults(defineProps<{
   changes: GitChange[]; stats: Record<string, LineStat>; selected: string | null; emptyText: string
   /** «Просмотрено» checkboxes; `viewed` maps a path to its mark. */
-  viewable?: boolean; viewed?: Record<string, 'viewed' | 'changed'>; viewedCount?: number
-}>(), { viewable: false, viewed: () => ({}), viewedCount: 0 })
-const emit = defineEmits<{ open: [change: GitChange]; 'toggle-viewed': [path: string] }>()
+  stageable?: boolean; stageDisabled?: string; viewable?: boolean; viewed?: Record<string, 'viewed' | 'changed'>; viewedCount?: number
+}>(), { stageDisabled: '', viewable: false, viewed: () => ({}), viewedCount: 0 })
+const emit = defineEmits<{ open: [change: GitChange]; 'toggle-viewed': [path: string]; 'toggle-stage': [change: GitChange] }>()
 
 const sorted = computed(() => [...props.changes].sort((a, b) => a.path.localeCompare(b.path)))
 const totals = computed(() => {
