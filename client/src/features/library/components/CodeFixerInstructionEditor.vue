@@ -2,8 +2,8 @@
   <div class="fixer-editor">
     <div class="section-row">
       <div>
-        <h3>Агент доработки</h3>
-        <p>Ваши правила для агента, который исполняет замечания ревью кода: что ему можно трогать, чего избегать, как отчитываться. Как читать замечания и вопросы и как их закрывать, агент получает от Plangent вместе с самими пунктами — здесь это описывать не нужно. Git и запись вне папки проекта запрещены в любом случае. Действует ближайший уровень: проект, группа, глобальный; если нигде не задано — предустановленный текст.</p>
+        <h3>{{ cfg.title }}</h3>
+        <p>{{ cfg.description }}</p>
       </div>
     </div>
 
@@ -51,7 +51,19 @@ import type { LibraryItem, LibraryScope } from '@core/models'
 import AppButton from '@shared/ui/AppButton.vue'
 import { useLibraryStore } from '../stores/library'
 
-const props = defineProps<{ scope: LibraryScope; projectId?: string }>()
+/** One editor for every rule text with project / group / global levels and a built-in default. */
+const props = withDefaults(defineProps<{ scope: LibraryScope; projectId?: string; type?: 'code-fixer-instruction' | 'commit-rules' }>(), { type: 'code-fixer-instruction' })
+const CONFIG = {
+  'code-fixer-instruction': {
+    title: 'Агент доработки', itemTitle: 'Агент доработки', slug: 'code_fixer_instruction',
+    description: 'Ваши правила для агента, который исполняет замечания ревью кода: что ему можно трогать, чего избегать, как отчитываться. Как читать замечания и вопросы и как их закрывать, агент получает от Plangent вместе с самими пунктами — здесь это описывать не нужно. Git и запись вне папки проекта запрещены в любом случае. Действует ближайший уровень: проект, группа, глобальный; если нигде не задано — предустановленный текст.',
+  },
+  'commit-rules': {
+    title: 'Правила коммитов', itemTitle: 'Правила коммитов', slug: 'commit_rules',
+    description: 'Как агент пишет сообщения коммитов: язык, длина, стиль, формат заголовка. Действует ближайший уровень: проект, группа, глобальный; если нигде не задано — предустановленный текст.',
+  },
+} as const
+const cfg = computed(() => CONFIG[props.type])
 const app = useAppStore(), store = useLibraryStore(), projects = useProjectsStore()
 
 const own = ref<LibraryItem | null>(null)
@@ -72,16 +84,16 @@ const effectiveLabel = computed(() => {
 })
 
 onMounted(load)
-watch(() => [props.scope, props.projectId], load)
+watch(() => [props.scope, props.projectId, props.type], load)
 
 // The project list carries each item's origin; the nearest enabled level wins, as on the server.
 async function load() {
   loading.value = true
   try {
-    defaultText.value = await store.getCodeFixerInstructionDefault()
+    defaultText.value = (await api.get<{ content: string }>(`/library/${props.type}/defaults`)).content
     const list = props.scope === 'global'
-      ? (await api.get<LibraryItem[]>('/library?type=code-fixer-instruction&scope=global')).map(i => ({ ...i, origin: 'direct' as const }))
-      : await api.get<LibraryItem[]>(`/library?type=code-fixer-instruction&forProject=${encodeURIComponent(props.projectId ?? '')}`)
+      ? (await api.get<LibraryItem[]>(`/library?type=${props.type}&scope=global`)).map(i => ({ ...i, origin: 'direct' as const }))
+      : await api.get<LibraryItem[]>(`/library?type=${props.type}&forProject=${encodeURIComponent(props.projectId ?? '')}`)
     own.value = list.find(i => i.origin === 'direct') ?? null
     const parent = (['group', 'global'] as const).map(origin => list.find(i => i.origin === origin && i.enabled)).find(Boolean)
     inherited.value = parent
@@ -106,7 +118,7 @@ async function save() {
   try {
     if (own.value) await api.put<LibraryItem>(`/library/${own.value.id}`, { content: content.value })
     else own.value = await api.post<LibraryItem>('/library', {
-      type: 'code-fixer-instruction', slug: 'code_fixer_instruction', title: 'Агент доработки', description: '',
+      type: props.type, slug: cfg.value.slug, title: cfg.value.itemTitle, description: '',
       scope: props.scope, targets: props.scope === 'project' && props.projectId ? [props.projectId] : [], content: content.value,
     })
     saved.value = content.value

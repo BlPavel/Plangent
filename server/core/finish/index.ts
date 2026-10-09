@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { getDb } from '../../infrastructure/db/schema';
 import { getProject, effectiveGitSettings } from '../projects';
+import { resolveCommitRules } from '../library/commit-rules';
 import { getTask } from '../tasks';
 import { taskMrs } from '../task-mr';
 import { resolveCodeHost } from '../code-hosts';
@@ -91,7 +92,7 @@ export function createFinishService(dependencies: {
     const session = run.session_id ? getSession(run.session_id) : createSession({
       project_id: run.project_id, task_id: run.task_id, agent_id: project.default_agent_id,
       role: 'committer', policy: 'read-only', title: 'Завершение работ',
-      metadata: { finish_id: run.id, briefing: 'Ты предлагаешь состав коммитов. В начале вызови get_finish_context, затем set_commits с полным списком, затем finish_commits. При ошибке исправь список. Файлы и git через shell не изменяй. Коммиты выполняет сервер Plangent; push выполняет пользователь после подтверждения. Не добавляй атрибуцию агента.' },
+      metadata: { finish_id: run.id, briefing: 'Ты предлагаешь состав коммитов. В начале вызови get_finish_context, затем set_commits с полным списком (заголовки и описания пиши строго по commit_rules из контекста), затем finish_commits. При ошибке исправь список. Файлы и git через shell не изменяй. Коммиты выполняет сервер Plangent; push выполняет пользователь после подтверждения. Не добавляй атрибуцию агента.' },
     });
     if (session.role !== 'committer' || session.policy !== 'read-only') throw new CodeError('Invalid committer session');
     updateFinish(run.id, { session_id: session.id });
@@ -181,7 +182,7 @@ export function createFinishService(dependencies: {
       const diff = await diffFile(root, change.path, { base: run.base_head, end: run.snapshot_tree, originalPath: change.originalPath });
       diffs[change.path] = diff.slice(0, remaining); remaining -= diffs[change.path].length;
     }
-    return { changes, diffs, diffLimit: 200000, settings: effectiveGitSettings(run.project_id).values, options: run.options,
+    return { changes, diffs, diffLimit: 200000, settings: effectiveGitSettings(run.project_id).values, commit_rules: resolveCommitRules(run.project_id), options: run.options,
       task: task ? { key: task.key, title: task.title, description: task.description } : null, commits: run.commits, note: run.note };
   }
   async function setCommits(id: string, proposed: unknown, generated = false, overrideForbidden = false) {

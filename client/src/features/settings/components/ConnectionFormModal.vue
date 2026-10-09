@@ -15,6 +15,9 @@
         </div>
         <details class="find"><summary>Как узнать адрес</summary><p>{{ CONNECTION.baseUrlFind }}</p></details>
       </div>
+      <FormField :model-value="form.code_host ?? ''" label="Хостинг кода" type="select" :hint="CONNECTION.codeHost" @update:model-value="form.code_host = String($event) || null">
+        <option value="">Не хостинг (вики, трекер и т. п.)</option><option value="gitlab">GitLab</option><option value="github">GitHub</option>
+      </FormField>
       <FormField v-model="form.organization_id" label="Организация" type="select" :hint="CONNECTION.organization">
         <option value="">Без организации</option><option v-for="o in organizations" :key="o.id" :value="o.id">{{ o.name }}</option>
       </FormField>
@@ -22,6 +25,9 @@
 
     <fieldset class="group">
       <legend>Учётная запись</legend>
+      <FormField :model-value="form.auth_strategy" label="Способ входа" type="select" :hint="STRATEGIES[form.auth_strategy]?.hint" @update:model-value="setStrategy(String($event))">
+        <option v-for="(s, key) in STRATEGIES" :key="key" :value="key">{{ s.label }}</option>
+      </FormField>
       <FormField v-model="form.credential_mode" label="Учётная запись" type="select" :hint="CREDENTIAL_MODES[form.credential_mode]?.hint">
         <option v-for="(m, key) in CREDENTIAL_MODES" :key="key" :value="key">{{ m.label }}</option>
       </FormField>
@@ -75,9 +81,6 @@
       </summary>
       <div class="auth-body">
         <p class="hint">{{ CONNECTION.authIntro }}</p>
-        <FormField v-model="form.auth_strategy" label="Способ входа" type="select" :hint="STRATEGIES[form.auth_strategy]?.hint">
-          <option v-for="(s, key) in STRATEGIES" :key="key" :value="key">{{ s.label }}</option>
-        </FormField>
         <template v-for="g in groups" :key="g.title">
           <h4>{{ g.title }}</h4>
           <SettingsFields v-model="form.auth_config" :fields="g.fields" :example="example?.auth_config" :example-name="example?.name" :base="origin" />
@@ -185,6 +188,27 @@ function setAuthText(text: string) {
   } catch { authTextError.value = true }
 }
 
+/** What a preset puts into the plain fields; a value that is empty or still a preset default is replaced by the next preset. */
+const PRESET_DEFAULTS: Record<string, { name: string; base_url: string }> = {
+  'github-token': { name: 'GitHub', base_url: 'https://api.github.com' },
+  'gitlab-token': { name: 'GitLab', base_url: '' },
+}
+const untouched = (value: string, key: 'name' | 'base_url') => !value.trim() || Object.values(PRESET_DEFAULTS).some(d => d[key] === value)
+/** Switching the method by hand drops settings that belong to another method, so the saved settings stay valid. */
+function setStrategy(next: string) {
+  const config = clone(form.value.auth_config)
+  if (next === 'token') {
+    for (const key of ['strategies', 'login_path', 'username_field', 'password_field', 'fields', 'invalid_password', 'invalid_session']) delete config[key]
+    if (typeof config.token_header !== 'string' || !config.token_header) { config.token_header = 'Authorization'; config.token_prefix = 'Bearer ' }
+  } else {
+    delete config.token_header; delete config.token_prefix
+    if (next === 'auto' && !Array.isArray(config.strategies)) config.strategies = ['basic']
+  }
+  form.value.auth_strategy = next
+  form.value.auth_config = config
+  authTextError.value = false
+  authOpen.value = true
+}
 function applyPreset(id: string) {
   const p = props.presets.find(p => p.id === id)
   if (!p) return
@@ -193,8 +217,17 @@ function applyPreset(id: string) {
   form.value.auth_config = clone(p.auth_config)
   authTextError.value = false
   applied.value = id
-  if (id === 'github-token') { form.value.credential_mode = 'own'; form.value.username = 'token'; if (!form.value.name) form.value.name = 'GitHub'; if (!form.value.base_url) form.value.base_url = 'https://api.github.com' }
-  if (id === 'gitlab-token') { form.value.credential_mode = 'own'; form.value.username = 'token'; if (!form.value.name) form.value.name = 'GitLab' }
+  checkResult.value = undefined
+  const defaults = PRESET_DEFAULTS[id]
+  if (defaults) {
+    form.value.credential_mode = 'own'
+    form.value.username = 'token'
+    if (untouched(form.value.name, 'name')) form.value.name = defaults.name
+    if (untouched(form.value.base_url, 'base_url')) form.value.base_url = defaults.base_url
+  } else {
+    if (untouched(form.value.name, 'name')) form.value.name = ''
+    if (untouched(form.value.base_url, 'base_url')) form.value.base_url = ''
+  }
 }
 
 function validate(): string {

@@ -57,6 +57,10 @@ function getContentPath(item: LibraryItem): string {
   if (item.type === 'code-fixer-instruction') {
     return path.join(contentDir(item.type, item.slug, item), 'CODE_FIXER_INSTRUCTION.md');
   }
+  if (item.type === 'commit-rules') {
+    // One text per level: global, group and project items share the slug, so the folder is keyed by the item.
+    return path.join(contentDir(item.type, `${item.slug}~${item.id}`), 'COMMIT_RULES.md');
+  }
   if (item.type === 'instruction-guide') {
     return path.join(contentDir(item.type, item.slug, item), 'INSTRUCTION_GUIDE.md');
   }

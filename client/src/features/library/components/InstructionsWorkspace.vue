@@ -5,6 +5,7 @@
         <button type="button" class="view" :class="{ active: view === 'items' }" @click="view = 'items'">Элементы</button>
         <button type="button" class="view" :class="{ active: view === 'guide' }" @click="view = 'guide'">Руководство для агента</button>
         <button type="button" class="view" :class="{ active: view === 'fixer' }" @click="view = 'fixer'">Агент доработки</button>
+        <button type="button" class="view" :class="{ active: view === 'commits' }" @click="view = 'commits'">Коммиты</button>
       </div>
       <SkillsManager v-if="view === 'items'" scope="project" :project-id="projectId">
         <template #actions>
@@ -15,7 +16,8 @@
         </template>
       </SkillsManager>
       <InstructionGuideEditor v-else-if="view === 'guide'" scope="project" :project-id="projectId" />
-      <CodeFixerInstructionEditor v-else scope="project" :project-id="projectId" />
+      <CodeFixerInstructionEditor v-else-if="view === 'fixer'" scope="project" :project-id="projectId" />
+      <CodeFixerInstructionEditor v-else scope="project" type="commit-rules" :project-id="projectId" />
     </section>
     <LibrarianPanel v-if="panelOpen" class="panel" :project-id="projectId" :default-agent-id="defaultAgentId" @close="panelOpen = false" />
   </div>
@@ -33,7 +35,7 @@ import CodeFixerInstructionEditor from './CodeFixerInstructionEditor.vue'
 /** «Инструкции» of a project or group: the library list, its authoring guide, the code-fixer instruction and the librarian chat beside them. */
 const props = defineProps<{ projectId: string; defaultAgentId?: string | null }>()
 const store = useLibraryStore()
-const view = ref<'items' | 'guide' | 'fixer'>('items')
+const view = ref<'items' | 'guide' | 'fixer' | 'commits'>('items')
 const panelOpen = ref(false)
 const pending = computed(() => store.proposalsFor({ projectId: props.projectId }).filter(p => p.status === 'pending').length)
 

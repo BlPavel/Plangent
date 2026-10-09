@@ -12,6 +12,8 @@ test('finish commits → manual merge → confirmation → bare remote; recovery
   const { getDb, migrate } = await import('../../infrastructure/db/schema');
   const { initSessions, getSession, updateSession } = await import('../agent-sessions/sessions');
   const { createProject } = await import('../projects');
+  const { createLibraryItem } = await import('../library');
+  const { writeItemContent } = await import('../library/library-manager');
   const { createTask, updateTask, getTask } = await import('../tasks');
   const { createFinishService, getFinish } = await import('./index');
   const { stage, commit } = await import('../code/git-write');
@@ -34,7 +36,9 @@ test('finish commits → manual merge → confirmation → bare remote; recovery
     await fs.writeFile(path.join(root, 'a.txt'), 'base\n'); await stage(root, ['a.txt']); await commit(root, { title: 'base' }, () => defaultGitSettings);
     const base = git(root, 'rev-parse', 'HEAD');
     git(folder, 'init', '--bare', remote); git(root, 'remote', 'add', 'origin', remote); git(root, 'push', 'origin', 'main'); git(root, 'switch', '-c', 'feature/work');
-    const project = createProject({ name: 'Finish', repo_path: root, default_agent_id: agent.id, git_settings: { commit_instructions: 'Use TASK prefix', commit_pattern: '^TASK' } });
+    const project = createProject({ name: 'Finish', repo_path: root, default_agent_id: agent.id, git_settings: { commit_pattern: '^TASK' } });
+    const rules = createLibraryItem({ type: 'commit-rules', slug: 'commit_rules', title: 'Rules', description: '', scope: 'project', targets: [project.id], own_only: [], frontmatter: {}, agent_filter: [], enabled: true } as never);
+    writeItemContent(rules, 'Use TASK prefix');
     const task = createTask({ project_id: project.id, key: 'TASK-42' });
     updateTask(task.id, { finish_scenario: 'commits', target_branch: 'main' });
     assert.equal(getTask(task.id)?.finish_scenario, 'commits'); assert.equal(getTask(task.id)?.target_branch, 'main');

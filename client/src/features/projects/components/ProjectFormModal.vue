@@ -63,7 +63,7 @@
         <FormField v-model="hostPath" label="Путь проекта на хостинге" placeholder="team/repo" hint="Пусто — определяется по origin. Нужен для МР и ревью." />
         <FormField v-model="connectionId" label="Подключение к хостингу" type="select" :hint="connections.length ? '' : 'Подключений пока нет: добавьте GitLab в «Настройки → Подключения».'"><option v-if="!editing" value="auto">Автоматически по origin</option><option value="">— Не выбрано —</option><option v-for="connection in connections" :key="connection.id" :value="connection.id">{{ connection.name }}</option></FormField>
       </fieldset>
-      <GitSettingsFields v-if="kind === 'project' || kind === 'group'" v-model="gitSettings" :inherited="inherited" :sources="inheritedSources" />
+      <GitSettingsFields v-if="kind === 'project' || kind === 'group'" v-model="gitSettings" :inherited="inherited" :sources="inheritedSources"  />
       <FormField v-model="form.default_agent_id" label="Агент по умолчанию" type="select">
         <option value="">— выбрать —</option>
         <option v-for="a in agentsStore.agents" :key="a.id" :value="a.id">{{ a.name }}</option>

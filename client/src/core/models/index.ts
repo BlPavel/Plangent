@@ -40,7 +40,7 @@ export interface AgentPreset {
 export type ProjectKind = 'project' | 'group' | 'source'
 
 export interface ProjectGitSettings {
-  commit_instructions?: string; commit_pattern?: string; forbidden_patterns?: string[];
+  commit_pattern?: string; forbidden_patterns?: string[];
   include_description?: boolean; finish_scenario?: 'nothing' | 'commits' | 'push' | 'full';
   branch_template?: string; base_branch?: string; mr_target_branch?: string;
   mr_description_template?: string; mr_remove_branch?: boolean; mr_squash?: boolean; mr_reviewers?: string[]; mr_labels?: string[];
@@ -124,7 +124,7 @@ export interface Run {
   finished_at?: string
 }
 
-export type LibraryItemType = 'skill' | 'command' | 'main' | 'plan-template' | 'instruction-guide' | 'code-fixer-instruction'
+export type LibraryItemType = 'skill' | 'command' | 'main' | 'plan-template' | 'instruction-guide' | 'code-fixer-instruction' | 'commit-rules'
 export type LibraryScope = 'global' | 'project'
 
 export interface LibraryItem {

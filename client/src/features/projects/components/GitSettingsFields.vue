@@ -33,9 +33,6 @@ type Key = keyof ProjectGitSettings
 type Field = { key: Key; label: string; kind?: 'list' | 'boolean' | 'line'; placeholder?: string }
 const sections: { title: string; fields: Field[] }[] = [
  { title: 'Коммиты', fields: [
-  { key: 'commit_instructions', label: 'Правила коммитов для агента', placeholder: 'Заголовок: КЛЮЧ-123 Кратко, что сделано' },
-  { key: 'commit_pattern', label: 'Формат сообщения (regex)', kind: 'line', placeholder: '^[A-Z]+-\\d+ .+' },
-  { key: 'forbidden_patterns', label: 'Запрещённые фразы (regex, по одной на строку)', kind: 'list' },
   { key: 'include_description', label: 'Описание в коммите', kind: 'boolean' },
  ] },
  { title: 'Ветки и завершение работ', fields: [

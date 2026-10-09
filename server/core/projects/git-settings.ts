@@ -1,5 +1,4 @@
 ﻿export interface GitSettings {
-  commit_instructions: string;
   commit_pattern: string;
   forbidden_patterns: string[];
   include_description: boolean;
@@ -15,7 +14,7 @@
 }
 
 export const defaultGitSettings: GitSettings = {
-  commit_instructions: '', commit_pattern: '',
+  commit_pattern: '',
   forbidden_patterns: ['^Co-Authored-By:.*(Claude|anthropic)', 'noreply@anthropic\\.com', 'Generated with \\[?Claude Code', '🤖 Generated with'],
   include_description: false, finish_scenario: 'nothing', branch_template: 'feature/{key}-{slug}',
   base_branch: '', mr_target_branch: '', mr_description_template: '', mr_remove_branch: true, mr_squash: false, mr_reviewers: [], mr_labels: [],
