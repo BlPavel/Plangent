@@ -101,23 +101,6 @@
         <InstructionsWorkspace v-if="currentProject" :project-id="currentProject.id" :default-agent-id="projectsStore.agentFor(currentProject)" />
       </div>
 
-      <!-- Tab: Интеграции (disabled placeholder) -->
-      <div v-show="activeTab === 'integrations'" class="tab-content placeholder-tab">
-        <div class="placeholder">
-          <div class="placeholder-icon">🔗</div>
-          <div class="placeholder-title">Интеграции</div>
-          <div class="placeholder-text">Jira, GitHub Issues, Linear — скоро</div>
-        </div>
-      </div>
-
-      <!-- Tab: Доки (disabled placeholder) -->
-      <div v-show="activeTab === 'docs'" class="tab-content placeholder-tab">
-        <div class="placeholder">
-          <div class="placeholder-icon">📄</div>
-          <div class="placeholder-title">Документация</div>
-          <div class="placeholder-text">Скоро</div>
-        </div>
-      </div>
     </div>
 
     <!-- Create task modal -->
@@ -144,7 +127,7 @@
 </template>
 
 <script lang="ts">
-type HomeTab = 'agents' | 'projects' | 'terminal' | 'tasks' | 'code' | 'review' | 'instructions' | 'settings' | 'integrations' | 'docs'
+type HomeTab = 'agents' | 'projects' | 'terminal' | 'tasks' | 'code' | 'review' | 'instructions' | 'settings'
 // Module-level so it survives HomeView being unmounted while a task is open.
 const lastTab: { projectId: string | null; tab: HomeTab } = { projectId: null, tab: 'agents' }
 </script>
@@ -198,8 +181,6 @@ const tabs = computed<TabItem[]>(() => [
   { id: 'review' as const, label: 'Ревью', disabled: false },
   { id: 'instructions' as const, label: 'Инструкции', disabled: false },
   { id: 'settings' as const, label: 'Настройки', disabled: false },
-  { id: 'integrations' as const, label: 'Интеграции', disabled: true },
-  { id: 'docs' as const, label: 'Доки', disabled: true },
 ])
 
 // «Код» opened from a task (query set by the task's button or a notification) shows the way back to it.
@@ -549,21 +530,6 @@ async function deleteTaskCard(t: Task) {
 .task-reopen:hover { background: var(--blue-soft); }
 .task-act + .task-del { margin-left: -8px; }
 
-/* Placeholder tabs */
-.placeholder-tab {
-  align-items: center;
-  justify-content: center;
-}
-.placeholder {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  color: var(--text-muted);
-}
-.placeholder-icon { font-size: 32px; }
-.placeholder-title { font-size: 15px; font-weight: 600; color: var(--text); }
-.placeholder-text { font-size: 13px; }
 .instructions-tab { overflow: hidden; }
 
 .form-field { display: flex; flex-direction: column; gap: 4px; }

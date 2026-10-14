@@ -112,7 +112,10 @@ watch(() => props.agentId, poll)
 .danger .ring-fill { stroke: var(--danger-hover); }
 
 .usage-pop { position: absolute; right: 0; bottom: calc(100% + 8px); width: 290px; padding: 4px 14px 12px; background: var(--bg2); border: 1px solid var(--border-strong); border-radius: var(--radius); box-shadow: var(--shadow-md); z-index: 50; font-size: 12.5px; }
+/* Keep hover continuous across the gap, including the opening animation's offset. */
+.usage-pop::before { content: ''; position: absolute; left: -1px; right: -1px; top: 100%; height: 13px; }
 .usage-below .usage-pop { top: calc(100% + 8px); bottom: auto; }
+.usage-below .usage-pop::before { top: auto; bottom: 100%; }
 .pop-section { margin: 10px 0 6px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); }
 .pop-section + .pop-row, .pop-section + .pop-limit { margin-top: 0; }
 .pop-section:not(:first-child) { padding-top: 10px; border-top: 1px solid var(--border); }
