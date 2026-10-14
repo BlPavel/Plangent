@@ -52,7 +52,11 @@
         </template>
       </section>
 
-      <AnalysisChats v-if="!done" class="analysis-chat-pane" :project-id="projectId" :default-agent-id="defaultAgentId" :chats="chats" :selected="selectedChat" :initials="initials" :busy="launching" :error="launchError" @select="$emit('selectChat', $event)" @launch="$emit('launch', $event)" />
+      <TaskChats v-if="!done" class="analysis-chat-pane" label="Анализ" :chats="chats" :selected="selectedChat" :initials="initials" @select="$emit('selectChat', $event)" @remove="(id, name) => $emit('removeChat', id, name)">
+        <template #new>
+          <NewChatPanel :project-id="projectId" :default-agent-id="defaultAgentId" title="Анализ задачи" text="Обсудите материалы. Агент сохранит результаты в разделы анализа." fixed-policy="read-only" :busy="launching" :error="launchError" @start="$emit('launch', $event)" />
+        </template>
+      </TaskChats>
     </div>
 
     <Teleport to="body">
@@ -67,14 +71,13 @@ import { ref, watch } from 'vue'
 import { api } from '@core/api'
 import { useAppStore } from '@core/stores/app'
 import type { AnalysisSection, AnalysisFile } from '@core/models'
-import type { NewChatRequest, ContentBlock } from '@features/agent-chat'
-import type { AnalysisChatSnapshot } from '../stores/taskSession'
+import { NewChatPanel, type NewChatRequest, type ContentBlock } from '@features/agent-chat'
 import AppButton from '@shared/ui/AppButton.vue'
 import AnalysisSectionGroup from './AnalysisSectionGroup.vue'
 import AnalysisFileView from './AnalysisFileView.vue'
-import AnalysisChats from './AnalysisChats.vue'
-const props = defineProps<{ projectId: string; taskId: string; defaultAgentId?: string | null; sections: AnalysisSection[]; done: boolean; lockedReason: string; highlights: string[]; opened: string | null; openFile?: string; agentRevision: number; chats: AnalysisChatSnapshot[]; selectedChat: string | null; initials: Record<string, ContentBlock[]>; launching: boolean; launchError: string }>()
-const emit = defineEmits<{ reload: []; planning: []; selectChat: [id: string | null]; launch: [request: NewChatRequest] }>()
+import TaskChats from './TaskChats.vue'
+const props = defineProps<{ projectId: string; taskId: string; defaultAgentId?: string | null; sections: AnalysisSection[]; done: boolean; lockedReason: string; highlights: string[]; opened: string | null; openFile?: string; agentRevision: number; chats: { id: string; title: string }[]; selectedChat: string | null; initials: Record<string, ContentBlock[]>; launching: boolean; launchError: string }>()
+const emit = defineEmits<{ reload: []; planning: []; selectChat: [id: string | null]; removeChat: [id: string, name: string]; launch: [request: NewChatRequest] }>()
 const app = useAppStore()
 const kinds = ['source', 'worked'] as const
 const error = ref(''), adding = ref<AnalysisSection['kind'] | null>(null), newTitle = ref(''), newDescription = ref('')

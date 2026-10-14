@@ -39,6 +39,7 @@ window.fetch = async (input, init = {}) => {
  }
  if (path.startsWith('/api/agent-sessions/')) {
    const parts = path.slice('/api/agent-sessions/'.length).split('/'), snap = db.chats[parts[0]]
+   if (method === 'DELETE' && !parts[1]) { delete db.chats[parts[0]]; return json(null, 204) }
    if (parts[1] === 'prompt') { snap.events.push({ seq: snap.events.length + 1, type: 'user', session_id: parts[0], payload: { text: body.content[0].text } }); return json(snap) }
    return json(snap)
  }
@@ -152,10 +153,19 @@ window.runScenario = async () => {
  assert(db.chats.chat1.events.length === 1, 'Prompt repeated after reopen/remount')
  await click('Перейти к планированию →')
  await until(() => document.querySelector('.chat-pane textarea')?.value === 'Составь план по анализу задачи')
+ await click('✓ Утвердить план')
+ await until(() => button('▸ Изменить план с агентом'))
+ assert(db.calls.some(c => c.path === '/api/agent-sessions/chat3/close'), 'Approval did not stop the planner')
+ await click('▸ Изменить план с агентом')
+ await until(() => button('План 1') && document.querySelector('.chat-pane .chat-head'))
+ assert(db.chats.chat3.events.length === 1, 'Planning chat lost or prompt repeated after approval')
+ await click('Удалить чат План 1')
+ await until(() => !db.chats.chat3 && !button('План 1'))
+ await until(() => document.querySelector('.chat-pane .new-chat textarea'))
  await click('Анализ')
  await click('Ещё')
  await click('Удалить раздел')
  await until(() => !db.sections.length)
  assert(db.warnings.some(s => s.includes('p1')), 'Deletion did not warn about plan reference')
- return 'PASS: create/edit/conflict/move/upload/file/chats/planning/links/done/reopen/delete'
+ return 'PASS: create/edit/conflict/move/upload/file/chats/planning/approve/chat-delete/links/done/reopen/delete'
 }

@@ -6,6 +6,7 @@ import { editQueued } from '../../../core/agent-sessions/prompt-queue';
 import { getProject } from '../../../core/projects';
 import { getAgent } from '../../../core/agents';
 import { getTask } from '../../../core/tasks';
+import { getRun, finishRun } from '../../../core/runs';
 import { broadcast } from '../../../core/shared/events';
 
 export const agentSessionsRouter = Router();
@@ -66,8 +67,9 @@ agentSessionsRouter.post('/:id/:action', async (req, res) => {
 });
 agentSessionsRouter.delete('/:id', async (req, res) => {
   try {
-    getSession(req.params.id);
+    const session = getSession(req.params.id);
     await closeSession(req.params.id).catch(() => {});
+    if (session.run_id && getRun(session.run_id)?.status === 'running') finishRun(session.run_id, 'interrupted', 'Чат удалён');
     deleteSession(req.params.id);
     res.status(204).end();
   } catch (e) { res.status(404).json({ error: String(e) }); }
