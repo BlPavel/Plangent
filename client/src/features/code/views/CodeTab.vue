@@ -443,21 +443,21 @@ function openRef(ref: string) {
 
 function onKey(event: KeyboardEvent) {
   if (!(event.ctrlKey || event.metaKey)) return
-  const key = event.key.toLowerCase()
+  const key = event.code || `Key${event.key.toUpperCase()}`
   // Ctrl+B / Ctrl+Alt+B toggle the side panels, as in VS Code; `code` works in any keyboard layout.
-  if (event.code === 'KeyB' && !event.shiftKey) {
+  if (key === 'KeyB' && !event.shiftKey) {
     event.preventDefault()
     if (event.altKey) rightCollapsed.value = !rightCollapsed.value
     else leftCollapsed.value = !leftCollapsed.value
     return
   }
   if (event.altKey) return
-  if (key === 'p' && !event.shiftKey) { event.preventDefault(); quickOpen.value = true }
-  else if (key === 'f' && event.shiftKey) {
+  if (key === 'KeyP' && !event.shiftKey) { event.preventDefault(); quickOpen.value = true }
+  else if (key === 'KeyF' && event.shiftKey) {
     event.preventDefault()
     const selected = window.getSelection()?.toString().split('\n')[0]
     void selectLeft('search').then(() => search.value?.focus(selected))
-  } else if (key === 'f') {
+  } else if (key === 'KeyF') {
     // The screen owns Ctrl+F: the browser find would not see the virtualised lines anyway.
     event.preventDefault()
     void viewer.value?.openFind()
@@ -523,7 +523,7 @@ watch(() => props.projectId, id => { void begin(id) }, { immediate: true })
 /* The last block fills the pane; toolbars above it (comparison switch) keep their height. */
 .ct-pane > * { flex-shrink: 0; }
 .ct-pane > :last-child { flex: 1; min-height: 0; }
-.ct-center { min-width: 0; min-height: 0; }
+.ct-center { min-width: 0; min-height: 0; padding-bottom: var(--sp-2); }
 .ct-right { display: flex; flex-direction: column; min-height: 0; min-width: 0; border-left: 1px solid var(--border); background: var(--bg); }
 .ct-notes { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; max-height: 40%; overflow-y: auto; padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--bg2); }
 .ct-widget { display: flex; flex-direction: column; gap: 4px; }
