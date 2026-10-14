@@ -124,9 +124,7 @@ async function regroup(p: Project, groupId: string | null) {
 
 onMounted(async () => {
   await Promise.all([projectsStore.load(), agentsStore.load()])
-  if (projectsStore.projects.length && !appStore.currentProject) {
-    selectProject(projectsStore.workProjects[0] ?? projectsStore.projects[0])
-  }
+  appStore.restoreProject(projectsStore.projects)
   try {
     const health = await api.get<{ ok: boolean; version: string }>('/health')
     appVersion.value = health.version

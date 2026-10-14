@@ -117,10 +117,11 @@ function shift(section: AnalysisSection, direction: number) {
   ;[ids[from], ids[to]] = [ids[to], ids[from]]
   return action(() => api.post(base() + '/reorder', { ids }))
 }
-function reorder(id: string, before: string) {
+function reorder(id: string, target: string) {
+  const after = props.sections.findIndex(s => s.id === id) < props.sections.findIndex(s => s.id === target)
   const ids = props.sections.map(s => s.id).filter(x => x !== id)
-  if (!props.sections.some(s => s.id === id) || id === before) return
-  ids.splice(ids.indexOf(before), 0, id)
+  if (!props.sections.some(s => s.id === id) || id === target || !ids.includes(target)) return
+  ids.splice(ids.indexOf(target) + (after ? 1 : 0), 0, id)
   return action(() => api.post(base() + '/reorder', { ids }))
 }
 async function upload(section: AnalysisSection, files: File[]) {

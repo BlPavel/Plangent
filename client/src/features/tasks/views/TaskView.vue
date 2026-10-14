@@ -8,6 +8,10 @@
         <StatusBadge :status="task?.status" />
       </div>
       <div class="actions">
+        <AppButton v-if="task && !editingTitle" type="button" variant="ghost" size="sm" title="Редактировать название задачи" @click="startTitleEdit">
+          <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M10.8 2.7l2.5 2.5M3 13l.6-3L10.3 3.3a1 1 0 011.4 0l1 1a1 1 0 010 1.4L6 12.4 3 13z" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+          Редактировать
+        </AppButton>
         <CodeButton v-if="pid && task" :project-id="pid" :task="{ id: task.id, key: task.key }" />
         <AppButton
           v-if="task?.status !== 'done'"
@@ -22,6 +26,12 @@
       </div>
     </div>
 
+    <AppModal :model-value="editingTitle" title="Редактирование задачи" :confirm-label="savingTitle ? 'Сохранение…' : 'Сохранить'" @update:model-value="cancelTitleEdit" @confirm="saveTitle">
+      <div ref="titleForm" class="task-edit-fields" @keydown.enter.prevent="saveTitle" @keydown.esc.prevent="cancelTitleEdit">
+        <FormField :model-value="task?.key ?? ''" label="Ключ задачи" placeholder="PROJ-123" disabled />
+        <FormField v-model="titleDraft" label="Название" placeholder="Название задачи" :disabled="savingTitle" />
+      </div>
+    </AppModal>
     <TaskMrPanel v-if="pid && task" :project-id="pid" :task-id="task.id" />
 
     <!-- Tab bar -->
@@ -135,6 +145,8 @@ import ExecutionQueue from '../components/ExecutionQueue.vue'
 import StepDetailPanel from '../components/StepDetailPanel.vue'
 import StatusBadge from '@shared/ui/StatusBadge.vue'
 import AppButton from '@shared/ui/AppButton.vue'
+import AppModal from '@shared/ui/AppModal.vue'
+import FormField from '@shared/ui/FormField.vue'
 import IconTrash from '@shared/ui/IconTrash.vue'
 import { TaskMrPanel } from '@features/task-mr'
 import { CodeButton } from '@features/code'
@@ -150,6 +162,44 @@ const sessionStore = useTaskSessionStore()
 const chatStore = useChatStore()
 
 const task = ref<Task | null>(appStore.currentTask)
+const editingTitle = ref(false)
+const titleDraft = ref('')
+const savingTitle = ref(false)
+const titleForm = ref<HTMLElement>()
+
+async function startTitleEdit() {
+  if (!task.value) return
+  titleDraft.value = task.value.title ?? ''
+  editingTitle.value = true
+  await nextTick()
+  const input = titleForm.value?.querySelector<HTMLInputElement>('input:not(:disabled)')
+  input?.focus()
+  input?.select()
+}
+
+function cancelTitleEdit() {
+  if (!savingTitle.value) editingTitle.value = false
+}
+
+async function saveTitle() {
+  const current = task.value
+  const title = titleDraft.value.trim()
+  if (!current || savingTitle.value || !title) return
+  if (title === current.title) {
+    editingTitle.value = false
+    return
+  }
+  savingTitle.value = true
+  try {
+    const updated = await api.patch<Task>(`/projects/${current.project_id}/tasks/${current.id}`, { title })
+    if (task.value?.id !== current.id) return
+    task.value = { ...task.value, title: updated.title }
+    appStore.currentTask = task.value
+    editingTitle.value = false
+    appStore.toast('Название задачи сохранено', 'success')
+  } catch (e: unknown) { appStore.toast(String(e), 'error') }
+  finally { savingTitle.value = false }
+}
 const plan = ref<Plan | null>(null)
 const agents = computed(() => agentsStore.agents)
 const editingPlan = ref(false)
@@ -493,6 +543,7 @@ async function savePlan() {
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
+.task-edit-fields { display: flex; flex-direction: column; gap: var(--sp-3); }
 .task-title-block { flex: 1; min-width: 0; display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
 .task-key { font-size: 13px; color: var(--text-muted); font-family: 'Cascadia Code', 'JetBrains Mono', monospace; }
 .task-name { font-size: 16px; font-weight: 700; letter-spacing: -0.01em; }

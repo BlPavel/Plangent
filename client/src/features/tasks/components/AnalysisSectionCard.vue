@@ -114,8 +114,16 @@ const menu = computed(() => [
   { label: 'Переместить ниже', action: () => emit('shift', 1) },
   { label: 'Удалить раздел', danger: true, action: () => emit('remove') },
 ])
-function drop(event: DragEvent) { const id = event.dataTransfer?.getData('application/x-plangent-section'); if (id) emit('reorder', id) }
-function uploadDrop(event: DragEvent) { if (event.dataTransfer?.files.length) emit('upload', Array.from(event.dataTransfer.files)) }
+function drop(event: DragEvent) {
+  if (props.locked || editing.value) return
+  const id = event.dataTransfer?.getData('application/x-plangent-section')
+  if (!id || id === props.section.id) return
+  emit('reorder', id)
+}
+function uploadDrop(event: DragEvent) {
+  if (event.dataTransfer?.types.includes('application/x-plangent-section')) { drop(event); return }
+  if (!props.locked && event.dataTransfer?.files.length) emit('upload', Array.from(event.dataTransfer.files))
+}
 function selectFiles(event: Event) { const input = event.target as HTMLInputElement; emit('upload', Array.from(input.files ?? [])); input.value = '' }
 function paste(event: ClipboardEvent) { const files = Array.from(event.clipboardData?.files ?? []); if (files.length) { event.preventDefault(); emit('upload', files) } }
 </script>
