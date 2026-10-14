@@ -20,7 +20,8 @@ agentSessionsRouter.post('/', async (req, res) => {
     if (role === 'librarian' && getProject(project_id)?.kind === 'source') return res.status(400).json({ error: 'Choose a project or group for the librarian' });
     const policy = role === 'librarian' ? 'read-only' : ['ask', 'allow-edits', 'allow-all', 'read-only'].includes(req.body.policy) ? req.body.policy : 'ask';
     if (!getProject(project_id) || !getAgent(agent_id)) return res.status(400).json({ error: 'Проект или агент не найден' });
-    const session = createSession({ project_id, agent_id, model, role, policy, metadata: { ...(typeof mode === 'string' && mode ? { preferredMode: mode } : {}), ...(config && typeof config === 'object' ? { preferredConfig: Object.fromEntries(Object.entries(config).map(([k, v]) => [k, String(v)])) } : {}) } });
+    // No pick (the agent's options were not loaded yet) → the default from the agent's settings.
+    const session = createSession({ project_id, agent_id, model: model || getAgent(agent_id)!.model, role, policy, metadata: { ...(typeof mode === 'string' && mode ? { preferredMode: mode } : {}), ...(config && typeof config === 'object' ? { preferredConfig: Object.fromEntries(Object.entries(config).map(([k, v]) => [k, String(v)])) } : {}) } });
     res.status(201).json(session);
     void startSession(session.id).catch(() => {});
   } catch (e) { res.status(400).json({ error: String(e) }); }

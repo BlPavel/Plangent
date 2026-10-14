@@ -12,6 +12,8 @@ export interface AcpOptions {
   /** From `initialize`: who answered and what it can do. */
   agent?: { name?: string; title?: string | null; version?: string } | null;
   capabilities?: { loadSession: boolean; mcpHttp: boolean } | null;
+  /** The start command that answered; a different one (a preset moved to a new adapter version) asks again. */
+  launch?: string;
   at: number;
 }
 type Initialized = Pick<ACP.InitializeResponse, 'agentInfo' | 'agentCapabilities'>;
@@ -37,9 +39,9 @@ export function clearAcpOptions(agentId: string): void {
 }
 
 /** Only call with a brand-new session's response: its current values are the agent's defaults. */
-export function saveAcpOptions(agentId: string, response: { configOptions?: ACP.SessionConfigOption[] | null; modes?: ACP.SessionModeState | null; models?: unknown }, init?: Initialized): AcpOptions {
+export function saveAcpOptions(agentId: string, response: { configOptions?: ACP.SessionConfigOption[] | null; modes?: ACP.SessionModeState | null; models?: unknown }, launch: string, init?: Initialized): AcpOptions {
   const options: AcpOptions = { configOptions: response.configOptions ?? null, modes: response.modes ?? null, models: response.models ?? null,
-    agent: init?.agentInfo ?? null,
+    agent: init?.agentInfo ?? null, launch,
     capabilities: init ? { loadSession: !!init.agentCapabilities?.loadSession, mcpHttp: !!init.agentCapabilities?.mcpCapabilities?.http } : null,
     at: Date.now() };
   db().prepare('INSERT INTO agent_acp_options(agent_id, options, updated_at) VALUES (?,?,?) ON CONFLICT(agent_id) DO UPDATE SET options=excluded.options, updated_at=excluded.updated_at')

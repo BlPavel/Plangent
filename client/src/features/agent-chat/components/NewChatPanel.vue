@@ -83,11 +83,18 @@ const agentList = computed(() => agents.agents.map(a => ({ value: a.id, label: a
 const reported = computed(() => store.agentOptions[agentId.value])
 const selects = computed(() => (reported.value && !('error' in reported.value) ? agentSelects(reported.value) : []))
 const optionsState = computed(() => (!agentId.value ? '' : !reported.value ? 'loading' : 'error' in reported.value ? reported.value.error : ''))
-/** What the chat will start with: the user's pick, else what Plangent applies on start (mode: "default"), else the agent's default. */
+/**
+ * What the chat will start with: the user's pick, else what Plangent applies on start (mode: "default",
+ * the model and reasoning depth from the agent's settings), else the agent's own default.
+ */
 const resolvedSelects = computed(() => selects.value.map(s => ({ ...s, current: choice(s) })))
 function choice(select: AgentSelect) {
   if (choices.value[select.configId]) return choices.value[select.configId]
-  if (select.kind === 'mode') return ['default', 'read-only'].find(v => select.options.some(o => o.value === v)) ?? select.current
+  const offered = (v: string | undefined) => !!v && select.options.some(o => o.value === v)
+  if (select.kind === 'mode') return ['default', 'read-only'].find(offered) ?? select.current
+  const agent = agents.agents.find(a => a.id === agentId.value)
+  if (select.kind === 'model' && offered(agent?.model)) return agent!.model
+  if (select.category === 'thought_level' && offered(agent?.reasoning_effort)) return agent!.reasoning_effort
   return select.current
 }
 
@@ -102,9 +109,10 @@ function start(content: ContentBlock[]) {
   emit('start', {
     agent_id: agentId.value,
     policy: props.fixedPolicy ?? policy.value,
-    model: modelSelect && choice(modelSelect) !== modelSelect.current ? choice(modelSelect) : '',
+    // Sent even when it matches the agent's own default: the server would otherwise apply the default from settings.
+    model: modelSelect ? choice(modelSelect) : '',
     mode: modeSelect ? choice(modeSelect) : '',
-    config: Object.fromEntries(selects.value.filter(s => s.kind === 'config' && choice(s) !== s.current).map(s => [s.configId, choice(s)])),
+    config: Object.fromEntries(selects.value.filter(s => s.kind === 'config' && (s.configId in choices.value || choice(s) !== s.current)).map(s => [s.configId, choice(s)])),
     content,
   })
 }

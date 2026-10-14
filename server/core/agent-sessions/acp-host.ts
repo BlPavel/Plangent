@@ -46,11 +46,22 @@ export function configureSessionHost(config: { mcp: typeof mcpConfig; terminate:
   mcpConfig = config.mcp;
   terminate = config.terminate;
 }
-async function adapterCommand(agent: Agent, env: Record<string, string | undefined>): Promise<{ command: string; args: string[] }> {
+/** The configured start command, before a pinned adapter is resolved to its installed copy. */
+function launchCommand(agent: Agent): { command: string; args: string[] } {
   const preset = agentPresets[presetForAgentId[agent.id]];
   const command = agent.acp_command || preset?.acp_command;
   if (!command) throw new Error(`У агента «${agent.name}» не задана ACP-команда. Укажите её в настройках агента.`);
-  return resolveAdapter(command, agent.acp_command ? agent.acp_args ?? [] : preset?.acp_args ?? [], env);
+  return { command, args: agent.acp_command ? agent.acp_args ?? [] : preset?.acp_args ?? [] };
+}
+const launchKey = (agent: Agent) => { try { return JSON.stringify(launchCommand(agent)); } catch { return ''; } };
+async function adapterCommand(agent: Agent, env: Record<string, string | undefined>): Promise<{ command: string; args: string[] }> {
+  const { command, args } = launchCommand(agent);
+  return resolveAdapter(command, args, env);
+}
+/** Cached options, unless they were reported by another adapter (e.g. a preset moved to a new version). */
+export function cachedAgentOptions(agentId: string): AcpOptions | null {
+  const cached = getAcpOptions(agentId), agent = getAgent(agentId);
+  return cached && agent && cached.launch === launchKey(agent) ? cached : null;
 }
 /** Values the agent reported for a config option; empty when it reported none (then anything is tried). */
 function offered(options: ACP.SessionConfigOption[] | null | undefined, match: (o: ACP.SessionConfigOption) => boolean): string[] {
@@ -63,7 +74,7 @@ const probes = new Map<string, Promise<AcpOptions>>();
  * yet, a throwaway session is opened just to read them (no prompt is sent, so nothing is spent).
  */
 export function agentOptions(agentId: string, refresh = false): Promise<AcpOptions> {
-  const cached = getAcpOptions(agentId);
+  const cached = cachedAgentOptions(agentId);
   const stale = !cached || Date.now() - cached.at > 24 * 60 * 60_000;
   if (cached && !refresh) { if (stale && !probes.has(agentId)) void probeAgent(agentId).catch(() => {}); return Promise.resolve(cached); }
   return probeAgent(agentId);
@@ -86,7 +97,7 @@ function probeAgent(agentId: string): Promise<AcpOptions> {
       return await Promise.race([
         (async () => {
           const init = await connection.agent.request('initialize', { protocolVersion: sdk.PROTOCOL_VERSION, clientInfo: { name: 'Plangent', version: '0.5.0' }, clientCapabilities: {} });
-          return saveAcpOptions(agentId, await connection.agent.request('session/new', { cwd: os.tmpdir(), mcpServers: [], ...agentSessionSettings(agent) }), init);
+          return saveAcpOptions(agentId, await connection.agent.request('session/new', { cwd: os.tmpdir(), mcpServers: [], ...agentSessionSettings(agent) }), launchKey(agent), init);
         })(),
         new Promise<never>((_, reject) => { child.on('error', reject); timer = setTimeout(() => reject(new Error('Агент не ответил за 90 секунд')), 90_000); }),
       ]);
@@ -251,7 +262,7 @@ async function boot(id: string): Promise<LiveSession> {
       }
     } else {
       response = await connection.agent.request('session/new', where);
-      saveAcpOptions(agent.id, response, initialized);
+      saveAcpOptions(agent.id, response, launchKey(agent), initialized);
     }
     state.loading = false;
     updateSession(id, { acp_session_id: 'sessionId' in response ? String(response.sessionId) : session.acp_session_id,

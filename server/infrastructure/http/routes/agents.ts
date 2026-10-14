@@ -2,8 +2,7 @@ import { Router, Request, Response } from 'express';
 import { listAgents, getAgent, createAgent, updateAgent, deleteAgent, updateAgentCli, type AgentInput } from '../../../core/agents';
 import { agentLimits } from '../../../core/agents/limits';
 import { agentPresets } from '../../../core/agents/presets';
-import { getAcpOptions } from '../../../core/agents/acp-options';
-import { agentOptions } from '../../../core/agent-sessions/acp-host';
+import { agentOptions, cachedAgentOptions } from '../../../core/agent-sessions/acp-host';
 
 export const agentsRouter = Router();
 
@@ -27,7 +26,7 @@ agentsRouter.get('/:id/limits', async (req: Request, res: Response) => {
 });
 
 agentsRouter.get('/:id/acp-options', async (req: Request, res: Response) => {
-  if (req.query.cached === '1') return res.json(getAcpOptions(req.params.id));
+  if (req.query.cached === '1') return res.json(cachedAgentOptions(req.params.id));
   try { res.json(await agentOptions(req.params.id, req.query.refresh === '1')); }
   catch (e) { res.status(502).json({ error: e instanceof Error ? e.message : String(e) }); }
 });
