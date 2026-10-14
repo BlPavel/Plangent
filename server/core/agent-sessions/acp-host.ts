@@ -17,6 +17,7 @@ import { permissionDecision } from './permissions';
 import { agentEnv } from './env';
 import { agentSessionSettings } from './session-settings';
 import { agentPresets, presetForAgentId } from '../agents/presets';
+import { resolveAdapter } from '../agents/adapter-install';
 import type { AgentSession, PermissionPolicy } from './types';
 import type { Agent } from '../../models';
 
@@ -29,6 +30,9 @@ interface LiveSession {
   stopping: boolean;
   loading: boolean;
   cancelled: boolean;
+  /** The agent can restore the conversation via session/load, so an idle process may be stopped. */
+  resumable: boolean;
+  idleSince: number;
   text: string;
   textType: string;
   permissions: Map<string, { request: ACP.RequestPermissionRequest; resolve: (response: ACP.RequestPermissionResponse) => void }>;
@@ -42,11 +46,11 @@ export function configureSessionHost(config: { mcp: typeof mcpConfig; terminate:
   mcpConfig = config.mcp;
   terminate = config.terminate;
 }
-function adapterCommand(agent: Agent): { command: string; args: string[] } {
+async function adapterCommand(agent: Agent, env: Record<string, string | undefined>): Promise<{ command: string; args: string[] }> {
   const preset = agentPresets[presetForAgentId[agent.id]];
   const command = agent.acp_command || preset?.acp_command;
   if (!command) throw new Error(`У агента «${agent.name}» не задана ACP-команда. Укажите её в настройках агента.`);
-  return { command, args: agent.acp_command ? agent.acp_args ?? [] : preset?.acp_args ?? [] };
+  return resolveAdapter(command, agent.acp_command ? agent.acp_args ?? [] : preset?.acp_args ?? [], env);
 }
 /** Values the agent reported for a config option; empty when it reported none (then anything is tried). */
 function offered(options: ACP.SessionConfigOption[] | null | undefined, match: (o: ACP.SessionConfigOption) => boolean): string[] {
@@ -69,9 +73,10 @@ function probeAgent(agentId: string): Promise<AcpOptions> {
   const job = (async () => {
     const agent = getAgent(agentId);
     if (!agent) throw new Error('Агент не найден');
-    const { command, args } = adapterCommand(agent);
+    const env = agentEnv(process.env, agent.env);
+    const { command, args } = await adapterCommand(agent, env);
     const sdk = await loadSdk();
-    const child = spawn(command, args, { cwd: os.tmpdir(), env: agentEnv(process.env, agent.env), stdio: 'pipe', windowsHide: true, detached: process.platform !== 'win32' });
+    const child = spawn(command, args, { cwd: os.tmpdir(), env, stdio: 'pipe', windowsHide: true, detached: process.platform !== 'win32' });
     const connection = sdk.client({ name: 'Plangent' })
       .onNotification('session/update', () => {})
       .onRequest('session/request_permission', async () => ({ outcome: { outcome: 'cancelled' as const } }))
@@ -184,18 +189,20 @@ async function boot(id: string): Promise<LiveSession> {
   const project = getProject(session.project_id);
   if (!agent || !project) throw new Error('Агент или проект не найден');
   const sdk = await loadSdk();
-  const { command, args } = adapterCommand(agent);
   updateSession(id, { status: 'starting', reason: '' });
+  const env = agentEnv(process.env, agent.env, project.config.extra_env);
+  let command: string, args: string[];
+  try { ({ command, args } = await adapterCommand(agent, env)); }
+  catch (error) { updateSession(id, { status: 'error', reason: String(error) }); throw error; }
   // The project folder reaches the agent through session/new. Starting the process there would make npx
   // honor the project's .npmrc (e.g. a corporate registry) when it resolves the adapter itself.
-  const child = spawn(command, args, { cwd: os.tmpdir(), env: agentEnv(process.env, agent.env, project.config.extra_env),
-    stdio: 'pipe', windowsHide: true, detached: process.platform !== 'win32' });
+  const child = spawn(command, args, { cwd: os.tmpdir(), env, stdio: 'pipe', windowsHide: true, detached: process.platform !== 'win32' });
   const connection = sdk.client({ name: 'Plangent' })
     .onNotification('session/update', p => update(id, p.params))
     .onRequest('session/request_permission', p => permission(id, p.params))
     .connect(sdk.ndJsonStream(Writable.toWeb(child.stdin!) as WritableStream<Uint8Array>, Readable.toWeb(child.stdout!) as ReadableStream<Uint8Array>));
   const state: LiveSession = { connection, process: child, busy: false, stopping: false, loading: !!session.acp_session_id,
-    cancelled: false, text: '', textType: '', permissions: new Map() };
+    cancelled: false, resumable: false, idleSince: Date.now(), text: '', textType: '', permissions: new Map() };
   live.set(id, state);
   let stderr = '';
   child.stderr!.on('data', chunk => { stderr = (stderr + chunk.toString()).slice(-8000); });
@@ -217,6 +224,7 @@ async function boot(id: string): Promise<LiveSession> {
     const initialized = await connection.agent.request('initialize', { protocolVersion: sdk.PROTOCOL_VERSION,
       clientInfo: { name: 'Plangent', version: '0.5.0' }, clientCapabilities: {} });
     updateSession(id, { metadata: { ...session.metadata, ...initialized } });
+    state.resumable = !!initialized.agentCapabilities?.loadSession;
     const mcpServers = mcpConfig(session, !!initialized.agentCapabilities?.mcpCapabilities?.http);
     if (session.acp_session_id && !initialized.agentCapabilities?.loadSession) {
       throw new Error('Адаптер не поддерживает восстановление. Начните новый чат с контекстом.');
@@ -277,6 +285,7 @@ async function boot(id: string): Promise<LiveSession> {
     for (const [configId, value] of Object.entries(preferredConfig)) {
       if (response.configOptions?.some(o => o.id === configId && o.category !== 'model' && o.category !== 'mode')) await setConfig(id, configId, value);
     }
+    state.idleSince = Date.now();
     return state;
   } catch (error) {
     // A dying adapter first surfaces as "ACP connection closed"; give it a moment to exit so the
@@ -289,7 +298,8 @@ async function boot(id: string): Promise<LiveSession> {
 }
 export async function setModel(id: string, model: string): Promise<void> {
   const state = live.get(id);
-  if (!state || state.busy) throw new Error('Дождитесь окончания хода');
+  if (!state) { updateSession(id, { model }); return; } // applied when the session next starts
+  if (state.busy) throw new Error('Дождитесь окончания хода');
   const session = getSession(id);
   const options = session.metadata.configOptions as ACP.SessionConfigOption[] | undefined;
   const option = options?.find(o => o.category === 'model');
@@ -370,6 +380,7 @@ export async function sendPrompt(id: string, content: ACP.ContentBlock[]): Promi
     if (!state.stopping) { flush(id, state); updateSession(id, { status: 'error', reason: String(error) }); sessionSignals.emit('error-state', id, String(error)); }
   }).finally(() => {
     state.busy = false;
+    state.idleSince = Date.now();
     const next = queuedPrompts(id)[0];
     if (next && !state.cancelled && !state.stopping && getSession(id).status === 'ready') {
       editQueued(id, next.id);
@@ -406,6 +417,23 @@ export async function closeSession(id: string): Promise<void> {
   live.delete(id);
 }
 export async function shutdownSessions(): Promise<void> { await Promise.all([...live.keys()].map(closeSession)); }
+/**
+ * An adapter with its agent costs ~300 MB, so a chat nobody talks to doesn't keep one running: after
+ * IDLE_MS without a turn it is stopped, and the next message restarts it through session/load.
+ */
+const IDLE_MS = 5 * 60_000;
+setInterval(() => {
+  for (const [id, state] of live) {
+    if (state.resumable && !state.busy && !state.loading && !state.stopping && !state.permissions.size
+      && !starting.has(id) && Date.now() - state.idleSince > IDLE_MS) {
+      // Leaves `live` right away, so a message arriving meanwhile starts a fresh process instead of this dying one.
+      state.stopping = true;
+      live.delete(id);
+      state.connection.close();
+      void terminate(state.process.pid);
+    }
+  }
+}, 60_000).unref();
 export function snapshot(id: string) {
   const state = live.get(id);
   return { session: getSession(id), queue: queuedPrompts(id), streaming: state ? { text: state.text, type: state.textType } : null,
