@@ -91,8 +91,8 @@ test('preset form login, docs API lifecycle, files, mentions, progress and cance
   assert.ok(fs.existsSync(path.join(sourceFolder(id), 'INDEX.md')));
   assert.ok(events.some(e => e.type === 'docs-sync-progress'));
   assert.ok(events.some(e => e.type === 'docs-sync-status'));
-  const folder = await request('/projects', 'POST', { name: 'Work', repo_path: path.join(root, 'work') });
   fs.mkdirSync(path.join(root, 'work'));
+  const folder = await request('/projects', 'POST', { name: 'Work', repo_path: path.join(root, 'work') });
   assert.ok((await request('/projects/' + folder.body.id + '/mentions?q=manual')).body.some((m: { path: string }) => m.path === 'manual/'));
   assert.ok((await request('/projects/' + folder.body.id + '/mentions?q=manual/INDEX')).body.length);
   assert.equal((await request(route, 'PATCH', { repo_path: path.join(root, 'escape') })).body.repo_path, sourceFolder(id));

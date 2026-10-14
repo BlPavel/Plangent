@@ -2,6 +2,14 @@ import type { ToolCallUpdate } from '@agentclientprotocol/sdk';
 
 /** Tools the Plangent MCP server gives agents (served by infrastructure/mcp/server.ts). */
 export const plangentTools = {
+  get_finish_context: { description: 'Read changed files, diffs, commit rules, task context, options and user revision note. Call first.', fields: {} },
+  set_commits: { description: 'Submit the full commit list. Include each changed file exactly once. Plangent creates commits. Correct errors and retry.', fields: {
+    commits: { type: 'array', minItems: 1, items: { type: 'object', additionalProperties: false, required: ['files','title'], properties: {
+      files: { type: 'array', minItems: 1, items: { type: 'string' } }, title: { type: 'string' }, body: { type: 'string' },
+    } } },
+  } },
+  finish_commits: { description: 'Hand completed commits to the user for confirmation. Never push yourself.', fields: {} },
+  create_merge_request: { description: 'Create the merge request after the push. Give only the title (one line) and the description following the template. Plangent sets target branch, reviewers, labels and options.', fields: { title: { type: 'string' }, description: { type: 'string' } } },
   get_library: { description: 'Get the project library catalog, instruction authoring guide and available levels. Call first.', fields: {} },
   get_library_item: { description: 'Read an available library item, including content.', fields: { id: { type: 'string' } } },
   propose_library_change: {
@@ -26,6 +34,11 @@ export const plangentTools = {
     description: 'Reply in an assigned item\'s thread; the thread then waits for the developer. kind: answer (plain reply), options (discuss approaches as a numbered list in text, marking your recommendation), questions (clarifying questions in text), change (you changed code: say what, list files), disagree (you will not do it: give arguments). The developer replies in their own words; all suggestions belong in text.',
     fields: { id: { type: 'string' }, kind: { type: 'string', enum: ['answer', 'options', 'questions', 'change', 'disagree'] }, text: { type: 'string' },
       files: { type: 'array', items: { type: 'string' } } },
+  },
+  get_branch_questions: { description: 'Read the questions of the developer about the reviewed branch: threads waiting for you (assigned, with history), the rules (protocol) and other threads as context. Call first.', fields: {} },
+  reply_branch_question: {
+    description: 'Reply in a question thread of the branch review; the thread then waits for the developer. kind: answer (plain reply), options (approaches as a numbered list with your recommendation), questions (clarifying questions). One reply per thread per turn.',
+    fields: { id: { type: 'string' }, kind: { type: 'string', enum: ['answer', 'options', 'questions'] }, text: { type: 'string' } },
   },
   get_review_context: { description: 'Get assigned plan and executor context.', fields: {} },
   add_finding: { description: 'Report a review finding.', fields: { file: { type: 'string' }, line: { type: 'integer', minimum: 1 }, severity: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] }, message: { type: 'string' } } },

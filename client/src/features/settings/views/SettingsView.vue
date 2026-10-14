@@ -11,6 +11,7 @@
       <button class="stab" :class="{ active: tab === 'plan-template' }" @click="tab = 'plan-template'">Шаблон плана</button>
       <button class="stab" :class="{ active: tab === 'instruction-guide' }" @click="tab = 'instruction-guide'">Руководство по инструкциям</button>
       <button class="stab" :class="{ active: tab === 'code-fixer' }" @click="tab = 'code-fixer'">Агент доработки</button>
+      <button class="stab" :class="{ active: tab === 'commit-rules' }" @click="tab = 'commit-rules'">Коммиты</button>
       <button class="stab" :class="{ active: tab === 'notes' }" @click="tab = 'notes'">Доработки</button>
     </div>
 
@@ -94,6 +95,13 @@
     <div v-show="tab === 'code-fixer'" class="tab-body">
       <p class="hint">Глобальная инструкция действует во всех проектах, если проект или группа не переопределили её во вкладке «Инструкции» → «Агент доработки».</p>
       <CodeFixerInstructionEditor scope="global" />
+    </div>
+
+    <!-- Commit message rules (global) -->
+    <div v-show="tab === 'commit-rules'" class="tab-body">
+      <p class="hint">Глобальные правила действуют во всех проектах, если проект или группа не переопределили их во вкладке «Инструкции» → «Коммиты».</p>
+      <GlobalGitAgent />
+      <CodeFixerInstructionEditor scope="global" type="commit-rules" />
     </div>
 
     <!-- Personal improvement notes -->
@@ -188,12 +196,13 @@ import IconTrash from '@shared/ui/IconTrash.vue'
 import { CodeFixerInstructionEditor, InstructionGuideEditor, PlanTemplateEditor, SkillsManager } from '@features/library'
 import ConnectionsSettings from '../components/ConnectionsSettings.vue'
 import ImprovementNotes from '../components/ImprovementNotes.vue'
+import GlobalGitAgent from '../components/GlobalGitAgent.vue'
 
 const appStore = useAppStore()
 const agentsStore = useAgentsStore()
 const chatStore = useChatStore()
 
-type Tab = 'agents' | 'skills' | 'plan-template' | 'instruction-guide' | 'code-fixer' | 'notes' | 'connections'
+type Tab = 'agents' | 'skills' | 'plan-template' | 'instruction-guide' | 'code-fixer' | 'commit-rules' | 'notes' | 'connections'
 // Other screens link straight to a tab, e.g. a docs source's «Изменить пароль» → ?tab=connections&fix=<id>.
 const route = useRoute()
 const tab = ref<Tab>(route.query.tab === 'connections' ? 'connections' : 'agents')

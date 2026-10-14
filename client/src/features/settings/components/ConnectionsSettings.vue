@@ -63,10 +63,10 @@
           <div v-else-if="c.last_check_message" class="item-message" :class="STATUS[c.last_check_status]?.tone">
             {{ c.last_check_message }}<span v-if="c.last_check_at" class="faint"> · {{ formatDateTime(c.last_check_at) }}</span>
           </div>
-          <div v-else-if="noPassword(c)" class="item-message warn">Пароль не задан — вход невозможен.</div>
+          <div v-else-if="noPassword(c)" class="item-message warn">{{ secretWord(c).Nom }} не задан — вход невозможен.</div>
         </div>
         <div class="actions">
-          <AppButton v-if="passwordTarget(c)" size="sm" :variant="status(c) === 'needs_update' || noPassword(c) ? 'update' : 'ghost'" @click="fixPassword(c)">{{ noPassword(c) ? 'Задать пароль' : 'Изменить пароль' }}</AppButton>
+          <AppButton v-if="passwordTarget(c)" size="sm" :variant="status(c) === 'needs_update' || noPassword(c) ? 'update' : 'ghost'" @click="fixPassword(c)">{{ noPassword(c) ? 'Задать' : 'Изменить' }} {{ secretWord(c).acc }}</AppButton>
           <AppButton size="sm" variant="ghost" :disabled="checks[c.id]?.running" title="Войти и запросить текущего пользователя" @click="check(c.id)">{{ checks[c.id]?.running ? 'Проверка…' : 'Проверить' }}</AppButton>
           <AppButton size="sm" variant="ghost" @click="openConnection(c)">Изменить</AppButton>
           <AppButton size="sm" variant="danger-ghost" @click="removeConnection(c)">Удалить</AppButton>
@@ -115,8 +115,8 @@
       @saved="connectionSaved"
     />
 
-    <AppModal v-model="passwordOpen" :title="'Новый пароль: ' + passwordFor.name" @confirm="savePassword">
-      <FormField v-model="password" label="Новый пароль" type="password" hint="Пароль шифруется и больше никогда не показывается. После сохранения зависимые подключения будут проверены заново." />
+    <AppModal v-model="passwordOpen" :title="(passwordFor.token ? 'Новый токен: ' : 'Новый пароль: ') + passwordFor.name" @confirm="savePassword">
+      <FormField v-model="password" :label="passwordFor.token ? 'Новый токен' : 'Новый пароль'" type="password" :hint="(passwordFor.token ? 'Токен' : 'Пароль') + ' шифруется и больше никогда не показывается. После сохранения зависимые подключения будут проверены заново.'" />
     </AppModal>
   </div>
 </template>
@@ -184,6 +184,8 @@ function accountLabel(c: Connection) {
   return (c.credential_mode === 'inherit' ? 'от организации: ' : '') + a.name
 }
 const status = (c: Connection) => account(c)?.status === 'needs_update' ? 'needs_update' : c.last_check_status
+/** A token-based connection signs in with a token: the buttons and dialog should say so. */
+const secretWord = (c: Connection) => c.auth_strategy === 'token' ? { Nom: 'Токен', acc: 'токен', Acc: 'Токен' } : { Nom: 'Пароль', acc: 'пароль', Acc: 'Пароль' }
 const noPassword = (c: Connection) => { const a = account(c); return !!a && !a.hasSecret }
 function credentialStatus(c: Credential) {
   return c.status === 'needs_update' ? CREDENTIAL_STATUS.needsUpdate : c.hasSecret ? CREDENTIAL_STATUS.ready : CREDENTIAL_STATUS.noSecret
@@ -195,7 +197,7 @@ function passwordTarget(c: Connection): { kind: string; id: string; name: string
   const a = account(c)
   return a ? { kind: 'credentials', id: a.id, name: a.name } : null
 }
-function fixPassword(c: Connection) { const t = passwordTarget(c); if (t) openPassword(t.kind, t.id, t.name) }
+function fixPassword(c: Connection) { const t = passwordTarget(c); if (t) openPassword(t.kind, t.id, t.name, c.auth_strategy === 'token') }
 /** Accounts whose password stopped working, once each, for the banner. */
 const broken = computed(() => {
   const seen = new Map<string, { kind: string; id: string; name: string }>()
@@ -209,7 +211,7 @@ const organizationOpen = ref(false), credentialOpen = ref(false), passwordOpen =
 const organizationForm = ref({ id: '', name: '', credential_id: '' })
 const credentialForm = ref({ id: '', name: '', organization_id: '', username: '' })
 const credentialHasSecret = ref(false)
-const password = ref(''), passwordFor = ref({ kind: '', id: '', name: '' })
+const password = ref(''), passwordFor = ref({ kind: '', id: '', name: '', token: false })
 // A typed password never outlives its dialog.
 watch([passwordOpen, credentialOpen], () => { password.value = '' })
 
@@ -245,9 +247,9 @@ async function saveCredential() {
   if (ok && secret && f.id) await recheck('credentials', f.id)
 }
 
-function openPassword(kind: string, id: string, name = '') { password.value = ''; passwordFor.value = { kind, id, name }; passwordOpen.value = true }
+function openPassword(kind: string, id: string, name = '', token = false) { password.value = ''; passwordFor.value = { kind, id, name, token }; passwordOpen.value = true }
 async function savePassword() {
-  if (!password.value) return app.toast('Введите пароль', 'error')
+  if (!password.value) return app.toast(passwordFor.value.token ? 'Введите токен' : 'Введите пароль', 'error')
   const { kind, id } = passwordFor.value
   const ok = await run(async () => { await api.put('/integrations/' + kind + '/' + id + '/password', { password: password.value }); passwordOpen.value = false; password.value = '' })
   if (ok) await recheck(kind, id)

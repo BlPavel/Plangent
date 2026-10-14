@@ -15,7 +15,7 @@
 interface RailItem {
   id: string
   label: string
-  icon: 'changes' | 'files' | 'search' | 'remarks' | 'chat'
+  icon: 'changes' | 'files' | 'search' | 'remarks' | 'chat' | 'finish' | 'mr'
   count?: number
   /** `warning` for counts that need the developer (decisions). */
   tone?: 'warning'
@@ -29,6 +29,8 @@ const ICONS: Record<RailItem['icon'], string[]> = {
   search: ['M7 11.5a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9z', 'M10.3 10.3 14 14'],
   remarks: ['M2.5 3h11v7.5H7L4 13v-2.5H2.5z', 'M5.5 6.5h5'],
   chat: ['M3 4h10v6.5H8.5L6 13v-2.5H3z', 'M6 7.2h.01M8 7.2h.01M10 7.2h.01'],
+  finish: ['M3 8.5 6.5 12 13 4.5'],
+  mr: ['M4.5 3v10', 'M11.5 13V7.5a2.5 2.5 0 0 0-2.5-2.5H6.5', 'M8 3.5 6.5 5 8 6.5'],
 }
 
 defineProps<{ side: 'left' | 'right'; items: RailItem[]; shortcut: string }>()

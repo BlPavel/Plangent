@@ -13,7 +13,7 @@ export interface IntegrationCredential {
   hasSecret: boolean; status: CredentialStatus; revision: number; created_at: string; updated_at: string;
 }
 export interface IntegrationConnection {
-  id: string; name: string; base_url: string; organization_id: string | null;
+  id: string; name: string; base_url: string; organization_id: string | null; code_host?: string | null;
   credential_mode: CredentialMode; credential_id: string | null; auth_strategy: AuthStrategy;
   auth_config: Record<string, unknown>; last_check_status: ConnectionCheckStatus;
   last_check_at: string | null; last_check_message: string; created_at: string; updated_at: string;

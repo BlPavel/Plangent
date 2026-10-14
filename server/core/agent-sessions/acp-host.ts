@@ -15,7 +15,9 @@ import { getAcpOptions, saveAcpOptions, type AcpOptions } from '../agents/acp-op
 import { enqueue, queuedPrompts, editQueued } from './prompt-queue';
 import { permissionDecision } from './permissions';
 import { agentEnv } from './env';
+import { agentSessionSettings } from './session-settings';
 import { agentPresets, presetForAgentId } from '../agents/presets';
+import { resolveAdapter } from '../agents/adapter-install';
 import type { AgentSession, PermissionPolicy } from './types';
 import type { Agent } from '../../models';
 
@@ -28,6 +30,9 @@ interface LiveSession {
   stopping: boolean;
   loading: boolean;
   cancelled: boolean;
+  /** The agent can restore the conversation via session/load, so an idle process may be stopped. */
+  resumable: boolean;
+  idleSince: number;
   text: string;
   textType: string;
   permissions: Map<string, { request: ACP.RequestPermissionRequest; resolve: (response: ACP.RequestPermissionResponse) => void }>;
@@ -41,11 +46,22 @@ export function configureSessionHost(config: { mcp: typeof mcpConfig; terminate:
   mcpConfig = config.mcp;
   terminate = config.terminate;
 }
-function adapterCommand(agent: Agent): { command: string; args: string[] } {
+/** The configured start command, before a pinned adapter is resolved to its installed copy. */
+function launchCommand(agent: Agent): { command: string; args: string[] } {
   const preset = agentPresets[presetForAgentId[agent.id]];
   const command = agent.acp_command || preset?.acp_command;
   if (!command) throw new Error(`У агента «${agent.name}» не задана ACP-команда. Укажите её в настройках агента.`);
   return { command, args: agent.acp_command ? agent.acp_args ?? [] : preset?.acp_args ?? [] };
+}
+const launchKey = (agent: Agent) => { try { return JSON.stringify(launchCommand(agent)); } catch { return ''; } };
+async function adapterCommand(agent: Agent, env: Record<string, string | undefined>): Promise<{ command: string; args: string[] }> {
+  const { command, args } = launchCommand(agent);
+  return resolveAdapter(command, args, env);
+}
+/** Cached options, unless they were reported by another adapter (e.g. a preset moved to a new version). */
+export function cachedAgentOptions(agentId: string): AcpOptions | null {
+  const cached = getAcpOptions(agentId), agent = getAgent(agentId);
+  return cached && agent && cached.launch === launchKey(agent) ? cached : null;
 }
 /** Values the agent reported for a config option; empty when it reported none (then anything is tried). */
 function offered(options: ACP.SessionConfigOption[] | null | undefined, match: (o: ACP.SessionConfigOption) => boolean): string[] {
@@ -58,7 +74,7 @@ const probes = new Map<string, Promise<AcpOptions>>();
  * yet, a throwaway session is opened just to read them (no prompt is sent, so nothing is spent).
  */
 export function agentOptions(agentId: string, refresh = false): Promise<AcpOptions> {
-  const cached = getAcpOptions(agentId);
+  const cached = cachedAgentOptions(agentId);
   const stale = !cached || Date.now() - cached.at > 24 * 60 * 60_000;
   if (cached && !refresh) { if (stale && !probes.has(agentId)) void probeAgent(agentId).catch(() => {}); return Promise.resolve(cached); }
   return probeAgent(agentId);
@@ -68,9 +84,10 @@ function probeAgent(agentId: string): Promise<AcpOptions> {
   const job = (async () => {
     const agent = getAgent(agentId);
     if (!agent) throw new Error('Агент не найден');
-    const { command, args } = adapterCommand(agent);
+    const env = agentEnv(process.env, agent.env);
+    const { command, args } = await adapterCommand(agent, env);
     const sdk = await loadSdk();
-    const child = spawn(command, args, { cwd: os.tmpdir(), env: agentEnv(process.env, agent.env), stdio: 'pipe', windowsHide: true, detached: process.platform !== 'win32' });
+    const child = spawn(command, args, { cwd: os.tmpdir(), env, stdio: 'pipe', windowsHide: true, detached: process.platform !== 'win32' });
     const connection = sdk.client({ name: 'Plangent' })
       .onNotification('session/update', () => {})
       .onRequest('session/request_permission', async () => ({ outcome: { outcome: 'cancelled' as const } }))
@@ -79,8 +96,8 @@ function probeAgent(agentId: string): Promise<AcpOptions> {
     try {
       return await Promise.race([
         (async () => {
-          const init = await connection.agent.request('initialize', { protocolVersion: sdk.PROTOCOL_VERSION, clientInfo: { name: 'Plangent', version: '0.5.0' }, clientCapabilities: {} });
-          return saveAcpOptions(agentId, await connection.agent.request('session/new', { cwd: os.tmpdir(), mcpServers: [] }), init);
+          const init = await connection.agent.request('initialize', { protocolVersion: sdk.PROTOCOL_VERSION, clientInfo: { name: 'Plangent', version: '0.6.0' }, clientCapabilities: {} });
+          return saveAcpOptions(agentId, await connection.agent.request('session/new', { cwd: os.tmpdir(), mcpServers: [], ...agentSessionSettings(agent) }), launchKey(agent), init);
         })(),
         new Promise<never>((_, reject) => { child.on('error', reject); timer = setTimeout(() => reject(new Error('Агент не ответил за 90 секунд')), 90_000); }),
       ]);
@@ -183,18 +200,20 @@ async function boot(id: string): Promise<LiveSession> {
   const project = getProject(session.project_id);
   if (!agent || !project) throw new Error('Агент или проект не найден');
   const sdk = await loadSdk();
-  const { command, args } = adapterCommand(agent);
   updateSession(id, { status: 'starting', reason: '' });
+  const env = agentEnv(process.env, agent.env, project.config.extra_env);
+  let command: string, args: string[];
+  try { ({ command, args } = await adapterCommand(agent, env)); }
+  catch (error) { updateSession(id, { status: 'error', reason: String(error) }); throw error; }
   // The project folder reaches the agent through session/new. Starting the process there would make npx
   // honor the project's .npmrc (e.g. a corporate registry) when it resolves the adapter itself.
-  const child = spawn(command, args, { cwd: os.tmpdir(), env: agentEnv(process.env, agent.env, project.config.extra_env),
-    stdio: 'pipe', windowsHide: true, detached: process.platform !== 'win32' });
+  const child = spawn(command, args, { cwd: os.tmpdir(), env, stdio: 'pipe', windowsHide: true, detached: process.platform !== 'win32' });
   const connection = sdk.client({ name: 'Plangent' })
     .onNotification('session/update', p => update(id, p.params))
     .onRequest('session/request_permission', p => permission(id, p.params))
     .connect(sdk.ndJsonStream(Writable.toWeb(child.stdin!) as WritableStream<Uint8Array>, Readable.toWeb(child.stdout!) as ReadableStream<Uint8Array>));
   const state: LiveSession = { connection, process: child, busy: false, stopping: false, loading: !!session.acp_session_id,
-    cancelled: false, text: '', textType: '', permissions: new Map() };
+    cancelled: false, resumable: false, idleSince: Date.now(), text: '', textType: '', permissions: new Map() };
   live.set(id, state);
   let stderr = '';
   child.stderr!.on('data', chunk => { stderr = (stderr + chunk.toString()).slice(-8000); });
@@ -214,8 +233,9 @@ async function boot(id: string): Promise<LiveSession> {
   const timeout = setTimeout(() => { failed('Адаптер не ответил за 90 секунд'); void terminate(child.pid); }, 90_000);
   try {
     const initialized = await connection.agent.request('initialize', { protocolVersion: sdk.PROTOCOL_VERSION,
-      clientInfo: { name: 'Plangent', version: '0.5.0' }, clientCapabilities: {} });
+      clientInfo: { name: 'Plangent', version: '0.6.0' }, clientCapabilities: {} });
     updateSession(id, { metadata: { ...session.metadata, ...initialized } });
+    state.resumable = !!initialized.agentCapabilities?.loadSession;
     const mcpServers = mcpConfig(session, !!initialized.agentCapabilities?.mcpCapabilities?.http);
     if (session.acp_session_id && !initialized.agentCapabilities?.loadSession) {
       throw new Error('Адаптер не поддерживает восстановление. Начните новый чат с контекстом.');
@@ -223,7 +243,8 @@ async function boot(id: string): Promise<LiveSession> {
     let response: ACP.NewSessionResponse | ACP.LoadSessionResponse;
     // A group works in its service folder; its projects live elsewhere and join the session's scope.
     const extra = writableRoots(project).slice(1);
-    const where = { cwd: project.repo_path, mcpServers,
+    const sessionRoot = session.metadata.mr_private ? (await import('../mr-review/private')).reviewWorkspace(id) : project.repo_path;
+    const where = { cwd: sessionRoot, mcpServers, ...agentSessionSettings(agent),
       ...(extra.length && initialized.agentCapabilities?.sessionCapabilities?.additionalDirectories ? { additionalDirectories: extra } : {}) };
     if (session.acp_session_id) {
       try {
@@ -241,7 +262,7 @@ async function boot(id: string): Promise<LiveSession> {
       }
     } else {
       response = await connection.agent.request('session/new', where);
-      saveAcpOptions(agent.id, response, initialized);
+      saveAcpOptions(agent.id, response, launchKey(agent), initialized);
     }
     state.loading = false;
     updateSession(id, { acp_session_id: 'sessionId' in response ? String(response.sessionId) : session.acp_session_id,
@@ -250,7 +271,7 @@ async function boot(id: string): Promise<LiveSession> {
     // 'discuss' is chosen before the agent's own mode list is known; map it onto its plan/read-only mode.
     const preferred = getSession(id).metadata.preferredMode as string | undefined;
     // Planner and librarian write through MCP; the agent's plan mode can interrupt that workflow.
-    const discuss = (session.policy === 'read-only' && session.role !== 'planner' && session.role !== 'librarian') || preferred === 'discuss';
+    const discuss = (session.policy === 'read-only' && session.role !== 'planner' && session.role !== 'librarian' && session.role !== 'committer') || preferred === 'discuss';
     const safeMode = (preferred && !isBypassMode(preferred) ? modes.find(m => m.id === preferred) : undefined)
       ?? (discuss ? modes.find(m => /^plan$|read.?only/i.test(m.id)) : undefined)
       ?? modes.find(m => m.id === 'default') ?? modes.find(m => m.id === 'read-only');
@@ -275,6 +296,7 @@ async function boot(id: string): Promise<LiveSession> {
     for (const [configId, value] of Object.entries(preferredConfig)) {
       if (response.configOptions?.some(o => o.id === configId && o.category !== 'model' && o.category !== 'mode')) await setConfig(id, configId, value);
     }
+    state.idleSince = Date.now();
     return state;
   } catch (error) {
     // A dying adapter first surfaces as "ACP connection closed"; give it a moment to exit so the
@@ -287,7 +309,8 @@ async function boot(id: string): Promise<LiveSession> {
 }
 export async function setModel(id: string, model: string): Promise<void> {
   const state = live.get(id);
-  if (!state || state.busy) throw new Error('Дождитесь окончания хода');
+  if (!state) { updateSession(id, { model }); return; } // applied when the session next starts
+  if (state.busy) throw new Error('Дождитесь окончания хода');
   const session = getSession(id);
   const options = session.metadata.configOptions as ACP.SessionConfigOption[] | undefined;
   const option = options?.find(o => o.category === 'model');
@@ -347,7 +370,7 @@ export async function sendPrompt(id: string, content: ACP.ContentBlock[]): Promi
   const workspace = project ? workspaceBriefing(project) : '';
   const roleBriefing = session.role === 'code-fixer' ? buildCodeFixerBriefing(session.project_id)
     : session.role === 'librarian' ? buildLibrarianPrompt(project?.name ?? session.project_id) : '';
-  const briefing = [workspace, roleBriefing || (typeof session.metadata.briefing === 'string' ? session.metadata.briefing : '')].filter(Boolean).join('\n\n');
+  const briefing = ['Do not commit or run git commands that modify the repository. The user makes commits through Plangent. Do not add agent attribution to commit messages or pull requests.', workspace, roleBriefing || (typeof session.metadata.briefing === 'string' ? session.metadata.briefing : '')].filter(Boolean).join('\n\n');
   const withBriefing = briefing && (!session.metadata.briefed || session.metadata.needsContext);
   const prompt: ACP.ContentBlock[] = [
     ...(withBriefing ? [{ type: 'text' as const, text: briefing }] : []),
@@ -368,6 +391,7 @@ export async function sendPrompt(id: string, content: ACP.ContentBlock[]): Promi
     if (!state.stopping) { flush(id, state); updateSession(id, { status: 'error', reason: String(error) }); sessionSignals.emit('error-state', id, String(error)); }
   }).finally(() => {
     state.busy = false;
+    state.idleSince = Date.now();
     const next = queuedPrompts(id)[0];
     if (next && !state.cancelled && !state.stopping && getSession(id).status === 'ready') {
       editQueued(id, next.id);
@@ -404,6 +428,23 @@ export async function closeSession(id: string): Promise<void> {
   live.delete(id);
 }
 export async function shutdownSessions(): Promise<void> { await Promise.all([...live.keys()].map(closeSession)); }
+/**
+ * An adapter with its agent costs ~300 MB, so a chat nobody talks to doesn't keep one running: after
+ * IDLE_MS without a turn it is stopped, and the next message restarts it through session/load.
+ */
+const IDLE_MS = 5 * 60_000;
+setInterval(() => {
+  for (const [id, state] of live) {
+    if (state.resumable && !state.busy && !state.loading && !state.stopping && !state.permissions.size
+      && !starting.has(id) && Date.now() - state.idleSince > IDLE_MS) {
+      // Leaves `live` right away, so a message arriving meanwhile starts a fresh process instead of this dying one.
+      state.stopping = true;
+      live.delete(id);
+      state.connection.close();
+      void terminate(state.process.pid);
+    }
+  }
+}, 60_000).unref();
 export function snapshot(id: string) {
   const state = live.get(id);
   return { session: getSession(id), queue: queuedPrompts(id), streaming: state ? { text: state.text, type: state.textType } : null,

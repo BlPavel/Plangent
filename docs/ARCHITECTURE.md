@@ -98,3 +98,9 @@ terminal sessions, or CLI adapters; runtime integrations are wired from
 `server/index.ts`.
 
 Integrations, authenticated documentation sources and their lifecycle are documented in [INTEGRATIONS.md](INTEGRATIONS.md).
+
+Git integration domains in `server/core`: `code` (read-only `git.ts`; writes in `git-write.ts`; commit message rules in
+`commit-message.ts`), `code-reviews` (the developer's review with the agent, plus colleagues' MR discussions pulled by
+button), `finish` (the «Завершение работ» workflow and the `committer` MCP role), `code-hosts` (`CodeHost`, GitLab),
+`mr-review` (review of other people's MRs), `task-mr` (create MR for a branch/task). Each has a README.
+Agents never run writing git commands in a shell; commits, push and MR are Plangent MCP tools checked by the server.

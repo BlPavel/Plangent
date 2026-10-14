@@ -43,6 +43,7 @@ export interface CodeReviewItem {
   text: string;
   refs: string[];
   code_snippet: string;
+  comparison_base?: string | null;
   status: CodeReviewItemStatus;
   answer: string | null;
   outdated: boolean;

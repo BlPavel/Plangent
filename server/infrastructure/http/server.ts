@@ -1,3 +1,6 @@
+import { taskMrRouter } from './routes/task-mr';
+import { mrReviewRouter } from './routes/mr-review';
+import { branchReviewRouter } from './routes/branch-review';
 import { integrationsRouter } from './routes/integrations';
 import { terminalsRouter } from './routes/terminals';
 import { agentSessionsRouter } from './routes/agent-sessions';
@@ -9,6 +12,8 @@ import { WebSocketServer, WebSocket } from 'ws';
 import path from 'path';
 import fs from 'fs';
 import { codeRouter } from './routes/code';
+import { finishRouter } from './routes/finish';
+import { gitRouter } from './routes/git';
 import { codeReviewsRouter } from './routes/code-reviews';
 import { attachCodeSubscriptions } from './code-subscriptions';
 import { projectsRouter } from './routes/projects';
@@ -72,7 +77,12 @@ export function createApp() {
   app.use('/api/agent-sessions', agentSessionsRouter);
   app.use('/mcp', mcpRouter);
   app.use('/api/projects/:projectId/code', codeRouter);
+  app.use('/api/projects/:projectId/git', gitRouter);
+  app.use('/api/projects/:projectId/finish', finishRouter);
   app.use('/api/projects/:projectId/code-reviews', codeReviewsRouter);
+  app.use('/api/projects/:projectId/task-mr', taskMrRouter);
+  app.use('/api/projects/:projectId/mr-review', mrReviewRouter);
+  app.use('/api/projects/:projectId/branch-review', branchReviewRouter);
   app.use('/api/projects', projectsRouter);
   app.use('/api/projects/:projectId/tasks', tasksRouter);
   app.use('/api/projects/:projectId/tasks/:taskId/plans', plansRouter);

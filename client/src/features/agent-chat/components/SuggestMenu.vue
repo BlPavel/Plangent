@@ -16,7 +16,7 @@
             @mouseenter="$emit('hover', index)"
             @click="$emit('pick', item)"
           >
-            <svg class="suggest-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round"><path :d="item.ref && !item.prefix ? BOOK : item.dir ? FOLDER : item.command ? SLASH : FILE" /></svg>
+            <svg v-if="!item.command" class="suggest-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round"><path :d="item.ref && !item.prefix ? BOOK : item.dir ? FOLDER : FILE" /></svg>
             <span class="suggest-label"><bdi><span v-if="item.prefix" class="suggest-prefix">{{ item.prefix }}</span>{{ item.label }}</bdi></span>
             <span v-if="item.detail" class="suggest-detail">{{ item.detail }}</span>
           </button>
@@ -82,7 +82,6 @@ watch(() => props.active, async () => {
 const SECTIONS = { members: 'Проекты группы', sources: 'Справочные материалы', projects: 'Другие проекты' }
 const FILE = 'M4 2.5h5l3 3v8H4z M9 2.5v3h3'
 const FOLDER = 'M2.5 4.5v8h11v-6.5H8L6.5 4.5z'
-const SLASH = 'M10 3L6 13'
 const BOOK = 'M3 3.5h4a1.5 1.5 0 0 1 1.5 1.5v8.5A1.5 1.5 0 0 0 7 12H3z M13 3.5H9.5A1.5 1.5 0 0 0 8 5v8.5A1.5 1.5 0 0 1 9.5 12H13z'
 </script>
 

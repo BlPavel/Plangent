@@ -8,7 +8,7 @@ export interface CodeFile { path: string; size: number; kind: 'text' | 'image' |
 export interface DiffOptions { base?: string; end?: string; originalPath?: string; ignoreWhitespace?: boolean }
 export interface SearchOptions { query: string; caseSensitive?: boolean; wholeWord?: boolean; regex?: boolean; mask?: string }
 export type SearchEvent = { type: 'match'; path: string; line: number; text: string } | { type: 'done'; matches: number; files: number; truncated: boolean }
-export type ReviewDraft = Omit<CreateCodeReviewItem, 'review_id' | 'round_id' | 'author' | 'status' | 'answer' | 'carried_from_item_id' | 'outdated' | 'closed'>
+export type ReviewDraft = { comparison_ref?: string } & Omit<CreateCodeReviewItem, 'review_id' | 'round_id' | 'author' | 'status' | 'answer' | 'carried_from_item_id' | 'outdated' | 'closed'>
 export type DraftPatch = Partial<Pick<CodeReviewItem, 'scope' | 'file' | 'line_start' | 'line_end' | 'side' | 'kind' | 'text' | 'refs' | 'code_snippet'>>
 export interface ReviewAttention { project_id: string; review_id: string; origin: 'project' | 'task'; origin_id: string; count: number; items: CodeReviewItem[] }
 export interface ReviewDetail {
@@ -24,3 +24,8 @@ export interface CurrentReview {
 /** A comparison other than «against HEAD»: both ends are accepted by the per-file diff (`base`/`end`). */
 export interface BaseChanges { base: string; end: string; changes: GitChange[]; stats: Record<string, LineStat> }
 export type ReviewHistory = CodeReview & { read_only: boolean; commits: number | null; rounds: number; items: number; resolved: number; unresolved: number }
+
+/** A colleague's discussion on the current branch's merge request (not a thread with the agent). */
+export interface ExternalNote { id: number; author: string; body: string }
+export interface ExternalThread { id: string; resolved: boolean; path: string | null; line: number | null; side: 'new' | 'old'; notes: ExternalNote[] }
+export interface ExternalThreads { mr: { iid: number; title: string; url: string; state: string } | null; threads: ExternalThread[] }

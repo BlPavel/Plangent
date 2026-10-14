@@ -17,13 +17,14 @@
       <span class="gp-menu" @click.stop><AppMenu :items="menu(p)" size="xs" title="Ещё" /></span>
     </div>
 
-    <ProjectFormModal v-model="showForm" kind="project" :project="editing" :group-id="group.id" />
+    <ProjectFormModal v-model="showForm" kind="project" :group-id="group.id" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import type { Project } from '@core/models'
+import { useRouter } from 'vue-router'
 import { useAppStore } from '@core/stores/app'
 import AppButton from '@shared/ui/AppButton.vue'
 import AppMenu, { type MenuItem } from '@shared/ui/AppMenu.vue'
@@ -33,15 +34,15 @@ import ProjectFormModal from './ProjectFormModal.vue'
 /** A group's «Проекты» tab: everything you do to a project (open, edit, leave, delete) without leaving the group. */
 const props = defineProps<{ group: Project }>()
 const appStore = useAppStore()
+const router = useRouter()
 const projectsStore = useProjectsStore()
 
 const members = computed(() => projectsStore.members(props.group.id))
 const loose = computed(() => projectsStore.workProjects.filter(p => !p.group_id))
 const showForm = ref(false)
-const editing = ref<Project | null>(null)
 
-function create() { editing.value = null; showForm.value = true }
-function edit(p: Project) { editing.value = p; showForm.value = true }
+function create() { showForm.value = true }
+function edit(p: Project) { appStore.currentProject = p; void router.push({ path: '/', query: { tab: 'settings' } }) }
 
 async function move(p: Project, groupId: string | null) {
   try { await projectsStore.update(p.id, { group_id: groupId }) } catch (e: unknown) { appStore.toast(String(e), 'error') }

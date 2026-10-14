@@ -3,17 +3,14 @@ import { defineStore } from 'pinia'
 
 const STORAGE_KEY = 'plangent.taskSession.snapshots'
 
-// The planning session of a task, kept per task so it survives navigating away and back:
-// the planner keeps running on the server and the task re-attaches to its chat.
-// (The execution queue lives on the server — see features/tasks/composables/useTaskQueue.)
-export interface AnalysisChatSnapshot { runId: string; sessionId: string }
-
+// Which analysis/planning chat a task shows, kept per task so it survives navigating away and back.
+// The chats themselves live on the server (agent sessions of the task, see useChatStore);
+// the execution queue too — see features/tasks/composables/useTaskQueue.
+// A selected chat of `null` means "new chat"; `undefined` means "the latest one".
 export interface TaskSessionSnapshot {
-  analysisChats?: AnalysisChatSnapshot[]
   selectedAnalysisChat?: string | null
-  planningActive: boolean
-  planningRunId: string | null
-  planningSessionId: string | null
+  planningOpen: boolean
+  selectedPlanningChat?: string | null
 }
 
 export const useTaskSessionStore = defineStore('taskSession', () => {
@@ -23,14 +20,12 @@ export const useTaskSessionStore = defineStore('taskSession', () => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY)
       if (!raw) return {}
-      const all = JSON.parse(raw) as Record<string, TaskSessionSnapshot>
-      // Older snapshots also carried terminal and queue state: keep only the planning part.
+      const all = JSON.parse(raw) as Record<string, TaskSessionSnapshot & { planningActive?: boolean; planningSessionId?: string | null }>
+      // Older snapshots kept the chat lists and a single planner session: keep only the selection.
       return Object.fromEntries(Object.entries(all).map(([id, s]) => [id, {
-        analysisChats: s.analysisChats ?? [],
-        selectedAnalysisChat: s.selectedAnalysisChat ?? s.analysisChats?.at(-1)?.sessionId ?? null,
-        planningActive: !!s.planningActive,
-        planningRunId: s.planningRunId ?? null,
-        planningSessionId: s.planningSessionId ?? null,
+        selectedAnalysisChat: s.selectedAnalysisChat ?? undefined,
+        planningOpen: !!(s.planningOpen ?? s.planningActive),
+        selectedPlanningChat: s.selectedPlanningChat ?? s.planningSessionId ?? undefined,
       }]))
     } catch {
       return {}

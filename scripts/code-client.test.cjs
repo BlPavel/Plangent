@@ -272,16 +272,11 @@ test('screen state is one value computed from the server data', () => {
   assert.equal(countUnresolved([{ closed: false }, { closed: false }, { closed: true }, { closed: false }]), 3, 'every open thread is unresolved')
 })
 
-test('viewed marks open the review, comparison bases fall back, the committed summary stays', async () => {
+test('comparison bases fall back without a review, the committed summary stays', async () => {
   const h = harness()
-  const calls = []
-  h.codeReviewsApi.markViewedCurrent = async (...args) => { calls.push(['current', ...args]); return { review: null, view: null } }
-  h.codeReviewsApi.markViewed = async (...args) => { calls.push(['review', ...args]); return null }
   h.codeReviewsApi.baseChanges = async () => ({ base: 'a', end: 'b', changes: [{ path: 'x.ts', status: 'M' }], stats: {} })
   await h.store.start('p')
   assert.equal(h.store.screen, 'clean')
-  await h.store.toggleViewed('x.ts')
-  assert.deepEqual(calls.shift(), ['current', 'p', 'x.ts', true, 'project', 'p'])
   await h.store.setBase('agent')
   assert.equal(h.store.effectiveBase, 'head', 'no review, no rounds: the base stays HEAD')
 
@@ -289,11 +284,6 @@ test('viewed marks open the review, comparison bases fall back, the committed su
     file_views: [{ path: 'x.ts', viewed: true, changed_after_view: false }, { path: 'y.ts', viewed: false, changed_after_view: true }] })
   await h.store.refresh()
   assert.equal(h.store.screen, 'all-committed')
-  assert.deepEqual(plain(h.store.viewedState), { 'x.ts': 'viewed', 'y.ts': 'changed' })
-  await h.store.toggleViewed('x.ts')
-  assert.deepEqual(calls.shift(), ['review', 'p', 'r1', 'x.ts', false])
-  await h.store.toggleViewed('y.ts')
-  assert.deepEqual(calls.shift(), ['review', 'p', 'r1', 'y.ts', true], 'a stale mark is re-checked, not removed')
   await h.store.setBase('review')
   assert.equal(h.store.effectiveBase, 'review')
   assert.deepEqual(plain(h.store.shownChanges), [{ path: 'x.ts', status: 'M' }])
@@ -490,4 +480,88 @@ test('project sidebar adds Code decisions and permission requests to its existin
   assert.equal(result[1].reason, 'Permission required')
   assert.equal(result[2].reason, 'code.ts: Explain this')
   assert.equal(result[3].taskKey, 'Код')
+})
+
+test('remote review comparison preserves branch identity and ignores stale comparison responses', async () => {
+ const h = harness(), { store, codeReviewsApi } = h
+ await store.start('p')
+ let resolveOld
+ codeReviewsApi.remoteComparison = async (p, ref) => ref === 'origin/old'
+  ? new Promise(resolve => { resolveOld = resolve })
+  : { base: 'merge-base', end: 'head', changes: [{ path: 'feature.ts', status: 'M' }], stats: {} }
+ const old = store.setBase('remote', 'origin/old')
+ await store.setBase('remote', 'origin/main')
+ resolveOld({ base: 'stale', end: 'head', changes: [{ path: 'stale.ts' }], stats: {} })
+ await old
+ assert.equal(store.effectiveBase, 'remote')
+ assert.equal(store.remoteRef, 'origin/main')
+ assert.equal(store.shownChanges[0].path, 'feature.ts')
+ assert.equal(store.diffEnds.base, 'merge-base')
+ assert.equal(store.review, null, 'comparing never creates a review')
+ await store.setBase('head')
+ assert.equal(store.diffEnds, null)
+ store.$dispose()
+})
+
+test('finish confirmation saves manual edits before accept; moving, merging and splitting preserves files', async () => {
+ const { parse, compileScript } = require('@vue/compiler-sfc')
+ const { effectScope, reactive } = require('vue')
+ const file = 'client/src/features/finish/components/FinishPanel.vue'
+ const source = compileScript(parse(fs.readFileSync(file, 'utf8'), { filename: file }).descriptor, { id: 'finish-test' }).content
+ const initial = { id: 'run', project_id: 'p', base_head: 'base', status: 'waiting', stage: 'confirmation', scenario: 'commits',
+  options: { includeDescription: true }, commits: [{ title: 'First', body: 'Body', files: ['a', 'b'], sha: 'one' }, { title: 'Second', files: ['c'], sha: 'two' }] }
+ const calls = []
+ const store = reactive({ run: null, busy: false, error: '', load: async () => { store.run = plain(initial) },
+  save: async commits => { calls.push(['save', plain(commits)]); store.run.commits = commits.map(c => ({ ...c, sha: 'new' })); return store.run },
+  action: async name => { calls.push([name]); store.run.status = 'complete'; return store.run },
+ })
+ const component = moduleAt(file, {
+  '@core/api': { api: { get: async () => ({ values: { finish_scenario: 'commits', branch_template: 'feature/{key}-{slug}' } }) } },
+  '@core/stores/app': { useAppStore: () => ({ confirm: async () => true }) },
+  '@shared/ui/BranchNameInput.vue': { default: {} },
+  '@shared/utils/finish-scenarios': { FINISH_SCENARIOS: { commits: {}, push: {}, full: {} } },
+  '@features/code': { CommitDiff: {}, CoauthorsField: {}, GitAgentNote: {}, useGitStore: () => reactive({ settings: { finish_scenario: 'commits', base_branch: '', include_description: true, branch_prefixes: [], mr_reviewers: [] }, repository: { upstream: 'origin/feature' }, branches: [], coauthors: [] }) },
+  '../stores/finish': { useFinishStore: () => store },
+  '../api': { finishApi: { context: async () => ({ changes: [], diffs: {} }) } },
+  '../types': moduleAt('client/src/features/finish/types.ts', { '@shared/utils/finish-scenarios': { finishScenarioLabels: {} } }),
+ }, {}, source).default
+ const scope = effectScope()
+ try {
+  const panel = scope.run(() => component.setup({ projectId: 'p', branch: 'feature' }, { expose() {}, emit() {} }))
+  await new Promise(resolve => setTimeout(resolve, 0))
+  panel.selected.value = { index: 0, path: 'a' }
+  assert.equal(panel.selectedBase.value, 'base')
+  panel.selected.value = { index: 1, path: 'c' }
+  assert.equal(panel.selectedBase.value, 'one')
+  panel.move(0, 1, 'b')
+  panel.merge(1)
+  panel.split(0)
+  assert.deepEqual(plain(panel.draft.value.flatMap(c => c.files)).sort(), ['a', 'b', 'c'])
+  panel.draft.value[0].title = 'Edited by user'
+  await panel.accept()
+  assert.equal(calls[0][0], 'save')
+  assert.equal(calls[0][1][0].title, 'Edited by user')
+  assert.equal(calls[1][0], 'accept')
+  assert.equal(store.run.status, 'complete')
+ } finally { scope.stop() }
+})
+
+test('group Git settings: overrides and resets stay in one project', () => {
+ const { parse, compileScript } = require('@vue/compiler-sfc')
+ const { reactive } = require('vue')
+ const file = 'client/src/features/projects/components/GitSettingsFields.vue'
+ const source = compileScript(parse(fs.readFileSync(file, 'utf8'), { filename: file }).descriptor, { id: 'git-settings-test' }).content
+ const component = moduleAt(file, { '@shared/ui/MemberPicker.vue': { default: {} }, '@shared/utils/finish-scenarios': { finishScenarioLabels: {} } }, {}, source).default
+ const group = reactive({ base_branch: 'main', mr_squash: true, branch_prefixes: ['feature'] })
+ const first = reactive({ modelValue: {}, inherited: group, section: 'mr', sources: { mr_squash: 'group' } })
+ const second = reactive({ modelValue: {}, inherited: group, section: 'mr', sources: { mr_squash: 'group' } })
+ const setup = props => component.setup(props, { expose() {}, emit: (_, value) => { props.modelValue = value } })
+ const a = setup(first), b = setup(second)
+ assert.equal(a.value('mr_squash'), true, 'inherited from the group')
+ a.set('mr_squash', false)
+ assert.equal(first.modelValue.mr_squash, false); assert.equal(group.mr_squash, true)
+ assert.equal(a.changed('mr_squash'), true); assert.equal(b.value('mr_squash'), true, 'the other project keeps the group value')
+ a.reset('mr_squash')
+ assert.equal(Object.hasOwn(first.modelValue, 'mr_squash'), false)
+ assert.equal(a.value('mr_squash'), true)
 })

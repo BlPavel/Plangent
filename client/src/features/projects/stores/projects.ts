@@ -5,7 +5,7 @@ import { onServerEvent } from '@core/api/events'
 import type { SyncProgress } from '@core/models/integrations'
 import type { Project } from '@core/models'
 
-export type ProjectInput = Partial<Omit<Project, 'id' | 'created_at' | 'active_tasks'>> & { name: string }
+export type ProjectInput = Partial<Omit<Project, 'id' | 'created_at' | 'active_tasks'>> & { name: string; creation_mode?: 'folder' | 'clone'; operationId?: string; reuse_existing?: boolean }
 
 // Groups, work projects and reference sources all come from /projects, told apart by `kind`.
 export const useProjectsStore = defineStore('projects', () => {

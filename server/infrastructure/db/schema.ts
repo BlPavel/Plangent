@@ -21,6 +21,13 @@ export function getDb(): Database.Database {
 }
 
 export function migrate(db: Database.Database): void {
+  db.exec(`CREATE TABLE IF NOT EXISTS mr_worktrees (review_id TEXT NOT NULL, head TEXT NOT NULL, path TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1, PRIMARY KEY(review_id,head));
+    CREATE TABLE IF NOT EXISTS mr_private_threads (id TEXT PRIMARY KEY, review_id TEXT NOT NULL, head TEXT NOT NULL, path TEXT NOT NULL, side TEXT NOT NULL, line INTEGER NOT NULL, session_id TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS branch_reviews (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, branch TEXT NOT NULL, base TEXT NOT NULL, seen_head TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT (datetime('now')), UNIQUE(project_id,branch,base));
+    CREATE TABLE IF NOT EXISTS branch_review_viewed (review_id TEXT NOT NULL, path TEXT NOT NULL, sig TEXT NOT NULL, PRIMARY KEY(review_id,path));
+    CREATE TABLE IF NOT EXISTS branch_questions (id TEXT PRIMARY KEY, review_id TEXT NOT NULL, path TEXT NOT NULL DEFAULT '', side TEXT NOT NULL DEFAULT 'new', line INTEGER NOT NULL DEFAULT 0, closed INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f','now')));
+    CREATE TABLE IF NOT EXISTS branch_question_messages (id TEXT PRIMARY KEY, question_id TEXT NOT NULL REFERENCES branch_questions(id) ON DELETE CASCADE, author TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'text', text TEXT NOT NULL, sent INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f','now')));`);
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS agents (
       id TEXT PRIMARY KEY,
@@ -150,6 +157,13 @@ export function migrate(db: Database.Database): void {
     );
   `);
 
+  db.exec('CREATE TABLE IF NOT EXISTS mr_creation_intents (id TEXT PRIMARY KEY)');
+  migrateFinish(db);
+  for (const name of ['finish_scenario', 'target_branch', 'external_key', 'base_branch', 'mr_link']) {
+    const columns = db.prepare('PRAGMA table_info(tasks)').all() as { name: string }[];
+    if (!columns.some(column => column.name === name)) db.exec('ALTER TABLE tasks ADD COLUMN ' + name + ' TEXT');
+  }
+
   // Add columns that may be missing on existing DBs (idempotent)
   try { db.exec(`ALTER TABLE agents ADD COLUMN layout_profile TEXT`); } catch { /* already exists */ }
   try { db.exec(`ALTER TABLE agents ADD COLUMN model TEXT NOT NULL DEFAULT ''`); } catch { /* already exists */ }
@@ -165,7 +179,14 @@ export function migrate(db: Database.Database): void {
   migrateData(db);
   migrateWorkspaces(db);
   migrateIntegrations(db);
+  if (!(db.prepare('PRAGMA table_info(integration_connections)').all() as { name: string }[]).some(c => c.name === 'code_host'))
+    db.exec('ALTER TABLE integration_connections ADD COLUMN code_host TEXT');
   migrateCodeReviews(db);
+  migrateMrReviews(db);
+  for (const [name, definition] of [['clone_url', "TEXT NOT NULL DEFAULT ''"], ['host_project_path', "TEXT NOT NULL DEFAULT ''"], ['git_settings', "TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(git_settings))"]]) {
+    const columns = db.prepare('PRAGMA table_info(projects)').all() as { name: string }[];
+    if (!columns.some(column => column.name === name)) db.exec('ALTER TABLE projects ADD COLUMN ' + name + ' ' + definition);
+  }
   try { db.exec('ALTER TABLE tasks ADD COLUMN description_migrated INTEGER NOT NULL DEFAULT 0'); } catch { /* exists */ }
   // Clear the old field in the same transaction: reopening/deleting the section cannot repeat migration.
   db.transaction(() => {
@@ -457,6 +478,7 @@ function migrateCodeReviews(db: Database.Database): void {
       );
     `);
     const itemColumns = db.prepare('PRAGMA table_info(code_review_item)').all() as { name: string }[];
+    if (!itemColumns.some(c => c.name === 'comparison_base')) db.exec('ALTER TABLE code_review_item ADD COLUMN comparison_base TEXT');
     if (!itemColumns.some(column => column.name === 'closed')) {
       db.exec('ALTER TABLE code_review_item ADD COLUMN closed INTEGER NOT NULL DEFAULT 0 CHECK(closed IN (0,1))');
       db.exec("UPDATE code_review_item SET closed=1 WHERE status IN ('done','answered','rejected')");
@@ -500,4 +522,73 @@ function migrateCodeReviews(db: Database.Database): void {
     if (!columns.some(column => column.name === 'invalidated'))
       db.exec('ALTER TABLE code_review_file_view ADD COLUMN invalidated INTEGER NOT NULL DEFAULT 0 CHECK(invalidated IN (0,1))');
   })();
+}
+/** Finish storage uses a partial index to allow history and one live run per project. */
+function migrateFinish(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS finish_runs (
+      id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+      scenario TEXT NOT NULL CHECK(scenario IN ('commits','push','full')),
+      options TEXT NOT NULL CHECK(json_valid(options)), base_head TEXT NOT NULL,
+      branch TEXT NOT NULL, snapshot_tree TEXT NOT NULL,
+      stage TEXT NOT NULL CHECK(stage IN ('branch','commits','confirmation','push','mr','done')),
+      status TEXT NOT NULL CHECK(status IN ('running','waiting','error','complete','cancelled')),
+      commits TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(commits)), session_id TEXT,
+      note TEXT NOT NULL DEFAULT '', error TEXT NOT NULL DEFAULT '', output TEXT NOT NULL DEFAULT '',
+      pushed INTEGER NOT NULL DEFAULT 0, mr_url TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS finish_one_active ON finish_runs(project_id)
+      WHERE status NOT IN ('complete','cancelled');
+    CREATE INDEX IF NOT EXISTS finish_task ON finish_runs(task_id, created_at);
+  `);
+  // Tables created before the MR stage carry the old stage CHECK; SQLite can only rebuild them.
+  if (!(db.prepare("SELECT sql FROM sqlite_master WHERE name='finish_runs'").get() as { sql: string }).sql.includes("'mr'")) {
+    db.exec(`
+      ALTER TABLE finish_runs RENAME TO finish_runs_old;
+      DROP INDEX IF EXISTS finish_one_active; DROP INDEX IF EXISTS finish_task;
+      CREATE TABLE finish_runs (
+        id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+        scenario TEXT NOT NULL CHECK(scenario IN ('commits','push','full')),
+        options TEXT NOT NULL CHECK(json_valid(options)), base_head TEXT NOT NULL,
+        branch TEXT NOT NULL, snapshot_tree TEXT NOT NULL,
+        stage TEXT NOT NULL CHECK(stage IN ('branch','commits','confirmation','push','mr','done')),
+        status TEXT NOT NULL CHECK(status IN ('running','waiting','error','complete','cancelled')),
+        commits TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(commits)), session_id TEXT,
+        note TEXT NOT NULL DEFAULT '', error TEXT NOT NULL DEFAULT '', output TEXT NOT NULL DEFAULT '',
+        pushed INTEGER NOT NULL DEFAULT 0, mr_url TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      INSERT INTO finish_runs SELECT * FROM finish_runs_old;
+      DROP TABLE finish_runs_old;
+      CREATE UNIQUE INDEX finish_one_active ON finish_runs(project_id) WHERE status NOT IN ('complete','cancelled');
+      CREATE INDEX finish_task ON finish_runs(task_id, created_at);
+    `);
+  }
+  db.exec(`
+    UPDATE finish_runs SET status='error', error='Приложение перезапущено. Проверьте коммиты и продолжите завершение.' WHERE status='running';
+  `);
+}
+
+function migrateMrReviews(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS mr_reviews (
+      id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      connection_id TEXT NOT NULL REFERENCES integration_connections(id), project_path TEXT NOT NULL,
+      iid INTEGER NOT NULL CHECK(iid>0), snapshot TEXT NOT NULL CHECK(json_valid(snapshot)),
+      previous TEXT CHECK(previous IS NULL OR json_valid(previous)), updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(project_id,connection_id,project_path,iid)
+    );
+    CREATE TABLE IF NOT EXISTS mr_review_drafts (
+      id TEXT PRIMARY KEY, review_id TEXT NOT NULL REFERENCES mr_reviews(id) ON DELETE CASCADE,
+      body TEXT NOT NULL, position TEXT CHECK(position IS NULL OR json_valid(position)), remote_id INTEGER,
+      status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','sent','uncertain')), error TEXT NOT NULL DEFAULT ''
+    );
+    CREATE TABLE IF NOT EXISTS mr_review_viewed (
+      review_id TEXT NOT NULL REFERENCES mr_reviews(id) ON DELETE CASCADE, path TEXT NOT NULL,
+      PRIMARY KEY(review_id,path)
+    );
+  `);
 }

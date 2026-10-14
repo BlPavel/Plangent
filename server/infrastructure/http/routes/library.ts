@@ -6,6 +6,7 @@ import {
 import { getProject } from '../../../core/projects';
 import { readItemContent, writeItemContent, deleteItemContent, writeOverrideContent, readOverrideContent, deleteOverrideContent } from '../../../core/library/library-manager';
 import { DEFAULT_CODE_FIXER_INSTRUCTION } from '../../../core/library/code-fixer-instruction';
+import { DEFAULT_COMMIT_RULES } from '../../../core/library/commit-rules';
 import { DEFAULT_INSTRUCTION_GUIDE } from '../../../core/library/instruction-guide';
 import { PLAN_PROTOCOL_LOCKED } from '../../../core/library/plan-template';
 import { syncItem, unsyncItem, syncAll } from '../../../core/library/syncer';
@@ -38,6 +39,10 @@ libraryRouter.post('/proposals/:proposalId/reject', (req: Request, res: Response
 
 libraryRouter.get('/code-fixer-instruction/defaults', (_req: Request, res: Response) => {
   res.json({ content: DEFAULT_CODE_FIXER_INSTRUCTION });
+});
+
+libraryRouter.get('/commit-rules/defaults', (_req: Request, res: Response) => {
+  res.json({ content: DEFAULT_COMMIT_RULES });
 });
 
 libraryRouter.get('/instruction-guide/defaults', (_req: Request, res: Response) => {
@@ -81,10 +86,10 @@ libraryRouter.post('/', (req: Request, res: Response) => {
   const targets: string[] = Array.isArray(req.body.targets) ? req.body.targets : project_id ? [project_id] : [];
   const own_only: string[] = Array.isArray(req.body.own_only) ? req.body.own_only : [];
   // Only one main file / plan template / instruction guide per level.
-  if (type === 'main' || type === 'plan-template' || type === 'instruction-guide' || type === 'code-fixer-instruction') {
+  if (type === 'main' || type === 'plan-template' || type === 'instruction-guide' || type === 'code-fixer-instruction' || type === 'commit-rules') {
     const clash = listLibraryItems({ type, scope }).some(other => scope === 'global' || other.targets.some(t => targets.includes(t)));
     if (clash) {
-      return res.status(409).json({ error: type === 'code-fixer-instruction' ? 'Инструкция агента доработки для этого уровня уже существует' : type === 'main' ? 'Главный файл для этого уровня уже существует' : type === 'plan-template' ? 'Шаблон плана для этого уровня уже существует' : 'Руководство по инструкциям для этого уровня уже существует' });
+      return res.status(409).json({ error: type === 'commit-rules' ? 'Правила коммитов для этого уровня уже существуют' : type === 'code-fixer-instruction' ? 'Инструкция агента доработки для этого уровня уже существует' : type === 'main' ? 'Главный файл для этого уровня уже существует' : type === 'plan-template' ? 'Шаблон плана для этого уровня уже существует' : 'Руководство по инструкциям для этого уровня уже существует' });
     }
   }
   const item = createLibraryItem({ type, slug, title, description, scope, targets, own_only, frontmatter, agent_filter, enabled });

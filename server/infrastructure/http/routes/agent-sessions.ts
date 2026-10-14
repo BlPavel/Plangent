@@ -6,6 +6,7 @@ import { editQueued } from '../../../core/agent-sessions/prompt-queue';
 import { getProject } from '../../../core/projects';
 import { getAgent } from '../../../core/agents';
 import { getTask } from '../../../core/tasks';
+import { getRun, finishRun } from '../../../core/runs';
 import { broadcast } from '../../../core/shared/events';
 
 export const agentSessionsRouter = Router();
@@ -19,7 +20,8 @@ agentSessionsRouter.post('/', async (req, res) => {
     if (role === 'librarian' && getProject(project_id)?.kind === 'source') return res.status(400).json({ error: 'Choose a project or group for the librarian' });
     const policy = role === 'librarian' ? 'read-only' : ['ask', 'allow-edits', 'allow-all', 'read-only'].includes(req.body.policy) ? req.body.policy : 'ask';
     if (!getProject(project_id) || !getAgent(agent_id)) return res.status(400).json({ error: 'Проект или агент не найден' });
-    const session = createSession({ project_id, agent_id, model, role, policy, metadata: { ...(typeof mode === 'string' && mode ? { preferredMode: mode } : {}), ...(config && typeof config === 'object' ? { preferredConfig: Object.fromEntries(Object.entries(config).map(([k, v]) => [k, String(v)])) } : {}) } });
+    // No pick (the agent's options were not loaded yet) → the default from the agent's settings.
+    const session = createSession({ project_id, agent_id, model: model || getAgent(agent_id)!.model, role, policy, metadata: { ...(typeof mode === 'string' && mode ? { preferredMode: mode } : {}), ...(config && typeof config === 'object' ? { preferredConfig: Object.fromEntries(Object.entries(config).map(([k, v]) => [k, String(v)])) } : {}) } });
     res.status(201).json(session);
     void startSession(session.id).catch(() => {});
   } catch (e) { res.status(400).json({ error: String(e) }); }
@@ -53,6 +55,7 @@ agentSessionsRouter.post('/:id/:action', async (req, res) => {
       case 'mode': await setMode(id, String(req.body.mode)); break;
       case 'config': await setConfig(id, String(req.body.configId), String(req.body.value)); break;
       case 'context': {
+        if (session.metadata.mr_private) throw new Error('Continue the private thread in the Review tab');
         const next = createSession({ project_id: session.project_id, agent_id: session.agent_id, role: session.role === 'code-fixer' ? 'code-fixer' : session.role === 'librarian' ? 'librarian' : 'chat', policy: session.role === 'librarian' ? 'read-only' : 'ask' });
         const context = history(id).filter(e => ['user', 'assistant'].includes(e.type)).map(e => `${e.type}: ${e.payload.text ?? ''}`).join('\n').slice(-60_000);
         await sendPrompt(next.id, [{ type: 'text', text: `Контекст предыдущего разговора (может быть обрезан):\n${context}\nПродолжим разговор.` }]);
@@ -65,8 +68,9 @@ agentSessionsRouter.post('/:id/:action', async (req, res) => {
 });
 agentSessionsRouter.delete('/:id', async (req, res) => {
   try {
-    getSession(req.params.id);
+    const session = getSession(req.params.id);
     await closeSession(req.params.id).catch(() => {});
+    if (session.run_id && getRun(session.run_id)?.status === 'running') finishRun(session.run_id, 'interrupted', 'Чат удалён');
     deleteSession(req.params.id);
     res.status(204).end();
   } catch (e) { res.status(404).json({ error: String(e) }); }

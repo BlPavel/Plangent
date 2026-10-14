@@ -100,7 +100,7 @@ and a form credential rejection mark the account invalid.
 A definite invalid password stops fallback, marks only that account
 needs_update and invalidates dependent sessions. Network failures and access
 denials do not mark a password invalid. Unsupported SSO does not silently
-launch a browser. token/browser/api-login are reserved, not implemented.
+launch a browser. browser/api-login are reserved, not implemented; `token` is implemented (see Token authentication).
 
 The built-in Atlassian Server/DC template tries basic then form, uses
 /dologin.action and checks /rest/api/user/current. It is meant for ordinary
@@ -188,3 +188,17 @@ those OS facilities work on a particular Mac.
 ## User instructions
 
 See [the Russian user guide](CONNECTIONS-USER-GUIDE.md) for setup, manual configuration and troubleshooting. The UI embeds this same document; keep it aligned with connection-hints.ts and docs-hints.ts.
+
+## Token authentication
+
+The provider-neutral `token` strategy reads its secret from the same encrypted vault and separate write-only `/password` endpoint as other strategies. The account username is a label and is not sent. Configuration contains only `check_path`, response checks and the header descriptor: `token_header: "PRIVATE-TOKEN", token_prefix: ""`, or `token_header: "Authorization", token_prefix: "Bearer "`. Never put a token in `headers`, `fields`, URLs or presets; the existing secret validator still rejects these. Authentication is applied only inside the same-origin transport. A 401 invalidates the credential and asks for a replacement token; 403 reports insufficient access without discarding it. Diagnostic callers using a custom header name pass `[config.token_header]` to `redact`.
+
+## Code hosts (`CodeHost`)
+
+Hosting operations for merge requests (list/search, versions, diff, discussions, draft notes, approve, create MR,
+find MR for a branch) go through the `CodeHost` interface in `server/models/code-host.ts`; the GitLab REST v4
+provider lives in `server/core/code-hosts/gitlab`. Routes and agent tools never call GitLab directly. A provider
+sends requests through the project's connection (`token` strategy, PAT) and never handles the secret itself.
+The connection is the project's `connection_id`, else the group's, else the single GitLab connection matching the
+host of the actual `origin`. Git itself (clone/push) uses SSH keys or HTTPS with the same token as password and
+is configured outside Plangent. See server/core/code-hosts/README.md.

@@ -6,7 +6,7 @@ async function response(method: string, path: string, body?: unknown, signal?: A
   const result = await fetch(BASE + path, opts)
   if (!result.ok) {
     const data = await result.json().catch(() => null)
-    throw new Error(data?.error || result.statusText)
+    throw Object.assign(new Error(data?.error || result.statusText), { code: data?.code, output: data?.output })
   }
   return result
 }

@@ -20,10 +20,12 @@ export interface ChatPayload {
   proposal_id?: string;
   /** The user message also carried Plangent's hidden briefing. */
   briefing?: boolean;
+  permissionId?: string;
 }
 export interface LimitWindow { id: string; label: string; percent: number; resetsAt: number | null }
 export interface AgentLimits { agentId: string; at: number; windows: LimitWindow[]; error?: string }
 export interface ChatEvent { seq: number; session_id: string; type: string; payload: ChatPayload }
+type SocketMessage = { type: 'agent_delta'; kind: string; text: string } | { type: 'agent_event'; event: ChatEvent }
 export interface ChatSnapshot {
   session: ChatSession; events: ChatEvent[];
   queue: { id: string; content: string }[];
@@ -47,10 +49,42 @@ export const useChatStore = defineStore('agent-chat', () => {
     else sessions.value[index] = session
     if (snapshots.value[session.id]) snapshots.value[session.id].session = session
   }
+  // Socket messages that arrive while a snapshot is in flight would land in the object it is about to
+  // replace (or nowhere, on first open); they are collected here and replayed onto the fresh snapshot.
+  const missed = new Map<string, Set<SocketMessage[]>>()
   async function load(id: string) {
-    const snap = await api.get<ChatSnapshot>(`/agent-sessions/${id}`)
+    const buffer: SocketMessage[] = []
+    if (!missed.has(id)) missed.set(id, new Set())
+    missed.get(id)!.add(buffer)
+    let snap: ChatSnapshot
+    try { snap = await api.get<ChatSnapshot>(`/agent-sessions/${id}`) }
+    finally { missed.get(id)!.delete(buffer); if (!missed.get(id)!.size) missed.delete(id) }
+    const previous = snapshots.value[id]
+    // The server takes a snapshot atomically, so a delta is surely newer than it only once an event newer
+    // than the snapshot has passed; earlier deltas may already be inside snapshot.streaming.
+    const newest = snap.events[snap.events.length - 1]?.seq ?? 0
+    let after = false
+    for (const message of buffer) {
+      if (message.type === 'agent_event' && message.event.seq > newest) after = true
+      if (message.type === 'agent_event' || after) apply(snap, message)
+    }
+    // The live object followed every delta, so its streaming text is the freshest one.
+    if (previous && buffer.length) snap.streaming = previous.streaming
     snapshots.value[id] = snap
     put(snap.session)
+  }
+  function apply(snap: ChatSnapshot, message: SocketMessage) {
+    if (message.type === 'agent_delta') {
+      if (!snap.streaming || snap.streaming.type !== message.kind) snap.streaming = { type: message.kind, text: '' }
+      snap.streaming.text += message.text
+    } else if (message.type === 'agent_event') {
+      const event = message.event
+      if (snap.events.some(e => e.seq === event.seq)) return
+      snap.events.push(event)
+      if (['assistant', 'thought'].includes(event.type)) snap.streaming = null
+      if (event.type === 'permission') snap.permissions.push(event.payload as ChatSnapshot['permissions'][number])
+      if (event.type === 'permission_result') snap.permissions = snap.permissions.filter(p => p.permissionId !== event.payload.permissionId)
+    }
   }
   function drop(id: string) {
     sessions.value = sessions.value.filter(s => s.id !== id)
@@ -75,17 +109,11 @@ export const useChatStore = defineStore('agent-chat', () => {
         if (event.type === 'agent_session') put(event.session)
         if (event.type === 'agent_session_deleted') drop(event.sessionId)
         const id = event.sessionId ?? event.event?.session_id ?? event.session?.id
+        if (event.type === 'agent_delta' || event.type === 'agent_event') for (const buffer of missed.get(id) ?? []) buffer.push(event)
         const snap = snapshots.value[id]
         if (!snap) return
-        if (event.type === 'agent_delta') {
-          if (!snap.streaming || snap.streaming.type !== event.kind) snap.streaming = { type: event.kind, text: '' }
-          snap.streaming.text += event.text
-        } else if (event.type === 'agent_event') {
-          if (!snap.events.some(e => e.seq === event.event.seq)) snap.events.push(event.event)
-          if (['assistant', 'thought'].includes(event.event.type)) snap.streaming = null
-          if (event.event.type === 'permission') snap.permissions.push(event.event.payload)
-          if (event.event.type === 'permission_result') snap.permissions = snap.permissions.filter(p => p.permissionId !== event.event.payload.permissionId)
-        } else if (event.type === 'agent_queue') { void load(id) }
+        if (event.type === 'agent_delta' || event.type === 'agent_event') apply(snap, event)
+        else if (event.type === 'agent_queue') { void load(id) }
       }
       socket.onclose = () => { socket = undefined; setTimeout(() => void connect(), 2000) }
     } catch { setTimeout(() => void connect(), 2000) }

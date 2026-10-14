@@ -32,6 +32,8 @@ export function requestUrl(base: string, p: string): string {
 }
 export interface ResponseRule { statuses?: number[]; redirect_path?: string; header?: { name: string; value: string }; html_instead_of_json?: boolean }
 export interface AuthConfig {
+  token_header?: string; token_prefix?: string;
+  check_details?: { path: string; value_path: string; result_key: 'version' | 'token_expires_at'; label: string }[];
   check_path: string; user_path?: string; expect_json?: boolean; timeout_ms?: number;
   login_path?: string; username_field?: string; password_field?: string;
   fields?: Record<string, string>; headers?: Record<string, string>; strategies?: ('basic' | 'form')[];
@@ -39,9 +41,22 @@ export interface AuthConfig {
 }
 export function validateAuthConfig(strategy: AuthStrategy, value: unknown): AuthConfig {
   const c = object(value);
-  const allowed = new Set(['check_path','user_path','expect_json','timeout_ms','login_path','username_field','password_field','fields','headers','strategies','invalid_password','invalid_session']);
+  const allowed = new Set(['check_path','user_path','expect_json','timeout_ms','login_path','username_field','password_field','fields','headers','strategies','invalid_password','invalid_session','token_header','token_prefix','check_details']);
   for (const key of Object.keys(c)) if (!allowed.has(key)) throw new IntegrationError(`Unknown auth setting: ${key}`);
   relativePath(c.check_path);
+  if (c.check_details !== undefined) {
+    if (!Array.isArray(c.check_details) || c.check_details.length > 10) throw new IntegrationError('Invalid check details');
+    for (const entry of c.check_details) {
+      const item = object(entry);
+      if (Object.keys(item).some(key => !['path','value_path','result_key','label'].includes(key)) || typeof item.value_path !== 'string' || !/^[a-zA-Z0-9_.-]+$/.test(item.value_path) || !['version','token_expires_at'].includes(String(item.result_key)) || typeof item.label !== 'string' || item.label.length > 100) throw new IntegrationError('Invalid check detail');
+      relativePath(item.path);
+    }
+  }
+  if (strategy === 'token') {
+    if (typeof c.token_header !== 'string' || !/^[!#$%&'*+.^_`|~0-9a-z-]+$/i.test(c.token_header) ||
+        /^(host|cookie|set-cookie|content-length|transfer-encoding|connection|proxy-authorization)$/i.test(c.token_header)) throw new IntegrationError('Invalid token header');
+    if (c.token_prefix !== undefined && (typeof c.token_prefix !== 'string' || !/^(?:[a-z][a-z0-9_-]* )?$/i.test(c.token_prefix))) throw new IntegrationError('Token prefix must be empty or an authentication scheme followed by a space');
+  } else if (c.token_header !== undefined || c.token_prefix !== undefined) throw new IntegrationError('Token header settings require token authentication');
   if (c.user_path !== undefined && (typeof c.user_path !== 'string' || !/^[\w.-]+$/.test(c.user_path))) throw new IntegrationError('Invalid JSON user path');
   if (c.expect_json !== undefined && typeof c.expect_json !== 'boolean') throw new IntegrationError('expect_json must be boolean');
   if (c.timeout_ms !== undefined && (!Number.isInteger(c.timeout_ms) || Number(c.timeout_ms) < 100 || Number(c.timeout_ms) > 120000)) throw new IntegrationError('Invalid timeout');
@@ -144,6 +159,8 @@ export function saveConnection(input: unknown, id: string = randomUUID()): Integ
   if (org !== null && (typeof org !== 'string' || !getOrganization(org))) throw new IntegrationError('Organization not found');
   const mode = (data.credential_mode ?? old?.credential_mode ?? 'inherit') as CredentialMode;
   if (!['inherit','credential','own'].includes(mode)) throw new IntegrationError('Invalid account mode');
+  const host = data.code_host === undefined ? old?.code_host ?? null : data.code_host;
+  if (host !== null && !['gitlab', 'github'].includes(String(host))) throw new IntegrationError('Unsupported code host');
   const strategy = (data.auth_strategy ?? old?.auth_strategy ?? 'auto') as AuthStrategy;
   if (!['basic','form','auto','token','browser','api-login'].includes(strategy)) throw new IntegrationError('Invalid login strategy');
   const config = validateAuthConfig(strategy,data.auth_config ?? old?.auth_config ?? {});
@@ -162,13 +179,14 @@ export function saveConnection(input: unknown, id: string = randomUUID()): Integ
     }
     db().prepare(`INSERT INTO integration_connections(id,name,base_url,organization_id,credential_mode,credential_id,auth_strategy,auth_config) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,base_url=excluded.base_url,organization_id=excluded.organization_id,credential_mode=excluded.credential_mode,credential_id=excluded.credential_id,auth_strategy=excluded.auth_strategy,auth_config=excluded.auth_config,updated_at=datetime('now')`).run(id,name,base,org,mode,cid,strategy,JSON.stringify(config));
     invalidateConnection(id);
+    db().prepare('UPDATE integration_connections SET code_host=? WHERE id=?').run(host,id);
     if (old?.credential_mode === 'own' && old.credential_id && old.credential_id !== cid) db().prepare('DELETE FROM integration_credentials WHERE id=?').run(old.credential_id);
   })();
   return required(getConnection(id));
 }
 export function deleteConnection(id: string): void {
   const c = required(getConnection(id));
-  if (db().prepare('SELECT 1 FROM projects WHERE connection_id=?').get(id)) throw new IntegrationError('Connection is used by a source','in_use',409);
+  if (db().prepare('SELECT 1 FROM projects WHERE connection_id=?').get(id) || db().prepare('SELECT 1 FROM mr_reviews WHERE connection_id=?').get(id)) throw new IntegrationError('Connection is used by a source','in_use',409);
   db().transaction(() => {
     db().prepare('DELETE FROM integration_connections WHERE id=?').run(id);
     if (c.credential_mode === 'own' && c.credential_id) db().prepare('DELETE FROM integration_credentials WHERE id=?').run(c.credential_id);

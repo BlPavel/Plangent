@@ -57,7 +57,7 @@ async function loadAtEnd() {
   endRequest?.abort()
   const target = path.value
   const end = store.diffEnds?.end
-  if (store.effectiveBase !== 'review' || !target || !end) { atEnd.value = null; return }
+  if (!['review', 'remote'].includes(store.effectiveBase) || !target || !end) { atEnd.value = null; return }
   if (atEnd.value?.path === target && atEnd.value.end === end) return
   const mine = endRequest = new AbortController()
   try {
@@ -72,7 +72,7 @@ watch([path, () => store.effectiveBase, () => store.diffEnds?.end], () => { void
 
 /** A deleted file is gone from disk; it is shown as an empty file with the removed lines in the Diff. */
 const viewerFile = computed<ViewerFile | null>(() => {
-  if (store.effectiveBase === 'review' && path.value) {
+  if (['review', 'remote'].includes(store.effectiveBase) && path.value) {
     if (store.shownStats[path.value]?.binary) return { path: path.value, size: 0, kind: 'binary' }
     const found = atEnd.value
     return found && found.path === path.value && found.end === store.diffEnds?.end ? { path: path.value, size: found.content.length, kind: 'text', content: found.content } : null

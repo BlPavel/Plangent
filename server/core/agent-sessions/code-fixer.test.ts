@@ -197,7 +197,7 @@ test('code fixer rounds, MCP isolation, developer decisions and instruction inhe
     assert.equal(store.getItem(stuck.id)!.round_id, null);
     assert.equal((await service.current(project.id)).agent_working, false);
     const scope = { writable: [project.repo_path] };
-    for (const command of ['git status', 'git commit -m x', 'git -C repo push', '"C:\\Program Files\\Git\\bin\\git.exe" reset', 'cmd /c git switch main']) {
+    for (const command of ['git commit -m x', 'git -C repo push', '"C:\\Program Files\\Git\\bin\\git.exe" reset', 'cmd /c git switch main']) {
       for (const policy of ['ask', 'allow-all', 'allow-edits'] as const)
         assert.equal(permissionDecision(policy, { toolCall: { toolCallId: 't', kind: 'execute', title: command }, options: [] } as never, undefined, scope, 'code-fixer'), 'deny', command);
     }

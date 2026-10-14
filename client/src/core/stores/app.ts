@@ -1,11 +1,25 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import type { Project, Task } from '@core/models'
 
 export interface ToastAction { label: string; run: () => void }
 
 export const useAppStore = defineStore('app', () => {
   const currentProject = ref<Project | null>(null)
+  const lastProjectKey = 'plangent:last-project-id'
+  let lastProjectId: string | null = null
+  try { lastProjectId = localStorage.getItem(lastProjectKey) } catch { /* storage unavailable */ }
+  watch(() => currentProject.value?.id, id => {
+    if (!id) return
+    lastProjectId = id
+    try { localStorage.setItem(lastProjectKey, id) } catch { /* storage unavailable */ }
+  }, { flush: 'sync' })
+
+  function restoreProject(projects: Project[]) {
+    if (currentProject.value) return
+    currentProject.value = projects.find(p => p.id === lastProjectId)
+      ?? projects.find(p => p.kind === 'project') ?? projects[0] ?? null
+  }
   const currentTask = ref<Task | null>(null)
   const toasts = ref<Array<{ id: number; msg: string; type: string; action?: ToastAction }>>([])
   let toastId = 0
@@ -44,5 +58,5 @@ export const useAppStore = defineStore('app', () => {
     confirmState.value = null
   }
 
-  return { currentProject, currentTask, toasts, toast, dismissToast, confirmState, confirm, resolveConfirm }
+  return { currentProject, restoreProject, currentTask, toasts, toast, dismissToast, confirmState, confirm, resolveConfirm }
 })

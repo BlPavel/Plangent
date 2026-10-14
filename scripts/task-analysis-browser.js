@@ -39,6 +39,7 @@ window.fetch = async (input, init = {}) => {
  }
  if (path.startsWith('/api/agent-sessions/')) {
    const parts = path.slice('/api/agent-sessions/'.length).split('/'), snap = db.chats[parts[0]]
+   if (method === 'DELETE' && !parts[1]) { delete db.chats[parts[0]]; return json(null, 204) }
    if (parts[1] === 'prompt') { snap.events.push({ seq: snap.events.length + 1, type: 'user', session_id: parts[0], payload: { text: body.content[0].text } }); return json(snap) }
    return json(snap)
  }
@@ -79,6 +80,35 @@ window.runScenario = async () => {
  input('[aria-label="Описание нового раздела"]', 'Initial description')
  await click('Создать')
  await until(() => document.querySelector('article'))
+ const persistedProject = { id: 'last-selected', kind: 'project', name: 'Last selected' }
+ const persistenceStore = useAppStore(createPinia())
+ persistenceStore.currentProject = persistedProject
+ const restoredStore = useAppStore(createPinia())
+ restoredStore.restoreProject([{ id: 'first-project', kind: 'project' }, persistedProject])
+ assert(restoredStore.currentProject.id === persistedProject.id, 'Last selected project not restored')
+ restoredStore.$dispose(); persistenceStore.$dispose()
+ const deletedProjectStore = useAppStore(createPinia())
+ deletedProjectStore.restoreProject([{ id: 'fallback', kind: 'project' }])
+ assert(deletedProjectStore.currentProject.id === 'fallback', 'Deleted project did not fall back')
+ deletedProjectStore.$dispose()
+ localStorage.setItem('plangent:last-project-id', 'project')
+ const originalSection = db.sections[0]
+ db.sections.push({ ...originalSection, id: 'drag-test', title: 'Drag test', files: [] })
+ event({ type: 'analysis_updated', taskId: 'task', actor: 'developer' })
+ await until(() => document.querySelectorAll('article').length === 2)
+ const targetCard = document.getElementById('analysis-' + originalSection.id)
+ targetCard.querySelector('.card-toggle').click()
+ await until(() => targetCard.querySelector('.file-drop'))
+ const sectionDrag = new DataTransfer()
+ sectionDrag.setData('application/x-plangent-section', 'drag-test')
+ targetCard.querySelector('.file-drop').dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: sectionDrag }))
+ await until(() => db.sections[0].id === 'drag-test' && document.querySelector('article').id === 'analysis-drag-test')
+ assert(!db.calls.some(c => c.method === 'POST' && c.path.endsWith('/files')), 'Section drag treated as a file upload')
+ targetCard.querySelector('.file-drop').dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: sectionDrag }))
+ await until(() => db.sections[0].id === originalSection.id && document.querySelector('article').id === targetCard.id)
+ db.sections = [originalSection]
+ event({ type: 'analysis_updated', taskId: 'task', actor: 'developer' })
+ await until(() => document.querySelectorAll('article').length === 1)
  await click('Ещё')
  await click('Редактировать')
  input('[aria-label="Описание раздела"]', 'My draft')
@@ -152,10 +182,19 @@ window.runScenario = async () => {
  assert(db.chats.chat1.events.length === 1, 'Prompt repeated after reopen/remount')
  await click('Перейти к планированию →')
  await until(() => document.querySelector('.chat-pane textarea')?.value === 'Составь план по анализу задачи')
+ await click('✓ Утвердить план')
+ await until(() => button('▸ Изменить план с агентом'))
+ assert(db.calls.some(c => c.path === '/api/agent-sessions/chat3/close'), 'Approval did not stop the planner')
+ await click('▸ Изменить план с агентом')
+ await until(() => button('План 1') && document.querySelector('.chat-pane .chat-head'))
+ assert(db.chats.chat3.events.length === 1, 'Planning chat lost or prompt repeated after approval')
+ await click('Удалить чат План 1')
+ await until(() => !db.chats.chat3 && !button('План 1'))
+ await until(() => document.querySelector('.chat-pane .new-chat textarea'))
  await click('Анализ')
  await click('Ещё')
  await click('Удалить раздел')
  await until(() => !db.sections.length)
  assert(db.warnings.some(s => s.includes('p1')), 'Deletion did not warn about plan reference')
- return 'PASS: create/edit/conflict/move/upload/file/chats/planning/links/done/reopen/delete'
+ return 'PASS: create/edit/conflict/move/upload/file/chats/planning/approve/chat-delete/links/done/reopen/delete'
 }

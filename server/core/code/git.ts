@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { publicRemoteUrl } from '../projects/remote-url';
 import { resolveProjectPath } from '../projects/files';
 
 // Private runner. No shell, optional index refresh, external diff, or textconv.
@@ -9,7 +10,7 @@ function run(root: string, args: string[], env: NodeJS.ProcessEnv = {}): Promise
   return new Promise((resolve, reject) => {
     execFile('git', ['--no-optional-locks', '-c', 'core.quotepath=off', '--literal-pathspecs', ...args], {
       cwd: root, windowsHide: true, timeout: 30_000, maxBuffer: 64 * 1024 * 1024,
-      env: { ...process.env, GIT_PAGER: 'cat', ...env },
+      env: { ...process.env, GIT_PAGER: 'cat', GIT_TERMINAL_PROMPT: '0', ...env },
     }, (error, stdout) => {
       if (error) { Object.assign(error, { stdout }); reject(error); }
       else resolve(stdout);
@@ -135,14 +136,26 @@ export async function oldFile(root: string, file: string, base = 'HEAD'): Promis
   return run(root, ['show', `${await revision(root, base)}:${rel}`, '--']);
 }
 
+/** Resolve a remote branch to the common ancestor with the selected local commit. */
+export async function remoteMergeBase(root: string, ref: string, end = 'HEAD'): Promise<string> {
+  const full = ref.startsWith('refs/remotes/') ? ref : 'refs/remotes/' + ref;
+  if (full.includes('\0') || full.endsWith('/HEAD')) throw new Error('Invalid remote ref');
+  await run(root, ['check-ref-format', full]);
+  const remote = (await run(root, ['rev-parse', '--verify', '--end-of-options', full + '^{commit}'])).trim();
+  if (!/^(?:HEAD|[a-fA-F0-9]{40,64})$/.test(end)) throw new Error('Invalid comparison end');
+  return (await run(root, ['merge-base', remote, end])).trim();
+}
+const remoteBase = (base: string) => base.startsWith('origin/') || base.startsWith('refs/remotes/');
 export interface DiffOptions { base?: string; end?: string; ignoreWhitespace?: boolean; originalPath?: string }
 
 export async function diffFile(root: string, file: string, options: DiffOptions = {}): Promise<string> {
   const rel = filePath(root, file);
   const paths = options.originalPath ? [filePath(root, options.originalPath), rel] : [rel];
   const flags = ['--no-ext-diff', '--no-textconv', '-M', ...(options.ignoreWhitespace ? ['-w', '--ignore-cr-at-eol'] : [])];
-  const base = await revision(root, options.base ?? 'HEAD');
-  if (options.end) return run(root, ['diff', ...flags, base, await revision(root, options.end), '--', ...paths]);
+  const inputBase = options.base ?? 'HEAD';
+  const end = options.end ?? (remoteBase(inputBase) ? 'HEAD' : undefined);
+  const base = await revision(root, remoteBase(inputBase) ? await remoteMergeBase(root, inputBase, end) : inputBase);
+  if (end) return run(root, ['diff', ...flags, base, await revision(root, end), '--', ...paths]);
   const present = await run(root, ['ls-tree', '-z', base, '--', rel]);
   if (!present && !options.originalPath && await fs.stat(resolveProjectPath(root, rel)).then(s => s.isFile()).catch(() => false)) {
     try { return await run(root, ['diff', '--no-index', ...flags, '--', '/dev/null', rel]); }
@@ -199,7 +212,7 @@ const nameStatus: Record<string, GitChange['status']> = { M: 'M', A: 'A', D: 'D'
 /** Files that differ between two trees/commits with their line counts; renames are detected. Untracked files are not part of a tree diff. */
 export async function treeChanges(root: string, base: string, end: string): Promise<{ changes: GitChange[]; stats: Record<string, LineStat> }> {
   if (!await isRepository(root)) return { changes: [], stats: {} };
-  const from = await revision(root, base);
+  const from = await revision(root, remoteBase(base) ? await remoteMergeBase(root, base, end) : base);
   const to = await revision(root, end);
   const flags = ['--no-ext-diff', '--no-textconv', '-M'];
   const [names, numbers] = await Promise.all([
@@ -218,4 +231,47 @@ export async function treeChanges(root: string, base: string, end: string): Prom
     } else changes.push({ path: records[++i], status, indexStatus: code[0], worktreeStatus: ' ' });
   }
   return { changes, stats: parseNumstat(numbers) };
+}
+
+export interface GitBranch { name: string; ref: string; remote: boolean }
+export async function branches(root: string): Promise<GitBranch[]> {
+  const output = await run(root, ['for-each-ref', '--format=%(refname)', 'refs/heads/', 'refs/remotes/origin/']);
+  return output.split('\n').map(ref => ref.trim()).filter(ref => ref && ref !== 'refs/remotes/origin/HEAD').map(ref => ({
+    ref, name: ref.startsWith('refs/heads/') ? ref.slice(11) : ref.slice(13), remote: ref.startsWith('refs/remotes/'),
+  }));
+}
+export async function originUrl(root: string): Promise<string | null> {
+  if (!await isRepository(root)) return null;
+  return run(root, ['remote', 'get-url', 'origin']).then(value => value.trim()).catch(() => null);
+}
+export async function trackingInfo(root: string) {
+  const info = await repositoryInfo(root);
+  if (!info) return null;
+  const upstream = await run(root, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}']).then(value => value.trim()).catch(() => null);
+  const counts = upstream ? (await run(root, ['rev-list', '--left-right', '--count', 'HEAD...@{upstream}', '--'])).trim().split(/\s+/).map(Number) : [0, 0];
+  const detachedBranches = info.head ? (await run(root, ['for-each-ref', '--contains', info.head, '--format=%(refname:short)', 'refs/heads/'])).split('\n').map(value => value.trim()).filter(Boolean) : [];
+  const origin = await originUrl(root);
+  return { ...info, upstream, ahead: counts[0], behind: counts[1], origin: origin ? publicRemoteUrl(origin) : null, detachedBranches };
+}
+export async function stagedDiff(root: string): Promise<string> {
+  return run(root, ['diff', '--cached', '--no-ext-diff', '--no-textconv', '--']);
+}
+
+export async function recentCoauthors(root: string): Promise<{ name: string; email: string }[]> {
+  const output = await run(root, ['log', '-100', '--format=%aN%x09%aE%n%(trailers:key=Co-authored-by,valueonly)', '--']).catch(() => '');
+  const authors = output.split('\n').flatMap(line => {
+    const trailer = /^(.*?)\s*<([^<>\s]+@[^<>\s]+)>$/.exec(line.trim());
+    const author = line.split('\t');
+    return trailer ? [{ name: trailer[1].trim(), email: trailer[2] }] : author.length === 2 ? [{ name: author[0], email: author[1] }] : [];
+  });
+  return [...new Map(authors.map(author => [author.email, author])).values()];
+}
+
+/** True when any commit created after the workflow base is reachable from fetched origin refs. */
+export async function publishedWorkflowCommits(root: string, base: string, head: string): Promise<boolean> {
+  if (!/^[a-f0-9]{40,64}$/.test(base) || !/^[a-f0-9]{40,64}$/.test(head)) throw new Error('Invalid commit');
+  const range = base + '..' + head;
+  const all = Number((await run(root, ['rev-list', '--count', range, '--'])).trim());
+  const privateCount = Number((await run(root, ['rev-list', '--count', range, '--not', '--remotes=origin', '--'])).trim());
+  return privateCount < all;
 }

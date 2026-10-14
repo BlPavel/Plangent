@@ -21,7 +21,6 @@
           </span>
         </div>
         <div class="project-header-actions">
-          <AppButton variant="ghost" size="sm" @click="showProjectModal = true">{{ isGroup ? 'Настройки группы' : 'Настройки проекта' }}</AppButton>
           <AppButton variant="danger-ghost" size="sm" @click="deleteProject">Удалить</AppButton>
         </div>
       </div>
@@ -96,27 +95,12 @@
       <!-- Tab: Инструкции -->
       <!-- Mounted only while open: the screen watches the project folder. -->
       <div v-if="activeTab === 'code' && !isGroup" class="tab-content"><CodeTab :project-id="currentProject.id" :task="codeTask" :default-agent-id="projectsStore.agentFor(currentProject)" @back="backToTask" /></div>
+      <div v-if="activeTab === 'review'" class="tab-content"><BranchReviewTab :key="currentProject.id" :project-id="currentProject.id" :default-agent-id="projectsStore.agentFor(currentProject)" :members="isGroup ? projectsStore.members(currentProject.id) : undefined" /></div>
+      <div v-if="activeTab === 'settings'" class="tab-content"><ProjectSettingsTab :key="currentProject.id" :project="currentProject" /></div>
       <div v-show="activeTab === 'instructions'" class="tab-content instructions-tab">
         <InstructionsWorkspace v-if="currentProject" :project-id="currentProject.id" :default-agent-id="projectsStore.agentFor(currentProject)" />
       </div>
 
-      <!-- Tab: Интеграции (disabled placeholder) -->
-      <div v-show="activeTab === 'integrations'" class="tab-content placeholder-tab">
-        <div class="placeholder">
-          <div class="placeholder-icon">🔗</div>
-          <div class="placeholder-title">Интеграции</div>
-          <div class="placeholder-text">Jira, GitHub Issues, Linear — скоро</div>
-        </div>
-      </div>
-
-      <!-- Tab: Доки (disabled placeholder) -->
-      <div v-show="activeTab === 'docs'" class="tab-content placeholder-tab">
-        <div class="placeholder">
-          <div class="placeholder-icon">📄</div>
-          <div class="placeholder-title">Документация</div>
-          <div class="placeholder-text">Скоро</div>
-        </div>
-      </div>
     </div>
 
     <!-- Create task modal -->
@@ -133,18 +117,17 @@
     </AppModal>
 
     <ProjectFormModal
-      v-if="currentProject"
+      v-if="currentProject?.kind === 'source'"
       v-model="showProjectModal"
-      :kind="currentProject.kind"
+      kind="source"
       :project="currentProject"
       @saved="p => appStore.currentProject = p"
-      @manage-projects="activeTab = 'projects'"
     />
   </div>
 </template>
 
 <script lang="ts">
-type HomeTab = 'agents' | 'projects' | 'terminal' | 'tasks' | 'code' | 'instructions' | 'integrations' | 'docs'
+type HomeTab = 'agents' | 'projects' | 'terminal' | 'tasks' | 'code' | 'review' | 'instructions' | 'settings'
 // Module-level so it survives HomeView being unmounted while a task is open.
 const lastTab: { projectId: string | null; tab: HomeTab } = { projectId: null, tab: 'agents' }
 </script>
@@ -153,6 +136,7 @@ const lastTab: { projectId: string | null; tab: HomeTab } = { projectId: null, t
 import { TerminalsView } from '@features/terminal'
 import { AgentChats } from '@features/agent-chat'
 import { CodeTab, useCodeAttentionStore } from '@features/code'
+import { BranchReviewTab } from '@features/branch-review'
 import { ref, computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '@core/stores/app'
@@ -168,6 +152,7 @@ import AppButton from '@shared/ui/AppButton.vue'
 import IconTrash from '@shared/ui/IconTrash.vue'
 import { InstructionsWorkspace } from '@features/library'
 import ProjectFormModal from '../components/ProjectFormModal.vue'
+import ProjectSettingsTab from '../components/ProjectSettingsTab.vue'
 import GroupProjects from '../components/GroupProjects.vue'
 import SourceView from '../components/SourceView.vue'
 
@@ -193,9 +178,9 @@ const tabs = computed<TabItem[]>(() => [
   { id: 'terminal' as const, label: 'Терминал', disabled: false },
   { id: 'tasks' as const, label: 'Задачи', disabled: false },
   ...(isGroup.value ? [] : [{ id: 'code' as const, label: 'Код', disabled: false, count: codeAttentionCount.value, countTitle: 'Пункты, по которым нужно ваше решение' }]),
+  { id: 'review' as const, label: 'Ревью', disabled: false },
   { id: 'instructions' as const, label: 'Инструкции', disabled: false },
-  { id: 'integrations' as const, label: 'Интеграции', disabled: true },
-  { id: 'docs' as const, label: 'Доки', disabled: true },
+  { id: 'settings' as const, label: 'Настройки', disabled: false },
 ])
 
 // «Код» opened from a task (query set by the task's button or a notification) shows the way back to it.
@@ -210,6 +195,11 @@ function backToTask() {
   if (codeTask.value) void router.push('/task/' + codeTask.value.id)
 }
 watch(() => route.query, query => {
+  if (query.tab === 'settings' && currentProject.value) {
+    activeTab.value = 'settings'
+    void router.replace({ path: '/' })
+    return
+  }
   if (query.tab !== 'code' || !currentProject.value || isGroup.value) return
   activeTab.value = 'code'
   codeTaskId.value = typeof query.task === 'string' ? query.task : null
@@ -238,9 +228,10 @@ onMounted(() => agentsStore.load())
 
 watch(() => currentProject.value?.id, () => { loadTasks() }, { immediate: true })
 watch(() => currentProject.value?.id, id => {
-  activeTab.value = 'agents'
+  // «Настройки» opened from a group's project list asks for its tab together with the project switch.
+  activeTab.value = route.query.tab === 'settings' ? 'settings' : 'agents'
   taskFilter.value = { project: '', status: 'active', text: '' }
-  Object.assign(lastTab, { projectId: id ?? null, tab: 'agents' })
+  Object.assign(lastTab, { projectId: id ?? null, tab: activeTab.value })
 })
 
 async function loadTasks() {
@@ -539,21 +530,6 @@ async function deleteTaskCard(t: Task) {
 .task-reopen:hover { background: var(--blue-soft); }
 .task-act + .task-del { margin-left: -8px; }
 
-/* Placeholder tabs */
-.placeholder-tab {
-  align-items: center;
-  justify-content: center;
-}
-.placeholder {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  color: var(--text-muted);
-}
-.placeholder-icon { font-size: 32px; }
-.placeholder-title { font-size: 15px; font-weight: 600; color: var(--text); }
-.placeholder-text { font-size: 13px; }
 .instructions-tab { overflow: hidden; }
 
 .form-field { display: flex; flex-direction: column; gap: 4px; }

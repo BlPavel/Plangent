@@ -105,6 +105,7 @@
           </div>
         </div>
         <ChatComposer
+          v-if="!noComposer"
           ref="composer"
           :project-id="snap.session.project_id"
           :commands="commands"
@@ -147,7 +148,7 @@ import { agentSelects, type AgentOptionsSource, type AgentSelect } from '../util
 import { useChatStore, statusLabel, statusTone, type ChatEvent, type ChatSession } from '../stores/sessions'
 
 // `cards`: event types the host feature renders itself through the `card` slot (e.g. library proposals).
-const props = defineProps<{ sessionId: string; initialContent?: ContentBlock[]; draftText?: string; cards?: string[] }>()
+const props = defineProps<{ sessionId: string; initialContent?: ContentBlock[]; draftText?: string; cards?: string[]; /** Messages are written elsewhere (e.g. a batch of review questions): no input field. */ noComposer?: boolean }>()
 const emit = defineEmits<{ session: [id: string] }>()
 defineExpose({ setText: (text: string) => composer.value?.setText(text) })
 const store = useChatStore()

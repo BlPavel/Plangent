@@ -1,20 +1,20 @@
 <template>
   <div class="plan-tab">
     <!-- Planning with an agent: plan on the left, chat on the right, header always visible -->
-    <template v-if="!readonly && (planningActive || planningDraft)">
+    <template v-if="!readonly && planningOpen">
       <header class="planning-bar">
-        <div class="planning-status" :class="{ live: planningActive }">
+        <div class="planning-status" :class="{ live: planningLive }">
           <span class="planning-dot" />
-          {{ planningActive ? 'Идёт планирование с агентом' : 'Новое планирование' }}
+          {{ planningLive ? 'Идёт планирование с агентом' : 'Планирование с агентом' }}
         </div>
         <span v-if="plan?.steps.length" class="planning-meta">{{ plan.steps.length }} {{ stepsWord(plan.steps.length) }}</span>
         <div class="planning-actions">
-          <AppButton v-if="!planningActive" variant="ghost" size="sm" @click="$emit('cancelPlanning')">Отмена</AppButton>
+          <AppButton variant="ghost" size="sm" title="Вернуться к плану. Чаты сохранятся" @click="$emit('closePlanning')">Закрыть</AppButton>
           <AppButton
             variant="primary"
             size="sm"
-            :disabled="!planningActive || !plan?.steps.length"
-            :title="plan?.steps.length ? 'Закрыть сессию агента и зафиксировать план' : 'Плана пока нет'"
+            :disabled="!plan?.steps.length"
+            :title="plan?.steps.length ? 'Остановить агентов и зафиксировать план. Чаты сохранятся' : 'Плана пока нет'"
             @click="$emit('approvePlan')"
           >✓ Утвердить план</AppButton>
         </div>
@@ -24,7 +24,7 @@
         <section class="plan-pane" :style="{ flexBasis: `${share}%` }">
           <MessageMarkdown v-if="planText" class="plan-doc" :text="planText" />
           <div v-else class="plan-waiting">
-            {{ planningActive ? 'Ожидаем план от агента…' : 'План появится здесь, когда агент его составит' }}
+            {{ planningLive ? 'Ожидаем план от агента…' : 'План появится здесь, когда агент его составит' }}
           </div>
         </section>
         <div
@@ -35,22 +35,31 @@
           @pointerdown="startDrag"
           @dblclick="setShare(50)"
         />
-        <aside class="chat-pane">
-          <ChatView v-if="planningSessionId" :session-id="planningSessionId" :initial-content="planningInitial" :draft-text="planningMessage" />
-          <NewChatPanel
-            v-else
-            :project-id="projectId"
-            :default-agent-id="defaultAgentId"
-            title="Планирование"
-            :text="plan ? 'Скажите, что изменить в плане. Агент изучит код и обновит план — в проекте он ничего не меняет.' : 'Опишите задачу — агент изучит код и составит план. В проекте он ничего не меняет, план появится слева.'"
-            :placeholder="plan ? 'Что изменить в плане…' : 'Опишите задачу…  @ — файл'"
-            fixed-policy="read-only"
-            :initial-text="planningMessage"
-            :busy="planningLaunching"
-            :error="planningError"
-            @start="$emit('launchPlanning', $event)"
-          />
-        </aside>
+        <TaskChats
+          class="chat-pane"
+          label="План"
+          :chats="planningChats"
+          :selected="selectedPlanningChat"
+          :initials="initials"
+          :draft-text="planningMessage"
+          @select="$emit('selectPlanningChat', $event)"
+          @remove="(id, name) => $emit('removePlanningChat', id, name)"
+        >
+          <template #new>
+            <NewChatPanel
+              :project-id="projectId"
+              :default-agent-id="defaultAgentId"
+              title="Планирование"
+              :text="plan ? 'Скажите, что изменить в плане. Агент изучит код и обновит план — в проекте он ничего не меняет.' : 'Опишите задачу — агент изучит код и составит план. В проекте он ничего не меняет, план появится слева.'"
+              :placeholder="plan ? 'Что изменить в плане…' : 'Опишите задачу…  @ — файл'"
+              fixed-policy="read-only"
+              :initial-text="planningMessage"
+              :busy="planningLaunching"
+              :error="planningError"
+              @start="$emit('launchPlanning', $event)"
+            />
+          </template>
+        </TaskChats>
       </div>
     </template>
 
@@ -115,7 +124,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import AnalysisLinks from './AnalysisLinks.vue'
-import { ChatView, NewChatPanel, MessageMarkdown, type NewChatRequest, type ContentBlock } from '@features/agent-chat'
+import TaskChats from './TaskChats.vue'
+import { NewChatPanel, MessageMarkdown, type NewChatRequest, type ContentBlock } from '@features/agent-chat'
 import AppButton from '@shared/ui/AppButton.vue'
 import type { Plan } from '@core/models'
 
@@ -125,10 +135,12 @@ const props = defineProps<{
   plan: Plan | null
   projectId: string
   defaultAgentId?: string | null
-  planningActive: boolean
-  planningDraft: boolean
-  planningSessionId: string | null
-  planningInitial?: ContentBlock[]
+  planningOpen: boolean
+  /** A planning chat is starting or thinking right now. */
+  planningLive: boolean
+  planningChats: { id: string; title: string }[]
+  selectedPlanningChat: string | null
+  initials: Record<string, ContentBlock[]>
   planningLaunching: boolean
   planningError: string
   editingPlan: boolean
@@ -140,7 +152,9 @@ const props = defineProps<{
 defineEmits<{
   approvePlan: []
   openPlanning: []
-  cancelPlanning: []
+  closePlanning: []
+  selectPlanningChat: [id: string | null]
+  removePlanningChat: [id: string, name: string]
   launchPlanning: [request: NewChatRequest]
   startManualEdit: []
   togglePlanEdit: []

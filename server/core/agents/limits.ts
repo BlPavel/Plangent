@@ -10,7 +10,9 @@ import type { Agent } from '../../models';
 export interface LimitWindow { id: string; label: string; percent: number; resetsAt: number | null }
 export interface AgentLimits { agentId: string; at: number; windows: LimitWindow[]; error?: string }
 
-const TTL = 50_000, MIN_GAP = 10_000, TIMEOUT = 25_000;
+// Each read starts a full agent CLI (~200 MB), so background polls reuse a 5-minute-old value;
+// only the refresh after a finished turn (`force`) reads sooner.
+const TTL = 5 * 60_000, MIN_GAP = 10_000, TIMEOUT = 25_000;
 const cache = new Map<string, { value: Promise<AgentLimits>; at: number }>();
 
 function provider(agent: Agent): 'claude' | 'codex' | null {
@@ -98,7 +100,7 @@ function windowLabel(minutes?: number | null) {
 async function codexLimits(agent: Agent): Promise<LimitWindow[]> {
   const result = await rpc<{ rateLimits?: CodexSnapshot; rateLimitsByLimitId?: Record<string, CodexSnapshot> }>(agent, agent.command || 'codex', ['app-server'],
     msg => {
-      if (!msg) return [{ id: 1, method: 'initialize', params: { clientInfo: { name: 'plangent', version: '0.5.0' }, capabilities: null } }];
+      if (!msg) return [{ id: 1, method: 'initialize', params: { clientInfo: { name: 'plangent', version: '0.6.0' }, capabilities: null } }];
       return msg.id === 1 ? [{ method: 'initialized' }, { id: 2, method: 'account/rateLimits/read' }] : [];
     },
     msg => {
