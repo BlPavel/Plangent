@@ -3,6 +3,7 @@ import { localOrigin } from '../local-origin';
 import { CodeError } from '../../../core/code/files';
 import { GitOperationError } from '../../../core/code/git-write';
 import * as review from '../../../core/branch-review';
+import * as questions from '../../../core/branch-review/questions';
 
 /** Local branch review: everything is plain git on the registered repository, no hosting API involved. */
 export const branchReviewRouter = Router({ mergeParams: true });
@@ -37,3 +38,12 @@ branchReviewRouter.put('/:id/viewed', guard(async (req, res) => res.json(await r
 branchReviewRouter.get('/:id/threads', guard((req, res) => res.json(review.threads(scope(req), req.params.id))));
 branchReviewRouter.post('/:id/threads', guard(async (req, res) => res.json(await review.openThread(scope(req), req.params.id, body(req)))));
 branchReviewRouter.post('/:id/finish', guard(async (req, res) => res.json(await review.finishThreads(scope(req), req.params.id))));
+
+branchReviewRouter.get('/:id/questions', guard((req, res) => res.json(questions.list(scope(req), req.params.id))));
+branchReviewRouter.post('/:id/questions', guard(async (req, res) => res.json(await questions.add(scope(req), req.params.id, body(req)))));
+branchReviewRouter.post('/:id/questions/send', guard(async (req, res) => res.json(await questions.send(scope(req), req.params.id, body(req)))));
+branchReviewRouter.post('/:id/questions/:qid/messages', guard((req, res) => res.json(questions.reply(scope(req), req.params.id, req.params.qid, body(req).text))));
+branchReviewRouter.put('/:id/questions/:qid/messages/:mid', guard((req, res) => res.json(questions.edit(scope(req), req.params.id, req.params.qid, req.params.mid, body(req).text))));
+branchReviewRouter.delete('/:id/questions/:qid/messages/:mid', guard((req, res) => res.json(questions.removeMessage(scope(req), req.params.id, req.params.qid, req.params.mid))));
+branchReviewRouter.post('/:id/questions/:qid/close', guard((req, res) => res.json(questions.close(scope(req), req.params.id, req.params.qid, body(req).closed !== false))));
+branchReviewRouter.post('/:id/questions/stop', guard(async (req, res) => res.json(await questions.stop(scope(req), req.params.id))));

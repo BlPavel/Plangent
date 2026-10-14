@@ -35,7 +35,6 @@
           <h3><code>{{ detail.review.branch_name }}</code> <span class="muted">→ сравнение с</span> <code>{{ detail.review.base_name }}</code></h3>
           <span class="rt-spacer" />
           <button type="button" class="btn btn-ghost btn-sm" :disabled="busy" title="git fetch origin и пересчёт изменений" @click="refresh">{{ busy ? 'Загрузка…' : 'Подтянуть изменения' }}</button>
-          <button type="button" class="btn btn-ghost btn-sm" :disabled="busy || chatBusy" title="Вопрос агенту про всю ветку" @click="discuss()">{{ chatBusy ? 'Готовим копию кода…' : '💬 Спросить про ветку' }}</button>
           <button type="button" class="btn btn-ghost btn-sm" :disabled="busy" title="Удалить копию кода для агента; чаты останутся в истории" @click="finish">Завершить ревью</button>
         </div>
         <div class="rt-row rt-meta">
@@ -70,42 +69,45 @@
         <main class="diff-area">
           <BranchDiff v-if="selectedFile" :key="detail.review.id + ':' + path" :scope="scope" :review-id="detail.review.id" :head="detail.review.head" :file="selectedFile" :selection="selection" @select="selection = $event">
             <template #composer>
-              <div class="composer" @keydown.esc.stop.prevent="selection = null">
+              <form class="composer" @submit.prevent="enqueue" @keydown.esc.stop.prevent="selection = null">
                 <strong>Строка {{ selection?.startLine }}{{ selection && selection.endLine !== selection.startLine ? '–' + selection.endLine : '' }}</strong>
-                <span class="rt-spacer" />
-                <button type="button" class="btn btn-blue btn-sm" :disabled="chatBusy" @click="discuss(selection!)">{{ chatBusy ? 'Готовим копию кода…' : '💬 Обсудить с агентом' }}</button>
-                <button type="button" class="btn btn-subtle btn-sm" @click="selection = null">Закрыть</button>
-              </div>
+                <textarea v-model="draft" class="control composer-text" rows="2" placeholder="Вопрос агенту по этой строке. Ctrl+Enter — в очередь" spellcheck="false" @keydown.ctrl.enter.prevent="enqueue" @keydown.meta.enter.prevent="enqueue" />
+                <div class="rt-row">
+                  <button class="btn btn-blue btn-sm" :disabled="!draft.trim()">В очередь</button>
+                  <button type="button" class="btn btn-subtle btn-sm" @click="selection = null">Закрыть</button>
+                </div>
+              </form>
             </template>
           </BranchDiff>
           <div v-else class="empty-state">В этом диапазоне нет изменённых файлов.</div>
         </main>
-        <aside v-if="chat" class="private-chat">
-          <div class="private-head"><strong>{{ chatTitle }}</strong><span class="muted">код не меняется</span><span class="rt-spacer" /><button type="button" class="btn btn-subtle btn-xs" @click="chat = ''">Скрыть</button></div>
-          <ChatView :key="chat" :session-id="chat" />
-        </aside>
+        <DiscussPanel :screen-key="props.projectId" :scope="scope" :project-id="scope" :review-id="detail.review.id" :head="detail.review.head" :default-agent-id="defaultAgentId" @goto="goto" />
       </div>
     </template>
   </section>
 </template>
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { ChatView } from '@features/agent-chat'
+import { computed, onBeforeUnmount, ref, toRefs, watch } from 'vue'
+import { onServerEvent } from '@core/api/events'
 import { useAppStore } from '@core/stores/app'
 import type { LineSelection } from '@shared/code-viewer'
 import { errorText } from '@shared/utils/errorText'
 import { branchReviewApi } from '../api'
-import type { BranchRef, BranchReview, ReviewThread } from '../types'
+import type { BranchRef, BranchReview } from '../types'
 import BranchDiff from '../components/BranchDiff.vue'
+import DiscussPanel from '../components/DiscussPanel.vue'
+import { useBranchReviewStore } from '../stores/review'
+import type { BranchQuestion } from '../types'
 
 /** Passed for a group: the review works on one of its projects. */
-const props = defineProps<{ projectId: string; members?: { id: string; name: string }[] }>()
+const props = defineProps<{ projectId: string; members?: { id: string; name: string }[]; defaultAgentId?: string | null }>()
 const app = useAppStore()
 const isGroup = computed(() => !!props.members)
-const memberId = ref('')
 const scope = computed(() => isGroup.value ? memberId.value : props.projectId)
-const detail = ref<BranchReview>(), list = ref<BranchRef[]>([]), branch = ref(''), baseRef = ref(''), error = ref(''), busy = ref(false)
-const path = ref(''), selection = ref<LineSelection | null>(null), chat = ref(''), chatTitle = ref('Чат с агентом'), chatBusy = ref(false)
+/** The screen lives in a store: leaving the tab unmounts it, the open review and the queued questions must stay. */
+const screen = useBranchReviewStore().of(props.projectId)
+const { memberId, list, branch, baseRef, detail, path } = toRefs(screen)
+const error = ref(''), busy = ref(false), selection = ref<LineSelection | null>(null), draft = ref('')
 let alive = true
 onBeforeUnmount(() => { alive = false })
 
@@ -113,7 +115,7 @@ const selectedFile = computed(() => detail.value?.files.find(f => f.path === pat
 const viewedCount = computed(() => detail.value?.files.filter(f => f.viewed === 'viewed').length ?? 0)
 const baseName = (value: string) => value.split('/').pop() ?? value
 const dirName = (value: string) => value.includes('/') ? value.slice(0, value.lastIndexOf('/')) : ''
-const label = (b: BranchRef) => b.remote ? 'origin/' + b.name : b.name
+const label = (b: BranchRef) => b.name
 
 async function run<T>(fn: () => Promise<T>, accept?: (value: T) => void) {
   if (busy.value) return undefined
@@ -139,34 +141,53 @@ const refresh = () => run(() => branchReviewApi.refresh(scope.value, detail.valu
 const acknowledge = () => run(() => branchReviewApi.acknowledge(scope.value, detail.value!.review.id), acceptDetail)
 const viewed = (file: string, value: boolean) => run(() => branchReviewApi.viewed(scope.value, detail.value!.review.id, file, value), acceptDetail)
 function choose(value: string) { path.value = value; selection.value = null }
-function back() { detail.value = undefined; selection.value = null; chat.value = ''; void loadBranches() }
-function reset() { detail.value = undefined; list.value = []; branch.value = ''; baseRef.value = ''; chat.value = ''; selection.value = null; void loadBranches() }
-
-async function discuss(line?: LineSelection) {
-  if (!detail.value || chatBusy.value) return
-  chatBusy.value = true
+function clearReview() { detail.value = undefined; screen.thread = null; screen.questions = []; screen.messages = []; selection.value = null; draft.value = '' }
+function back() { clearReview(); void loadBranches() }
+function reset() { clearReview(); list.value = []; branch.value = ''; baseRef.value = ''; void loadBranches() }
+function goto(question: BranchQuestion) { choose(question.path) }
+/** The question waits in the batch on the right; nothing goes to the agent until the developer sends them all. */
+async function enqueue() {
+  const line = selection.value, text = draft.value.trim(), id = detail.value?.review.id
+  if (!line || !text || !id) return
   try {
-    const thread = await branchReviewApi.openThread(scope.value, detail.value.review.id, line ? { path: line.path, side: line.side, line: line.startLine } : {})
-    if (!alive) return
-    chatTitle.value = line ? 'Чат · ' + baseName(line.path) + ':' + line.startLine : 'Чат · вся ветка'
-    chat.value = thread.session_id
+    const result = await branchReviewApi.addQuestion(scope.value, id, { path: line.path, side: line.side, line: line.startLine, text })
+    screen.questions = result.questions; screen.messages = result.messages
+    draft.value = ''
     selection.value = null
-  } catch (cause) { error.value = errorText(cause) } finally { chatBusy.value = false }
+  } catch (cause) { error.value = errorText(cause) }
+}
+async function loadQuestions(id: string) {
+  try {
+    const result = await branchReviewApi.questions(scope.value, id)
+    if (alive && detail.value?.review.id === id) { screen.questions = result.questions; screen.messages = result.messages }
+  } catch (cause) { if (alive) error.value = errorText(cause) }
 }
 async function finish() {
   if (!detail.value || !await app.confirm('Завершить ревью? Копия кода для агента будет удалена, чаты останутся в истории.', { confirmLabel: 'Завершить ревью' })) return
-  try { await branchReviewApi.finish(scope.value, detail.value.review.id); chat.value = ''; back() } catch (cause) { error.value = errorText(cause) }
+  try { await branchReviewApi.finish(scope.value, detail.value.review.id); back() } catch (cause) { error.value = errorText(cause) }
 }
+// The agent session of the open review survives leaving the tab: find it again by the whole-branch thread of the current head.
 watch(() => detail.value?.review.id, async id => {
-  chat.value = ''
-  if (!id) return
+  if (!id || screen.thread) return
   try {
-    const threads: ReviewThread[] = await branchReviewApi.threads(scope.value, id)
-    const last = threads.at(-1)
-    if (alive && detail.value?.review.id === id && last) { chat.value = last.session_id; chatTitle.value = last.path ? 'Чат · ' + baseName(last.path) + ':' + last.line : 'Чат · вся ветка' }
+    const threads = await branchReviewApi.threads(scope.value, id)
+    const mine = threads.filter(t => !t.path).at(-1)
+    if (alive && detail.value?.review.id === id && mine) screen.thread = mine
   } catch (cause) { if (alive) error.value = errorText(cause) }
+}, { immediate: true })
+// The agent answers on its own time: the cards follow the server.
+watch(() => detail.value?.review.id, id => { if (id) void loadQuestions(id) }, { immediate: true })
+const stopEvents = onServerEvent<{ type: string; reviewId?: string }>(event => {
+  const id = detail.value?.review.id
+  if (id && event.type === 'branch_review_updated' && event.reviewId === id) void loadQuestions(id)
 })
+onBeforeUnmount(stopEvents)
 void loadBranches()
+if (detail.value) {
+  // Back on the tab: refresh what is shown without a fetch; a review whose branch is gone is dropped.
+  const id = detail.value.review.id
+  void branchReviewApi.detail(scope.value, id).then(value => { if (alive) acceptDetail(value) }).catch(cause => { if (alive) { error.value = errorText(cause); clearReview() } })
+}
 </script>
 <style scoped>
 .review-tab { height: 100%; display: flex; flex-direction: column; min-height: 0; font-size: 13px; }
@@ -205,7 +226,8 @@ code { font-size: 11.5px; }
 .file-dot { flex-shrink: 0; width: 7px; height: 7px; border-radius: 50%; background: var(--warning-text); }
 .diff-area { flex: 1; min-width: 0; overflow: auto; display: flex; flex-direction: column; }
 .diff-area > div { flex: 1; }
-.composer { display: flex; align-items: center; gap: 8px; margin: 4px 0; padding: 8px; background: var(--bg2); border: 1px solid var(--blue); border-radius: var(--radius); box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35); font-size: 12px; }
+.composer { display: flex; flex-direction: column; align-items: stretch; gap: 8px; width: min(100%, 640px); margin: 4px 0; padding: 8px; background: var(--bg2); border: 1px solid var(--blue); border-radius: var(--radius); box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35); font-size: 12px; }
+.composer-text { width: 100%; padding: 8px 10px; line-height: 1.45; resize: vertical; font: inherit; }
 .private-chat { width: 400px; flex-shrink: 0; display: flex; flex-direction: column; border-left: 1px solid var(--border); }
 .private-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px; font-size: 12px; border-bottom: 1px solid var(--border); }
 .private-chat > :last-child { flex: 1; min-height: 0; }

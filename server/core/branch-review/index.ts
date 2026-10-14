@@ -7,9 +7,10 @@ import { getProject, effectiveGitSettings } from '../projects';
 import { CodeError } from '../code/files';
 import { fetchRepository, runGit, serializeGit } from '../code/git-write';
 import { branches, repositoryInfo } from '../code/git';
+import { getAgent } from '../agents';
 import { createSession, updateSession } from '../agent-sessions/sessions';
 import { closeSession } from '../agent-sessions/acp-host';
-import { commitOf, fileAt, fileDiff, isAncestor, mergeBase, rangeCommits, rangeCount, rangeFiles, resolveRef, type ReviewFile } from './git-diff';
+import { commitOf, fileAt, fileDiff, isAncestor, mergeBase, rangeCommits, rangeCount, rangeFiles, resolveRef } from './git-diff';
 
 interface Row { id: string; project_id: string; branch: string; base: string; seen_head: string }
 interface Thread { id: string; review_id: string; head: string; path: string; side: string; line: number; session_id: string }
@@ -81,7 +82,7 @@ export async function acknowledge(projectId: string, id: string) {
   db().prepare("UPDATE branch_reviews SET seen_head=?,updated_at=datetime('now') WHERE id=?").run(s.headSha, id);
   return detail(projectId, id);
 }
-async function findFile(projectId: string, id: string, p: unknown) {
+export async function findFile(projectId: string, id: string, p: unknown) {
   const s = await state(repo(projectId), row(projectId, id));
   const file = (await rangeFiles(s.root, s.from, s.headSha)).find(f => f.path === p);
   if (!file) throw new CodeError('Файл не найден в ревью', 404);
@@ -103,18 +104,24 @@ export async function setViewed(projectId: string, id: string, p: unknown, value
   return detail(projectId, id);
 }
 
+/** Validates a question's place: the file is in the review and the line number is sane. */
+export async function checkLine(projectId: string, id: string, p: unknown, side: unknown, line: unknown) {
+  if (!['old', 'new'].includes(String(side)) || !Number.isSafeInteger(Number(line)) || Number(line) < 1) throw new CodeError('Некорректная строка');
+  await findFile(projectId, id, p);
+}
 export function threads(projectId: string, id: string): Thread[] {
   row(projectId, id);
   return db().prepare('SELECT * FROM mr_private_threads WHERE review_id=? ORDER BY rowid').all(id) as Thread[];
 }
-const briefing = (r: Row, head: string, file: ReviewFile | undefined, line: number, side: string, text: string) =>
-  'Ревью локальной ветки без изменения кода. Ты собеседник: объясняй код и отвечай на вопросы, не меняй файлы и git, не формулируй замечания для публикации. ' +
-  'Код ветки доступен в текущей рабочей копии (коммит ' + head + '), сравнение с ' + r.base + '. ' +
-  (file ? 'Контекст: ' + side + ' ' + file.path + ':' + line + '.\nDiff файла:\n' + text : 'Контекст: вся ветка, смотри git diff и git log в рабочей копии.');
+const briefing = (r: Row, head: string) =>
+  'Ревью локальной ветки без изменения кода. Вопросы разработчика приходят пачками: вызови get_branch_questions, ответь в каждой ветке обсуждения через reply_branch_question (в чат ответы не пиши), ' +
+  'не меняй файлы и git. Код ветки доступен в текущей рабочей копии (коммит ' + head + '), сравнение с ' + r.base + '; используй git diff и git log в ней.';
 /** A chat about the whole branch (no path) or about one line of one file. Code lives in a detached read-only worktree. */
-export async function openThread(projectId: string, id: string, input: { path?: unknown; side?: unknown; line?: unknown }) {
+export async function openThread(projectId: string, id: string, input: { path?: unknown; side?: unknown; line?: unknown; agent?: unknown }) {
   const project = repo(projectId), r = row(projectId, id);
-  if (!project.default_agent_id) throw new CodeError('Выберите агента по умолчанию в настройках проекта', 409);
+  const pick = input.agent && typeof input.agent === 'object' ? input.agent as Record<string, unknown> : {};
+  const agentId = typeof pick.agent_id === 'string' && pick.agent_id ? pick.agent_id : project.default_agent_id;
+  if (!agentId || !getAgent(agentId)) throw new CodeError('Выберите агента', 409);
   const s = await state(project, r);
   const wholeBranch = input.path === undefined || input.path === '';
   const line = wholeBranch ? 0 : Number(input.line);
@@ -130,10 +137,11 @@ export async function openThread(projectId: string, id: string, input: { path?: 
       await runGit(s.root, ['worktree', 'add', '--detach', location, s.headSha]);
       db().prepare('INSERT INTO mr_worktrees(review_id,head,path,active) VALUES (?,?,?,1) ON CONFLICT(review_id,head) DO UPDATE SET active=1,path=excluded.path').run(id, s.headSha, location);
     }
-    const text = file ? await fileDiff(s.root, s.from, s.headSha, file) : '';
-    const session = createSession({ project_id: projectId, agent_id: project.default_agent_id!, role: 'chat', policy: 'read-only',
+    const session = createSession({ project_id: projectId, agent_id: agentId, role: 'chat', policy: 'read-only', model: typeof pick.model === 'string' ? pick.model : '',
       title: 'Ревью · ' + s.head.name + (file ? ' · ' + file.path + ':' + line : ''),
-      metadata: { mr_private: true, briefing: briefing(r, s.headSha, file, line, side, text) } });
+      metadata: { mr_private: true, briefing: briefing(r, s.headSha), branch_review: id,
+        ...(typeof pick.mode === 'string' && pick.mode ? { preferredMode: pick.mode } : {}),
+        ...(pick.config && typeof pick.config === 'object' ? { preferredConfig: Object.fromEntries(Object.entries(pick.config).map(([k, v]) => [k, String(v)])) } : {}) } });
     db().prepare('INSERT INTO mr_private_threads(id,review_id,head,path,side,line,session_id) VALUES (?,?,?,?,?,?,?)').run(session.id, id, s.headSha, filePath, side, line, session.id);
     return { id: session.id, review_id: id, head: s.headSha, path: filePath, side, line, session_id: session.id };
   });

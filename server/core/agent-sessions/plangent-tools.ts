@@ -35,6 +35,11 @@ export const plangentTools = {
     fields: { id: { type: 'string' }, kind: { type: 'string', enum: ['answer', 'options', 'questions', 'change', 'disagree'] }, text: { type: 'string' },
       files: { type: 'array', items: { type: 'string' } } },
   },
+  get_branch_questions: { description: 'Read the questions of the developer about the reviewed branch: threads waiting for you (assigned, with history), the rules (protocol) and other threads as context. Call first.', fields: {} },
+  reply_branch_question: {
+    description: 'Reply in a question thread of the branch review; the thread then waits for the developer. kind: answer (plain reply), options (approaches as a numbered list with your recommendation), questions (clarifying questions). One reply per thread per turn.',
+    fields: { id: { type: 'string' }, kind: { type: 'string', enum: ['answer', 'options', 'questions'] }, text: { type: 'string' } },
+  },
   get_review_context: { description: 'Get assigned plan and executor context.', fields: {} },
   add_finding: { description: 'Report a review finding.', fields: { file: { type: 'string' }, line: { type: 'integer', minimum: 1 }, severity: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] }, message: { type: 'string' } } },
   submit_review: { description: 'Submit review verdict.', fields: { verdict: { type: 'string', enum: ['approved', 'changes_requested'] } } },

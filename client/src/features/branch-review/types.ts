@@ -20,3 +20,6 @@ export interface BranchReview {
   rewritten: boolean
 }
 export interface ReviewThread { id: string; review_id: string; head: string; path: string; side: string; line: number; session_id: string }
+export interface BranchQuestion { id: string; review_id: string; path: string; side: 'old' | 'new'; line: number; closed: boolean; created_at: string }
+export interface BranchQuestionMessage { id: string; question_id: string; author: 'developer' | 'agent'; kind: string; text: string; sent: boolean; created_at: string }
+export interface BranchQuestions { questions: BranchQuestion[]; messages: BranchQuestionMessage[] }

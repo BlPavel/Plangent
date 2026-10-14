@@ -24,8 +24,9 @@ export function migrate(db: Database.Database): void {
   db.exec(`CREATE TABLE IF NOT EXISTS mr_worktrees (review_id TEXT NOT NULL, head TEXT NOT NULL, path TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1, PRIMARY KEY(review_id,head));
     CREATE TABLE IF NOT EXISTS mr_private_threads (id TEXT PRIMARY KEY, review_id TEXT NOT NULL, head TEXT NOT NULL, path TEXT NOT NULL, side TEXT NOT NULL, line INTEGER NOT NULL, session_id TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS branch_reviews (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, branch TEXT NOT NULL, base TEXT NOT NULL, seen_head TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT (datetime('now')), UNIQUE(project_id,branch,base));
-    CREATE TABLE IF NOT EXISTS branch_review_viewed (review_id TEXT NOT NULL, path TEXT NOT NULL, sig TEXT NOT NULL, PRIMARY KEY(review_id,path));`);
-
+    CREATE TABLE IF NOT EXISTS branch_review_viewed (review_id TEXT NOT NULL, path TEXT NOT NULL, sig TEXT NOT NULL, PRIMARY KEY(review_id,path));
+    CREATE TABLE IF NOT EXISTS branch_questions (id TEXT PRIMARY KEY, review_id TEXT NOT NULL, path TEXT NOT NULL DEFAULT '', side TEXT NOT NULL DEFAULT 'new', line INTEGER NOT NULL DEFAULT 0, closed INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f','now')));
+    CREATE TABLE IF NOT EXISTS branch_question_messages (id TEXT PRIMARY KEY, question_id TEXT NOT NULL REFERENCES branch_questions(id) ON DELETE CASCADE, author TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'text', text TEXT NOT NULL, sent INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f','now')));`);
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS agents (
