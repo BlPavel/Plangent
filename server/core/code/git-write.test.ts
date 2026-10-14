@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { stage, unstage, commit, createBranch, switchBranch, pull, push, fetchRepository, resetForReassembly, serializeGit, GitOperationError } from './git-write';
+import { stage, unstage, commit, createBranch, switchBranch, pull, pullRebase, push, fetchRepository, resetForReassembly, serializeGit, GitOperationError } from './git-write';
 import { changedFiles, repositoryInfo, trackingInfo, branches } from './git';
 import { defaultGitSettings } from '../projects/git-settings';
 const git = (root: string, ...args: string[]) => execFileSync('git', args, { cwd: root, encoding: 'utf8', windowsHide: true, stdio: ['ignore','pipe','pipe'] }).trim();
@@ -49,6 +49,11 @@ test('origin branch, upstream push, ff-only divergence, restricted reset and out
   await assert.rejects(pull(root), (e: unknown) => e instanceof GitOperationError && e.code === 'diverged');
   await assert.rejects(resetForReassembly(root, base, base), /HEAD changed/);
   await resetForReassembly(root, base, current); assert.equal((await repositoryInfo(root))?.head, base); assert.equal(await fs.readFile(path.join(root, 'l'), 'utf8'), 'local');
+  // Local commit on top of the advanced origin/main: rebase replays it instead of failing like ff-only.
+  await stage(root, ['l']); await commit(root, { title: 'local again' }, () => defaultGitSettings);
+  await pullRebase(root);
+  assert.equal(git(root, 'rev-list', '--count', 'origin/main..HEAD'), '1');
+  assert.equal(git(root, 'rev-list', '--count', 'HEAD..origin/main'), '0');
 });
 test('repository queue survives a failure and observes aborted queued operations', async t => {
   const root = await fixture(t); const events: string[] = [];

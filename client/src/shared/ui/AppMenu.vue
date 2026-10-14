@@ -6,9 +6,11 @@
       :class="size === 'md' ? '' : `btn-${size}`"
       :title="title"
       :aria-label="title"
+      :disabled="disabled"
       @click.stop="toggle"
     >
-      <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="3.5" cy="8" r="1.3" /><circle cx="8" cy="8" r="1.3" /><circle cx="12.5" cy="8" r="1.3" /></svg>
+      <svg v-if="icon === 'chevron'" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
+      <svg v-else viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="3.5" cy="8" r="1.3" /><circle cx="8" cy="8" r="1.3" /><circle cx="12.5" cy="8" r="1.3" /></svg>
     </button>
     <!-- Teleported and fixed so scrolling containers (sidebar, modals) never clip it. -->
     <Teleport to="body">
@@ -21,12 +23,13 @@
             v-else
             type="button"
             class="menu-item"
-            :class="{ danger: item.danger }"
+            :class="{ danger: item.danger, compact }"
             :disabled="item.disabled"
+            :title="compact ? item.hint : undefined"
             @click="pick(item)"
           >
             <span class="menu-label">{{ item.label }}</span>
-            <span v-if="item.hint" class="menu-hint">{{ item.hint }}</span>
+            <span v-if="item.hint && !compact" class="menu-hint">{{ item.hint }}</span>
           </button>
         </template>
       </div>
@@ -53,7 +56,12 @@ const props = withDefaults(defineProps<{
   title?: string
   size?: 'md' | 'sm' | 'xs'
   align?: 'left' | 'right'
-}>(), { title: 'Ещё', size: 'sm', align: 'right' })
+  /** dots — «⋯ ещё»; chevron — the arrow half of a split button */
+  icon?: 'dots' | 'chevron'
+  disabled?: boolean
+  /** one-line items: the hints become tooltips */
+  compact?: boolean
+}>(), { title: 'Ещё', size: 'sm', align: 'right', icon: 'dots', disabled: false, compact: false })
 
 const root = ref<HTMLElement | null>(null)
 const list = ref<HTMLElement | null>(null)
@@ -125,6 +133,7 @@ onUnmounted(() => {
   text-align: left;
   cursor: pointer;
 }
+.menu-item.compact { padding: 4px 10px; font-size: 12.5px; }
 .menu-item:hover:not(:disabled) { background: var(--bg3); }
 .menu-item:disabled { color: var(--text-faint); cursor: default; }
 .menu-item.danger { color: var(--danger-hover); }

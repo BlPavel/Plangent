@@ -272,16 +272,11 @@ test('screen state is one value computed from the server data', () => {
   assert.equal(countUnresolved([{ closed: false }, { closed: false }, { closed: true }, { closed: false }]), 3, 'every open thread is unresolved')
 })
 
-test('viewed marks open the review, comparison bases fall back, the committed summary stays', async () => {
+test('comparison bases fall back without a review, the committed summary stays', async () => {
   const h = harness()
-  const calls = []
-  h.codeReviewsApi.markViewedCurrent = async (...args) => { calls.push(['current', ...args]); return { review: null, view: null } }
-  h.codeReviewsApi.markViewed = async (...args) => { calls.push(['review', ...args]); return null }
   h.codeReviewsApi.baseChanges = async () => ({ base: 'a', end: 'b', changes: [{ path: 'x.ts', status: 'M' }], stats: {} })
   await h.store.start('p')
   assert.equal(h.store.screen, 'clean')
-  await h.store.toggleViewed('x.ts')
-  assert.deepEqual(calls.shift(), ['current', 'p', 'x.ts', true, 'project', 'p'])
   await h.store.setBase('agent')
   assert.equal(h.store.effectiveBase, 'head', 'no review, no rounds: the base stays HEAD')
 
@@ -289,11 +284,6 @@ test('viewed marks open the review, comparison bases fall back, the committed su
     file_views: [{ path: 'x.ts', viewed: true, changed_after_view: false }, { path: 'y.ts', viewed: false, changed_after_view: true }] })
   await h.store.refresh()
   assert.equal(h.store.screen, 'all-committed')
-  assert.deepEqual(plain(h.store.viewedState), { 'x.ts': 'viewed', 'y.ts': 'changed' })
-  await h.store.toggleViewed('x.ts')
-  assert.deepEqual(calls.shift(), ['review', 'p', 'r1', 'x.ts', false])
-  await h.store.toggleViewed('y.ts')
-  assert.deepEqual(calls.shift(), ['review', 'p', 'r1', 'y.ts', true], 'a stale mark is re-checked, not removed')
   await h.store.setBase('review')
   assert.equal(h.store.effectiveBase, 'review')
   assert.deepEqual(plain(h.store.shownChanges), [{ path: 'x.ts', status: 'M' }])
@@ -526,18 +516,18 @@ test('finish confirmation saves manual edits before accept; moving, merging and 
   action: async name => { calls.push([name]); store.run.status = 'complete'; return store.run },
  })
  const component = moduleAt(file, {
-  'vue-router': { useRoute: () => ({ query: {} }) },
   '@core/api': { api: { get: async () => ({ values: { finish_scenario: 'commits', branch_template: 'feature/{key}-{slug}' } }) } },
   '@core/stores/app': { useAppStore: () => ({ confirm: async () => true }) },
-  '@features/agent-chat': { ChatView: {} },
-  '@features/code': { CommitDiff: {}, gitApi: { branches: async () => [], coauthors: async () => [] } },
+  '@shared/ui/BranchNameInput.vue': { default: {} },
+  '@shared/utils/finish-scenarios': { FINISH_SCENARIOS: { commits: {}, push: {}, full: {} } },
+  '@features/code': { CommitDiff: {}, CoauthorsField: {}, GitAgentNote: {}, useGitStore: () => reactive({ settings: { finish_scenario: 'commits', base_branch: '', include_description: true, branch_prefixes: [], mr_reviewers: [] }, repository: { upstream: 'origin/feature' }, branches: [], coauthors: [] }) },
   '../stores/finish': { useFinishStore: () => store },
   '../api': { finishApi: { context: async () => ({ changes: [], diffs: {} }) } },
-  '../types': moduleAt('client/src/features/finish/types.ts'),
+  '../types': moduleAt('client/src/features/finish/types.ts', { '@shared/utils/finish-scenarios': { finishScenarioLabels: {} } }),
  }, {}, source).default
  const scope = effectScope()
  try {
-  const panel = scope.run(() => component.setup({ projectId: 'p', branch: 'feature' }, { expose() {} }))
+  const panel = scope.run(() => component.setup({ projectId: 'p', branch: 'feature' }, { expose() {}, emit() {} }))
   await new Promise(resolve => setTimeout(resolve, 0))
   panel.selected.value = { index: 0, path: 'a' }
   assert.equal(panel.selectedBase.value, 'base')
@@ -556,26 +546,22 @@ test('finish confirmation saves manual edits before accept; moving, merging and 
  } finally { scope.stop() }
 })
 
-test('group Git settings preview, overrides and resets do not affect another project', () => {
+test('group Git settings: overrides and resets stay in one project', () => {
  const { parse, compileScript } = require('@vue/compiler-sfc')
  const { reactive } = require('vue')
  const file = 'client/src/features/projects/components/GitSettingsFields.vue'
  const source = compileScript(parse(fs.readFileSync(file, 'utf8'), { filename: file }).descriptor, { id: 'git-settings-test' }).content
- const component = moduleAt(file, {}, {}, source).default
- const group = reactive({ branch_template: 'feature/{key}-{slug}', include_description: true, forbidden_patterns: ['Claude'] })
- const first = reactive({ modelValue: {}, inherited: group, sources: { branch_template: 'group' } })
- const second = reactive({ modelValue: {}, inherited: group, sources: { branch_template: 'group' } })
+ const component = moduleAt(file, { '@shared/ui/MemberPicker.vue': { default: {} }, '@shared/utils/finish-scenarios': { finishScenarioLabels: {} } }, {}, source).default
+ const group = reactive({ base_branch: 'main', mr_squash: true, branch_prefixes: ['feature'] })
+ const first = reactive({ modelValue: {}, inherited: group, section: 'mr', sources: { mr_squash: 'group' } })
+ const second = reactive({ modelValue: {}, inherited: group, section: 'mr', sources: { mr_squash: 'group' } })
  const setup = props => component.setup(props, { expose() {}, emit: (_, value) => { props.modelValue = value } })
  const a = setup(first), b = setup(second)
- assert.equal(a.preview.value, 'feature/BIL-42-limits')
- group.branch_template = 'team/{key}/{slug}'
- assert.equal(a.preview.value, 'team/BIL-42/limits'); assert.equal(b.preview.value, a.preview.value)
- a.toggle('branch_template', true); a.set('branch_template', 'custom/{key}')
- assert.equal(a.preview.value, 'custom/BIL-42'); assert.equal(b.preview.value, 'team/BIL-42/limits')
- a.toggle('branch_template', false)
- assert.equal(a.preview.value, b.preview.value)
- a.toggle('include_description', true); a.set('include_description', false)
- assert.equal(first.modelValue.include_description, false); assert.equal(group.include_description, true)
- a.toggle('include_description', false)
- assert.equal(a.effective('include_description'), true)
+ assert.equal(a.value('mr_squash'), true, 'inherited from the group')
+ a.set('mr_squash', false)
+ assert.equal(first.modelValue.mr_squash, false); assert.equal(group.mr_squash, true)
+ assert.equal(a.changed('mr_squash'), true); assert.equal(b.value('mr_squash'), true, 'the other project keeps the group value')
+ a.reset('mr_squash')
+ assert.equal(Object.hasOwn(first.modelValue, 'mr_squash'), false)
+ assert.equal(a.value('mr_squash'), true)
 })

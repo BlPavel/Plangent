@@ -1,7 +1,11 @@
 <template>
   <div v-if="project" class="git-panel">
+    <GitAgentFields
+      v-if="section === 'agent'" :model-value="gitSettings" :inherited="inherited" :source="inheritedSources.git_agent_id"
+      :fallback="project.kind === 'group' ? 'Агент каждого проекта' : 'Агент проекта'" @update:model-value="change"
+    />
     <GitSettingsFields
-      :model-value="gitSettings" :section="section" :branches="branchNames" :members="members" :members-note="membersNote"
+      v-else :model-value="gitSettings" :section="section" :branches="branchNames" :members="members" :members-note="membersNote"
       :inherited="inherited" :sources="inheritedSources" @update:model-value="change"
     />
     <p v-if="error" role="alert" class="git-error">{{ error }}</p>
@@ -18,9 +22,10 @@ import SaveStatus, { type SaveState } from '@shared/ui/SaveStatus.vue'
 import { errorText } from '@shared/utils/errorText'
 import { useProjectsStore } from '../stores/projects'
 import GitSettingsFields from './GitSettingsFields.vue'
+import GitAgentFields from './GitAgentFields.vue'
 
 /** One git topic of a project or group, shown as a sub-tab of «Инструкции»: branches or merge requests. Saves as you edit. */
-const props = defineProps<{ projectId: string; section: 'branches' | 'mr' }>()
+const props = defineProps<{ projectId: string; section: 'branches' | 'mr' | 'agent' }>()
 const app = useAppStore(), projects = useProjectsStore()
 const project = computed(() => projects.byId(props.projectId))
 
@@ -42,7 +47,8 @@ watch(() => [props.projectId, props.section], async () => {
     const data = await api.get<{ values: ProjectGitSettings; sources: Record<string, string> }>(group ? '/projects/' + encodeURIComponent(group) + '/git-settings' : '/projects/git-defaults')
     if (p.id !== props.projectId) return
     inherited.value = data.values
-    inheritedSources.value = Object.fromEntries(Object.entries(data.sources).map(([key, source]) => [key, group && source !== 'default' ? 'group' : 'default']))
+    // The group's own values come back from its endpoint as «project».
+    inheritedSources.value = Object.fromEntries(Object.entries(data.sources).map(([key, source]) => [key, source === 'project' ? 'group' : source]))
     // Only a project has a repository to list branches from.
     if (props.section === 'branches' && p.kind === 'project') {
       const list = await api.get<{ branches: { name: string }[] }>('/projects/' + encodeURIComponent(p.id) + '/branch-review/branches')

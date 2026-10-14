@@ -129,13 +129,26 @@ export async function fetchRepository(root: string, options: GitOperationOptions
 export async function pull(root: string, options: GitOperationOptions = {}) {
   return serializeGit(root, async () => { await check(root, options, true); return run(root, ['pull', '--ff-only', '--progress'], options); });
 }
-export async function push(root: string, options: GitOperationOptions = {}) {
+/** Replays local commits on top of the upstream; on a failure the rebase is aborted so the folder is left as it was. */
+export async function pullRebase(root: string, options: GitOperationOptions = {}) {
+  return serializeGit(root, async () => {
+    await check(root, options, true);
+    try { return await run(root, ['pull', '--rebase', '--progress'], options); }
+    catch (error) {
+      await run(root, ['rebase', '--abort']).catch(() => undefined);
+      if (error instanceof GitOperationError && error.code === 'git_failed')
+        throw new GitOperationError('Rebase не удался: конфликты или незакоммиченные изменения. Он отменён, ничего не изменилось.', error.output, 'rebase_failed');
+      throw error;
+    }
+  });
+}
+export async function push(root: string, options: GitOperationOptions = {}, force = false) {
   return serializeGit(root, async () => {
     await check(root, options, true);
     const info = await repositoryInfo(root);
     if (!info?.branch) throw new CodeError('Choose a branch before pushing');
     const upstream = await run(root, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'], options).catch(() => '');
-    return run(root, upstream ? ['push', '--progress'] : ['push', '--progress', '--set-upstream', 'origin', info.branch], options);
+    return run(root, upstream ? ['push', '--progress', ...(force ? ['--force-with-lease'] : [])] : ['push', '--progress', '--set-upstream', 'origin', info.branch], options);
   });
 }
 export async function switchBranch(root: string, branch: string, options: GitOperationOptions = {}) {
@@ -187,3 +200,6 @@ export async function commit(root: string, input: CommitMessageInput, getSetting
     return run(root, ['commit', '--cleanup=verbatim', '--file=-'], options, message + '\n');
   });
 }
+
+/** Overwrites the remote branch only if nobody pushed to it since our last fetch. */
+export const pushForce = (root: string, options: GitOperationOptions = {}) => push(root, options, true);

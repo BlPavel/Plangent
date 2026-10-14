@@ -10,6 +10,12 @@ export const useGitStore = defineStore('code-git', () => {
   /** lastAction lets each panel show the result of its own operation (commit — in the commit panel, the rest — in the header). */
   const operationId = ref(''), output = ref(''), error = ref(''), lastAction = ref('')
   const blocked = computed(() => operationId.value ? 'Выполняется git-операция' : repository.value?.busyReason ?? '')
+  /** What «Diff ветки» compares with: origin/<base branch from the settings>, else origin/main or origin/master. */
+  const baseRef = computed(() => {
+    const remote = branches.value.filter(b => b.remote).map(b => b.name)
+    const wanted = settings.value?.base_branch ? 'origin/' + settings.value.base_branch.replace(/^origin\//, '') : ''
+    return [wanted, 'origin/main', 'origin/master'].find(name => name && remote.includes(name)) ?? (wanted || remote[0] || '')
+  })
   let unsubscribe: (() => void) | undefined
   let timer: ReturnType<typeof setTimeout> | undefined
   let generation = 0
@@ -65,5 +71,5 @@ export const useGitStore = defineStore('code-git', () => {
   }
   /** Hides the result of the finished operation. */
   function dismiss() { if (!operationId.value) { error.value = ''; output.value = ''; lastAction.value = '' } }
-  return { projectId, repository, branches, settings, coauthors, operationId, output, error, lastAction, blocked, start, stop, refresh, run, cancel, dismiss }
+  return { projectId, repository, branches, settings, coauthors, operationId, output, error, lastAction, blocked, baseRef, start, stop, refresh, run, cancel, dismiss }
 })

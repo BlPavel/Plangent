@@ -2,6 +2,7 @@ import fs from 'fs';
 import { execFileSync } from 'child_process';
 import { originUrl, isRepository } from '../code/git';
 import { cloneRepository, type GitOperationOptions } from '../code/git-write';
+import { CodeError } from '../code/files';
 import { parseRemoteUrl, sameRemote, publicRemoteUrl } from './remote-url';
 import { resolveGitSettings, validateGitSettings, type GitSettings } from './git-settings';
 import path from 'path';
@@ -277,7 +278,29 @@ function saveGitData(id: string, data: ReturnType<typeof gitData>) {
 export function effectiveGitSettings(id: string) {
   const project = getProject(id);
   if (!project) throw new ProjectError('Project not found');
-  return resolveGitSettings(project.group_id ? getProject(project.group_id)?.git_settings : {}, project.git_settings);
+  return resolveGitSettings(project.group_id ? getProject(project.group_id)?.git_settings : {}, project.git_settings, globalGitSettings());
+}
+
+/** App-wide git settings («Настройки»): the level under every group and project. */
+export function globalGitSettings(): Partial<GitSettings> {
+  const row = getDb().prepare("SELECT value FROM app_settings WHERE key = 'git-settings'").get() as { value: string } | undefined;
+  try { return row ? validateGitSettings(JSON.parse(row.value)) : {}; } catch { return {}; }
+}
+export function saveGlobalGitSettings(value: unknown) {
+  let settings: Partial<GitSettings>;
+  try { settings = validateGitSettings(value); } catch (error) { throw new ProjectError((error as Error).message); }
+  getDb().prepare(`INSERT INTO app_settings (key, value, updated_at) VALUES ('git-settings', ?, datetime('now'))
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`).run(JSON.stringify(settings));
+  return settings;
+}
+
+/** Who does the git work (commit messages, commit split, MR description): the configured agent, else the project's. */
+export function gitAgent(id: string): { agentId: string; model: string; effort: string } {
+  const settings = effectiveGitSettings(id).values;
+  const agentId = settings.git_agent_id || getProject(id)?.default_agent_id || '';
+  if (!agentId) throw new CodeError('Выберите агента для коммитов и МР в настройках');
+  // A model or effort only makes sense for the agent it was picked for.
+  return settings.git_agent_id ? { agentId, model: settings.git_agent_model, effort: settings.git_agent_effort } : { agentId, model: '', effort: '' };
 }
 
 export interface CreateProjectOptions extends GitOperationOptions { reuseExisting?: boolean }

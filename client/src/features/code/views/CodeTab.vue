@@ -17,15 +17,12 @@
       </template>
       <span class="ct-spacer" />
       <span v-if="store.watchError" class="ct-warn" :title="store.watchError">авто-обновление недоступно</span>
+      <button v-if="store.repository" type="button" class="btn btn-sm" :class="finishAttention ? 'btn-blue' : 'btn-ghost'" title="Коммиты, push и МР — агент сделает их по настройкам проекта" @click="showRight('finish')">
+        {{ finish.run && !finishDone ? 'Завершение · ' + (finishStages[finish.run.stage] || finish.run.stage) : 'Завершить работу' }}
+      </button>
       <button type="button" class="ct-refresh" :class="{ spinning: store.loading }" :disabled="store.loading" title="Обновить: статус, дерево и открытый файл" :aria-busy="store.loading" aria-label="Обновить" @click="store.refresh()">⟳</button>
       <HistoryMenu :history="store.history" :opened-id="store.openedReviewId" @open="store.loadHistory()" @select="store.openReview($event)" @remove="removeHistoryItem" />
     </header>
-    <!-- One git row: the MR and «Завершение» panels put their toolbars here and open their bodies below it. -->
-    <div v-if="store.repository" class="ct-git">
-      <GitHeader :task="task" />
-      <TaskMrPanel :project-id="projectId" :task-id="task?.id" inline />
-      <FinishPanel :key="projectId + (task?.id || '')" :project-id="projectId" :task="task" :blocked="git.blocked" :branch="store.branch" />
-    </div>
     <ReviewBanners @open-items="openFirstUnresolved" />
     <div v-if="store.error" class="ct-error">{{ store.error }} <button type="button" class="ct-link" @click="store.refresh()">Повторить</button></div>
 
@@ -45,15 +42,22 @@
           <BaseSwitcher />
           <ChangesList
             :changes="store.shownChanges" :stats="store.shownStats" :selected="store.selectedPath" :empty-text="emptyText"
-            :stageable="!!store.repository && store.effectiveBase === 'head' && !store.openedReviewId" :stage-disabled="git.blocked" @toggle-stage="toggleStage" :viewable="viewable" :viewed="store.viewedState" :viewed-count="store.viewedCount" @open="openChange" @toggle-viewed="toggleViewed"
+            :stageable="stageable" :stage-disabled="git.blocked" @toggle-stage="toggleStage" @stage-many="stageMany" @open="openChange"
           >
+            <template #empty>
+              <span>{{ emptyText }}</span>
+              <button v-if="stageable && git.baseRef" type="button" class="btn btn-ghost btn-xs" :title="'Все изменения ветки относительно ' + git.baseRef" @click="store.setBase('remote', git.baseRef)">Diff ветки</button>
+            </template>
             <template #badges="{ change }">
               <span v-if="store.effectiveBase === 'agent' && !fileCounts[change.path]" class="ct-badge" title="Агент тронул этот файл, хотя замечаний к нему не было">без замечаний</span>
               <span v-if="fileCounts[change.path]" class="ct-badge" :title="`Замечаний: ${fileCounts[change.path]}`">💬{{ fileCounts[change.path] }}</span>
             </template>
           </ChangesList>
         </div>
-        <CommitPanel v-show="leftTab === 'changes'" :key="projectId" :task-id="task?.id" />
+        <template v-if="leftTab === 'changes' && store.repository">
+          <BranchBar :key="'branch' + projectId" :task="task" />
+          <CommitBox v-if="!store.openedReviewId" :key="projectId" :task-id="task?.id" />
+        </template>
         <div v-show="leftTab === 'files'" class="ct-pane">
           <FileTree
             ref="tree" :trees="store.trees" :selected="store.selectedPath" :show-ignored="store.includeIgnored" :marks="fileCounts"
@@ -73,9 +77,6 @@
           @select="onSelect" @marker-click="onMarker"
         >
           <template #header="{ path }">
-            <label v-if="viewable" class="ct-viewed" :class="{ stale: store.viewedState[path] === 'changed' }" :title="store.viewedState[path] === 'changed' ? 'Файл изменился после просмотра: отметьте заново' : 'Файл просмотрен'">
-              <input type="checkbox" :checked="store.viewedState[path] === 'viewed'" @change="toggleViewed(path)" /> Просмотрено<template v-if="store.viewedState[path] === 'changed'"> · изменён после просмотра</template>
-            </label>
             <button type="button" class="ct-link" title="Показать файл в дереве" @click="showInTree(path)">Показать в дереве</button>
             <button v-if="!reviewReadOnly" type="button" class="ct-link" title="Замечание ко всему файлу" @click="composing = { scope: 'file' }">💬<template v-if="fileNotes.length"> {{ fileNotes.length }}</template></button>
             <span v-else-if="fileNotes.length" class="ct-muted">💬 {{ fileNotes.length }}</span>
@@ -100,15 +101,26 @@
       </main>
       <div class="ct-resizer" :class="{ off: rightCollapsed }" role="separator" aria-orientation="vertical" aria-label="Ширина правой панели" title="Потяните, чтобы изменить ширину; двойной клик — сбросить" tabindex="0" @pointerdown="startResize($event, 'right')" @dblclick="rightWidth = 380" @keydown="resizeKey($event, 'right')" />
 
-      <PaneRail v-if="rightCollapsed" side="right" shortcut="Ctrl+Alt+B" :items="rightRail" @expand="rightCollapsed = false" @pick="rightCollapsed = false" />
+      <PaneRail v-if="rightCollapsed" side="right" shortcut="Ctrl+Alt+B" :items="rightRail" @expand="rightCollapsed = false" @pick="showRight($event as RightTab)" />
       <aside v-show="!rightCollapsed" class="ct-right">
-        <div class="ct-tabs">
-          <span class="ct-title">Замечания<span v-if="store.items.length" class="ct-count" :class="{ warning: attention }" :title="attention ? `Ждут вашего ответа: ${attention}` : ''">{{ attention || store.items.length }}</span></span>
+        <div class="ct-tabs" role="tablist">
+          <button v-for="t in rightTabs" :key="t.id" type="button" role="tab" class="ct-tab" :class="{ active: rightTab === t.id }" :aria-selected="rightTab === t.id" @click="rightTab = t.id">
+            {{ t.label }}<span v-if="t.count" class="ct-count" :class="{ warning: t.warning }" :title="t.hint">{{ t.count }}</span>
+          </button>
           <button type="button" class="ct-collapse" title="Свернуть панель (Ctrl+Alt+B)" aria-label="Свернуть правую панель" @click="rightCollapsed = true">»</button>
         </div>
-        <ExternalThreadsPanel :can-discuss="canDiscuss" @goto="gotoExternal" @discuss="discussExternal" />
-        <div class="ct-pane">
-          <ReviewPanel :project-id="projectId" :origin="origin" :default-agent-id="defaultAgentId" @goto="goto" @open-ref="openRef" @show-change="showChange" />
+        <template v-if="rightTab === 'remarks'">
+          <ExternalThreadsPanel :can-discuss="canDiscuss" @goto="gotoExternal" @discuss="discussExternal" />
+          <div class="ct-pane">
+            <ReviewPanel :project-id="projectId" :origin="origin" :default-agent-id="defaultAgentId" @goto="goto" @open-ref="openRef" @show-change="showChange" />
+          </div>
+        </template>
+        <!-- Kept mounted: the finish run reports its progress (and the tab's badge) while another tab is open. -->
+        <div v-if="store.repository" v-show="rightTab === 'finish'" class="ct-scroll">
+          <FinishPanel :key="projectId + (task?.id || '')" :project-id="projectId" :task="task" :blocked="git.blocked" :branch="store.branch" @attention="showRight('finish')" />
+        </div>
+        <div v-if="store.repository && rightTab === 'mr'" class="ct-scroll">
+          <TaskMrPanel :key="projectId + (task?.id || '')" :project-id="projectId" :task-id="task?.id" stacked />
         </div>
       </aside>
     </div>
@@ -125,6 +137,8 @@ const lastOpened = new Map<string, string>()
 <script setup lang="ts">
 import { FinishPanel } from '@features/finish'
 import { TaskMrPanel } from '@features/task-mr'
+import { useFinishStore, finishStages as stages } from '@features/finish'
+import { useRoute } from 'vue-router'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { FileTree, type CodeSide, type LineMarker, type LineSelection } from '@shared/code-viewer'
 import { useAppStore } from '@core/stores/app'
@@ -134,8 +148,8 @@ import { useReviewAgentStore } from '../stores/review-agent'
 import { threadState } from '../utils/thread'
 import type { CodeReviewItem, GitChange, ReviewHistory } from '../types'
 import { useGitStore } from '../stores/git'
-import GitHeader from '../components/GitHeader.vue'
-import CommitPanel from '../components/CommitPanel.vue'
+import BranchBar from '../components/BranchBar.vue'
+import CommitBox from '../components/CommitBox.vue'
 import BaseSwitcher from '../components/BaseSwitcher.vue'
 import ChangesList from '../components/ChangesList.vue'
 import FileViewer from '../components/FileViewer.vue'
@@ -164,7 +178,11 @@ const emit = defineEmits<{ back: [] }>()
 const git = useGitStore()
 const external = useExternalThreadsStore()
 watch(() => props.projectId, id => external.reset(id), { immediate: true })
-async function toggleStage(change: GitChange) { try { await git.run(['.', ' ', '?'].includes(change.indexStatus) ? 'stage' : 'unstage', { paths: [change.path, ...(change.originalPath ? [change.originalPath] : [])] }); await store.refresh() } catch { /* git error displayed in panel */ } }
+const pathsOf = (list: GitChange[]) => list.flatMap(c => [c.path, ...(c.originalPath ? [c.originalPath] : [])])
+async function stageMany(list: GitChange[], stage: boolean) { try { await git.run(stage ? 'stage' : 'unstage', { paths: pathsOf(list) }); await store.refresh() } catch { /* git error displayed in the branch bar */ } }
+const toggleStage = (change: GitChange) => stageMany([change], ['.', ' ', '?'].includes(change.indexStatus))
+/** Ticks «к коммиту» only make sense for the folder against HEAD. */
+const stageable = computed(() => !!store.repository && store.effectiveBase === 'head' && !store.openedReviewId)
 watch(() => props.projectId, id => { void git.start(id) }, { immediate: true })
 const store = useCodeStore()
 const app = useAppStore()
@@ -229,12 +247,8 @@ const emptyText = computed(() => {
   if (store.effectiveBase === 'review') return 'В ревью не вошло ни одного файла'
   if (store.effectiveBase === 'remote') return `Нет отличий от ${store.remoteRef}`
   if (store.effectiveBase === 'agent') return 'После последнего раунда агент ничего не менял'
-  return `Нет изменений относительно ${store.head?.slice(0, 7) ?? 'HEAD'}`
+  return 'Нет изменений для коммита'
 })
-// «Просмотрено» belongs to the live review and to the worktree, so it is offered against HEAD and against the agent's round only.
-const viewable = computed(() => !!store.repository && !store.openedReviewId && store.effectiveBase !== 'review')
-const toggleViewed = (path: string) => store.toggleViewed(path, origin.value.type, origin.value.id)
-  .catch(cause => app.toast(cause instanceof Error ? cause.message : 'Не удалось сохранить отметку', 'error'))
 async function removeHistoryItem(item: ReviewHistory) {
   if (!(await app.confirm(`Удалить ревью #${item.number} вместе с его чатами с агентом? Это нельзя отменить.`, { confirmLabel: 'Удалить', danger: true }))) return
   try { await store.removeReview(item.id) } catch (cause) { app.toast(cause instanceof Error ? cause.message : 'Не удалось удалить', 'error') }
@@ -391,8 +405,25 @@ async function discussExternal(t: ExternalThread) {
 }
 // --- right panel: the review and its agent ---------------------------------------
 const attention = computed(() => store.items.filter(item => threadState(item, store.messages) === 'waiting').length)
+// --- right panel tabs: the review, «Завершение работ» and the branch's MR ----------
+type RightTab = 'remarks' | 'finish' | 'mr'
+const route = useRoute()
+const finish = useFinishStore()
+const finishStages = stages
+const rightTab = ref<RightTab>(route.query.finish === '1' ? 'finish' : 'remarks')
+const finishDone = computed(() => !!finish.run && ['complete', 'cancelled'].includes(finish.run.status))
+const finishAttention = computed(() => !!finish.run && ['waiting', 'error'].includes(finish.run.status))
+function showRight(tab: RightTab) { rightCollapsed.value = false; rightTab.value = tab }
+watch(() => route.query.finish, value => { if (value === '1') showRight('finish') })
+const rightTabs = computed(() => [
+  { id: 'remarks' as const, label: 'Замечания', count: attention.value || store.items.length, warning: !!attention.value, hint: attention.value ? `Ждут вашего ответа: ${attention.value}` : '' },
+  { id: 'finish' as const, label: 'Завершение', count: finishAttention.value ? 1 : 0, warning: true, hint: 'Ждёт вашего решения' },
+  { id: 'mr' as const, label: 'МР', count: 0, warning: false, hint: '' },
+])
 const rightRail = computed(() => [
   { id: 'remarks', label: 'Замечания', icon: 'remarks' as const, count: attention.value || store.items.length, tone: attention.value ? 'warning' as const : undefined, dot: agent.session?.status },
+  { id: 'finish', label: 'Завершение работ', icon: 'finish' as const, count: finishAttention.value ? 1 : 0, tone: 'warning' as const },
+  { id: 'mr', label: 'МР', icon: 'mr' as const },
 ])
 /** «Посмотреть правку»: the agent's changes of that round, opened at the file it named. */
 async function showChange(roundId: string, file?: string) {
@@ -454,10 +485,6 @@ watch(() => props.projectId, id => { void begin(id) }, { immediate: true })
 .ct-head { display: flex; align-items: center; gap: 8px; flex-shrink: 0; min-height: 38px; padding: 4px 14px; border-bottom: 1px solid var(--border); font-size: 13px; }
 .ct-crumb { padding: 2px 8px; font: inherit; font-size: 12px; color: var(--blue-hover); background: none; border: none; cursor: pointer; }
 .ct-crumb:hover { text-decoration: underline; }
-.ct-git { position: relative; z-index: 3; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; flex-shrink: 0; padding: 5px 14px; border-bottom: 1px solid var(--border); }
-/* The panels' roots dissolve into the row: toolbars line up after the git actions, open bodies take a full line below. */
-.ct-git > .task-mr, .ct-git > .finish { display: contents; }
-.ct-git :deep(.git-drawer) { order: 1; flex-basis: 100%; min-width: 0; }
 .ct-head-commit { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); }
 .ct-head-commit code { font-size: 12px; }
 .ct-sep { color: var(--text-faint); }
@@ -486,13 +513,13 @@ watch(() => props.projectId, id => { void begin(id) }, { immediate: true })
 .ct-tab:hover { color: var(--text); }
 .ct-tab.active { color: var(--text); border-bottom-color: var(--blue); }
 .ct-count.warning { background: var(--warning-text); color: var(--bg); }
-.ct-title { flex: 1; display: flex; align-items: center; padding: 7px 12px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
 .ct-collapse { flex-shrink: 0; width: 28px; font: inherit; font-size: 13px; color: var(--text-faint); background: none; border: none; cursor: pointer; }
 .ct-collapse:hover { color: var(--text); }
 .ct-collapse:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
 .ct-resizer.off { pointer-events: none; }
 .ct-count { margin-left: 5px; padding: 0 5px; font-size: 10px; font-weight: 600; border-radius: var(--radius-pill); background: var(--bg3); color: var(--text-muted); }
 .ct-pane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.ct-scroll { flex: 1; min-height: 0; overflow-y: auto; }
 /* The last block fills the pane; toolbars above it (comparison switch) keep their height. */
 .ct-pane > * { flex-shrink: 0; }
 .ct-pane > :last-child { flex: 1; min-height: 0; }
@@ -506,9 +533,6 @@ watch(() => props.projectId, id => { void begin(id) }, { immediate: true })
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
 }
 .ct-widget :deep(.it-summary) { font-weight: 500; }
-.ct-viewed { display: inline-flex; align-items: center; gap: 4px; padding: 0 6px; font-size: 12px; color: var(--text-muted); cursor: pointer; white-space: nowrap; }
-.ct-viewed.stale { color: var(--warning-text); }
-.ct-viewed input { margin: 0; accent-color: var(--blue); }
 .ct-badge { flex-shrink: 0; font-size: 10px; color: var(--text-muted); }
 .plus { color: var(--diff-add); }
 .minus { color: var(--diff-del); }

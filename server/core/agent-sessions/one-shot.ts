@@ -1,8 +1,10 @@
 import { createSession, history, updateSession } from './sessions';
 import { sendPrompt, closeSession, sessionSignals } from './acp-host';
+export interface OneShotAgent { agentId: string; model?: string; effort?: string }
 /** A bounded read-only turn, with listeners installed before the adapter starts. */
-export async function oneShot(projectId: string, agentId: string, prompt: string): Promise<string> {
-  const session = createSession({ project_id: projectId, agent_id: agentId, role: 'chat', policy: 'read-only', title: 'Сообщение коммита' });
+export async function oneShot(projectId: string, agent: OneShotAgent, prompt: string, title = 'Сообщение коммита'): Promise<string> {
+  const session = createSession({ project_id: projectId, agent_id: agent.agentId, model: agent.model ?? '', role: 'chat', policy: 'read-only', title,
+    ...(agent.effort ? { metadata: { reasoningEffort: agent.effort } } : {}) });
   let timer: ReturnType<typeof setTimeout> | undefined;
   let done!: (id: string) => void, failed!: (id: string, reason: string) => void;
   try {

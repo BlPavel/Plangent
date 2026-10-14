@@ -5,7 +5,7 @@
         <label v-if="field.kind === 'boolean'" class="gs-check"><input type="checkbox" :checked="Boolean(value(field.key))" @change="set(field.key, ($event.target as HTMLInputElement).checked)" /> {{ field.label }}</label>
         <span v-else class="gs-label">{{ field.label }}</span>
         <!-- Only a value changed here can be reset; an inherited one is just shown. -->
-        <button v-if="changed(field.key)" type="button" class="gs-link" :title="'Вернуть ' + (sources?.[field.key] === 'group' ? 'значение группы' : 'значение по умолчанию')" @click="reset(field.key)">сбросить</button>
+        <button v-if="changed(field.key)" type="button" class="gs-link" :title="'Вернуть ' + (sources?.[field.key] === 'group' ? 'значение группы' : sources?.[field.key] === 'global' ? 'глобальное значение' : 'значение по умолчанию')" @click="reset(field.key)">сбросить</button>
       </div>
 
       <select v-if="field.key === 'finish_scenario'" class="control control-sm" :value="value(field.key)" @change="set(field.key, ($event.target as HTMLSelectElement).value)"><option v-for="(label, option) in scenarios" :key="option" :value="option">{{ label }}</option></select>
@@ -36,11 +36,12 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { ProjectGitSettings } from '@core/models'
-import MemberPicker from './MemberPicker.vue'
+import MemberPicker from '@shared/ui/MemberPicker.vue'
+import { finishScenarioLabels } from '@shared/utils/finish-scenarios'
 type Member = { value: string; login: string; name: string }
 const props = defineProps<{ modelValue: ProjectGitSettings; inherited: ProjectGitSettings; sources?: Record<string, string>; section: 'branches' | 'mr'; branches?: string[]; members?: Member[]; membersNote?: string }>()
 const emit = defineEmits<{ 'update:modelValue': [value: ProjectGitSettings] }>()
-const scenarios = { nothing: 'Ничего', commits: 'Только коммиты', push: 'Коммиты и push', full: 'Полный цикл' }
+const scenarios = finishScenarioLabels
 const DEFAULT_PREFIXES = ['feature', 'fix', 'hotfix']
 type Key = keyof ProjectGitSettings
 type Field = { key: Key; label: string; kind?: 'tags' | 'boolean' | 'branch'; placeholder?: string; hint?: string; defaults?: string[] }

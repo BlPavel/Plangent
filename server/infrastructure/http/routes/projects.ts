@@ -1,4 +1,4 @@
-import { defaultGitSettings } from '../../../core/projects/git-settings';
+import { resolveGitSettings } from '../../../core/projects/git-settings';
 import { resolveCodeHost } from '../../../core/code-hosts';
 import { localOrigin } from '../local-origin';
 import { randomUUID } from 'node:crypto';
@@ -7,7 +7,7 @@ import { GitOperationError } from '../../../core/code/git-write';
 import { Router, Request, Response, NextFunction } from 'express';
 import path from 'path';
 import { pathToFileURL } from 'url';
-import { listProjects, getProject, getProjectByKey, createProjectFromFolder, ExistingCloneError, updateProject, deleteProject, groupMembers, inspectProjectGit, effectiveGitSettings, ProjectError } from '../../../core/projects';
+import { listProjects, getProject, getProjectByKey, createProjectFromFolder, ExistingCloneError, updateProject, deleteProject, groupMembers, inspectProjectGit, effectiveGitSettings, globalGitSettings, saveGlobalGitSettings, ProjectError } from '../../../core/projects';
 import { searchFiles } from '../../../core/projects/files';
 import { resyncAfterRegroup } from '../../../core/library/syncer';
 import { getDb } from '../../db/schema';
@@ -41,7 +41,10 @@ projectsRouter.get('/', (_req: Request, res: Response) => {
 
 projectsRouter.post('/git-preview', guard(async (req, res) => res.json(await inspectProjectGit(req.body?.repo_path))));
 
-projectsRouter.get('/git-defaults', (_req, res) => res.json({ values: defaultGitSettings, sources: Object.fromEntries(Object.keys(defaultGitSettings).map(key => [key, 'default'])) }));
+// The app-wide level: what a project without a group inherits; `own` is what «Настройки» set.
+const gitDefaults = () => ({ ...resolveGitSettings({}, {}, globalGitSettings()), own: globalGitSettings() });
+projectsRouter.get('/git-defaults', (_req, res) => res.json(gitDefaults()));
+projectsRouter.put('/git-defaults', guard((req, res) => { saveGlobalGitSettings(req.body); res.json(gitDefaults()); }));
 projectsRouter.get('/:id', (req: Request, res: Response) => {
   const p = getProject(req.params.id);
   if (!p) return res.status(404).json({ error: 'Not found' });

@@ -100,6 +100,7 @@
     <!-- Commit message rules (global) -->
     <div v-show="tab === 'commit-rules'" class="tab-body">
       <p class="hint">Глобальные правила действуют во всех проектах, если проект или группа не переопределили их во вкладке «Инструкции» → «Коммиты».</p>
+      <GlobalGitAgent />
       <CodeFixerInstructionEditor scope="global" type="commit-rules" />
     </div>
 
@@ -195,6 +196,7 @@ import IconTrash from '@shared/ui/IconTrash.vue'
 import { CodeFixerInstructionEditor, InstructionGuideEditor, PlanTemplateEditor, SkillsManager } from '@features/library'
 import ConnectionsSettings from '../components/ConnectionsSettings.vue'
 import ImprovementNotes from '../components/ImprovementNotes.vue'
+import GlobalGitAgent from '../components/GlobalGitAgent.vue'
 
 const appStore = useAppStore()
 const agentsStore = useAgentsStore()

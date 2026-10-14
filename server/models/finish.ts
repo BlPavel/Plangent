@@ -5,6 +5,8 @@ export interface FinishCommit { files: string[]; title: string; body?: string; s
 export interface FinishOptions {
   scenario: FinishScenario; task_id?: string; includeDescription?: boolean; includeCoauthors?: boolean;
   coauthors?: { name: string; email: string }[]; targetBranch?: string; branchName?: string;
+  /** single — everything in one commit; split — the agent decides how many commits. */
+  commitMode?: 'single' | 'split';
 }
 export interface FinishRun {
   id: string; project_id: string; task_id: string | null; scenario: Exclude<FinishScenario, 'nothing'>;

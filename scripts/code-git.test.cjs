@@ -7,7 +7,7 @@ const { parseHTML } = require('linkedom')
 const { window } = parseHTML('<html><body></body></html>')
 for (const key of ['document', 'Document', 'ShadowRoot', 'HTMLElement', 'Element', 'SVGElement', 'Node']) global[key] = window[key]
 global.window = window
-const { createApp, reactive, nextTick } = require('vue')
+const { createApp, reactive, nextTick, h } = require('vue')
 const { parse, compileScript } = require('@vue/compiler-sfc')
 
 function component(file, mocks) {
@@ -30,94 +30,145 @@ function button(root, text) { return [...root.querySelectorAll('button')].find(b
 function input(element, text) { element.value = text; element.dispatchEvent(new window.Event('input', { bubbles: true })) }
 function toggle(element, checked) { element.checked = checked; element.dispatchEvent(new window.Event('change', { bubbles: true })) }
 
-test('manual commit panel generates, allows editing, fills a human coauthor and displays hook output', async () => {
+/** The split button and the coauthor picker have their own components; here they are plain stand-ins. */
+const SplitButtonStub = { props: ['disabled', 'items', 'title', 'variant', 'menuDisabled'], emits: ['click'], setup(props, { slots, emit }) { return () => h('button', { disabled: props.disabled, onClick: () => emit('click') }, slots.default?.()) } }
+const CoauthorsStub = { props: ['modelValue', 'known'], emits: ['update:modelValue'], setup(props, { emit }) { return () => h('button', { class: 'pick-peer', onClick: () => emit('update:modelValue', [props.known[0]]) }, 'peer') } }
+function commitBox(git, code, gitApi) {
+  return component('client/src/features/code/components/CommitBox.vue', {
+    '../stores/git': { useGitStore: () => git }, '../stores/code': { useCodeStore: () => code }, '../api': { gitApi },
+    '@shared/ui/SplitButton.vue': { default: SplitButtonStub }, './CoauthorsField.vue': { default: CoauthorsStub },
+  })
+}
+
+test('commit box: the agent suggests a message, the user edits it, adds a coauthor and commits the ticked files', async () => {
   const calls = []
   const git = reactive({
     repository: { branch: 'feature/work' }, projectId: 'p', blocked: '', settings: { include_description: false },
     coauthors: [{ name: 'Peer', email: 'peer@test.invalid' }], error: '', output: '', operationId: '',
-    run: async (action, data) => { calls.push({ action, data }); git.output = 'pre-commit: passed'; },
+    run: async (action, data) => { calls.push({ action, data }); git.output = 'pre-commit: passed' },
     cancel: async () => {},
   })
-  const api = {
-    checkMessage: async input => ({ message: input.title, cleaned: input.title, violations: [] }),
+  const code = reactive({ changes: [{ path: 'a.ts', status: 'M', indexStatus: 'M' }, { path: 'b.ts', status: 'M', indexStatus: ' ' }], head: 'abc1234', repository: { message: 'prev' }, refresh: async () => {} })
+  const comp = commitBox(git, code, {
+    checkMessage: async (_p, input) => ({ message: input.title, cleaned: input.title, violations: [] }),
     generateMessage: async (_p, options) => { assert.equal(options.includeDescription, false); return { title: 'TASK generated', body: '' } },
-  }
-  const comp = component('client/src/features/code/components/CommitPanel.vue', {
-    '../stores/git': { useGitStore: () => git }, '../api': { gitApi: { ...api, checkMessage: (_p, data) => api.checkMessage(data) } },
   })
   const screen = mount(comp)
   try {
-    button(screen.root, '✨ Предложить текст').click(); await settle()
-    const title = screen.root.querySelector('[aria-label="Заголовок коммита"]')
-    assert.equal(title.value, 'TASK generated')
-    input(title, 'TASK edited')
-    toggle([...screen.root.querySelectorAll('input[type=checkbox]')][1], true)
-    await nextTick()
-    input(screen.root.querySelector('[aria-label="Имя соавтора"]'), 'Peer'); await nextTick()
-    assert.equal(screen.root.querySelector('[aria-label="Email соавтора"]').value, 'peer@test.invalid')
-    await settle()
-    button(screen.root, 'Закоммитить').click(); await nextTick(); await settle()
+    screen.root.querySelector('[aria-label="Предложить сообщение"]').click(); await settle()
+    const message = screen.root.querySelector('[aria-label="Сообщение коммита"]')
+    assert.equal(message.value, 'TASK generated')
+    assert.equal(calls.length, 0, 'something is ticked already: the suggestion does not stage')
+    input(message, 'TASK edited\n\nWhy it changed')
+    screen.root.querySelector('[aria-label="Соавторы"]').click(); await nextTick()
+    screen.root.querySelector('.pick-peer').click(); await settle()
+    button(screen.root, 'Закоммитить 1').click(); await settle()
     assert.equal(calls.length, 1)
     assert.equal(calls[0].action, 'commit')
     assert.equal(calls[0].data.title, 'TASK edited')
+    assert.equal(calls[0].data.body, 'Why it changed')
+    assert.equal(calls[0].data.includeDescription, true)
     assert.equal(calls[0].data.includeCoauthors, true)
     assert.equal(calls[0].data.coauthors[0].email, 'peer@test.invalid')
     assert.equal(calls[0].data.overrideForbidden, false)
     assert.match(screen.root.querySelector('pre').textContent, /pre-commit/)
-    git.blocked = 'Идёт выполнение'; await nextTick()
-    assert.ok(button(screen.root, 'Закоммитить').disabled)
+    assert.match(screen.root.textContent, /prev/, 'the last commit stays visible')
+    git.blocked = 'Идёт выполнение'; input(message, 'TASK next'); await nextTick()
+    assert.ok(button(screen.root, 'Закоммитить 1').disabled)
   } finally { screen.close() }
 })
 
-test('manual forbidden message requires a second explicit click, cleanup removes the forbidden line', async () => {
+test('commit box: nothing ticked commits everything; a forbidden message needs a second click, cleanup removes it', async () => {
   const calls = []
   const git = reactive({
     repository: { branch: 'feature' }, projectId: 'p', blocked: '', settings: { include_description: true },
     coauthors: [], error: '', output: '', operationId: '',
-    run: async (_action, data) => { calls.push(data); if (!data.overrideForbidden) throw Object.assign(new Error('Forbidden'), { code: 'forbidden_message' }) },
+    run: async (action, data) => { calls.push({ action, data }); if (action === 'commit' && !data.overrideForbidden) throw Object.assign(new Error('Forbidden'), { code: 'forbidden_message' }) },
     cancel: async () => {},
   })
-  const comp = component('client/src/features/code/components/CommitPanel.vue', {
-    '../stores/git': { useGitStore: () => git },
-    '../api': { gitApi: { checkMessage: async (_p, data) => ({
-      message: data.title, cleaned: data.title + '\n\nDetails',
-      violations: data.body.includes('Generated') ? [{ kind: 'forbidden', line: 4, text: 'Generated with Claude Code', pattern: 'Generated with' }] : [],
-    }) } },
-  })
+  const code = reactive({ changes: [{ path: 'new.txt', status: '?', indexStatus: '?' }], head: 'abc1234', repository: { message: '' }, refresh: async () => {} })
+  const comp = commitBox(git, code, { checkMessage: async (_p, data) => ({
+    message: data.title, cleaned: data.title + '\n\nDetails',
+    violations: data.body.includes('Generated') ? [{ kind: 'forbidden', line: 4, text: 'Generated with Claude Code', pattern: 'Generated with' }] : [],
+  }) })
   const screen = mount(comp)
   try {
-    input(screen.root.querySelector('[aria-label="Заголовок коммита"]'), 'TASK fix')
-    input(screen.root.querySelector('textarea'), 'Details\nGenerated with Claude Code')
-    await settle()
-    assert.match(screen.root.textContent, /Запрещённый текст/)
-    assert.equal(button(screen.root, 'Всё равно закоммитить'), undefined)
-    button(screen.root, 'Закоммитить').click(); await settle()
-    button(screen.root, 'Всё равно закоммитить').click(); await settle()
-    assert.equal(calls[0].overrideForbidden, false)
-    assert.equal(calls[1].overrideForbidden, true)
-    input(screen.root.querySelector('[aria-label="Заголовок коммита"]'), 'TASK next')
-    input(screen.root.querySelector('textarea'), 'Details\nGenerated with Claude Code')
-    await settle(); button(screen.root, 'Убрать').click(); await settle()
-    assert.equal(screen.root.querySelector('textarea').value, 'Details')
-    assert.equal(button(screen.root, 'Убрать'), undefined)
+    const message = screen.root.querySelector('[aria-label="Сообщение коммита"]')
+    input(message, 'TASK fix\nDetails\nGenerated with Claude Code'); await settle()
+    assert.match(screen.root.textContent, /запрещённый текст/)
+    assert.equal(button(screen.root, 'Всё равно'), undefined)
+    button(screen.root, 'Закоммитить всё').click(); await settle()
+    assert.deepEqual(calls.map(c => c.action), ['stage', 'commit'])
+    assert.deepEqual(calls[0].data.paths, ['new.txt'])
+    button(screen.root, 'Всё равно').click(); await settle()
+    assert.equal(calls[1].data.overrideForbidden, false)
+    assert.equal(calls.at(-1).data.overrideForbidden, true)
+    input(message, 'TASK next\nDetails\nGenerated with Claude Code'); await settle()
+    button(screen.root, 'Убрать запрещённое').click(); await settle()
+    assert.equal(message.value, 'TASK next\n\nDetails')
+    assert.equal(button(screen.root, 'Убрать запрещённое'), undefined)
   } finally { screen.close() }
 })
 
-test('changes list stages files independently of review viewed marks and blocks a busy folder', async () => {
-  const staged = [], opened = []
-  const change = { path: 'new.txt', status: '?', indexStatus: '?', worktreeStatus: '?' }
+test('changes list splits tracked and new files and stages a whole group', async () => {
+  const staged = [], many = [], opened = []
+  const changes = [
+    { path: 'new.txt', status: '?', indexStatus: '?', worktreeStatus: '?' },
+    { path: 'src/a.ts', status: 'M', indexStatus: 'M', worktreeStatus: ' ' },
+    { path: 'src/b.ts', status: 'M', indexStatus: ' ', worktreeStatus: 'M' },
+  ]
   const comp = component('client/src/features/code/components/ChangesList.vue', {
     '@shared/code-viewer': { fileIconName: () => '', iconSvg: () => '' },
   })
   const screen = mount(comp, {
-    changes: [change], stats: {}, selected: null, emptyText: '', stageable: true, viewable: true,
-    onToggleStage: data => staged.push(data.path), onOpen: data => opened.push(data.path),
+    changes, stats: {}, selected: null, emptyText: '', stageable: true,
+    onToggleStage: data => staged.push(data.path), onStageMany: (list, stage) => many.push([list.map(c => c.path), stage]), onOpen: data => opened.push(data.path),
   })
   try {
+    assert.deepEqual([...screen.root.querySelectorAll('.cl-group-title')].map(e => e.textContent), ['Отслеживаемые', 'Новые'])
     toggle(screen.root.querySelector('[aria-label="К коммиту: new.txt"]'), true)
     assert.deepEqual(staged, ['new.txt']); assert.deepEqual(opened, [])
-    screen.root.querySelector('.cl-row').click(); assert.deepEqual(opened, ['new.txt'])
-    assert.ok(screen.root.querySelector('[aria-label="Просмотрено: new.txt"]'))
+    toggle(screen.root.querySelector('[aria-label="К коммиту: Отслеживаемые"]'), true)
+    assert.equal(JSON.stringify(many), JSON.stringify([[['src/a.ts', 'src/b.ts'], true]]), 'a partly ticked group is ticked whole')
+    screen.root.querySelector('.cl-row').click(); assert.deepEqual(opened, ['src/a.ts'])
+    assert.equal(screen.root.textContent.includes('Просмотрено'), false)
+  } finally { screen.close() }
+})
+
+const BranchNameStub = { props: ['modelValue'], emits: ['update:modelValue'], setup(props, { emit }) { return () => h('input', { 'aria-label': 'Имя новой ветки', value: props.modelValue, onInput: e => emit('update:modelValue', e.target.value) }) } }
+function finishPanel(store, git) {
+  return component('client/src/features/finish/components/FinishPanel.vue', {
+    '@core/api': { api: { get: async () => null } },
+    '@core/stores/app': { useAppStore: () => ({ confirm: async () => true }) },
+    '@features/code': { CommitDiff: { render: () => null }, CoauthorsField: { render: () => null }, GitAgentNote: { render: () => null }, useGitStore: () => git },
+    '@shared/ui/BranchNameInput.vue': { default: BranchNameStub },
+    '@shared/utils/finish-scenarios': { FINISH_SCENARIOS: { commits: { label: 'Только коммиты', hint: '' }, push: { label: 'Коммиты и push', hint: '' }, full: { label: 'Полный цикл', hint: '' } } },
+    '../stores/finish': { useFinishStore: () => store },
+    '../api': { finishApi: { context: async () => ({ changes: [], diffs: {} }) } },
+    '../types': { scenarios: { commits: 'Только коммиты' }, stages: { confirmation: 'Подтверждение', done: 'Готово' }, statuses: { waiting: 'Ждёт подтверждения', complete: 'Выполнено' } },
+  })
+}
+const gitSettings = { finish_scenario: 'full', base_branch: 'main', include_description: true, branch_prefixes: ['feature'], mr_reviewers: ['7'], mr_squash: true, mr_remove_branch: false, agent: { agentId: 'a', model: '', effort: '' } }
+
+test('finish form takes its defaults from the git settings and starts with the chosen commit mode and a new branch', async () => {
+  const started = []
+  const store = reactive({ run: null, busy: false, error: '', load: async () => {}, start: async options => { started.push(JSON.parse(JSON.stringify(options))) } })
+  const git = reactive({ settings: gitSettings, repository: { upstream: null }, coauthors: [], branches: [{ name: 'main', ref: 'refs/heads/main' }, { name: 'origin/main', ref: 'refs/remotes/origin/main' }] })
+  const screen = mount(finishPanel(store, git), { projectId: 'p', task: { id: 't', key: 'ABC-1' }, branch: 'main' })
+  try {
+    await settle()
+    assert.equal(screen.root.querySelector('input[value="full"]').checked, true, 'scenario from the settings')
+    assert.match(screen.root.textContent, /squash/)
+    assert.match(screen.root.textContent, /опубликована в origin/)
+    assert.equal(screen.root.querySelector('[aria-label="Имя новой ветки"]').value, 'feature/ABC-1', 'on the target branch a new branch is required')
+    toggle(screen.root.querySelector('input[value="single"]'), true); await nextTick()
+    assert.equal(button(screen.root, 'Начать').disabled, false)
+    screen.root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await settle()
+    assert.equal(started.length, 1)
+    assert.equal(started[0].commitMode, 'single')
+    assert.equal(started[0].targetBranch, 'main')
+    assert.equal(started[0].branchName, 'feature/ABC-1')
+    assert.equal(started[0].includeDescription, true)
   } finally { screen.close() }
 })
 
@@ -130,17 +181,8 @@ test('finish confirmation accepts a title edited in the rendered form and shows 
   save: async commits => { calls.push(['save', JSON.parse(JSON.stringify(commits))]); store.run.commits = commits.map(c => ({ ...c, sha: 'edited' })); return store.run },
   action: async name => { calls.push([name]); store.run.status = 'complete'; store.run.stage = 'done'; return store.run },
  })
- const comp = component('client/src/features/finish/components/FinishPanel.vue', {
-  'vue-router': { useRoute: () => ({ query: { finish: '1' } }) },
-  '@core/api': { api: { get: async () => ({ values: { finish_scenario: 'commits', base_branch: 'main', branch_template: 'feature/{key}-{slug}' } }) } },
-  '@core/stores/app': { useAppStore: () => ({ confirm: async () => true }) },
-  '@features/agent-chat': { ChatView: { render: () => null } },
-  '@features/code': { CommitDiff: { render: () => null }, gitApi: { branches: async () => [], coauthors: async () => [] } },
-  '../stores/finish': { useFinishStore: () => store },
-  '../api': { finishApi: { context: async () => ({ changes: [], diffs: {} }) } },
-  '../types': { scenarios: { commits: 'Только коммиты' }, stages: { confirmation: 'Подтверждение', done: 'Готово' }, statuses: { waiting: 'Ждёт подтверждения', complete: 'Выполнено' } },
- })
- const screen = mount(comp, { projectId: 'p', branch: 'feature' })
+ const git = reactive({ settings: gitSettings, repository: { upstream: 'origin/feature' }, coauthors: [], branches: [] })
+ const screen = mount(finishPanel(store, git), { projectId: 'p', branch: 'feature' })
  try {
   await settle()
   assert.match(screen.root.textContent, /Ждёт подтверждения/)
@@ -154,7 +196,7 @@ test('finish confirmation accepts a title edited in the rendered form and shows 
   const note = screen.root.querySelector('textarea[placeholder="Замечание агенту для повторной попытки"]')
   assert.ok(note)
   input(note, 'Try again'); await nextTick()
-  button(screen.root, 'Повторить с замечанием').click(); await settle()
+  button(screen.root, 'Повторить').click(); await settle()
   assert.equal(calls.at(-1)[0], 'revise')
  } finally { screen.close() }
 })

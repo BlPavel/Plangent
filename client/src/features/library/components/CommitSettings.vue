@@ -6,8 +6,8 @@
       Добавлять описание задачи в коммит
     </label>
     <div class="meta">
-      <span>{{ own ? 'Задано здесь' : source === 'group' ? 'Из группы' : 'По умолчанию' }}</span>
-      <button v-if="own" type="button" class="link" @click="reset">Сбросить к {{ source === 'group' ? 'значению группы' : 'значению по умолчанию' }}</button>
+      <span>{{ own ? 'Задано здесь' : source === 'group' ? 'Из группы' : source === 'global' ? 'Из глобальных настроек' : 'По умолчанию' }}</span>
+      <button v-if="own" type="button" class="link" @click="reset">Сбросить к {{ source === 'group' ? 'значению группы' : source === 'global' ? 'глобальному значению' : 'значению по умолчанию' }}</button>
     </div>
   </section>
 </template>
@@ -23,7 +23,7 @@ import type { ProjectGitSettings } from '@core/models'
 const props = defineProps<{ projectId: string }>()
 const app = useAppStore(), projects = useProjectsStore()
 const project = computed(() => projects.byId(props.projectId))
-const inherited = ref(false), source = ref<'group' | 'default'>('default'), loading = ref(false)
+const inherited = ref(false), source = ref<'group' | 'global' | 'default'>('default'), loading = ref(false)
 const own = computed(() => project.value?.git_settings?.include_description !== undefined)
 const value = computed(() => project.value?.git_settings?.include_description ?? inherited.value)
 
@@ -35,7 +35,9 @@ async function load() {
     const group = project.value?.group_id
     const data = await api.get<{ values: ProjectGitSettings; sources: Record<string, string> }>(group ? `/projects/${encodeURIComponent(group)}/git-settings` : '/projects/git-defaults')
     inherited.value = data.values.include_description ?? false
-    source.value = group && data.sources.include_description !== 'default' ? 'group' : 'default'
+    // The group's own values come back from its endpoint as «project».
+    const from = data.sources.include_description
+    source.value = from === 'project' ? 'group' : from === 'global' ? 'global' : 'default'
   } catch (e) { app.toast(String(e), 'error') }
   finally { loading.value = false }
 }

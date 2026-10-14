@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { getDb } from '../../infrastructure/db/schema';
-import { getProject, effectiveGitSettings } from '../projects';
+import { getProject, effectiveGitSettings, gitAgent } from '../projects';
 import { resolveCommitRules } from '../library/commit-rules';
 import { getTask } from '../tasks';
 import { taskMrs } from '../task-mr';
@@ -87,16 +87,19 @@ export function createFinishService(dependencies: {
     return expected;
   }
   async function beginAgent(run: FinishRun) {
-    const project = getProject(run.project_id)!;
-    if (!project.default_agent_id) throw new CodeError('Выберите агента проекта');
+    const agent = gitAgent(run.project_id);
+    const single = run.options.commitMode === 'single';
     const session = run.session_id ? getSession(run.session_id) : createSession({
-      project_id: run.project_id, task_id: run.task_id, agent_id: project.default_agent_id,
+      project_id: run.project_id, task_id: run.task_id, agent_id: agent.agentId, model: agent.model,
       role: 'committer', policy: 'read-only', title: 'Завершение работ',
-      metadata: { finish_id: run.id, briefing: 'Ты предлагаешь состав коммитов. В начале вызови get_finish_context, затем set_commits с полным списком (заголовки и описания пиши строго по commit_rules из контекста), затем finish_commits. При ошибке исправь список. Файлы и git через shell не изменяй. Коммиты выполняет сервер Plangent; push выполняет пользователь после подтверждения. Не добавляй атрибуцию агента.' },
+      metadata: { finish_id: run.id, ...(agent.effort ? { reasoningEffort: agent.effort } : {}), briefing: 'Ты предлагаешь состав коммитов. В начале вызови get_finish_context, затем set_commits с полным списком (заголовки и описания пиши строго по commit_rules из контекста), затем finish_commits. '
+        + (single ? 'Все изменения — ровно один коммит. ' : 'Сколько коммитов сделать, решай сам: по одному на логически отдельное изменение, мелочи не дроби. ')
+        + 'При ошибке исправь список. Файлы и git через shell не изменяй. Коммиты выполняет сервер Plangent; push выполняет пользователь после подтверждения. Не добавляй атрибуцию агента.' },
     });
     if (session.role !== 'committer' || session.policy !== 'read-only') throw new CodeError('Invalid committer session');
     updateFinish(run.id, { session_id: session.id });
-    await prompt(session.id, [{ type: 'text', text: run.note ? 'Переделай коммиты: ' + run.note : 'Разбей изменения на осмысленные коммиты и передай их на подтверждение.' }]);
+    await prompt(session.id, [{ type: 'text', text: run.note ? 'Переделай коммиты: ' + run.note
+      : single ? 'Оформи все изменения одним коммитом и передай его на подтверждение.' : 'Разбей изменения на осмысленные коммиты и передай их на подтверждение.' }]);
   }
   /** The MR stage: the agent only writes the title and description; target branch and defaults come from the workflow. */
   async function beginMr(run: FinishRun) {
@@ -132,7 +135,8 @@ export function createFinishService(dependencies: {
     if (input.scenario === 'nothing') return null;
     if (input.task_id && getTask(input.task_id)?.project_id !== projectId) throw new CodeError('Task not found', 404);
     const defaults = effectiveGitSettings(projectId).values;
-    if (!project.default_agent_id) throw new CodeError('Выберите агента проекта');
+    gitAgent(projectId);
+    if (input.commitMode !== undefined && !['single', 'split'].includes(input.commitMode)) throw new CodeError('Invalid commit mode');
     if (input.scenario === 'full' && (typeof input.targetBranch !== 'string' || !input.targetBranch.trim())) throw new CodeError('Выберите целевую ветку');
     const scenario = input.scenario;
     if (scenario === 'full') await resolveHost(projectId).catch(error => { throw new CodeError('«Полный цикл» недоступен без подключения к хостингу: ' + (error instanceof Error ? error.message : String(error))); });
@@ -143,7 +147,7 @@ export function createFinishService(dependencies: {
       scenario, task_id: input.task_id, branchName: input.branchName,
       includeDescription: input.includeDescription ?? defaults.include_description,
       includeCoauthors: input.includeCoauthors ?? false, coauthors: input.coauthors,
-      targetBranch: input.targetBranch || defaults.base_branch,
+      targetBranch: input.targetBranch || defaults.base_branch, commitMode: input.commitMode ?? 'split',
     };
     // Validate explicit flags and human coauthors before touching Git.
     assembleCommitMessage({ title: 'validate', ...params });
@@ -191,6 +195,7 @@ export function createFinishService(dependencies: {
       if (!generated && run.stage !== 'confirmation') throw new CodeError('Дождитесь подтверждения');
       const changes = (await treeChanges(root, run.base_head, run.snapshot_tree)).changes;
       validateCommitFiles(proposed, changes.map(c => c.path));
+      if (generated && run.options.commitMode === 'single' && proposed.length !== 1) throw new CodeError('Нужен ровно один коммит со всеми файлами');
       const settings = effectiveGitSettings(run.project_id).values;
       const list: FinishCommit[] = proposed.map(item => {
         const raw = [item.title, run.options.includeDescription ? item.body : ''].filter(Boolean).join('\n\n');

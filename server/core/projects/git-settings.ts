@@ -9,6 +9,10 @@
   mr_remove_branch: boolean;
   mr_squash: boolean;
   mr_reviewers: string[];
+  /** The agent that writes commit messages, splits commits and describes MRs; empty — the project's agent. */
+  git_agent_id: string;
+  git_agent_model: string;
+  git_agent_effort: string;
 }
 
 export const defaultGitSettings: GitSettings = {
@@ -16,12 +20,14 @@ export const defaultGitSettings: GitSettings = {
   forbidden_patterns: ['^Co-Authored-By:.*(Claude|anthropic)', 'noreply@anthropic\\.com', 'Generated with \\[?Claude Code', '🤖 Generated with'],
   include_description: false, finish_scenario: 'nothing', branch_prefixes: ['feature', 'fix', 'hotfix'],
   base_branch: '', mr_description_prompt: '', mr_remove_branch: false, mr_squash: false, mr_reviewers: [],
+  git_agent_id: '', git_agent_model: '', git_agent_effort: '',
 };
 
-export function resolveGitSettings(group: Partial<GitSettings> = {}, project: Partial<GitSettings> = {}) {
-  const values = { ...defaultGitSettings, ...group, ...project };
+/** Nearest wins: the project, its group, the app-wide values from «Настройки», the built-in defaults. */
+export function resolveGitSettings(group: Partial<GitSettings> = {}, project: Partial<GitSettings> = {}, global: Partial<GitSettings> = {}) {
+  const values = { ...defaultGitSettings, ...global, ...group, ...project };
   const sources = Object.fromEntries(Object.keys(defaultGitSettings).map(key => [key,
-    Object.hasOwn(project, key) ? 'project' : Object.hasOwn(group, key) ? 'group' : 'default']));
+    Object.hasOwn(project, key) ? 'project' : Object.hasOwn(group, key) ? 'group' : Object.hasOwn(global, key) ? 'global' : 'default']));
   return { values, sources };
 }
 

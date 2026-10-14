@@ -1,5 +1,5 @@
 ﻿import { api } from '@core/api'
-import type { RepositoryInfo, GitChange, LineStat, TreeEntry, CodeFile, DiffOptions, SearchOptions, SearchEvent, ReviewDraft, DraftPatch, CodeReview, CodeReviewItem, CodeReviewMessage, CodeReviewRound, CodeReviewFileView, ReviewDetail, CurrentReview, ReviewHistory, ReviewAttention, BaseChanges, ExternalThreads } from './types'
+import type { RepositoryInfo, GitChange, LineStat, TreeEntry, CodeFile, DiffOptions, SearchOptions, SearchEvent, ReviewDraft, DraftPatch, CodeReview, CodeReviewItem, CodeReviewMessage, CodeReviewRound, ReviewDetail, CurrentReview, ReviewHistory, ReviewAttention, BaseChanges, ExternalThreads } from './types'
 const id = encodeURIComponent
 function query(values: object): string {
   const params = new URLSearchParams()
@@ -44,9 +44,7 @@ export const codeReviewsApi = {
   fileItems: (p: string, r: string, path: string, side: 'new' | 'old' = 'new', signal?: AbortSignal) => api.get<CodeReviewItem[]>(review(p, r) + '/file-items' + query({ path, side }), signal),
   diff: (p: string, r: string, path: string, signal?: AbortSignal) => api.get<{ diff: string }>(review(p, r) + '/diff' + query({ path }), signal),
   baseChanges: (p: string, r: string, base: 'agent' | 'review', round?: string, signal?: AbortSignal) => api.get<BaseChanges>(review(p, r) + '/changes' + query({ base, round }), signal),
-  markViewed: (p: string, r: string, path: string, viewed: boolean) => api.put<CodeReviewFileView | null>(review(p, r) + '/viewed', { path, viewed }),
   finish: (p: string, r: string, mode: 'require_resolved' | 'carry' | 'close' = 'require_resolved') => api.post<{ review: CodeReview; next_review: CodeReview | null }>(review(p, r) + '/finish', { mode }),
-  markViewedCurrent: (p: string, path: string, viewed: boolean, origin: 'project' | 'task' = 'project', originId = p) => api.put<{ review: CodeReview | null; view: CodeReviewFileView | null }>(reviews(p) + '/current/viewed', { path, viewed, origin, origin_id: originId }),
   removeReview: (p: string, r: string) => api.delete<void>(review(p, r)),
   external: (p: string, signal?: AbortSignal) => api.get<ExternalThreads>(reviews(p) + '/external', signal),
   replyExternal: (p: string, discussion: string, body: string) => api.post<ExternalThreads>(reviews(p) + '/external/' + id(discussion) + '/reply', { body, confirmed: true }),

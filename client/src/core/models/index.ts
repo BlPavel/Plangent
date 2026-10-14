@@ -44,6 +44,7 @@ export interface ProjectGitSettings {
   include_description?: boolean; finish_scenario?: 'nothing' | 'commits' | 'push' | 'full';
   branch_prefixes?: string[]; base_branch?: string;
   mr_description_prompt?: string; mr_remove_branch?: boolean; mr_squash?: boolean; mr_reviewers?: string[];
+  git_agent_id?: string; git_agent_model?: string; git_agent_effort?: string;
 }
 export interface Project {
   id: string

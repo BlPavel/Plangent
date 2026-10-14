@@ -2,12 +2,12 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { randomUUID } from 'node:crypto';
 import { inspectCommitMessage } from '../../../core/code/commit-message';
-import { effectiveGitSettings } from '../../../core/projects';
+import { effectiveGitSettings, gitAgent } from '../../../core/projects';
 import { commit } from '../../../core/code/git-write';
 import { getProject } from '../../../core/projects';
 import { CodeError } from '../../../core/code/files';
 import { branches, trackingInfo, recentCoauthors } from '../../../core/code/git';
-import { stage, unstage, fetchRepository, pull, push, switchBranch, createBranch, GitOperationError, type GitOperationOptions } from '../../../core/code/git-write';
+import { stage, unstage, fetchRepository, pull, pullRebase, push, pushForce, switchBranch, createBranch, GitOperationError, type GitOperationOptions } from '../../../core/code/git-write';
 import { assertRepositoryIdle } from '../../../core/code/git-busy';
 import { localOrigin } from '../local-origin';
 import { broadcast } from '../../../core/shared/events';
@@ -52,7 +52,13 @@ gitRouter.get('/repository', gitRouteGuard(async (req, res) => {
   const info = await trackingInfo(root);
   res.json(info ? { ...info, busyReason } : null);
 }));
-gitRouter.get('/settings', gitRouteGuard((req, res) => { gitRoot(req); res.json(effectiveGitSettings(req.params.projectId).values); }));
+// `agent` — who actually does the git work here, so the screens can name it without repeating the fallback rules.
+gitRouter.get('/settings', gitRouteGuard((req, res) => {
+  gitRoot(req);
+  let agent: ReturnType<typeof gitAgent> | null = null;
+  try { agent = gitAgent(req.params.projectId); } catch { /* no agent configured: the screens ask to pick one */ }
+  res.json({ ...effectiveGitSettings(req.params.projectId).values, agent });
+}));
 gitRouter.get('/coauthors', gitRouteGuard(async (req, res) => res.json(await recentCoauthors(gitRoot(req)))));
 gitRouter.get('/branches', gitRouteGuard(async (req, res) => res.json(await branches(gitRoot(req)))));
 gitRouter.post('/cancel', gitRouteGuard((req, res) => {
@@ -64,7 +70,7 @@ gitRouter.post('/cancel', gitRouteGuard((req, res) => {
 for (const [endpoint, action] of Object.entries({ stage, unstage })) {
   gitRouter.post('/' + endpoint, gitRouteGuard((req, res) => gitRouteOperation(req, res, (root, options) => action(root, req.body?.paths, options))));
 }
-for (const [endpoint, action] of Object.entries({ fetch: fetchRepository, pull, push })) {
+for (const [endpoint, action] of Object.entries({ fetch: fetchRepository, pull, push, 'pull-rebase': pullRebase, 'push-force': pushForce })) {
   gitRouter.post('/' + endpoint, gitRouteGuard((req, res) => gitRouteOperation(req, res, action)));
 }
 gitRouter.post('/switch', gitRouteGuard((req, res) => gitRouteOperation(req, res, (root, options) => switchBranch(root, req.body?.branch, options))));

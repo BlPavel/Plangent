@@ -70,14 +70,6 @@ export const useCodeStore = defineStore('code', () => {
   const shownStats = computed(() => (effectiveBase.value === 'head' ? stats.value : baseData.value?.stats ?? {}))
   /** Endpoints for the per-file diff when the comparison is not «against HEAD». */
   const diffEnds = computed(() => (effectiveBase.value === 'head' || !baseData.value ? null : { base: baseData.value.base, end: baseData.value.end }))
-  /** Marks of the live review: viewed, or changed after it was viewed. Historical reviews carry no marks. */
-  const viewedState = computed<Record<string, 'viewed' | 'changed'>>(() => {
-    const result: Record<string, 'viewed' | 'changed'> = {}
-    if (openedReviewId.value) return result
-    for (const view of current.value?.file_views ?? []) result[view.path] = view.viewed ? 'viewed' : 'changed'
-    return result
-  })
-  const viewedCount = computed(() => shownChanges.value.filter(change => viewedState.value[change.path] === 'viewed').length)
   /** The commit banner is offered once per HEAD: «Продолжить» silences it until the next commit. */
   const commitBannerShown = computed(() => screen.value === 'all-committed' || (screen.value === 'committed' && continuedHead.value !== head.value))
   /** An unfinished review of another branch (paused): the header offers it read-only. */
@@ -260,13 +252,6 @@ export const useCodeStore = defineStore('code', () => {
   const sendRound = (r: string, sessionId: string, note?: string, itemIds?: string[]) => mutate(p => codeReviewsApi.sendRound(p, r, sessionId, note, itemIds))
   /** Stops the review's agent; threads it left without a reply return to the queue. */
   const stopAgent = (r: string) => mutate(p => codeReviewsApi.stop(p, r))
-  const markViewed = (r: string, path: string, viewed: boolean) => mutate(p => codeReviewsApi.markViewed(p, r, path, viewed))
-  /** «Просмотрено» flips the mark; before the first remark it opens the review of the branch by itself. */
-  function toggleViewed(path: string, origin: 'project' | 'task' = 'project', originId?: string) {
-    const want = viewedState.value[path] !== 'viewed'
-    const live = liveReview.value
-    return live ? markViewed(live.id, path, want) : mutate(p => codeReviewsApi.markViewedCurrent(p, path, want, origin, originId ?? p))
-  }
   const finish = (r: string, mode: 'require_resolved' | 'carry' | 'close' = 'require_resolved') => mutate(p => codeReviewsApi.finish(p, r, mode))
   const removeReview = (r: string) => mutate(async p => {
     const active = lifecycle
@@ -279,8 +264,8 @@ export const useCodeStore = defineStore('code', () => {
   }
   onScopeDispose(stop)
   return { projectId, repository, head, branch, changes, stats, trees, files, includeIgnored, selectedPath, file, current, openedReviewId, openedReview, review, items, rounds, readOnly, history, loading, error, watchError,
-    base, remoteRef, baseRound, baseData, screen, unresolved, liveReview, agentWorking, effectiveBase, shownChanges, shownStats, diffEnds, viewedState, viewedCount, commitBannerShown, otherReview, runningElsewhere, setBase, continueReview, toggleViewed,
+    base, remoteRef, baseRound, baseData, screen, unresolved, liveReview, agentWorking, effectiveBase, shownChanges, shownStats, diffEnds, commitBannerShown, otherReview, runningElsewhere, setBase, continueReview,
     matches, searchSummary, searching, searchError, start, stop, refresh, loadTree, selectFile, openReview, loadHistory, setIncludeIgnored, search, cancelSearch, clearSearch, diff,
-    messages, addDraft, updateDraft, removeItem, makeGeneral, addMessage, removeMessage, closeItem, sendRound, stopAgent, markViewed, finish, removeReview }
+    messages, addDraft, updateDraft, removeItem, makeGeneral, addMessage, removeMessage, closeItem, sendRound, stopAgent, finish, removeReview }
 })
 

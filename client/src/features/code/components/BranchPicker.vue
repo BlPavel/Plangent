@@ -1,5 +1,5 @@
 <template>
-  <div ref="root" class="branches" role="dialog" aria-label="Ветки" @keydown.esc.stop.prevent="emit('close')">
+  <div ref="root" class="branches" :class="{ up }" role="dialog" aria-label="Ветки" @keydown.esc.stop.prevent="emit('close')">
     <input ref="searchInput" v-model="search" class="control control-sm" placeholder="Поиск ветки (локальная или origin/*)" aria-label="Поиск ветки" @keydown.enter.prevent="pickFirst" />
     <div class="list">
       <template v-for="group in groups" :key="group.title">
@@ -31,7 +31,7 @@ import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import BranchNameInput from '@shared/ui/BranchNameInput.vue'
 import { useGitStore } from '../stores/git'
 import type { GitBranch } from '../git-types'
-const props = defineProps<{ task?: { key: string } | null }>()
+const props = defineProps<{ task?: { key: string } | null; /** open above the trigger (the branch row sits at the bottom) */ up?: boolean }>()
 const emit = defineEmits<{ close: [] }>()
 const git = useGitStore(), search = ref(''), name = ref(''), base = ref(git.repository?.branch ?? ''), error = ref('')
 const root = ref<HTMLElement>(), searchInput = ref<HTMLInputElement>()
@@ -54,12 +54,13 @@ async function pick(branch: GitBranch) {
   try { await git.run('switch', { branch: branch.name }); emit('close') } catch (cause) { error.value = message(cause) }
 }
 async function create() { error.value = ''; try { await git.run('branch', { name: name.value.trim(), base: base.value }); emit('close') } catch (cause) { error.value = message(cause) } }
-function outside(event: PointerEvent) { if (root.value && !root.value.contains(event.target as Node) && !(event.target as Element).closest?.('.gh-branch')) emit('close') }
+function outside(event: PointerEvent) { if (root.value && !root.value.contains(event.target as Node) && !(event.target as Element).closest?.('.bb-branch')) emit('close') }
 onMounted(() => { searchInput.value?.focus(); document.addEventListener('pointerdown', outside) })
 onBeforeUnmount(() => document.removeEventListener('pointerdown', outside))
 </script>
 <style scoped>
 .branches { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; width: 380px; padding: 10px; display: flex; flex-direction: column; gap: 8px; background: var(--bg2); border: 1px solid var(--border-strong); border-radius: var(--radius); box-shadow: var(--shadow-md); font-size: 12px; }
+.branches.up { top: auto; bottom: calc(100% + 4px); }
 .list { max-height: 240px; overflow: auto; display: flex; flex-direction: column; gap: 1px; }
 .group-title { padding: 4px 6px 2px; font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-faint); }
 .item { display: flex; align-items: center; gap: 6px; padding: 4px 8px; font: inherit; text-align: left; color: var(--text); background: none; border: none; border-radius: var(--radius-sm); cursor: pointer; overflow-wrap: anywhere; }

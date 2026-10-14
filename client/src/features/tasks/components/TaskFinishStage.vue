@@ -27,8 +27,9 @@ import { onServerEvent } from '@core/api/events'
 import type { Task, ProjectGitSettings } from '@core/models'
 import { codeTarget, gitApi, type GitBranch } from '@features/code'
 import { errorText } from '@shared/utils/errorText'
+import { finishScenarioLabels } from '@shared/utils/finish-scenarios'
 const props = defineProps<{ projectId: string; task: Task }>()
-const labels = { nothing: 'Ничего', commits: 'Только коммиты', push: 'Коммиты и push', full: 'Полный цикл' }
+const labels = finishScenarioLabels
 const stageNames: Record<string, string> = { branch: 'Ветка', commits: 'Коммиты', confirmation: 'Подтверждение', push: 'Push', mr: 'МР', done: 'Готово' }
 const statusNames: Record<string, string> = { running: 'В работе', waiting: 'Ждёт подтверждения', error: 'Ошибка', complete: 'Выполнено', cancelled: 'Отменено' }
 const router = useRouter(), scenario = ref(''), target = ref(''), busy = ref(false), error = ref('')

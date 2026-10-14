@@ -23,6 +23,11 @@ test('git settings: per-field provenance, false/empty overrides, regex validatio
   assert.equal(result.values.base_branch, ''); assert.equal(result.values.include_description, false);
   assert.equal(result.sources.branch_prefixes, 'default'); assert.equal(result.sources.include_description, 'project');
   assert.equal(resolveGitSettings({ base_branch: 'main' }).sources.base_branch, 'group');
+  // The app-wide level sits under the group and the project.
+  const layered = resolveGitSettings({ git_agent_id: 'group-agent' }, {}, { git_agent_id: 'global-agent', git_agent_model: 'm' });
+  assert.equal(layered.values.git_agent_id, 'group-agent'); assert.equal(layered.sources.git_agent_id, 'group');
+  assert.equal(layered.values.git_agent_model, 'm'); assert.equal(layered.sources.git_agent_model, 'global');
+  assert.throws(() => validateGitSettings({ git_agent_model: 1 }));
   assert.throws(() => validateGitSettings({ commit_pattern: '[' }));
   assert.throws(() => validateGitSettings({ unknown: true }));
   assert.throws(() => validateGitSettings({ forbidden_patterns: ['['] }));
