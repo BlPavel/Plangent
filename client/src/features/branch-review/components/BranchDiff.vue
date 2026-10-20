@@ -11,6 +11,7 @@
     >
       <template #widget="{ line, side }">
         <slot v-if="selection?.side === side && selection.startLine === line" name="composer" />
+        <slot name="items" :line="line" :side="side" />
       </template>
     </CodeView>
   </div>
@@ -22,7 +23,8 @@ import { errorText } from '@shared/utils/errorText'
 import { branchReviewApi } from '../api'
 import type { ReviewFile } from '../types'
 
-const props = defineProps<{ scope: string; reviewId: string; head: string; file: ReviewFile; selection: LineSelection | null }>()
+/** `items` are the lines that carry remarks or GitLab threads: they get a marker and the `items` slot under them. */
+const props = defineProps<{ scope: string; reviewId: string; head: string; file: ReviewFile; selection: LineSelection | null; items?: { side: CodeSide; line: number }[] }>()
 defineEmits<{ select: [selection: LineSelection] }>()
 const mode = ref<'file' | 'diff'>('diff'), diff = ref(''), content = ref(''), error = ref(''), ready = ref(false)
 const hunks = computed(() => parseUnifiedDiff(diff.value))
@@ -46,8 +48,14 @@ watch(() => [props.scope, props.reviewId, props.head, props.file.path, props.fil
   } catch (cause) { if (!mine.signal.aborted) error.value = errorText(cause) }
 }, { immediate: true })
 onBeforeUnmount(() => controller?.abort())
-const lines = (side: CodeSide) => props.selection?.side === side ? [props.selection.startLine] : []
-const markers = (side: CodeSide) => lines(side).map(line => ({ line, title: 'Выбранная строка' }))
+const itemLines = (side: CodeSide) => (props.items ?? []).filter(i => i.side === side).map(i => i.line)
+const lines = (side: CodeSide) => [...new Set([...(props.selection?.side === side ? [props.selection.startLine] : []), ...itemLines(side)])]
+const markers = (side: CodeSide) => {
+  const counts = new Map<number, number>()
+  for (const line of itemLines(side)) counts.set(line, (counts.get(line) ?? 0) + 1)
+  const picked = props.selection?.side === side && !counts.has(props.selection.startLine) ? [{ line: props.selection.startLine, title: 'Выбранная строка' }] : []
+  return [...picked, ...[...counts].map(([line, count]) => ({ line, count, title: 'Замечания и обсуждения' }))]
+}
 </script>
 <style scoped>
 .branch-diff { height: 100%; display: flex; flex-direction: column; min-height: 360px; }

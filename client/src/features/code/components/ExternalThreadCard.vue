@@ -46,11 +46,11 @@ import { ref } from 'vue'
 import AppButton from '@shared/ui/AppButton.vue'
 import { useAppStore } from '@core/stores/app'
 import { useExternalThreadsStore } from '../stores/external'
-import type { ExternalNote, ExternalThread } from '../types'
+import type { ExternalNote, ExternalThread, ExternalThreadActions } from '../types'
 
-const props = defineProps<{ thread: ExternalThread; showLocation?: boolean; canDiscuss?: boolean }>()
+const props = defineProps<{ thread: ExternalThread; showLocation?: boolean; canDiscuss?: boolean; actions?: ExternalThreadActions }>()
 const emit = defineEmits<{ goto: []; discuss: [thread: ExternalThread] }>()
-const store = useExternalThreadsStore()
+const store: ExternalThreadActions = props.actions ?? useExternalThreadsStore()
 const app = useAppStore()
 const replying = ref(false), text = ref(''), busy = ref(false), error = ref(''), resolving = ref(false)
 

@@ -95,10 +95,10 @@
       <!-- Tab: Инструкции -->
       <!-- Mounted only while open: the screen watches the project folder. -->
       <div v-if="activeTab === 'code' && !isGroup" class="tab-content"><CodeTab :project-id="currentProject.id" :task="codeTask" :default-agent-id="projectsStore.agentFor(currentProject)" @back="backToTask" /></div>
-      <div v-if="activeTab === 'review'" class="tab-content"><BranchReviewTab :key="currentProject.id" :project-id="currentProject.id" :default-agent-id="projectsStore.agentFor(currentProject)" :members="isGroup ? projectsStore.members(currentProject.id) : undefined" /></div>
+      <div v-if="activeTab === 'review'" class="tab-content"><BranchReviewTab :key="currentProject.id" :project-id="currentProject.id" :default-agent-id="projectsStore.agentFor(currentProject)" :members="isGroup ? projectsStore.members(currentProject.id) : undefined" @open-instructions="openReviewSkills" /></div>
       <div v-if="activeTab === 'settings'" class="tab-content"><ProjectSettingsTab :key="currentProject.id" :project="currentProject" /></div>
       <div v-show="activeTab === 'instructions'" class="tab-content instructions-tab">
-        <InstructionsWorkspace v-if="currentProject" :project-id="currentProject.id" :default-agent-id="projectsStore.agentFor(currentProject)" />
+        <InstructionsWorkspace v-if="currentProject" :project-id="currentProject.id" :default-agent-id="projectsStore.agentFor(currentProject)" :requested="instructionsRequest" />
       </div>
 
     </div>
@@ -206,6 +206,12 @@ watch(() => route.query, query => {
   void router.replace({ path: '/' })
 }, { immediate: true })
 watch(activeTab, tab => { if (tab !== 'code') codeTaskId.value = null })
+// «Скиллы ревью…» in the Ревью tab: they are written in Инструкции → Ревью.
+const instructionsRequest = ref<{ view: 'review'; at: number } | null>(null)
+function openReviewSkills() {
+  instructionsRequest.value = { view: 'review', at: Date.now() }
+  activeTab.value = 'instructions'
+}
 
 const showTaskModal = ref(false)
 const showProjectModal = ref(false)

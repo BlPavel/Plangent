@@ -89,7 +89,7 @@ const pending = computed(() => proposal.value?.status === 'pending')
 const busy = ref(false), error = ref(''), editWhere = ref(false)
 
 const STATUS: Record<LibraryProposal['status'], string> = { pending: 'ждёт решения', applied: 'применено', rejected: 'отклонено', stale: 'устарело' }
-const TYPE: Record<LibraryProposal['type'], [string, string]> = { skill: ['Новый скилл', 'Изменение скилла'], command: ['Новая команда', 'Изменение команды'], main: ['Новый главный файл', 'Изменение главного файла'] }
+const TYPE: Record<LibraryProposal['type'], [string, string]> = { skill: ['Новый скилл', 'Изменение скилла'], command: ['Новая команда', 'Изменение команды'], main: ['Новый главный файл', 'Изменение главного файла'], 'review-skill': ['Новый скилл ревью', 'Изменение скилла ревью'] }
 const kindLabel = computed(() => proposal.value ? TYPE[proposal.value.type][proposal.value.action === 'create' ? 0 : 1] : '')
 
 // A group's item proposed from one of its projects is applied as that project's own copy: the level is fixed.

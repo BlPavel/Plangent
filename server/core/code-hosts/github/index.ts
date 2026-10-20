@@ -65,6 +65,8 @@ export class GitHub implements CodeHost {
 
   listReviewRequests(): Promise<MergeRequest[]> { return unsupported('список PR на ревью'); }
   searchMergeRequests(): Promise<MergeRequest[]> { return unsupported('поиск PR'); }
+  listOpenMergeRequests(): Promise<MergeRequest[]> { return unsupported('список открытых PR'); }
+  getApprovals(): Promise<null> { return unsupported('аппрувы PR'); }
   getVersions(): Promise<never> { return unsupported('версии PR'); }
   getDiff(): Promise<never> { return unsupported('diff PR через API'); }
   getFile(): Promise<string> { return unsupported('чтение файла через API'); }

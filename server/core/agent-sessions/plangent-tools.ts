@@ -17,7 +17,7 @@ export const plangentTools = {
     fields: { proposal: { type: 'object', additionalProperties: false,
       required: ['action', 'type', 'slug', 'title', 'content', 'explanation'],
       properties: {
-        action: { type: 'string', enum: ['create', 'update'] }, type: { type: 'string', enum: ['skill', 'main', 'command'] },
+        action: { type: 'string', enum: ['create', 'update'] }, type: { type: 'string', enum: ['skill', 'main', 'command', 'review-skill'] },
         slug: { type: 'string' }, title: { type: 'string' }, description: { type: 'string' }, frontmatter: { type: 'object' },
         content: { type: 'string' }, explanation: { type: 'string' }, item_id: { type: 'string' },
         scope: { type: 'string', enum: ['global', 'project'] }, targets: { type: 'array', items: { type: 'string' } },
@@ -39,6 +39,13 @@ export const plangentTools = {
   reply_branch_question: {
     description: 'Reply in a question thread of the branch review; the thread then waits for the developer. kind: answer (plain reply), options (approaches as a numbered list with your recommendation), questions (clarifying questions). One reply per thread per turn.',
     fields: { id: { type: 'string' }, kind: { type: 'string', enum: ['answer', 'options', 'questions'] }, text: { type: 'string' } },
+  },
+  get_review_brief: { description: 'Read the review of the merge request: the rules (protocol), the compared range, the MR description, the developer\'s context and review skill, colleagues\' threads and existing remarks. Call first.', fields: {} },
+  set_review_overview: { description: 'Save the overview of the merge request (markdown): what changes and why, how the parts connect, what to look at. Replaces the previous overview.', fields: { text: { type: 'string' } } },
+  add_review_remark: {
+    description: 'Add a draft remark for the developer to edit and publish. With path and line it is attached to that line of the diff (side old for a removed line); without path it is about the whole merge request. text is the ready comment in the developer\'s voice.',
+    fields: { text: { type: 'string' }, category: { type: 'string', enum: ['architecture', 'bug', 'risk', 'tests', 'performance', 'security', 'style', 'other'] },
+      path: { type: 'string' }, line: { type: 'integer', minimum: 1 }, side: { type: 'string', enum: ['new', 'old'] } },
   },
   get_review_context: { description: 'Get assigned plan and executor context.', fields: {} },
   add_finding: { description: 'Report a review finding.', fields: { file: { type: 'string' }, line: { type: 'integer', minimum: 1 }, severity: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] }, message: { type: 'string' } } },
@@ -77,5 +84,8 @@ export function isPlangentToolCall(tool: Pick<ToolCallUpdate, 'title' | 'kind' |
   if (title !== JSON.stringify(input)) return false;
   if ('title' in input && 'description' in input &&
     Object.keys(input).every(key => key in plangentTools.save_section.fields)) return true;
+  // A remark on the whole MR leaves out path, line and side.
+  if ('text' in input && 'category' in input &&
+    Object.keys(input).every(key => key in plangentTools.add_review_remark.fields)) return true;
   return signatures.includes(Object.keys(input).sort().join(','));
 }

@@ -6,11 +6,14 @@
       <button class="btn btn-blue btn-xs" :disabled="!draft.trim() || busy">Сохранить</button>
     </div>
   </form>
-  <ItemCard
-    v-else :item="item" :thread="thread" :state="state" show-location :busy="busy" :agent-busy="agentBusy" :working="state === 'agent' && agentBusy"
-    @edit="startEdit" @remove="removeFirst" @goto="emit('goto')" @send-now="emit('send-now')"
-    @reply="reply" @remove-message="removeMessage" @close="close"
-  />
+  <div v-else class="qc">
+    <ItemCard
+      :item="item" :thread="thread" :state="state" show-location :busy="busy" :agent-busy="agentBusy" :working="state === 'agent' && agentBusy"
+      @edit="startEdit" @remove="removeFirst" @goto="emit('goto')" @send-now="emit('send-now')"
+      @reply="reply" @remove-message="removeMessage" @close="close"
+    />
+    <button v-if="lastAnswer" type="button" class="qc-remark" title="Открыть черновик замечания с текстом ответа агента — отредактируйте его перед сохранением" @click="emit('to-remark', lastAnswer.text)">→ В замечание</button>
+  </div>
 </template>
 <script setup lang="ts">
 import { computed, ref } from 'vue'
@@ -23,7 +26,7 @@ import { useBranchReviewStore } from '../stores/review'
 
 /** A question thread of the branch review drawn by the same card as the code review's items. */
 const props = defineProps<{ question: BranchQuestion; messages: BranchQuestionMessage[]; screenKey: string; scope: string; reviewId: string; agentBusy?: boolean }>()
-const emit = defineEmits<{ goto: []; 'send-now': [] }>()
+const emit = defineEmits<{ goto: []; 'send-now': []; 'to-remark': [text: string] }>()
 const screen = useBranchReviewStore().of(props.screenKey)
 const app = useAppStore()
 const busy = ref(false), editing = ref(false), draft = ref('')
@@ -33,6 +36,7 @@ const last = computed(() => props.messages.at(-1))
 /** Card statuses: not sent yet → draft; with the agent → sent; the agent replied → answered. */
 const status = computed<CodeReviewItem['status']>(() => !first.value?.sent ? 'draft' : last.value?.author === 'agent' ? 'answered' : 'sent')
 const general = computed(() => !props.question.path)
+const lastAnswer = computed(() => [...props.messages].reverse().find(m => m.author === 'agent'))
 const item = computed<CodeReviewItem>(() => ({
   id: props.question.id, review_id: props.reviewId, round_id: null, author: 'developer', scope: general.value ? 'general' : 'line',
   file: props.question.path || null, line_start: props.question.line || null, line_end: props.question.line || null, side: props.question.side,
@@ -61,6 +65,8 @@ const removeMessage = (id: string) => run(() => branchReviewApi.removeMessage(pr
 const close = (resolution: string) => run(() => branchReviewApi.closeQuestion(props.scope, props.reviewId, props.question.id, resolution !== 'reopen'))
 </script>
 <style scoped>
+.qc { display: flex; flex-direction: column; gap: 2px; }
+.qc-remark { align-self: flex-end; padding: 0 4px; font: inherit; font-size: 11.5px; color: var(--blue-hover); background: none; border: none; cursor: pointer; }
 .qc-edit { display: flex; flex-direction: column; gap: 6px; padding: 8px; background: var(--bg2); border: 1px solid var(--blue); border-radius: var(--radius-sm); }
 .qc-text { width: 100%; padding: 8px 10px; line-height: 1.45; resize: vertical; font: inherit; }
 .qc-bar { display: flex; justify-content: flex-end; gap: 6px; }

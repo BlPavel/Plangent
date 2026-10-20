@@ -21,6 +21,18 @@ export interface MergeRequest {
     sha: string;
     updated_at: string;
     diff_refs: DiffRefs;
+    created_at?: string;
+    draft?: boolean;
+    user_notes_count?: number;
+    reviewers?: HostUser[];
+}
+/** Who approved a merge request and how many approvals its rules still need (null: the host does not say). */
+export interface HostApprovals {
+    approved_by: HostUser[];
+    required: number | null;
+    left: number | null;
+    /** The connected account has approved. */
+    mine: boolean;
 }
 export interface MrVersion {
     id: number;
@@ -52,6 +64,7 @@ export interface HostNote {
     author: HostUser;
     position?: DiffPosition;
     system?: boolean;
+    resolvable?: boolean;
     resolved?: boolean;
 }
 export interface HostDiscussion {
@@ -91,6 +104,9 @@ export interface CodeHost {
     readonly capabilities: HostCapabilities;
     getMergeRequest(iid: number): Promise<MergeRequest>;
     listReviewRequests(): Promise<MergeRequest[]>;
+    listOpenMergeRequests(): Promise<MergeRequest[]>;
+    /** Null when approvals are not available on this host or for this account. */
+    getApprovals(iid: number): Promise<HostApprovals | null>;
     searchMergeRequests(query: string): Promise<MergeRequest[]>;
     getVersions(iid: number): Promise<MrVersion[]>;
     getDiff(iid: number, version?: number): Promise<MrDiff[]>;

@@ -1,4 +1,4 @@
-import type { CodeHost, HostUser, HostCapabilities, MergeRequest, MrVersion, MrDiff, HostDiscussion, HostNote, ReviewNote, CreateMergeRequest } from '../../../models/code-host';
+import type { CodeHost, HostUser, HostCapabilities, HostApprovals, MergeRequest, MrVersion, MrDiff, HostDiscussion, HostNote, ReviewNote, CreateMergeRequest } from '../../../models/code-host';
 import { authenticatedRequest, IntegrationHttpError } from '../../../infrastructure/http/integration-client';
 import { IntegrationError } from '../../integrations';
 export type HostRequest = typeof authenticatedRequest;
@@ -53,6 +53,23 @@ export class GitLab implements CodeHost {
       id: number;
     }>('/api/v4/user');
     return this.list<MergeRequest>(this.prefix + '/merge_requests?state=opened&scope=all&reviewer_id=' + user.id);
+  }
+  listOpenMergeRequests() {
+    return this.list<MergeRequest>(this.prefix + '/merge_requests?state=opened&scope=all&order_by=updated_at');
+  }
+  async getApprovals(iid: number): Promise<HostApprovals | null> {
+    let reply: { approved_by?: { user?: HostUser }[]; approvals_required?: number; approvals_left?: number; user_has_approved?: boolean };
+    try {
+      reply = await this.request(this.mr(iid) + '/approvals');
+    }
+    catch (e) {
+      // Free tiers and restricted accounts have no approvals endpoint: the list shows no counter.
+      if (unsupported(e) || e instanceof IntegrationHttpError && e.status === 403)
+        return null;
+      throw e;
+    }
+    const num = (v: unknown) => typeof v === 'number' && Number.isFinite(v) ? v : null;
+    return { approved_by: (reply.approved_by ?? []).map(a => a.user).filter((u): u is HostUser => !!u), required: num(reply.approvals_required), left: num(reply.approvals_left), mine: reply.user_has_approved === true };
   }
   async searchMergeRequests(query: string) {
     const value = query.trim().replace(/^!/, '');

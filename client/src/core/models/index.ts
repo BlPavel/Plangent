@@ -125,7 +125,7 @@ export interface Run {
   finished_at?: string
 }
 
-export type LibraryItemType = 'skill' | 'command' | 'main' | 'plan-template' | 'instruction-guide' | 'code-fixer-instruction' | 'commit-rules'
+export type LibraryItemType = 'skill' | 'command' | 'main' | 'plan-template' | 'instruction-guide' | 'code-fixer-instruction' | 'commit-rules' | 'review-skill'
 export type LibraryScope = 'global' | 'project'
 
 export interface LibraryItem {
@@ -159,7 +159,7 @@ export interface LibraryProposal {
   session_id: string
   status: LibraryProposalStatus
   action: 'create' | 'update'
-  type: 'skill' | 'main' | 'command'
+  type: 'skill' | 'main' | 'command' | 'review-skill'
   slug: string
   title: string
   description: string

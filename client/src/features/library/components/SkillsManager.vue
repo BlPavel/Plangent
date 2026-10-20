@@ -1,7 +1,7 @@
 <template>
   <div class="lib">
     <div class="lib-header">
-      <div v-if="scope !== 'global'" class="lib-tabs">
+      <div v-if="scope !== 'global' && availableTypeValues.length > 1" class="lib-tabs">
         <button
           v-for="t in typeOptions"
           :key="t.value"
@@ -128,7 +128,7 @@ const typeOptions = [
 ].filter(t => t.value === '' || availableTypeValues.value.includes(t.value))
 
 function typeLabel(t: LibraryItemType) {
-  return { 'commit-rules': 'правила коммитов', 'code-fixer-instruction': 'Агент доработки', skill: 'скилл', command: 'команда', main: 'main', 'plan-template': 'шаблон плана', 'instruction-guide': 'руководство по инструкциям' }[t]
+  return { 'commit-rules': 'правила коммитов', 'code-fixer-instruction': 'Агент доработки', skill: 'скилл', command: 'команда', main: 'main', 'plan-template': 'шаблон плана', 'instruction-guide': 'руководство по инструкциям', 'review-skill': 'скилл ревью' }[t]
 }
 
 // A project lists everything that applies to it; the global list (settings) shows every item.
@@ -266,7 +266,7 @@ async function save() {
 
   const slug = editItem.value
     ? form.value.slug
-    : isMain ? 'main' : form.value.type === 'plan-template' ? slugify(form.value.title || 'default_plan') : slugify(form.value.title)
+    : isMain ? 'main' : form.value.type === 'plan-template' ? slugify(form.value.title || 'default_plan') : form.value.type === 'review-skill' ? 'review_' + Date.now().toString(36) : slugify(form.value.title)
   const title = isMain ? (form.value.title.trim() || 'Главный файл') : form.value.title.trim()
 
   const payload = {

@@ -27,15 +27,16 @@
     <!-- Title — name in the list / source for the file name (skills & commands) -->
     <div v-if="form.type !== 'main'" class="form-field" :class="{ invalid: err.title }">
       <label>Название <span class="req">*</span></label>
-      <input v-model="form.title" :placeholder="form.type === 'command' ? 'code_review' : 'db_migrations'" @input="clearErr('title')" />
+      <input v-model="form.title" :placeholder="form.type === 'command' ? 'code_review' : form.type === 'review-skill' ? 'Архитектура' : 'db_migrations'" @input="clearErr('title')" />
       <span v-if="form.type === 'command' && form.title.trim()" class="hint">Будет вызываться как <code>/{{ slugPreview }}</code></span>
+      <span v-else-if="form.type === 'review-skill'" class="hint">Так скилл называется в выборе перед разбором МР.</span>
       <span v-else class="hint">Только латиница, цифры и <code>_</code> (например <code>db_migrations</code>). Так будет называться файл на диске.</span>
       <span v-if="err.title" class="error">{{ err.title }}</span>
     </div>
 
     <!-- Description — optional; empty means "apply always" (goes into frontmatter) -->
     <div v-if="form.type !== 'main'" class="form-field">
-      <label>Когда применять</label>
+      <label>{{ form.type === 'review-skill' ? 'Описание' : 'Когда применять' }}</label>
       <input v-model="form.description" :placeholder="descPlaceholder" />
       <span class="hint">{{ descHint }}</span>
     </div>
@@ -50,7 +51,7 @@
     </div>
 
     <!-- Agent filter — pick from agents created in настройках -->
-    <div v-if="form.type !== 'plan-template'" class="form-field">
+    <div v-if="form.type !== 'plan-template' && form.type !== 'review-skill'" class="form-field">
       <label>Для каких агентов</label>
       <div v-if="agents.length" class="agent-picker">
         <button
@@ -116,6 +117,7 @@ const TYPES: { value: LibraryItemType; label: string }[] = [
   { value: 'command', label: 'Команда' },
   { value: 'main', label: 'Главный файл' },
   { value: 'plan-template', label: 'Шаблон плана' },
+  { value: 'review-skill', label: 'Скилл ревью' },
 ]
 const availableTypes = computed(() => TYPES.filter(t => !props.allowedTypes || props.allowedTypes.includes(t.value)))
 
@@ -137,6 +139,7 @@ const typeHint = computed(() => ({
   command: 'Готовая инструкция, вызывается вручную как /команда.',
   main: 'Главные инструкции — всегда в контексте агента, у каждого агента раскладываются в свой главный файл. Может быть только один.',
   'plan-template': 'Структура плана для режима планирования. Протокол шагов добавляется ниже и не редактируется.',
+  'review-skill': 'Что агенту важно в ревью МР этого проекта и что пропускать. Выбирается перед разбором во вкладке «Ревью»; формат сводки и замечаний задаёт Plangent.',
 }[form.type]))
 
 function slugify(s: string): string {
@@ -146,11 +149,15 @@ const slugPreview = computed(() => slugify(form.title) || 'name')
 
 const descPlaceholder = computed(() => form.type === 'command'
   ? 'Что делает команда (необязательно)'
+  : form.type === 'review-skill'
+    ? 'Например: границы модулей и контракты API, без стиля'
   : form.type === 'plan-template'
     ? 'Например: дефолтный шаблон планирования'
   : 'Например: при работе с миграциями БД (необязательно)')
 const descHint = computed(() => form.type === 'command'
   ? 'Короткая подсказка для списка команд. Можно оставить пустым.'
+  : form.type === 'review-skill'
+    ? 'Одна строка для списка. Можно оставить пустым.'
   : form.type === 'plan-template'
     ? 'Используется только в списке библиотеки.'
   : 'Если оставить пустым — скилл применяется всегда. Если заполнить — агент подключает его по релевантности. Попадает во frontmatter (description).')
@@ -168,7 +175,9 @@ function clearErr(field: string) { if (err[field]) delete err[field] }
 
 function validate(): boolean {
   Object.keys(err).forEach(k => delete err[k])
-  if (form.type !== 'main') {
+  if (form.type === 'review-skill') {
+    if (!form.title.trim()) err.title = 'Укажите название'
+  } else if (form.type !== 'main') {
     const title = form.title.trim()
     if (!title) err.title = 'Укажите название'
     else if (!/^[a-zA-Z0-9_]+$/.test(title)) {

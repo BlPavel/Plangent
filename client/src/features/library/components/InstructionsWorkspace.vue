@@ -5,6 +5,7 @@
         <button type="button" class="view" :class="{ active: view === 'items' }" @click="view = 'items'">Элементы</button>
         <button type="button" class="view" :class="{ active: view === 'guide' }" @click="view = 'guide'">Руководство для агента</button>
         <button type="button" class="view" :class="{ active: view === 'fixer' }" @click="view = 'fixer'">Агент доработки</button>
+        <button type="button" class="view" :class="{ active: view === 'review' }" @click="view = 'review'">Ревью</button>
         <button type="button" class="view" :class="{ active: view === 'commits' }" @click="view = 'commits'">Коммиты</button>
         <button type="button" class="view" :class="{ active: view === 'branches' }" @click="view = 'branches'">Ветки</button>
         <button type="button" class="view" :class="{ active: view === 'mr' }" @click="view = 'mr'">Merge request</button>
@@ -17,6 +18,14 @@
           </AppButton>
         </template>
       </SkillsManager>
+      <template v-else-if="view === 'review'">
+        <p class="hint">Скиллы ревью говорят агенту во вкладке «Ревью», что важно в МР этого проекта и что пропускать. Перед разбором вы выбираете один из них; без скиллов работает стандартный.</p>
+        <SkillsManager scope="project" :project-id="projectId" :allowed-types="['review-skill']">
+          <template #actions>
+            <AppButton v-if="!panelOpen" variant="subtle" size="sm" title="Агент изучит код проекта, расспросит вас и предложит скилл ревью" @click="panelOpen = true">✦ Написать с агентом</AppButton>
+          </template>
+        </SkillsManager>
+      </template>
       <InstructionGuideEditor v-else-if="view === 'guide'" scope="project" :project-id="projectId" />
       <CodeFixerInstructionEditor v-else-if="view === 'fixer'" scope="project" :project-id="projectId" />
       <ProjectGitPanel v-else-if="view === 'branches' || view === 'mr'" :project-id="projectId" :section="view" />
@@ -41,9 +50,10 @@ import CodeFixerInstructionEditor from './CodeFixerInstructionEditor.vue'
 import CommitSettings from './CommitSettings.vue'
 
 /** «Инструкции» of a project or group: the library list, its authoring guide, the code-fixer instruction and the librarian chat beside them. */
-const props = defineProps<{ projectId: string; defaultAgentId?: string | null }>()
+/** `requested` opens a section from outside (the Ревью tab asks for its skills). */
+const props = defineProps<{ projectId: string; defaultAgentId?: string | null; requested?: { view: 'review'; at: number } | null }>()
 const store = useLibraryStore()
-const view = ref<'items' | 'guide' | 'fixer' | 'commits' | 'branches' | 'mr'>('items')
+const view = ref<'items' | 'guide' | 'fixer' | 'review' | 'commits' | 'branches' | 'mr'>('items')
 const panelOpen = ref(false)
 const pending = computed(() => store.proposalsFor({ projectId: props.projectId }).filter(p => p.status === 'pending').length)
 
@@ -52,6 +62,7 @@ watch(() => props.projectId, id => {
   panelOpen.value = false
   void store.loadProposals(id).catch(() => {})
 }, { immediate: true })
+watch(() => props.requested?.at, () => { if (props.requested) view.value = props.requested.view }, { immediate: true })
 </script>
 
 <style scoped>
@@ -65,5 +76,6 @@ watch(() => props.projectId, id => {
 .view:hover { color: var(--text); }
 .view.active { color: var(--text); border-bottom-color: var(--blue); }
 
+.hint { margin: 0; font-size: 12.5px; color: var(--text-muted); }
 .pending { margin-left: 4px; font-size: 10px; font-weight: 600; min-width: 16px; padding: 0 5px; border-radius: var(--radius-pill); background: var(--blue); color: #fff; }
 </style>
