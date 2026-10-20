@@ -47,6 +47,12 @@ export const useGitStore = defineStore('code-git', () => {
     })
     await refresh()
   }
+  async function refreshBranches() {
+    const p = projectId.value
+    const refs = await gitApi.refreshBranches(p)
+    if (p === projectId.value) branches.value = refs
+    return refs
+  }
   function stop() { unsubscribe?.(); unsubscribe = undefined; clearTimeout(timer); generation++; projectId.value = '' }
   async function run(action: string, input: object = {}) {
     if (blocked.value) throw new Error(blocked.value)
@@ -71,5 +77,5 @@ export const useGitStore = defineStore('code-git', () => {
   }
   /** Hides the result of the finished operation. */
   function dismiss() { if (!operationId.value) { error.value = ''; output.value = ''; lastAction.value = '' } }
-  return { projectId, repository, branches, settings, coauthors, operationId, output, error, lastAction, blocked, baseRef, start, stop, refresh, run, cancel, dismiss }
+  return { projectId, repository, branches, settings, coauthors, operationId, output, error, lastAction, blocked, baseRef, start, stop, refresh, refreshBranches, run, cancel, dismiss }
 })

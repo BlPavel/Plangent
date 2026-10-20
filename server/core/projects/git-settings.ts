@@ -9,6 +9,7 @@
   mr_remove_branch: boolean;
   mr_squash: boolean;
   mr_reviewers: string[];
+  mr_assignees: string[];
   /** The agent that writes commit messages, splits commits and describes MRs; empty — the project's agent. */
   git_agent_id: string;
   git_agent_model: string;
@@ -19,7 +20,7 @@ export const defaultGitSettings: GitSettings = {
   commit_pattern: '',
   forbidden_patterns: ['^Co-Authored-By:.*(Claude|anthropic)', 'noreply@anthropic\\.com', 'Generated with \\[?Claude Code', '🤖 Generated with'],
   include_description: false, finish_scenario: 'nothing', branch_prefixes: ['feature', 'fix', 'hotfix'],
-  base_branch: '', mr_description_prompt: '', mr_remove_branch: false, mr_squash: false, mr_reviewers: [],
+  base_branch: '', mr_description_prompt: '', mr_remove_branch: false, mr_squash: false, mr_reviewers: [], mr_assignees: [],
   git_agent_id: '', git_agent_model: '', git_agent_effort: '',
 };
 
@@ -39,7 +40,7 @@ export function validateGitSettings(value: unknown): Partial<GitSettings> {
   const settings = Object.fromEntries(Object.entries(value).filter(([key]) => !LEGACY_KEYS.includes(key)));
   for (const [key, item] of Object.entries(settings)) {
     if (!Object.hasOwn(defaultGitSettings, key)) throw new Error('Unknown git setting: ' + key);
-    if (['forbidden_patterns', 'branch_prefixes', 'mr_reviewers'].includes(key)) {
+    if (['forbidden_patterns', 'branch_prefixes', 'mr_reviewers', 'mr_assignees'].includes(key)) {
       if (!Array.isArray(item) || item.length > 100 || item.some(p => typeof p !== 'string' || p.length > 1000)) throw new Error('Invalid forbidden patterns');
       if (key === 'forbidden_patterns') for (const pattern of item) new RegExp(pattern, 'im');
     } else if (typeof item !== typeof defaultGitSettings[key as keyof GitSettings]) throw new Error('Invalid git setting: ' + key);

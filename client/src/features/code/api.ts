@@ -54,6 +54,7 @@ const git = (p: string) => '/projects/' + id(p) + '/git'
 export const gitApi = {
   repository: (p: string) => api.get<import('./git-types').GitTracking | null>(git(p) + '/repository'),
   branches: (p: string) => api.get<import('./git-types').GitBranch[]>(git(p) + '/branches'),
+  refreshBranches: (p: string) => api.post<import('./git-types').GitBranch[]>(git(p) + '/branches/refresh', {}),
   settings: (p: string) => api.get<import('./git-types').GitPreferences>(git(p) + '/settings'),
   coauthors: (p: string) => api.get<import('./git-types').Coauthor[]>(git(p) + '/coauthors'),
   operation: (p: string, action: string, input: object = {}) => api.post<{ output: string; operationId: string }>(git(p) + '/' + action, input),

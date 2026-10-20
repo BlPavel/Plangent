@@ -6,7 +6,7 @@ import { effectiveGitSettings, gitAgent } from '../../../core/projects';
 import { commit } from '../../../core/code/git-write';
 import { getProject } from '../../../core/projects';
 import { CodeError } from '../../../core/code/files';
-import { branches, trackingInfo, recentCoauthors } from '../../../core/code/git';
+import { branches, trackingInfo, recentCoauthors, originUrl } from '../../../core/code/git';
 import { stage, unstage, fetchRepository, pull, pullRebase, push, pushForce, switchBranch, createBranch, GitOperationError, type GitOperationOptions } from '../../../core/code/git-write';
 import { assertRepositoryIdle } from '../../../core/code/git-busy';
 import { localOrigin } from '../local-origin';
@@ -61,6 +61,11 @@ gitRouter.get('/settings', gitRouteGuard((req, res) => {
 }));
 gitRouter.get('/coauthors', gitRouteGuard(async (req, res) => res.json(await recentCoauthors(gitRoot(req)))));
 gitRouter.get('/branches', gitRouteGuard(async (req, res) => res.json(await branches(gitRoot(req)))));
+gitRouter.post('/branches/refresh', gitRouteGuard(async (req, res) => {
+  const root = gitRoot(req);
+  if (await originUrl(root)) await fetchRepository(root, { timeoutMs: 30000 });
+  res.json(await branches(root));
+}));
 gitRouter.post('/cancel', gitRouteGuard((req, res) => {
   gitRoot(req);
   const operation = operations.get(req.body?.operationId);

@@ -56,6 +56,8 @@ export class GitHub implements CodeHost {
     // The pull request already exists: reviewers and labels are best effort and must not make the creation look failed.
     const reviewers = input.reviewer_logins ?? [], labels = (input.labels ?? '').split(',').map(l => l.trim()).filter(Boolean);
     if (reviewers.length) await this.request(this.prefix + '/pulls/' + pr.number + '/requested_reviewers', 'POST', { reviewers }).catch(() => undefined);
+    const assignees = input.assignee_logins ?? []
+    if (assignees.length) await this.request(this.prefix + '/issues/' + pr.number + '/assignees', 'POST', { assignees }).catch(() => undefined);
     if (labels.length) await this.request(this.prefix + '/issues/' + pr.number + '/labels', 'POST', { labels }).catch(() => undefined);
     return this.map(pr);
   }

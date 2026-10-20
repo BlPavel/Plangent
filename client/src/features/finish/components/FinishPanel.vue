@@ -15,6 +15,14 @@
         </label>
       </fieldset>
 
+      <label v-if="options.scenario === 'full'" class="fp-field">
+        <span class="fp-label">Целевая ветка МР</span>
+        <BranchSelect v-model="options.targetBranch" :options="targets.map(name => ({ value: name, label: 'origin/' + name }))" small placeholder="Выберите ветку" label="Целевая ветка МР" />
+        <button type="button" class="fp-link" :disabled="refreshingBranches" @click="refreshBranches">{{ refreshingBranches ? 'Обновление из origin…' : 'Обновить ветки из origin' }}</button>
+        <small v-if="branchesError" role="alert">{{ branchesError }}</small>
+        <small>{{ mrDefaults }}</small>
+      </label>
+
       <fieldset class="fp-field">
         <legend>Коммиты</legend>
         <label class="fp-choice">
@@ -42,15 +50,6 @@
         <small v-else-if="newBranch">Ветка создастся от текущей, коммиты лягут в неё.</small>
         <small v-if="options.scenario !== 'commits' && (!published || newBranch || sameBranch)">При push ветка будет опубликована в origin.</small>
       </div>
-
-      <label v-if="options.scenario === 'full'" class="fp-field">
-        <span class="fp-label">Целевая ветка МР</span>
-        <select v-model="options.targetBranch" class="control control-sm">
-          <option value="" disabled>Выберите ветку</option>
-          <option v-for="name in targets" :key="name" :value="name">{{ name }}</option>
-        </select>
-        <small>{{ mrDefaults }}</small>
-      </label>
 
       <div class="fp-footer">
         <GitAgentNote />
@@ -123,6 +122,7 @@ import { api } from '@core/api'
 import { useAppStore } from '@core/stores/app'
 import { CommitDiff, CoauthorsField, GitAgentNote, useGitStore } from '@features/code'
 import BranchNameInput from '@shared/ui/BranchNameInput.vue'
+import BranchSelect from '@shared/ui/BranchSelect.vue'
 import { FINISH_SCENARIOS } from '@shared/utils/finish-scenarios'
 import { useFinishStore } from '../stores/finish'
 import { finishApi } from '../api'
@@ -135,15 +135,15 @@ const emit = defineEmits<{ attention: [] }>()
 const copy = <T,>(value: T): T => JSON.parse(JSON.stringify(value))
 const message = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause)).replace(/^Error:\s*/, '')
 const app = useAppStore(), store = useFinishStore(), git = useGitStore()
-const localError = ref('')
+const localError = ref(''), branchesError = ref(''), refreshingBranches = ref(false)
 const scenarioOptions = (['commits', 'push', 'full'] as const).map(value => ({ value, ...FINISH_SCENARIOS[value] }))
 const options = ref<FinishOptions>({ scenario: 'commits', commitMode: 'split', includeDescription: false, includeCoauthors: false, coauthors: [], targetBranch: '' })
 const newBranch = ref(false), branchName = ref('')
 const prefixes = computed(() => git.settings?.branch_prefixes ?? [])
 const published = computed(() => !!git.repository?.upstream)
-/** MR targets are named without origin/: local and remote copies of a branch are one choice. */
+/** Only origin branches can be MR targets; the host API expects their unprefixed names. */
 const targets = computed(() => {
-  const names = [...new Set(git.branches.map(b => b.name.replace(/^origin\//, '')))].filter(name => name !== 'HEAD')
+  const names = [...new Set(git.branches.filter(b => b.remote).map(b => b.name.replace(/^origin\//, '')))].filter(name => name !== 'HEAD')
   const wanted = options.value.targetBranch
   return wanted && !names.includes(wanted) ? [wanted, ...names] : names
 })
@@ -151,7 +151,7 @@ const sameBranch = computed(() => !!props.branch && props.branch === options.val
 const mrDefaults = computed(() => {
   const s = git.settings
   if (!s) return ''
-  const parts = [s.mr_reviewers.length ? 'ревьюеры: ' + s.mr_reviewers.length : 'без ревьюеров', s.mr_squash ? 'squash' : '', s.mr_remove_branch ? 'удалить ветку после слияния' : ''].filter(Boolean)
+  const parts = [s.mr_reviewers.length ? 'ревьюеры: ' + s.mr_reviewers.length : 'без ревьюеров', s.mr_assignees?.length ? 'исполнители: ' + s.mr_assignees.length : '', s.mr_squash ? 'squash' : '', s.mr_remove_branch ? 'удалить ветку после слияния' : ''].filter(Boolean)
   return 'Из настроек проекта: ' + parts.join(', ') + '. Заголовок и описание напишет агент.'
 })
 const needsBranchName = computed(() => newBranch.value || sameBranch.value)
@@ -197,7 +197,7 @@ function applyDefaults() {
   const scenario = (taskData.value?.finish_scenario ?? s.finish_scenario) as Scenario
   options.value = {
     ...options.value, scenario: scenario === 'nothing' ? 'commits' : scenario, includeDescription: s.include_description,
-    targetBranch: (taskData.value?.target_branch || taskData.value?.base_branch || s.base_branch || '').replace(/^origin\//, ''),
+    targetBranch: (taskData.value?.target_branch || taskData.value?.base_branch || s.base_branch || ['main', 'master'].find(name => git.branches.some(b => b.name === 'origin/' + name)) || '').replace(/^origin\//, ''),
   }
   branchName.value = (s.branch_prefixes[0] ? s.branch_prefixes[0] + '/' : '') + (props.task?.key ?? '')
 }
@@ -215,6 +215,20 @@ watch(() => [props.projectId, props.task?.id], async () => {
     if (mine === generation) await store.load(props.projectId, id)
   } catch (cause) { if (mine === generation) localError.value = message(cause) }
 }, { immediate: true })
+async function refreshBranches() {
+  if (refreshingBranches.value) return
+  const mine = generation, projectId = props.projectId
+  refreshingBranches.value = true; branchesError.value = ''
+  try {
+    const refs = await git.refreshBranches()
+    if (mine === generation && projectId === git.projectId) {
+      git.branches = refs
+      if (!options.value.targetBranch) options.value.targetBranch = ['main', 'master'].find(name => refs.some(b => b.name === 'origin/' + name)) ?? ''
+    }
+  } catch (cause) { if (mine === generation) branchesError.value = message(cause) }
+  finally { if (mine === generation) refreshingBranches.value = false }
+}
+watch(() => options.value.scenario, scenario => { if (scenario === 'full') void refreshBranches() }, { immediate: true })
 // The git store loads the settings by itself; the form picks them up once they arrive.
 watch(() => git.settings, (value, previous) => { if (value && !previous) applyDefaults() })
 watch(() => store.run?.commits, (commits, previous) => { if (clean(draft.value) === clean(previous ?? []) || !draft.value.length) draft.value = copy(commits ?? []) }, { deep: true })

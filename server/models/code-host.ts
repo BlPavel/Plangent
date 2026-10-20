@@ -75,6 +75,9 @@ export interface CreateMergeRequest {
     labels?: string;
     /** Logins for hosts that address reviewers by name (GitHub); numeric ids stay in reviewer_ids (GitLab). */
     reviewer_logins?: string[];
+    /** Same split as the reviewers: GitLab ids in assignee_ids, GitHub logins in assignee_logins. */
+    assignee_ids?: number[];
+    assignee_logins?: string[];
     remove_source_branch?: boolean;
     squash?: boolean;
 }

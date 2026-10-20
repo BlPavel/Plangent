@@ -6,8 +6,8 @@
         <span v-else-if="git.error" role="alert">{{ labelOf(git.lastAction) }}: {{ git.error }}</span>
         <span v-else>{{ labelOf(git.lastAction) }}: готово</span>
         <span class="bb-spacer" />
-        <button v-if="git.operationId" type="button" class="btn btn-ghost btn-xs" @click="git.cancel()">Отменить</button>
-        <button v-else type="button" class="btn btn-subtle btn-xs" aria-label="Скрыть" title="Скрыть" @click="git.dismiss()">✕</button>
+        <button v-if="git.operationId && git.lastAction !== 'fetch'" type="button" class="btn btn-ghost btn-xs" @click="git.cancel()">Отменить</button>
+        <button v-else-if="!git.operationId" type="button" class="btn btn-subtle btn-xs" aria-label="Скрыть" title="Скрыть" @click="git.dismiss()">✕</button>
       </div>
       <pre v-if="git.output" aria-label="Вывод git">{{ git.output }}</pre>
     </div>

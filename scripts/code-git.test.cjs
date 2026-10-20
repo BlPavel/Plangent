@@ -16,7 +16,7 @@ function component(file, mocks) {
   const exports = {}
   vm.runInNewContext(ts.transpileModule(compiled, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-  }).outputText, { exports, require: name => name in mocks ? mocks[name] : require(name), setTimeout, clearTimeout }, { filename: file })
+  }).outputText, { exports, require: name => name in mocks ? mocks[name] : require(name), setTimeout, clearTimeout, document, window }, { filename: file })
   return exports.default
 }
 const settle = async () => { await new Promise(resolve => setTimeout(resolve, 380)); await nextTick() }
@@ -136,7 +136,40 @@ test('changes list splits tracked and new files and stages a whole group', async
 })
 
 const BranchNameStub = { props: ['modelValue'], emits: ['update:modelValue'], setup(props, { emit }) { return () => h('input', { 'aria-label': 'Имя новой ветки', value: props.modelValue, onInput: e => emit('update:modelValue', e.target.value) }) } }
+test('branch picker refreshes origin, switches remote branches, preserves the chosen base and explains failures', async () => {
+  const calls = []; let closed = 0, fail = true
+  const refs = [{ name: 'main', ref: 'refs/heads/main', remote: false }, { name: 'origin/release', ref: 'refs/remotes/origin/release', remote: true }]
+  const git = reactive({ projectId: 'p', repository: { branch: 'main' }, branches: refs.slice(0, 1), blocked: '', settings: { branch_prefixes: [], base_branch: 'main' },
+    refreshBranches: async () => refs,
+    run: async (action, data) => { calls.push([action, data]); if (fail) throw Object.assign(new Error('Git operation failed'), { output: 'Your local changes would be overwritten by checkout' }) },
+  })
+  const comp = component('client/src/features/code/components/BranchPicker.vue', {
+    '../stores/git': { useGitStore: () => git }, '@shared/ui/BranchNameInput.vue': { default: BranchNameStub },
+  })
+  const screen = mount(comp, { onClose: () => closed++ })
+  try {
+    await settle()
+    const remote = [...screen.root.querySelectorAll('.item')].find(b => b.textContent === 'origin/release')
+    assert.ok(remote, 'the remote branch appears after refresh')
+    remote.click(); await settle()
+    assert.equal(calls[0][0], 'switch'); assert.equal(calls[0][1].branch, 'origin/release')
+    assert.match(screen.root.querySelector('[role="alert"]').textContent, /local changes would be overwritten/)
+    assert.equal(closed, 0)
+    const base = screen.root.querySelector('select')
+    Object.defineProperty(base, 'value', { configurable: true, writable: true, value: 'origin/release' })
+    for (const option of base.querySelectorAll('option')) option.selected = option.getAttribute('value') === 'origin/release'
+    base.dispatchEvent(new window.Event('change', { bubbles: true })); await nextTick()
+    git.settings = { branch_prefixes: [], base_branch: 'main' }; await nextTick()
+    fail = false
+    input(screen.root.querySelector('[aria-label="Имя новой ветки"]'), 'feature/work'); await nextTick()
+    screen.root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await settle()
+    assert.equal(calls.at(-1)[0], 'branch'); assert.equal(calls.at(-1)[1].base, 'origin/release'); assert.equal(closed, 1)
+    remote.click(); await settle(); assert.equal(closed, 2)
+  } finally { screen.close() }
+})
+
 function finishPanel(store, git) {
+  git.refreshBranches = async () => git.branches
   return component('client/src/features/finish/components/FinishPanel.vue', {
     '@core/api': { api: { get: async () => null } },
     '@core/stores/app': { useAppStore: () => ({ confirm: async () => true }) },

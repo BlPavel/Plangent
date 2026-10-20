@@ -124,7 +124,7 @@ export async function unstage(root: string, paths: string[], options: GitOperati
   });
 }
 export async function fetchRepository(root: string, options: GitOperationOptions = {}) {
-  return serializeGit(root, async () => { await check(root, options, true); return run(root, ['fetch', '--progress', 'origin'], options); });
+  return serializeGit(root, async () => { await check(root, options); return run(root, ['fetch', '--progress', '--prune', 'origin', '+refs/heads/*:refs/remotes/origin/*'], options); });
 }
 export async function pull(root: string, options: GitOperationOptions = {}) {
   return serializeGit(root, async () => { await check(root, options, true); return run(root, ['pull', '--ff-only', '--progress'], options); });
@@ -154,8 +154,17 @@ export async function push(root: string, options: GitOperationOptions = {}, forc
 export async function switchBranch(root: string, branch: string, options: GitOperationOptions = {}) {
   return serializeGit(root, async () => {
     await check(root, options, true);
-    if (!await localBranchHead(root, branch)) throw new CodeError('Local branch not found');
-    return run(root, ['switch', '--no-guess', '--', branch], options);
+    if (typeof branch !== 'string') throw new CodeError('Invalid branch name');
+    const selected = (await branches(root)).find(item => item.name === branch);
+    if (!selected) throw new CodeError('Branch not found');
+    if (!selected.remote) return run(root, ['switch', '--no-guess', '--', branch], options);
+    const local = branch.replace(/^origin\//, '');
+    if (await localBranchHead(root, local)) return run(root, ['switch', '--no-guess', '--', local], options);
+    // Single-branch clones need a persistent mapping so Git can resolve the new upstream.
+    const mappings = (await run(root, ['config', '--get-all', 'remote.origin.fetch'], options)).trim().split('\n').map(value => value.replace(/^\+/, ''));
+    if (!mappings.includes('refs/heads/*:refs/remotes/origin/*') && !mappings.includes('refs/heads/' + local + ':' + selected.ref))
+      await run(root, ['remote', 'set-branches', '--add', 'origin', local], options);
+    return run(root, ['switch', '--track', '-c', local, selected.ref], options);
   });
 }
 export async function createBranch(root: string, name: string, base: string, options: GitOperationOptions = {}) {

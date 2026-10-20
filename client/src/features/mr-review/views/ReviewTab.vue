@@ -57,9 +57,7 @@
           <span class="rt-spacer" />
           <span v-if="detail.changed_files.length" class="status-badge progress" title="Файлы, изменившиеся с прошлой просмотренной версии">Изменились файлы: {{ detail.changed_files.length }}</span>
           <label class="rt-version">Версия
-            <select class="control control-sm" :value="snapshot!.version.id" :disabled="busy" @change="changeVersion(Number(($event.target as HTMLSelectElement).value))">
-              <option v-for="v in snapshot!.versions" :key="v.id" :value="v.id">{{ formatDateTime(v.created_at) }}</option>
-            </select>
+            <PlainSelect :model-value="String(snapshot!.version.id)" :options="snapshot!.versions.map(v => ({ value: String(v.id), label: formatDateTime(v.created_at) }))" small :disabled="busy" label="Версия" @update:model-value="changeVersion(Number($event))" />
           </label>
           <button v-if="detail.session.previous" type="button" class="btn btn-subtle btn-sm" :disabled="busy" @click="changeVersion(detail.session.previous.version.id)">Предыдущая версия</button>
           <button type="button" class="btn btn-ghost btn-sm" :disabled="busy" title="Подтянуть новую версию МР и обсуждения" @click="changeVersion()">{{ busy ? 'Загрузка…' : 'Обновить' }}</button>
@@ -124,6 +122,7 @@ import type { LineSelection } from '@shared/code-viewer';
 import { errorText } from '@shared/utils/errorText';
 import { formatDateTime } from '@shared/utils/format';
 import { createReviewStore } from '../stores/review';
+import PlainSelect from '@shared/ui/PlainSelect.vue';
 import MrDiff from '../components/MrDiff.vue';
 import DraftPanel from '../components/DraftPanel.vue';
 import DiscussionThread from '../components/DiscussionThread.vue';

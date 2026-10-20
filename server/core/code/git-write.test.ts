@@ -65,6 +65,30 @@ test('repository queue survives a failure and observes aborted queued operations
   await stage(root, ['a']); assert.equal(events.length, 1);
 });
 
+test('fetch discovers all origin branches with a narrow refspec and remote selection creates or reuses a local branch', async t => {
+  const root = await fixture(t);
+  await fs.writeFile(path.join(root, 'a'), 'base'); await stage(root, ['a']);
+  await commit(root, { title: 'base' }, () => defaultGitSettings);
+  const remote = path.join(root, 'origin.git'); git(root, 'init', '--bare', remote);
+  git(remote, 'symbolic-ref', 'HEAD', 'refs/heads/main');
+  git(root, 'remote', 'add', 'origin', remote); await push(root);
+  git(root, 'config', 'remote.origin.fetch', '+refs/heads/main:refs/remotes/origin/main');
+  git(remote, 'branch', 'release', 'main');
+  assert.ok(!(await branches(root)).some(b => b.name === 'origin/release'));
+  await fetchRepository(root, { assertIdle: () => { throw Error('finish owns the worktree'); } });
+  assert.ok((await branches(root)).some(b => b.name === 'origin/release'));
+  await switchBranch(root, 'origin/release');
+  assert.equal((await repositoryInfo(root))?.branch, 'release');
+  assert.equal((await trackingInfo(root))?.upstream, 'origin/release');
+  await switchBranch(root, 'main'); await switchBranch(root, 'origin/release');
+  assert.equal((await repositoryInfo(root))?.branch, 'release');
+  await createBranch(root, 'new-work', 'origin/release');
+  assert.equal((await repositoryInfo(root))?.branch, 'new-work');
+  git(remote, 'branch', '-d', 'release'); await fetchRepository(root);
+  assert.ok(!(await branches(root)).some(b => b.name === 'origin/release'));
+  assert.ok((await branches(root)).some(b => b.name === 'release' && !b.remote));
+});
+
 test('hook output, timeout and cancellation terminate the operation and release its queue', async t => {
   const root = await fixture(t); await fs.writeFile(path.join(root, 'a'), 'a'); await stage(root, ['a']);
   const hook = path.join(root, '.git/hooks/pre-commit');

@@ -3,7 +3,7 @@
     <div v-if="error" role="alert" class="rt-alert">{{ error }} <button type="button" class="btn btn-subtle btn-xs" aria-label="Скрыть" @click="error = ''">✕</button></div>
     <div v-if="isGroup" class="rt-row rt-pick">
       <label>Проект группы
-        <select v-model="memberId" class="control control-sm" aria-label="Проект группы" @change="reset"><option value="">Выберите проект</option><option v-for="m in members" :key="m.id" :value="m.id">{{ m.name }}</option></select>
+        <PlainSelect :model-value="memberId" :options="(members ?? []).map(m => ({ value: m.id, label: m.name }))" small placeholder="Выберите проект" label="Проект группы" @update:model-value="memberId = $event; reset()" />
       </label>
     </div>
     <div v-if="!scope" class="empty-state small">Выберите проект, чтобы посмотреть ветку.</div>
@@ -15,10 +15,10 @@
         </div>
         <form class="rt-form" @submit.prevent="open">
           <label>Ветка для ревью
-            <select v-model="branch" class="control" aria-label="Ветка для ревью" :disabled="busy"><option value="">Выберите ветку</option><option v-for="b in list" :key="b.ref" :value="b.ref">{{ label(b) }}</option></select>
+            <BranchSelect v-model="branch" :options="branchOptions" placeholder="Выберите ветку" label="Ветка для ревью" :disabled="busy" />
           </label>
           <label>Сравнить с
-            <select v-model="baseRef" class="control" aria-label="Сравнить с" :disabled="busy"><option value="">Выберите ветку</option><option v-for="b in list" :key="b.ref" :value="b.ref">{{ label(b) }}</option></select>
+            <BranchSelect v-model="baseRef" :options="branchOptions" placeholder="Выберите ветку" label="Сравнить с" :disabled="busy" />
           </label>
           <div class="rt-row">
             <button class="btn btn-blue" :disabled="busy || !branch || !baseRef">Открыть ревью</button>
@@ -96,6 +96,8 @@ import { branchReviewApi } from '../api'
 import type { BranchRef, BranchReview } from '../types'
 import BranchDiff from '../components/BranchDiff.vue'
 import DiscussPanel from '../components/DiscussPanel.vue'
+import BranchSelect from '@shared/ui/BranchSelect.vue'
+import PlainSelect from '@shared/ui/PlainSelect.vue'
 import { useBranchReviewStore } from '../stores/review'
 import type { BranchQuestion } from '../types'
 
@@ -116,6 +118,7 @@ const viewedCount = computed(() => detail.value?.files.filter(f => f.viewed === 
 const baseName = (value: string) => value.split('/').pop() ?? value
 const dirName = (value: string) => value.includes('/') ? value.slice(0, value.lastIndexOf('/')) : ''
 const label = (b: BranchRef) => b.name
+const branchOptions = computed(() => list.value.map(b => ({ value: b.ref, label: label(b) })))
 
 async function run<T>(fn: () => Promise<T>, accept?: (value: T) => void) {
   if (busy.value) return undefined

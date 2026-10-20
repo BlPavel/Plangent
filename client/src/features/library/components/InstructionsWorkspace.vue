@@ -21,7 +21,6 @@
       <CodeFixerInstructionEditor v-else-if="view === 'fixer'" scope="project" :project-id="projectId" />
       <ProjectGitPanel v-else-if="view === 'branches' || view === 'mr'" :project-id="projectId" :section="view" />
       <template v-else>
-        <ProjectGitPanel :project-id="projectId" section="agent" class="agent-block" />
         <CommitSettings :project-id="projectId" />
         <CodeFixerInstructionEditor scope="project" type="commit-rules" :project-id="projectId" />
       </template>
@@ -66,6 +65,5 @@ watch(() => props.projectId, id => {
 .view:hover { color: var(--text); }
 .view.active { color: var(--text); border-bottom-color: var(--blue); }
 
-.agent-block { gap: 4px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
 .pending { margin-left: 4px; font-size: 10px; font-weight: 600; min-width: 16px; padding: 0 5px; border-radius: var(--radius-pill); background: var(--blue); color: #fff; }
 </style>

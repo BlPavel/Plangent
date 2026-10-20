@@ -1,9 +1,10 @@
 <template>
   <div v-if="store.repository && kind === 'remote'" class="bs remote">
     <span class="bs-label">Diff ветки с</span>
-    <select class="bs-select" :value="store.remoteRef" aria-label="С какой веткой сравнить" @change="store.setBase('remote', ($event.target as HTMLSelectElement).value)">
-      <option v-for="branch in remoteBranches" :key="branch.ref" :value="branch.name">{{ branch.name }}</option>
-    </select>
+    <BranchSelect
+      class="bs-branch" :model-value="store.remoteRef ?? ''" :options="remoteBranches.map(b => ({ value: b.name, label: b.name }))" small placeholder="Ветка" label="С какой веткой сравнить"
+      @update:model-value="store.setBase('remote', $event)"
+    />
     <span class="bs-spacer" />
     <button type="button" class="bs-close" title="Вернуться к незакоммиченным изменениям" aria-label="Закрыть diff ветки" @click="store.setBase('head')">✕</button>
   </div>
@@ -14,17 +15,17 @@
         :aria-checked="kind === option.value" :disabled="locked" :title="option.hint" @click="pick(option.value)"
       >{{ option.label }}</button>
     </div>
-    <select
-      v-if="kind === 'agent' && store.rounds.length > 1" class="bs-select" :value="round" title="После какого раунда показать изменения агента"
-      @change="store.setBase('agent', ($event.target as HTMLSelectElement).value)"
-    >
-      <option v-for="r in [...store.rounds].reverse()" :key="r.id" :value="r.id">после раунда {{ r.n }}</option>
-    </select>
+    <PlainSelect
+      v-if="kind === 'agent' && store.rounds.length > 1" class="bs-branch" :model-value="String(round ?? '')" :options="[...store.rounds].reverse().map(r => ({ value: String(r.id), label: 'после раунда ' + r.n }))" small
+      label="После какого раунда показать изменения агента" @update:model-value="store.setBase('agent', $event)"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import BranchSelect from '@shared/ui/BranchSelect.vue'
+import PlainSelect from '@shared/ui/PlainSelect.vue'
 import { useGitStore } from '../stores/git'
 import { useCodeStore } from '../stores/code'
 
@@ -69,6 +70,7 @@ function pick(value: string) {
 .bs-option:disabled { cursor: default; }
 .bs-option:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
 .bs-select { min-width: 0; max-width: 180px; padding: 1px 4px; font: inherit; font-size: 12px; color: var(--text); background: var(--bg2); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); }
+.bs-branch { flex: 0 1 240px; }
 .bs-close { padding: 0 6px; font: inherit; color: var(--text-muted); background: none; border: none; cursor: pointer; }
 .bs-close:hover { color: var(--text); }
 </style>

@@ -2,7 +2,7 @@
   <div v-if="project" class="git-panel">
     <GitAgentFields
       v-if="section === 'agent'" :model-value="gitSettings" :inherited="inherited" :source="inheritedSources.git_agent_id"
-      :fallback="project.kind === 'group' ? 'Агент каждого проекта' : 'Агент проекта'" @update:model-value="change"
+      :fallback="project.kind === 'group' ? 'Агент по умолчанию каждого проекта' : 'Агент по умолчанию'" @update:model-value="change"
     />
     <GitSettingsFields
       v-else :model-value="gitSettings" :section="section" :branches="branchNames" :members="members" :members-note="membersNote"
