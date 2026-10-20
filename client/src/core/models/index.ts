@@ -59,11 +59,9 @@ export interface Project {
   // What the agent is told about it.
   description: string
   default_agent_id: string | null
-  config: { extra_env?: Record<string, string>; dangerous_commands?: string[]; available_everywhere?: boolean }
+  config: { extra_env?: Record<string, string>; dangerous_commands?: string[] }
   hide_from_git?: boolean
   created_at: string
-  // Sources: groups/projects it is shared with (unless available_everywhere).
-  targets?: string[]
   source_type?: 'folder' | 'docs'
   connection_id?: string | null
   docs_config?: Record<string, unknown>

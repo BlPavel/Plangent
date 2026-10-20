@@ -26,12 +26,9 @@ function parse(row: Record<string, unknown>): Project {
     docs_selection: JSON.parse(row.docs_selection as string || '[]'),
     sync_stats: JSON.parse(row.sync_stats as string || '{}'),
   };
-  if (project.kind === 'source') project.targets = sourceTargets(project.id);
+  // Legacy visibility settings no longer apply: references are supplied only by explicit mention.
+  if (project.kind === 'source') delete (project.config as Record<string, unknown>).available_everywhere;
   return project;
-}
-
-function sourceTargets(id: string): string[] {
-  return (getDb().prepare('SELECT target_id FROM source_targets WHERE source_id=?').all(id) as { target_id: string }[]).map(r => r.target_id);
 }
 
 export function listProjects(kind?: ProjectKind): Project[] {
@@ -136,7 +133,6 @@ export interface ProjectInput {
   default_agent_id?: string | null;
   config?: ProjectConfig;
   hide_from_git?: boolean;
-  targets?: string[];
   clone_url?: string;
   host_project_path?: string;
   git_settings?: Partial<GitSettings>;
@@ -146,14 +142,9 @@ export interface ProjectInput {
   docs_selection?: DocsSelection[];
 }
 
-function setSourceTargets(id: string, targets: string[]): void {
-  const db = getDb();
-  db.transaction(() => {
-    db.prepare('DELETE FROM source_targets WHERE source_id=?').run(id);
-    for (const target of new Set(targets)) {
-      if (getProject(target)) db.prepare('INSERT INTO source_targets (source_id, target_id) VALUES (?, ?)').run(id, target);
-    }
-  })();
+function validateSourceVisibility(kind: ProjectKind, data: Partial<ProjectInput>): void {
+  if (kind === 'source' && ('targets' in data || (data.config && 'available_everywhere' in data.config)))
+    throw new ProjectError('Справочники подключаются только вручную через @упоминание');
 }
 
 
@@ -184,6 +175,7 @@ function saveDocsSettings(id: string, settings: ReturnType<typeof docsSettings>)
 }
 
 export function createProject(data: ProjectInput): Project {
+  validateSourceVisibility(data.kind ?? 'project', data);
   const kind = data.kind ?? 'project';
   if (!['project', 'group', 'source'].includes(kind)) throw new ProjectError('Invalid project kind');
   const settings = docsSettings(data);
@@ -208,7 +200,6 @@ export function createProject(data: ProjectInput): Project {
   saveDocsSettings(id, settings);
   saveGitData(id, git);
   if (settings.type === 'docs') fs.mkdirSync(repoPath, { recursive: true });
-  if (kind === 'source') setSourceTargets(id, data.targets ?? []);
   if (kind === 'group') writeGroupReadme(id);
   if (data.group_id) writeGroupReadme(data.group_id);
   return getProject(id)!;
@@ -217,6 +208,7 @@ export function createProject(data: ProjectInput): Project {
 export function updateProject(id: string, data: Partial<ProjectInput>): Project | null {
   const current = getProject(id);
   if (!current) return null;
+  validateSourceVisibility(current.kind, data);
   if (isDocsSyncRunning(id)) throw new ProjectError('Cancel sync before changing the source');
   const settings = docsSettings(data, current);
   const git = gitData({ ...current, ...data });
@@ -237,7 +229,6 @@ export function updateProject(id: string, data: Partial<ProjectInput>): Project 
     u.default_agent_id ?? null, JSON.stringify(u.config), u.hide_from_git ? 1 : 0, id);
   saveDocsSettings(id, settings);
   saveGitData(id, git);
-  if (current.kind === 'source' && data.targets) setSourceTargets(id, data.targets);
   for (const group of new Set([current.group_id, u.group_id, current.kind === 'group' ? id : null])) if (group) writeGroupReadme(group);
   return getProject(id);
 }

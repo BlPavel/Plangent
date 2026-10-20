@@ -126,22 +126,30 @@ async function loadDefaults(): Promise<{ lockedProtocol: string }> {
 
 <style scoped>
 .plan-template-editor {
+  display: flex;
+  flex: 1;
   min-height: 0;
 }
 
 .editor-grid {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 2fr) minmax(0, 1fr);
   gap: 18px;
 }
 
 .editor-section {
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
 
 .section-row {
+  flex-shrink: 0;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -168,7 +176,8 @@ p {
 
 .template-editor {
   width: 100%;
-  min-height: 280px;
+  flex: 1;
+  min-height: 0;
   background: var(--bg3);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -177,7 +186,7 @@ p {
   font-size: 12px;
   line-height: 1.5;
   padding: 12px;
-  resize: vertical;
+  resize: none;
 }
 
 .template-editor:focus {
@@ -186,11 +195,6 @@ p {
 }
 
 .template-editor.readonly {
-  min-height: 220px;
   color: var(--text-muted);
-}
-
-.template-editor.protocol {
-  min-height: 150px;
 }
 </style>

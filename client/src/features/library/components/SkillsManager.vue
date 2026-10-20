@@ -32,11 +32,11 @@
     </label>
 
     <div class="item-list">
-      <div v-if="store.loading" class="muted-msg">Загрузка...</div>
-      <div v-else-if="!store.items.length" class="muted-msg">
+      <div v-if="loading" class="muted-msg">Загрузка...</div>
+      <div v-else-if="!items.length" class="muted-msg">
         Нет элементов. Нажмите «+ Добавить».
       </div>
-      <div v-for="item in store.items" :key="item.id" class="item-row" :class="{ fresh: fresh === item.id }">
+      <div v-for="item in items" :key="item.id" class="item-row" :class="{ fresh: fresh === item.id }">
         <div class="item-main">
           <label class="toggle" :title="item.enabled ? 'Включён' : 'Выключен'">
             <input type="checkbox" :checked="item.enabled" @change="toggleEnabled(item)" />
@@ -89,6 +89,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { api } from '@core/api'
 import { onServerEvent } from '@core/api/events'
 import { useLibraryStore } from '../stores/library'
 import { useAppStore } from '@core/stores/app'
@@ -131,12 +132,29 @@ function typeLabel(t: LibraryItemType) {
   return { 'commit-rules': 'правила коммитов', 'code-fixer-instruction': 'Агент доработки', skill: 'скилл', command: 'команда', main: 'main', 'plan-template': 'шаблон плана', 'instruction-guide': 'руководство по инструкциям', 'review-skill': 'скилл ревью' }[t]
 }
 
-// A project lists everything that applies to it; the global list (settings) shows every item.
+// Each mounted list owns its results: hidden project views can reload independently of settings.
+const items = ref<LibraryItem[]>([])
+const loading = ref(false)
+let loadRevision = 0
+
+// Projects include inherited items; settings list only global items.
 async function reload() {
-  await store.load({
-    type: availableTypeValues.value.length === 1 ? availableTypeValues.value[0] : (filterType.value || undefined),
-    forProject: scope.value === 'project' ? props.projectId : undefined,
-  })
+  const revision = ++loadRevision
+  loading.value = true
+  items.value = []
+  try {
+    const params = new URLSearchParams()
+    const type = availableTypeValues.value.length === 1 ? availableTypeValues.value[0] : filterType.value
+    if (type) params.set('type', type)
+    if (scope.value === 'global') params.set('scope', 'global')
+    else if (props.projectId) params.set('forProject', props.projectId)
+    const result = await api.get<LibraryItem[]>(`/library?${params}`)
+    if (revision === loadRevision) items.value = result
+  } catch (e) {
+    if (revision === loadRevision) appStore.toast(String(e), 'error')
+  } finally {
+    if (revision === loadRevision) loading.value = false
+  }
 }
 
 function availabilityLabel(item: LibraryItem): string {
@@ -166,7 +184,7 @@ onBeforeUnmount(onServerEvent<{ type: string; item?: LibraryItem }>(event => {
   freshTimer = setTimeout(() => { fresh.value = '' }, 4000)
 }))
 onBeforeUnmount(() => clearTimeout(freshTimer))
-watch(() => props.projectId, reload)
+watch(() => [props.scope, props.projectId], reload)
 watch(availableTypeValues, (types) => {
   filterType.value = types.length === 1 ? types[0] : ''
   reload()
@@ -190,7 +208,11 @@ async function toggleGitVisibility(e: Event) {
 }
 
 async function toggleEnabled(item: LibraryItem) {
-  try { await store.update(item.id, { enabled: !item.enabled }) }
+  try {
+    const updated = await store.update(item.id, { enabled: !item.enabled })
+    const index = items.value.findIndex(i => i.id === item.id)
+    if (index !== -1) items.value[index] = updated
+  }
   catch (e: unknown) { appStore.toast(String(e), 'error') }
 }
 
@@ -199,7 +221,9 @@ async function removeItem(item: LibraryItem) {
   const shared = isSharedInProject(item)
   if (!(await appStore.confirm(shared ? 'Убрать из этого проекта? В группе и в других проектах он останется.' : 'Удалить?'))) return
   try {
-    if (shared) { await store.exclude(item.id, props.projectId!); await reload() } else await store.remove(item.id)
+    if (shared) await store.exclude(item.id, props.projectId!)
+    else await store.remove(item.id)
+    await reload()
     appStore.toast(shared ? 'Убрано из проекта' : 'Удалено', 'success')
   } catch (e: unknown) { appStore.toast(String(e), 'error') }
 }

@@ -81,7 +81,7 @@ agentSessionsRouter.patch('/:id', async (req, res) => {
     if (policy && !['ask', 'allow-edits', 'allow-all', 'read-only'].includes(policy)) throw new Error('Неизвестная политика');
     const session = getSession(req.params.id);
     if (session.policy === 'read-only' && session.role !== 'chat' && policy !== 'read-only') throw new Error('Сначала запустите выполнение шага');
-    res.json(updateSession(req.params.id, { ...(typeof title === 'string' ? { title: title.slice(0, 120) } : {}), ...(policy ? { policy } : {}) }));
+    res.json(updateSession(req.params.id, { ...(typeof title === 'string' ? { title: title.slice(0, 120), metadata: { ...session.metadata, titleSource: 'manual' } } : {}), ...(policy ? { policy } : {}) }));
   } catch (e) { res.status(400).json({ error: String(e) }); }
 });
 agentSessionsRouter.patch('/:id/queue/:promptId', (req, res) => {

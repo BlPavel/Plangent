@@ -75,14 +75,13 @@
     </div>
 
     <!-- Skills (global) -->
-    <!-- v-if: both skill lists share the library store and reload on mount -->
     <div v-if="tab === 'skills'" class="tab-body">
       <p class="hint">Глобальные скиллы разработчика применяются ко всем агентам во всех проектах. Инструкции для конкретного проекта задаются во вкладке «Инструкции» внутри проекта.</p>
       <SkillsManager scope="global" :allowed-types="['skill']" />
     </div>
 
     <!-- Plan template (global) -->
-    <div v-show="tab === 'plan-template'" class="tab-body">
+    <div v-show="tab === 'plan-template'" class="tab-body plan-template-tab">
       <p class="hint">Глобальный шаблон применяется ко всем проектам, если проект не переопределил его в своих инструкциях.</p>
       <PlanTemplateEditor scope="global" />
     </div>
@@ -432,6 +431,9 @@ onMounted(() => {
   flex-direction: column;
   gap: var(--sp-4);
 }
+
+.plan-template-tab { min-height: 0; overflow: hidden; }
+.plan-template-tab > .hint { flex-shrink: 0; }
 
 .stab {
   background: none;

@@ -16,7 +16,7 @@
         </div>
         <p v-if="text" class="new-chat-hint">{{ text }}</p>
       </template>
-      <ChatComposer v-if="!compact" :initial-text="initialText" :project-id="projectId" :placeholder="placeholder" :disabled="!agentId || busy" @send="start" @error="localError = $event">
+      <ChatComposer v-if="!compact" :draft-key="draftKey" :initial-text="initialText" :project-id="projectId" :placeholder="placeholder" :disabled="!agentId || busy" @send="start" @error="localError = $event">
         <template #status><UsageMeter v-if="agentId" :agent-id="agentId" /></template>
       </ChatComposer>
       <AgentSettingsBar :policy="fixedPolicy ?? policy" :selects="resolvedSelects" :locked="!!fixedPolicy" @policy="policy = $event" @change="(select, value) => (choices[select.configId] = value)">
@@ -60,6 +60,7 @@ export interface NewChatRequest {
  */
 const props = defineProps<{
   projectId: string
+  draftKey?: string
   defaultAgentId?: string | null
   title: string
   text: string

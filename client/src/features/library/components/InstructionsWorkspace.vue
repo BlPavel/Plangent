@@ -1,6 +1,6 @@
 <template>
   <div class="workspace" :class="{ split: panelOpen }">
-    <section class="list-pane">
+    <section class="list-pane" :class="{ 'skills-pane': view === 'items' || view === 'review' }">
       <div class="views">
         <button type="button" class="view" :class="{ active: view === 'items' }" @click="view = 'items'">Элементы</button>
         <button type="button" class="view" :class="{ active: view === 'guide' }" @click="view = 'guide'">Руководство для агента</button>
@@ -10,7 +10,7 @@
         <button type="button" class="view" :class="{ active: view === 'branches' }" @click="view = 'branches'">Ветки</button>
         <button type="button" class="view" :class="{ active: view === 'mr' }" @click="view = 'mr'">Merge request</button>
       </div>
-      <SkillsManager v-if="view === 'items'" scope="project" :project-id="projectId">
+      <SkillsManager v-if="view === 'items'" class="skills" scope="project" :project-id="projectId">
         <template #actions>
           <AppButton v-if="!panelOpen" variant="subtle" size="sm" title="Описать, что нужно, а агент предложит скилл, правку главного файла или команду" @click="panelOpen = true">
             ✦ Записать с агентом
@@ -20,7 +20,7 @@
       </SkillsManager>
       <template v-else-if="view === 'review'">
         <p class="hint">Скиллы ревью говорят агенту во вкладке «Ревью», что важно в МР этого проекта и что пропускать. Перед разбором вы выбираете один из них; без скиллов работает стандартный.</p>
-        <SkillsManager scope="project" :project-id="projectId" :allowed-types="['review-skill']">
+        <SkillsManager class="skills" scope="project" :project-id="projectId" :allowed-types="['review-skill']">
           <template #actions>
             <AppButton v-if="!panelOpen" variant="subtle" size="sm" title="Агент изучит код проекта, расспросит вас и предложит скилл ревью" @click="panelOpen = true">✦ Написать с агентом</AppButton>
           </template>
@@ -68,6 +68,9 @@ watch(() => props.requested?.at, () => { if (props.requested) view.value = props
 <style scoped>
 .workspace { display: flex; height: 100%; min-height: 0; }
 .list-pane { flex: 1; min-width: 0; overflow-y: auto; padding: var(--sp-5) var(--sp-6); display: flex; flex-direction: column; gap: 12px; }
+.skills-pane { min-height: 0; overflow: hidden; }
+.skills { flex: 1; min-height: 0; height: auto; }
+.skills-pane > .hint { flex-shrink: 0; }
 .split .list-pane { flex: 0 1 46%; min-width: 360px; }
 .panel { flex: 1 1 54%; min-width: 420px; border-left: 1px solid var(--border); }
 

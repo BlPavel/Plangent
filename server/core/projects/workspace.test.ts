@@ -9,7 +9,7 @@ test('groups, sources and sharing: keys, catalog, library targets and moving tas
   process.env.PLANGENT_DATA_DIR = path.join(temp, 'data');
   const { getDb } = await import('../../infrastructure/db/schema');
   const projects = await import('./index');
-  const { referenceCatalog, workspaceBriefing, writableRoots } = await import('./workspace');
+  const { referenceCatalog, workspaceBriefing, mentionedReferences, writableRoots } = await import('./workspace');
   const library = await import('../library');
   const { resolvePlanTemplate } = await import('../library/plan-template');
   const { writeItemContent } = await import('../library/library-manager');
@@ -34,14 +34,33 @@ test('groups, sources and sharing: keys, catalog, library targets and moving tas
     assert.match(fs.readFileSync(path.join(group.repo_path, 'README.md'), 'utf8'), /@zakazy/);
     assert.deepEqual(writableRoots(group), [group.repo_path, profile.repo_path, orders.repo_path]);
 
-    const uiKit = projects.createProject({ kind: 'source', name: 'UI kit', key: 'ui-kit', repo_path: dir('ui-kit'), description: 'Компоненты', targets: [group.id] });
-    const docs = projects.createProject({ kind: 'source', name: 'Docs', key: 'docs', repo_path: dir('docs'), targets: [] });
+    const uiKit = projects.createProject({ kind: 'source', name: 'UI kit', key: 'ui-kit', repo_path: dir('ui-kit'), description: 'Компоненты' });
+    const docs = projects.createProject({ kind: 'source', name: 'Docs', key: 'docs', repo_path: dir('docs') });
     const solo = projects.createProject({ name: 'Solo', repo_path: dir('solo') });
-    // Neighbours and sources shared with the group; nothing for an unrelated project.
-    assert.deepEqual(referenceCatalog(orders).map(r => r.key), ['profile', 'ui-kit']);
+    // Only neighbouring work projects are automatic; all sources require an explicit mention.
+    assert.deepEqual(referenceCatalog(orders).map(r => r.key), ['profile']);
     assert.deepEqual(referenceCatalog(solo).map(r => r.key), []);
-    projects.updateProject(docs.id, { config: { available_everywhere: true } });
-    assert.deepEqual(referenceCatalog(solo).map(r => r.key), ['docs']);
+    getDb().prepare('UPDATE projects SET config=? WHERE id=?').run(JSON.stringify({ available_everywhere: true }), docs.id);
+    getDb().prepare('INSERT INTO source_targets (source_id,target_id) VALUES (?,?)').run(uiKit.id, group.id);
+    assert.deepEqual(referenceCatalog(solo), []);
+    assert.deepEqual(referenceCatalog(orders).map(r => r.key), ['profile']);
+    assert.ok(!('available_everywhere' in projects.getProject(docs.id)!.config));
+    assert.ok(!('targets' in projects.getProject(uiKit.id)!));
+    assert.throws(() => projects.updateProject(docs.id, { config: JSON.parse('{"available_everywhere":true}') }), /только вручную/);
+    assert.throws(() => projects.updateProject(docs.id, JSON.parse('{"targets":[]}')), /только вручную/);
+    assert.throws(() => projects.createProject({ kind: 'source', name: 'Rejected', repo_path: dir('rejected'), ...JSON.parse('{"targets":[]}') }), /только вручную/);
+    const soloBriefing = workspaceBriefing(solo);
+    assert.ok(soloBriefing.startsWith(`[Plangent] Active project: "Solo" (@solo). Working directory: ${solo.repo_path}`));
+    assert.ok(!soloBriefing.includes('@docs'));
+    assert.match(soloBriefing, /"this application"/);
+    assert.match(soloBriefing, /only when the developer explicitly mentions/);
+    assert.ok(!soloBriefing.includes(docs.repo_path));
+    assert.ok(!workspaceBriefing(group).includes(uiKit.repo_path));
+    assert.ok(!workspaceBriefing(orders).includes(uiKit.repo_path));
+    assert.equal(mentionedReferences(solo, 'What is this application?'), '');
+    assert.ok(mentionedReferences(solo, 'Compare with @docs').includes(docs.repo_path));
+    assert.ok(mentionedReferences(solo, 'Compare with @ui-kit/src').includes(uiKit.repo_path));
+    assert.ok(!mentionedReferences(solo, 'Compare with @docs').includes(uiKit.repo_path));
     assert.match(workspaceBriefing(group), /@profile[\s\S]*@zakazy/);
     assert.doesNotMatch(workspaceBriefing(orders), /Компоненты[\s\S]*Компоненты/);
 
@@ -73,6 +92,6 @@ test('groups, sources and sharing: keys, catalog, library targets and moving tas
     projects.deleteProject(group.id);
     assert.equal(projects.getProject(orders.id)!.group_id, null);
     assert.ok(!fs.existsSync(group.repo_path));
-    assert.deepEqual(projects.getProject(uiKit.id)!.targets, []);
+    assert.ok(!('targets' in projects.getProject(uiKit.id)!));
   } finally { getDb().close(); }
 });

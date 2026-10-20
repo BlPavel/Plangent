@@ -36,8 +36,6 @@ export interface Agent {
 export interface ProjectConfig {
   dangerous_commands?: string[];
   extra_env?: Record<string, string>;
-  // Sources only: shown to agents of every project, not just the targets.
-  available_everywhere?: boolean;
   // Sources only: how the folder gets its files; just 'folder' for now (see docs/DOCS-PROPOSAL.md).
   source_type?: SourceType;
 }
@@ -68,8 +66,6 @@ export interface Project {
   config: ProjectConfig;
   hide_from_git: boolean;
   created_at: string;
-  // Sources only: the groups/projects it is available for (unless available_everywhere).
-  targets?: string[];
   source_type: SourceType;
   connection_id: string | null;
   docs_config: Record<string, unknown>;

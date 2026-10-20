@@ -59,28 +59,32 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useMentionFiles } from '../composables/useMentionFiles'
+import { emptyDraft, useChatDraftsStore } from '../stores/drafts'
 import AppButton from '@shared/ui/AppButton.vue'
 import SuggestMenu, { type SuggestItem } from './SuggestMenu.vue'
 
 export type ContentBlock = Record<string, unknown>
-interface Attachment { name: string; preview?: string; block: ContentBlock }
 
 const props = withDefaults(defineProps<{
   projectId: string
+  draftKey?: string
   commands?: { name: string; description: string }[]
   busy?: boolean
   disabled?: boolean
   initialText?: string
   placeholder?: string
-}>(), { initialText: undefined, commands: () => [], busy: false, disabled: false, placeholder: 'Напишите агенту…  @ — файл, / — команда' })
+}>(), { draftKey: undefined, initialText: undefined, commands: () => [], busy: false, disabled: false, placeholder: 'Напишите агенту…  @ — файл, / — команда' })
 const emit = defineEmits<{ send: [content: ContentBlock[]]; cancel: []; error: [message: string] }>()
 
 const input = ref<HTMLTextAreaElement>()
-const text = ref(props.initialText ?? '')
+const drafts = useChatDraftsStore()
+const localDraft = reactive(emptyDraft(props.initialText))
+const draft = computed(() => props.draftKey ? drafts.get(props.draftKey, props.initialText) : localDraft)
+const text = computed({ get: () => draft.value.text, set: value => { draft.value.text = value } })
 watch(() => props.initialText, value => { if (value !== undefined) text.value = value })
-const attachments = ref<Attachment[]>([])
+const attachments = computed({ get: () => draft.value.attachments, set: value => { draft.value.attachments = value } })
 const focused = ref(false), dragging = ref(false)
 const canSend = computed(() => !!text.value.trim() || attachments.value.length > 0)
 
@@ -88,7 +92,7 @@ const canSend = computed(() => !!text.value.trim() || attachments.value.length >
 const suggest = ref<{ kind: 'file' | 'command'; start: number; end: number; query: string } | null>(null)
 const { files, suggestions: fileSuggestions, loading: loadingFiles, search: searchFiles, clear: clearFiles } = useMentionFiles(() => props.projectId)
 const active = ref(0)
-const mentions = new Map<string, string>() // inserted path -> file URI
+const mentions = computed(() => draft.value.mentions) // inserted path -> file URI
 let dismissedAt = -1
 
 const suggestItems = computed<SuggestItem[]>(() => {
@@ -135,7 +139,7 @@ async function pick(item: SuggestItem, commit = false) {
     return
   }
   const hit = files.value.find(f => f.path === item.value)
-  if (hit) mentions.set(hit.dir ? hit.path.slice(0, -1) : hit.path, hit.uri)
+  if (hit) mentions.value.set(hit.dir ? hit.path.slice(0, -1) : hit.path, hit.uri)
   const drill = item.dir && !commit
   await replaceRange(s.start, s.end, `@${item.value}${drill ? '' : ' '}`)
   if (drill) detect(); else suggest.value = null
@@ -184,6 +188,9 @@ function resize() {
   el.style.height = Math.min(el.scrollHeight, 240) + 'px'
 }
 
+onMounted(resize)
+watch(text, resize, { flush: 'post' })
+
 // ── Sending ───────────────────────────────────────────────────────────────
 function submit() {
   if (!canSend.value || props.disabled) return
@@ -192,13 +199,13 @@ function submit() {
   const seen = new Set<string>()
   for (const match of value.matchAll(/(?:^|\s)@(\S+)/g)) {
     const path = match[1].replace(/\/$/, '')
-    const uri = mentions.get(path)
+    const uri = mentions.value.get(path)
     if (uri && !seen.has(path)) { seen.add(path); links.push({ type: 'resource_link', uri, name: path }) }
   }
   emit('send', [...(value ? [{ type: 'text', text: value }] : []), ...links, ...attachments.value.map(a => a.block)])
   text.value = ''
   attachments.value = []
-  mentions.clear()
+  mentions.value.clear()
   suggest.value = null
   void nextTick(resize)
 }
@@ -218,7 +225,8 @@ function filesSelected(event: Event) { const el = event.target as HTMLInputEleme
 function drop(event: DragEvent) { dragging.value = false; void addFiles(Array.from(event.dataTransfer?.files ?? [])) }
 function paste(event: ClipboardEvent) { if (event.clipboardData?.files.length) { event.preventDefault(); void addFiles(Array.from(event.clipboardData.files)) } }
 
-watch(() => props.projectId, () => { clearFiles(); mentions.clear() })
+watch(() => props.projectId, () => { clearFiles() })
+watch(() => props.draftKey, () => { suggest.value = null; dismissedAt = -1; clearFiles() })
 
 defineExpose({
   focus: () => input.value?.focus(),

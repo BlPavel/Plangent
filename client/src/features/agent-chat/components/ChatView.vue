@@ -108,6 +108,7 @@
           v-if="!noComposer"
           ref="composer"
           :project-id="snap.session.project_id"
+          :draft-key="`session:${sessionId}`"
           :commands="commands"
           :initial-text="draftText"
           :busy="thinking"

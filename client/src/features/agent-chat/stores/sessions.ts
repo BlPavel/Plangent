@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import { api } from '@core/api'
 import { platform } from '@core/platform'
 import type { AgentOptionsSource } from '../utils/agent-options'
+import { useChatDraftsStore } from './drafts'
 export interface ChatSession {
   id: string; project_id: string; task_id: string | null; agent_id: string; model: string;
   title: string; status: string; reason: string; policy: string; role: string;
@@ -87,6 +88,7 @@ export const useChatStore = defineStore('agent-chat', () => {
     }
   }
   function drop(id: string) {
+    useChatDraftsStore().removeSession(id)
     sessions.value = sessions.value.filter(s => s.id !== id)
     delete snapshots.value[id]
   }

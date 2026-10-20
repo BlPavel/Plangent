@@ -52,22 +52,13 @@
       <section>
         <h3>Описание для агента</h3>
         <p v-if="source.description" class="text">{{ source.description }}</p>
-        <p v-else class="muted">Не задано. Агент увидит только имя и путь — с описанием ему проще понять, когда сюда заглядывать.</p>
-      </section>
-      <section>
-        <h3>Доступно</h3>
-        <p v-if="source.config.available_everywhere" class="text">Везде: агенты всех проектов знают об этом справочнике.</p>
-        <template v-else-if="targets.length">
-          <p class="text">Агенты этих групп и проектов знают о справочнике:</p>
-          <div class="chips"><span v-for="t in targets" :key="t.id" class="chip">{{ t.kind === 'group' ? '🗂' : '📁' }} {{ t.name }}</span></div>
-        </template>
-        <p v-else class="muted">Никому — агент узнает о справочнике, только когда вы упомянете @{{ source.key }}.</p>
+        <p v-else class="muted">Не задано. При @упоминании агент получит только имя и путь справочника.</p>
       </section>
       <section>
         <h3>Как пользоваться</h3>
         <p class="text">
           В чате или задаче напишите <code>@{{ source.key }}</code> или <code>@{{ source.key }}/путь/к/файлу</code>.
-          Агент получает только имя, путь и описание — сами файлы читает, когда это нужно, и никогда не меняет.
+          Справочник подключается только по вашему явному @упоминанию. Агент получает имя, путь и описание — сами файлы читает, когда это нужно, и никогда не меняет.
         </p>
       </section>
     </div>
@@ -135,7 +126,7 @@ async function sync(confirmed: boolean) {
   busy.value = true
   try { await projectsStore.startSync(props.source.id, confirmed) } catch (e) { app.toast(errorText(e, ERRORS), 'error') } finally { busy.value = false }
 }
-async function cancel() { busy.value = true; try { await projectsStore.cancelSync(props.source.id) } catch (e) { app.toast(errorText(e, ERRORS), 'error') } finally { busy.value = false } }const targets = computed(() => (props.source.targets ?? []).map(id => projectsStore.byId(id)).filter(p => !!p))
+async function cancel() { busy.value = true; try { await projectsStore.cancelSync(props.source.id) } catch (e) { app.toast(errorText(e, ERRORS), 'error') } finally { busy.value = false } }
 </script>
 
 <style scoped>
@@ -157,8 +148,6 @@ async function cancel() { busy.value = true; try { await projectsStore.cancelSyn
 h3 { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-faint); margin-bottom: 6px; }
 .text { font-size: 13px; line-height: 1.55; white-space: pre-wrap; }
 .muted { font-size: 13px; color: var(--text-muted); }
-.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
-.chip { padding: 3px 8px; background: var(--bg3); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); font-size: 12px; }
 code { padding: 1px 5px; background: var(--bg3); border-radius: 4px; font-size: 12px; }
 
 /* Sync card: same visual language as the update popup (tone icon, title, sub line, thin bar). */

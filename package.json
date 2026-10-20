@@ -15,6 +15,8 @@
     "electron:release": "npm run build && tsc -p tsconfig.electron.json && npx electron-rebuild --force --only better-sqlite3 && electron-builder --publish=always",
     "typecheck": "tsc -p tsconfig.server.json --noEmit && vue-tsc --noEmit -p client/tsconfig.json && tsc -p tsconfig.electron.json --noEmit",
     "test:code-ui": "node --test scripts/code-client.test.cjs scripts/code-git.test.cjs",
+    "test:chat-ui": "node --test scripts/chat-drafts.test.cjs",
+    "test:library-ui": "node --test scripts/library-ui.test.cjs",
     "test:integrations-ui": "node --test scripts/ui-integrations.test.cjs",
     "test:mr-review-ui": "node --test scripts/mr-review.test.cjs",
     "test:task-mr-ui": "node --test scripts/task-mr.test.cjs"

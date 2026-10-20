@@ -52,7 +52,8 @@ export function createSession(data: Pick<AgentSession, 'project_id' | 'agent_id'
     (id, project_id, task_id, run_id, step_ids, role, agent_id, model, title, status, policy)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'starting', ?)`).run(id, data.project_id, data.task_id ?? null,
     data.run_id ?? null, JSON.stringify(data.step_ids ?? []), data.role, data.agent_id, data.model ?? '', data.title ?? 'Новый чат', data.policy);
-  if (data.metadata) getDb().prepare('UPDATE agent_sessions SET metadata=? WHERE id=?').run(JSON.stringify(data.metadata), id);
+  const metadata = { ...data.metadata, ...(data.title !== undefined ? { titleSource: 'custom' } : {}) };
+  if (Object.keys(metadata).length) getDb().prepare('UPDATE agent_sessions SET metadata=? WHERE id=?').run(JSON.stringify(metadata), id);
   return getSession(id);
 }
 export function updateSession(id: string, data: Partial<AgentSession>): AgentSession {
@@ -64,6 +65,18 @@ export function updateSession(id: string, data: Partial<AgentSession>): AgentSes
   const session = getSession(id);
   broadcast({ type: 'agent_session', session });
   return session;
+}
+/** Agent titles only name standalone chats; explicit and manually edited names belong to the user. */
+export function updateAgentTitle(id: string, title: string | null | undefined): void {
+  if (typeof title !== 'string') return;
+  const normalized = title.replace(/\s+/g, ' ').trim().slice(0, 120);
+  // Some adapters first echo the hidden repository instruction as a provisional title.
+  if (!normalized || /^do not commit\b/i.test(normalized)) return;
+  const session = getSession(id);
+  if (session.role !== 'chat' || session.task_id || session.run_id || session.metadata.mr_private
+      || session.metadata.titleSource === 'manual' || session.metadata.titleSource === 'custom'
+      || session.title === normalized) return;
+  updateSession(id, { title: normalized, metadata: { ...session.metadata, titleSource: 'agent' } });
 }
 export function addEvent(id: string, type: string, payload: Record<string, unknown>): SessionEvent {
   const db = getDb();
