@@ -10,7 +10,8 @@
     </div>
     <button v-if="forbidden" type="button" class="cb-link" title="Убрать запрещённые строки из сообщения" @click="clean">Убрать запрещённое</button>
     <div v-if="error" role="alert" class="cb-error">{{ error }}</div>
-    <pre v-if="shown && git.output" aria-label="Вывод git и хуков">{{ git.output }}</pre>
+    <div v-else-if="done" role="status" class="cb-done">Коммит создан</div>
+    <details v-if="error && shown && git.output" class="cb-log"><summary>Вывод git и хуков</summary><pre>{{ git.output }}</pre></details>
     <div class="cb-actions">
       <button type="button" class="cb-tool" :disabled="generating || !!git.blocked || !code.changes.length" :title="git.blocked || 'Агент предложит сообщение по изменениям, отмеченным к коммиту (если ничего не отмечено — по всем)'" aria-label="Предложить сообщение" @click="generate">✨</button>
       <button type="button" class="cb-tool" :class="{ on: coauthorsOpen || coauthors.length }" :title="coauthors.length ? 'Соавторы: ' + coauthors.map(c => c.name).join(', ') : 'Добавить соавтора'" aria-label="Соавторы" @click="coauthorsOpen = !coauthorsOpen">
@@ -22,7 +23,6 @@
         {{ committing ? 'Коммит…' : mode === 'staged' ? `Закоммитить ${stagedCount}` : 'Закоммитить всё' }}
       </SplitButton>
     </div>
-    <button v-if="committing && git.operationId" type="button" class="btn btn-ghost btn-xs cb-cancel" @click="git.cancel()">Отменить git-операцию</button>
     <div v-if="code.head" class="cb-last" :title="code.repository?.message ?? ''">
       <span class="cb-last-label">Последний коммит</span>
       <span class="cb-last-text">{{ code.repository?.message || '—' }}</span>
@@ -48,7 +48,7 @@ const git = useGitStore(), code = useCodeStore()
 const message = ref(''), coauthors = ref<Coauthor[]>([]), coauthorsOpen = ref(false)
 const generating = ref(false), checking = ref(false), error = ref(''), check = ref<MessageCheck | null>(null), overrideNeeded = ref(false)
 /** committing — this box's commit is running; shown — its hook output is still relevant. */
-const committing = ref(false), shown = ref(false)
+const committing = ref(false), shown = ref(false), done = ref(false)
 
 const isStaged = (change: GitChange) => !['.', ' ', '?'].includes(change.indexStatus)
 const stagedCount = computed(() => code.changes.filter(isStaged).length)
@@ -72,6 +72,7 @@ watch(input, () => {
   clearTimeout(timer); const current = ++version
   check.value = null; overrideNeeded.value = false; error.value = ''
   if (!title.value) { checking.value = false; return }
+  done.value = false
   checking.value = true
   timer = setTimeout(async () => {
     try { const result = await gitApi.checkMessage(git.projectId, input.value); if (current === version) check.value = result }
@@ -100,11 +101,11 @@ async function generate() {
 }
 function commitByKey() { if (canCommit.value) void commit(mode.value, false) }
 async function commit(kind: 'staged' | 'all', overrideForbidden: boolean) {
-  error.value = ''; committing.value = true; shown.value = true
+  error.value = ''; done.value = false; committing.value = true; shown.value = true
   try {
     if (kind === 'all') await stageAll()
     await git.run('commit', { ...input.value, overrideForbidden })
-    message.value = ''; overrideNeeded.value = false
+    message.value = ''; overrideNeeded.value = false; done.value = true
   } catch (cause) {
     overrideNeeded.value = (cause as { code?: string }).code === 'forbidden_message'
     error.value = overrideNeeded.value ? 'В сообщении есть запрещённый текст. Уберите его или закоммитьте как есть.' : errorOf(cause)
@@ -128,8 +129,10 @@ async function commit(kind: 'staged' | 'all', overrideForbidden: boolean) {
 .cb-tool:disabled { opacity: 0.4; cursor: default; }
 .cb-badge { position: absolute; top: -2px; right: -2px; min-width: 13px; height: 13px; padding: 0 3px; font-size: 9px; font-weight: 700; line-height: 13px; color: #fff; background: var(--blue); border-radius: var(--radius-pill); }
 .cb-hint { flex: 1; text-align: right; padding-right: 4px; font-size: 11px; color: var(--text-faint); }
+.cb-done { color: var(--text-muted); }
+.cb-log summary { cursor: pointer; font-size: 11.5px; color: var(--text-muted); }
+.cb-log pre { margin-top: 4px; }
 pre { margin: 0; padding: 6px 8px; max-height: 160px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11.5px; color: var(--text-muted); background: var(--bg2); border-radius: var(--radius-sm); }
-.cb-cancel { align-self: flex-start; }
 .cb-last { display: flex; align-items: baseline; gap: 6px; min-width: 0; padding-top: 6px; border-top: 1px solid var(--border); color: var(--text-muted); }
 .cb-last-label { flex-shrink: 0; font-size: 11px; color: var(--text-faint); }
 .cb-last-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

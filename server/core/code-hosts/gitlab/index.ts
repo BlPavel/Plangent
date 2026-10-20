@@ -1,4 +1,4 @@
-import type { CodeHost, HostCapabilities, MergeRequest, MrVersion, MrDiff, HostDiscussion, HostNote, ReviewNote, CreateMergeRequest } from '../../../models/code-host';
+import type { CodeHost, HostUser, HostCapabilities, MergeRequest, MrVersion, MrDiff, HostDiscussion, HostNote, ReviewNote, CreateMergeRequest } from '../../../models/code-host';
 import { authenticatedRequest, IntegrationHttpError } from '../../../infrastructure/http/integration-client';
 import { IntegrationError } from '../../integrations';
 export type HostRequest = typeof authenticatedRequest;
@@ -104,6 +104,23 @@ export class GitLab implements CodeHost {
   }
   replyToDiscussion(iid: number, discussion: string, body: string) {
     return this.request<HostNote>(this.mr(iid) + '/discussions/' + encodeURIComponent(discussion) + '/notes', 'POST', { body });
+  }
+  async resolveDiscussion(iid: number, discussion: string, resolved: boolean) {
+    await this.request(this.mr(iid) + '/discussions/' + encodeURIComponent(discussion), 'PUT', { resolved });
+  }
+  private note(iid: number, discussion: string, note: number) {
+    if (!Number.isSafeInteger(note) || note < 1)
+      throw new IntegrationError('Invalid note');
+    return this.mr(iid) + '/discussions/' + encodeURIComponent(discussion) + '/notes/' + note;
+  }
+  async updateNote(iid: number, discussion: string, note: number, body: string) {
+    await this.request(this.note(iid, discussion, note), 'PUT', { body });
+  }
+  async deleteNote(iid: number, discussion: string, note: number) {
+    await this.request(this.note(iid, discussion, note), 'DELETE');
+  }
+  currentUser() {
+    return this.request<HostUser>('/api/v4/user');
   }
   async detectCapabilities(iid: number) {
     if (this.capabilities.batchReview === null) {

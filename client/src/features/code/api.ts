@@ -48,6 +48,9 @@ export const codeReviewsApi = {
   removeReview: (p: string, r: string) => api.delete<void>(review(p, r)),
   external: (p: string, signal?: AbortSignal) => api.get<ExternalThreads>(reviews(p) + '/external', signal),
   replyExternal: (p: string, discussion: string, body: string) => api.post<ExternalThreads>(reviews(p) + '/external/' + id(discussion) + '/reply', { body, confirmed: true }),
+  editExternalNote: (p: string, discussion: string, note: number, body: string) => api.put<ExternalThreads>(reviews(p) + '/external/' + id(discussion) + '/notes/' + note, { body }),
+  deleteExternalNote: (p: string, discussion: string, note: number) => api.delete<ExternalThreads>(reviews(p) + '/external/' + id(discussion) + '/notes/' + note + '?confirmed=true'),
+  resolveExternal: (p: string, discussion: string, resolved: boolean) => api.put<ExternalThreads>(reviews(p) + '/external/' + id(discussion) + '/resolved', { resolved }),
 }
 
 const git = (p: string) => '/projects/' + id(p) + '/git'

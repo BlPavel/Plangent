@@ -32,13 +32,17 @@ export function redactGitOutput(text: string): string {
   return text.replace(/(https?:\/\/)[^\s/@]+(?::[^\s/@]*)?@/gi, '$1***@');
 }
 const run = runGit;
+/** Commands that run the repository's hooks. `--literal-pathspecs` is exported to hooks as GIT_LITERAL_PATHSPECS and breaks their own globs (`git add ./apps/**\/*.scss`). */
+const HOOK_COMMANDS = new Set(['commit', 'push', 'switch', 'checkout', 'merge', 'pull', 'rebase', 'clone']);
 export function runGit(root: string, args: string[], options: GitOperationOptions = {}, input?: string): Promise<string> {
   options.signal?.throwIfAborted();
   return new Promise((resolve, reject) => {
     let output = '', cancelled = false, timedOut = false, terminating = false, killError: Error | undefined;
-    const child = execFile('git', ['-c', 'core.quotepath=off', '--literal-pathspecs', ...args], {
-      cwd: root, windowsHide: true, maxBuffer: 64 * 1024 * 1024,
-      env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_PAGER: 'cat', GCM_INTERACTIVE: 'never' },
+    const hooks = HOOK_COMMANDS.has(args[0]);
+    const env: NodeJS.ProcessEnv = { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_PAGER: 'cat', GCM_INTERACTIVE: 'never' };
+    if (hooks) delete env.GIT_LITERAL_PATHSPECS;
+    const child = execFile('git', ['-c', 'core.quotepath=off', ...(hooks ? [] : ['--literal-pathspecs']), ...args], {
+      cwd: root, windowsHide: true, maxBuffer: 64 * 1024 * 1024, env,
     }, (error, stdout) => {
       clearTimeout(timer); options.signal?.removeEventListener('abort', abort);
       if (killError) return reject(killError);
@@ -148,7 +152,10 @@ export async function push(root: string, options: GitOperationOptions = {}, forc
     const info = await repositoryInfo(root);
     if (!info?.branch) throw new CodeError('Choose a branch before pushing');
     const upstream = await run(root, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'], options).catch(() => '');
-    return run(root, upstream ? ['push', '--progress', ...(force ? ['--force-with-lease'] : [])] : ['push', '--progress', '--set-upstream', 'origin', info.branch], options);
+    const lease = force ? ['--force-with-lease'] : [];
+    // A branch cut from origin/develop tracks develop; a plain push (push.default=simple) refuses that, so it is published under its own name.
+    const sameName = upstream.trim().split('/').slice(1).join('/') === info.branch;
+    return run(root, upstream && sameName ? ['push', '--progress', ...lease] : ['push', '--progress', ...lease, '--set-upstream', 'origin', info.branch], options);
   });
 }
 export async function switchBranch(root: string, branch: string, options: GitOperationOptions = {}) {

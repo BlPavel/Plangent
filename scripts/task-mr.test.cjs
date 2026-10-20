@@ -8,6 +8,9 @@ const { parseHTML } = require('linkedom');
 const { window } = parseHTML('<html><body><div id="app"></div></body></html>');
 for (const key of ['window', 'document', 'Document', 'ShadowRoot', 'HTMLElement', 'SVGElement', 'Element', 'Node']) global[key] = window[key];
 Object.defineProperty(window.HTMLSelectElement.prototype, 'value', { configurable: true, get() { return this.querySelector('option[selected]')?.getAttribute('value') || ''; }, set(value) { for (const option of this.querySelectorAll('option')) { if (option.getAttribute('value') === value) option.setAttribute('selected', ''); else option.removeAttribute('selected'); } } });
+// The branch field measures itself to place its dropdown.
+window.HTMLElement.prototype.getBoundingClientRect = () => ({ left: 0, right: 200, top: 0, bottom: 24, width: 200, height: 24 });
+window.innerHeight = 800;
 global.requestAnimationFrame = callback => setTimeout(callback, 0);
 global.cancelAnimationFrame = clearTimeout;
 global.getComputedStyle = () => ({ transitionDelay: '0s', transitionDuration: '0s', animationDelay: '0s', animationDuration: '0s' });
@@ -33,6 +36,15 @@ async function component(file) {
   mod.filename = path.resolve('scripts/.ui-test.cjs'); mod.paths = module.paths;
   mod._compile(bundle.outputFiles[0].text, mod.filename);
   return mod.exports.default;
+}
+/** Opens the target branch dropdown and returns what it offers. */
+async function targetOptions(label = 'Целевая ветка') {
+  document.querySelector('input[aria-label="' + label + '"]').dispatchEvent(new window.Event('focus')); await flush();
+  return [...document.querySelectorAll('.bsel-item')].map(b => b.textContent);
+}
+async function pickTarget(text) {
+  await targetOptions();
+  [...document.querySelectorAll('.bsel-item')].find(b => b.textContent === text).dispatchEvent(new window.Event('click', { bubbles: true })); await flush();
 }
 async function flush() { await new Promise(r => setTimeout(r, 10)); await nextTick(); }
 function button(text) { const b = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === text); assert.ok(b, 'button '+text); return b; }
@@ -67,10 +79,10 @@ test('task MR UI edits agent draft and target, confirms publication, refreshes s
  assert.match(document.body.textContent,/Открыт/);assert.equal(calls.filter(c=>c.url.endsWith('/refresh')).length,1);
  const set=async(label,value)=>{const el=[...document.querySelectorAll('label')].find(l=>l.textContent.startsWith(label)).querySelector('input,textarea');el.value=value;el.dispatchEvent(new window.Event('input',{bubbles:true}));await flush()};
  await click('Создать МР');await flush();assert.equal(document.querySelector('textarea').value,'Template draft');assert.equal(calls.filter(c=>c.url.endsWith('/describe')).length,0,'target is selected before invoking an agent');
- assert.ok(document.querySelector('select').textContent.includes('origin/release'));
- assert.equal(document.querySelector('select').textContent.includes('local-only'),false);
+ const offered=await targetOptions();assert.ok(offered.includes('origin/release'));
+ assert.equal(offered.includes('local-only'),false);
  await click('✨ Предложить');assert.equal(document.querySelector('textarea').value,'Agent description');assert.equal(calls.filter(c=>c.url.endsWith('/create')).length,0);
- await set('Заголовок','PROJ-123 Human title');await set('Описание','Human edited description');const target=[...document.querySelectorAll('label')].find(l=>l.textContent.startsWith('Целевая ветка')).querySelector('select');target.value='release';target.dispatchEvent(new window.Event('change',{bubbles:true}));await flush();
+ await set('Заголовок','PROJ-123 Human title');await set('Описание','Human edited description');await pickTarget('origin/release');
  assert.match(document.querySelector('.tm-tags').textContent,/Анна/,'reviewers from the settings are shown by name');await click('+ Добавить');await click('Борис@boris');
  document.querySelector('form').dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true}));await flush();assert.ok(pinia._s.get('app').confirmState);assert.match(pinia._s.get('app').confirmState.message,/release/);assert.equal(calls.filter(c=>c.url.endsWith('/create')).length,0);
  pinia._s.get('app').resolveConfirm(false);await flush();assert.ok(document.querySelector('form'));assert.equal(calls.filter(c=>c.url.endsWith('/create')).length,0);
@@ -98,12 +110,13 @@ test('MR form remains available while origin refresh waits and reports a fetch f
  try {
   await click('Создать МР'); await flush();
   assert.ok(document.querySelector('form'), 'the form opens before the fetch finishes');
-  assert.equal(document.querySelector('select').disabled, false, 'the target can be edited immediately');
+  assert.equal(document.querySelector('input[aria-label="Целевая ветка"]').disabled, false, 'the target can be edited immediately');
   assert.equal(calls.some(url => url.endsWith('/describe')), false);
   rejectRefresh(new Error('Network unavailable')); await flush(); await flush();
   assert.match(document.querySelector('[role="alert"]').textContent, /Не удалось обновить ветки из origin/);
-  assert.match(document.querySelector('select').textContent, /origin\/cached/);
-  assert.equal(document.querySelector('select').textContent.includes('local-only'), false);
+  const offered = await targetOptions();
+  assert.ok(offered.includes('origin/cached'));
+  assert.equal(offered.includes('local-only'), false);
   assert.ok(document.querySelector('textarea'), 'the draft survives a fetch error');
  } finally { app.unmount(); }
 });

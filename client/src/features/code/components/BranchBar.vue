@@ -9,7 +9,7 @@
         <button v-if="git.operationId && git.lastAction !== 'fetch'" type="button" class="btn btn-ghost btn-xs" @click="git.cancel()">Отменить</button>
         <button v-else-if="!git.operationId" type="button" class="btn btn-subtle btn-xs" aria-label="Скрыть" title="Скрыть" @click="git.dismiss()">✕</button>
       </div>
-      <pre v-if="git.output" aria-label="Вывод git">{{ git.output }}</pre>
+      <details v-if="git.output" class="bb-log" @toggle="logOpen = ($event.target as HTMLDetailsElement).open"><summary>Вывод git</summary><pre aria-label="Вывод git">{{ git.output }}</pre></details>
     </div>
     <div class="bb-row">
       <div class="bb-branch">
@@ -32,7 +32,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch, onBeforeUnmount } from 'vue'
 import SplitButton from '@shared/ui/SplitButton.vue'
 import type { MenuItem } from '@shared/ui/AppMenu.vue'
 import { useGitStore } from '../stores/git'
@@ -67,6 +67,15 @@ const menu = computed<MenuItem[]>(() => [
 ])
 /** The commit box shows commits itself, the open branch picker — its own errors; quiet stage/unstage successes are not worth a line. */
 const feedback = computed(() => !!git.lastAction && git.lastAction !== 'commit' && !choosing.value && (!!git.operationId || !!git.error || ['fetch', 'pull', 'pull-rebase', 'push', 'push-force'].includes(git.lastAction) && !!git.output))
+/** A finished operation without an error hides itself after a few seconds, unless the user is reading its log. */
+const logOpen = ref(false)
+let hideTimer: ReturnType<typeof setTimeout> | undefined
+watch([feedback, () => git.operationId, () => git.error, logOpen], () => {
+  clearTimeout(hideTimer)
+  if (!feedback.value) logOpen.value = false
+  if (feedback.value && !git.operationId && !git.error && !logOpen.value) hideTimer = setTimeout(() => git.dismiss(), 3000)
+}, { immediate: true })
+onBeforeUnmount(() => clearTimeout(hideTimer))
 async function forcePush() {
   if (await app.confirm('Перезаписать ветку в origin вашей версией? Если там появились чужие коммиты, git откажется.', { confirmLabel: 'Force push' })) await run('push-force')
 }
@@ -88,5 +97,7 @@ async function run(action: string) { try { await git.run(action) } catch { /* sh
 .bb-feedback { padding: 6px 8px; border-radius: var(--radius-sm); background: var(--bg2); color: var(--text-muted); }
 .bb-feedback.failed { background: var(--danger-soft); color: var(--danger-hover); }
 .bb-feedback-head { display: flex; align-items: center; gap: 8px; overflow-wrap: anywhere; }
+.bb-log { margin-top: 4px; }
+.bb-log summary { cursor: pointer; font-size: 11.5px; color: var(--text-muted); }
 .bb-feedback pre { margin-top: 6px; max-height: 140px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11.5px; color: var(--text-muted); }
 </style>

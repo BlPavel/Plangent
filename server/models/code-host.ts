@@ -98,6 +98,10 @@ export interface CodeHost {
     listDiscussions(iid: number): Promise<HostDiscussion[]>;
     createDiscussion(iid: number, note: ReviewNote): Promise<HostDiscussion>;
     replyToDiscussion(iid: number, discussion: string, body: string): Promise<HostNote>;
+    resolveDiscussion(iid: number, discussion: string, resolved: boolean): Promise<void>;
+    updateNote(iid: number, discussion: string, note: number, body: string): Promise<void>;
+    deleteNote(iid: number, discussion: string, note: number): Promise<void>;
+    currentUser(): Promise<HostUser>;
     detectCapabilities(iid: number): Promise<HostCapabilities>;
     createDraftNotes(iid: number, notes: ReviewNote[], created: (index: number, id: number) => void): Promise<void>;
     publishDrafts(iid: number, ids: number[], published: (id: number) => void): Promise<void>;

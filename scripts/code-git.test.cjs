@@ -71,7 +71,9 @@ test('commit box: the agent suggests a message, the user edits it, adds a coauth
     assert.equal(calls[0].data.includeCoauthors, true)
     assert.equal(calls[0].data.coauthors[0].email, 'peer@test.invalid')
     assert.equal(calls[0].data.overrideForbidden, false)
-    assert.match(screen.root.querySelector('pre').textContent, /pre-commit/)
+    assert.match(screen.root.querySelector('[role="status"]').textContent, /Коммит создан/)
+    assert.equal(screen.root.querySelector('pre'), null, 'a successful commit does not show the hook log')
+    assert.equal(screen.root.querySelector('.cb-cancel'), null)
     assert.match(screen.root.textContent, /prev/, 'the last commit stays visible')
     git.blocked = 'Идёт выполнение'; input(message, 'TASK next'); await nextTick()
     assert.ok(button(screen.root, 'Закоммитить 1').disabled)
@@ -135,6 +137,8 @@ test('changes list splits tracked and new files and stages a whole group', async
   } finally { screen.close() }
 })
 
+/** The real branch field is a typed input with a dropdown; here a plain select with the same options stands in. */
+const BranchSelectStub = { props: ['modelValue', 'options'], emits: ['update:modelValue'], setup(props, { emit }) { return () => h('select', { onChange: e => emit('update:modelValue', e.target.value) }, (props.options ?? []).map(o => h('option', { value: o.value, selected: o.value === props.modelValue }, o.label))) } }
 const BranchNameStub = { props: ['modelValue'], emits: ['update:modelValue'], setup(props, { emit }) { return () => h('input', { 'aria-label': 'Имя новой ветки', value: props.modelValue, onInput: e => emit('update:modelValue', e.target.value) }) } }
 test('branch picker refreshes origin, switches remote branches, preserves the chosen base and explains failures', async () => {
   const calls = []; let closed = 0, fail = true
@@ -144,7 +148,7 @@ test('branch picker refreshes origin, switches remote branches, preserves the ch
     run: async (action, data) => { calls.push([action, data]); if (fail) throw Object.assign(new Error('Git operation failed'), { output: 'Your local changes would be overwritten by checkout' }) },
   })
   const comp = component('client/src/features/code/components/BranchPicker.vue', {
-    '../stores/git': { useGitStore: () => git }, '@shared/ui/BranchNameInput.vue': { default: BranchNameStub },
+    '../stores/git': { useGitStore: () => git }, '@shared/ui/BranchNameInput.vue': { default: BranchNameStub }, '@shared/ui/BranchSelect.vue': { default: BranchSelectStub },
   })
   const screen = mount(comp, { onClose: () => closed++ })
   try {
@@ -174,7 +178,7 @@ function finishPanel(store, git) {
     '@core/api': { api: { get: async () => null } },
     '@core/stores/app': { useAppStore: () => ({ confirm: async () => true }) },
     '@features/code': { CommitDiff: { render: () => null }, CoauthorsField: { render: () => null }, GitAgentNote: { render: () => null }, useGitStore: () => git },
-    '@shared/ui/BranchNameInput.vue': { default: BranchNameStub },
+    '@shared/ui/BranchNameInput.vue': { default: BranchNameStub }, '@shared/ui/BranchSelect.vue': { default: BranchSelectStub },
     '@shared/utils/finish-scenarios': { FINISH_SCENARIOS: { commits: { label: 'Только коммиты', hint: '' }, push: { label: 'Коммиты и push', hint: '' }, full: { label: 'Полный цикл', hint: '' } } },
     '../stores/finish': { useFinishStore: () => store },
     '../api': { finishApi: { context: async () => ({ changes: [], diffs: {} }) } },
@@ -234,7 +238,7 @@ test('finish confirmation accepts a title edited in the rendered form and shows 
  } finally { screen.close() }
 })
 
-test('MR threads are pulled by button and a reply needs confirmation', async () => {
+test('MR threads render with their location', async () => {
  const calls = []
  const store = { data: null, loading: false, error: '', pull: async () => { calls.push('pull'); store.data = { mr: { iid: 3, url: 'u', title: 't', state: 'opened' }, threads: [{ id: 'd1', resolved: false, path: 'a.ts', line: 4, side: 'new', notes: [{ id: 1, author: 'Иван', body: 'почему так?' }] }] } },
   reply: async (id, body) => { calls.push(['reply', id, body]) } }

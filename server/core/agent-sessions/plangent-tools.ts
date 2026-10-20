@@ -9,7 +9,7 @@ export const plangentTools = {
     } } },
   } },
   finish_commits: { description: 'Hand completed commits to the user for confirmation. Never push yourself.', fields: {} },
-  create_merge_request: { description: 'Create the merge request after the push. Give only the title (one line) and the description following the template. Plangent sets target branch, reviewers, labels and options.', fields: { title: { type: 'string' }, description: { type: 'string' } } },
+  set_merge_request: { description: 'Full cycle only: write the merge request. Give the title (one line) and the description following the template from the context. The user confirms it with the commits; Plangent sets target branch, reviewers, assignees, labels and options and creates the MR after the push.', fields: { title: { type: 'string' }, description: { type: 'string' } } },
   get_library: { description: 'Get the project library catalog, instruction authoring guide and available levels. Call first.', fields: {} },
   get_library_item: { description: 'Read an available library item, including content.', fields: { id: { type: 'string' } } },
   propose_library_change: {

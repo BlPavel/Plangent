@@ -518,7 +518,7 @@ test('finish confirmation saves manual edits before accept; moving, merging and 
  const component = moduleAt(file, {
   '@core/api': { api: { get: async () => ({ values: { finish_scenario: 'commits', branch_template: 'feature/{key}-{slug}' } }) } },
   '@core/stores/app': { useAppStore: () => ({ confirm: async () => true }) },
-  '@shared/ui/BranchNameInput.vue': { default: {} },
+  '@shared/ui/BranchNameInput.vue': { default: {} }, '@shared/ui/BranchSelect.vue': { default: {} },
   '@shared/utils/finish-scenarios': { FINISH_SCENARIOS: { commits: {}, push: {}, full: {} } },
   '@features/code': { CommitDiff: {}, CoauthorsField: {}, GitAgentNote: {}, useGitStore: () => reactive({ settings: { finish_scenario: 'commits', base_branch: '', include_description: true, branch_prefixes: [], mr_reviewers: [] }, repository: { upstream: 'origin/feature' }, branches: [], coauthors: [] }) },
   '../stores/finish': { useFinishStore: () => store },
@@ -551,7 +551,7 @@ test('group Git settings: overrides and resets stay in one project', () => {
  const { reactive } = require('vue')
  const file = 'client/src/features/projects/components/GitSettingsFields.vue'
  const source = compileScript(parse(fs.readFileSync(file, 'utf8'), { filename: file }).descriptor, { id: 'git-settings-test' }).content
- const component = moduleAt(file, { '@shared/ui/MemberPicker.vue': { default: {} }, '@shared/utils/finish-scenarios': { finishScenarioLabels: {} } }, {}, source).default
+ const component = moduleAt(file, { '@shared/ui/MemberPicker.vue': { default: {} }, '@shared/ui/BranchSelect.vue': { default: {} }, '@shared/ui/PlainSelect.vue': { default: {} }, '@shared/utils/finish-scenarios': { finishScenarioLabels: {} } }, {}, source).default
  const group = reactive({ base_branch: 'main', mr_squash: true, branch_prefixes: ['feature'] })
  const first = reactive({ modelValue: {}, inherited: group, section: 'mr', sources: { mr_squash: 'group' } })
  const second = reactive({ modelValue: {}, inherited: group, section: 'mr', sources: { mr_squash: 'group' } })

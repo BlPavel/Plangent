@@ -111,3 +111,12 @@ test('format mismatch is a warning and explicit human coauthor is committed', as
   await commit(root, { title: 'fix', includeCoauthors: true, coauthors: [{ name: 'Peer', email: 'peer@test.invalid' }] }, () => ({ ...defaultGitSettings, commit_pattern: '^TASK-' }));
   assert.match(git(root, 'log', '-1', '--format=%B'), /Co-authored-by: Peer <peer@test.invalid>/);
 });
+
+test('hooks run without literal pathspecs, so their own globs still work', async t => {
+  const root = await fixture(t); await fs.mkdir(path.join(root, 'apps/web'), { recursive: true });
+  await fs.writeFile(path.join(root, 'apps/web/a.scss'), 'a {}'); await stage(root, ['apps/web/a.scss']);
+  // A lint-staged style hook: re-adds the files it formatted by a glob.
+  await fs.writeFile(path.join(root, '.git/hooks/pre-commit'), '#!/bin/sh\ngit add ./apps/**/*.scss || exit 1\n', { mode: 0o755 });
+  await commit(root, { title: 'with hook' }, () => defaultGitSettings);
+  assert.equal((await repositoryInfo(root))?.message, 'with hook');
+});

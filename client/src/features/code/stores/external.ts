@@ -28,5 +28,20 @@ export const useExternalThreadsStore = defineStore('code-external-threads', () =
     const result = await codeReviewsApi.replyExternal(p, discussion, body)
     if (p === projectId.value) data.value = result
   }
-  return { projectId, data, loading, error, reset, pull, reply }
+  async function resolve(discussion: string, resolved: boolean) {
+    const p = projectId.value
+    const result = await codeReviewsApi.resolveExternal(p, discussion, resolved)
+    if (p === projectId.value) data.value = result
+  }
+  async function editNote(discussion: string, note: number, body: string) {
+    const p = projectId.value
+    const result = await codeReviewsApi.editExternalNote(p, discussion, note, body)
+    if (p === projectId.value) data.value = result
+  }
+  async function deleteNote(discussion: string, note: number) {
+    const p = projectId.value
+    const result = await codeReviewsApi.deleteExternalNote(p, discussion, note)
+    if (p === projectId.value) data.value = result
+  }
+  return { projectId, data, loading, error, reset, pull, reply, resolve, editNote, deleteNote }
 })

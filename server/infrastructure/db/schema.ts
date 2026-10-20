@@ -567,6 +567,8 @@ function migrateFinish(db: Database.Database): void {
       CREATE INDEX finish_task ON finish_runs(task_id, created_at);
     `);
   }
+  // The MR title and description the user confirms together with the commits.
+  if (!(db.prepare('PRAGMA table_info(finish_runs)').all() as { name: string }[]).some(column => column.name === 'mr_draft')) db.exec('ALTER TABLE finish_runs ADD COLUMN mr_draft TEXT');
   db.exec(`
     UPDATE finish_runs SET status='error', error='Приложение перезапущено. Проверьте коммиты и продолжите завершение.' WHERE status='running';
   `);

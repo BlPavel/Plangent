@@ -71,6 +71,10 @@ export class GitHub implements CodeHost {
   listDiscussions(): Promise<never> { return unsupported('обсуждения PR'); }
   createDiscussion(): Promise<never> { return unsupported('публикация замечаний'); }
   replyToDiscussion(): Promise<never> { return unsupported('ответы в обсуждениях'); }
+  resolveDiscussion(): Promise<void> { return unsupported('закрытие обсуждений'); }
+  updateNote(): Promise<void> { return unsupported('правка комментариев'); }
+  deleteNote(): Promise<void> { return unsupported('удаление комментариев'); }
+  currentUser(): Promise<never> { return unsupported('текущий пользователь'); }
   detectCapabilities() { return Promise.resolve(this.capabilities); }
   createDraftNotes(): Promise<void> { return unsupported('черновики замечаний'); }
   publishDrafts(): Promise<void> { return unsupported('публикация замечаний'); }

@@ -44,7 +44,7 @@ export function allowed(session: AgentSession): PlangentTool[] {
   if (session.role === 'reviewer') return ['get_review_context', 'add_finding', 'submit_review'];
   if (session.role === 'analyst') return ['get_analysis', 'save_section'];
   if (session.role === 'code-fixer') return ['get_review', 'start_review_item', 'reply_review_item'];
-  if (session.role === 'committer') return [...['get_finish_context', 'set_commits', 'finish_commits'] as PlangentTool[], ...(finishScenario(session) === 'full' ? ['create_merge_request' as const] : [])];
+  if (session.role === 'committer') return [...['get_finish_context', 'set_commits', 'finish_commits'] as PlangentTool[], ...(finishScenario(session) === 'full' ? ['set_merge_request' as const] : [])];
   if (session.role === 'librarian') return ['get_library', 'get_library_item', 'propose_library_change'];
   if (session.role === 'planner') return ['get_plan', 'submit_plan'];
   return [];
@@ -82,11 +82,11 @@ mcpRouter.post('/', async (req, res) => {
     for (const field of ['save_section', 'propose_library_change', 'reply_review_item', 'set_commits'].includes(name) ? [] : Object.keys(tools[name].fields)) {
       if (field === 'line' ? !Number.isInteger(args[field]) || Number(args[field]) < 1 : typeof args[field] !== 'string' || !String(args[field]).trim()) throw new Error(`Invalid ${field}`);
     }
-    if (name === 'get_finish_context' || name === 'set_commits' || name === 'finish_commits' || name === 'create_merge_request') {
+    if (name === 'get_finish_context' || name === 'set_commits' || name === 'finish_commits' || name === 'set_merge_request') {
       try {
-        const service = finishes(), runId = service.agentRun(session, name === 'create_merge_request' ? ['mr'] : name === 'get_finish_context' ? ['commits', 'mr'] : ['commits']);
+        const service = finishes(), runId = service.agentRun(session);
         const result = name === 'get_finish_context' ? await service.context(runId)
-          : name === 'create_merge_request' ? await service.createMergeRequest(runId, args.title, args.description)
+          : name === 'set_merge_request' ? await service.setMergeRequest(runId, args.title, args.description)
           : name === 'set_commits' ? await service.setCommits(runId, args.commits, true)
           : await service.finishCommits(runId);
         addEvent(id, name, { finish_id: runId });

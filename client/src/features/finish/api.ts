@@ -1,5 +1,5 @@
 import { api } from '@core/api'
-import type { FinishRun, FinishOptions, FinishCommit, FinishContext } from './types'
+import type { FinishRun, FinishOptions, FinishCommit, FinishContext, MrDraft } from './types'
 const root = (p: string) => '/projects/' + encodeURIComponent(p) + '/finish'
 const run = (p: string, r: string) => root(p) + '/' + encodeURIComponent(r)
 export const finishApi = {
@@ -8,5 +8,6 @@ export const finishApi = {
  start: (p: string, options: FinishOptions) => api.post<FinishRun | null>(root(p), options),
  context: (p: string, r: string) => api.get<FinishContext>(run(p, r) + '/context'),
  commits: (p: string, r: string, commits: FinishCommit[]) => api.put<FinishRun>(run(p, r) + '/commits', { commits }),
+ mergeRequest: (p: string, r: string, draft: MrDraft) => api.put<FinishRun>(run(p, r) + '/merge-request', draft),
  action: (p: string, r: string, action: string, data: object = {}) => api.post<FinishRun>(run(p, r) + '/' + action, data),
 }

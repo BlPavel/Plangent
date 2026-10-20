@@ -55,7 +55,7 @@ function show() {
   place(); open.value = true; query.value = shown.value; typed.value = false
   const at = items.value.findIndex(o => o.value === props.modelValue)
   active.value = Math.max(at, 0)
-  requestAnimationFrame(() => input.value?.select())
+  requestAnimationFrame(() => input.value?.select?.())
 }
 function close() { open.value = false }
 function onInput(event: Event) { query.value = (event.target as HTMLInputElement).value; typed.value = true; active.value = 0 }

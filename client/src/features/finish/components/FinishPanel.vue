@@ -96,13 +96,19 @@
         </div>
       </div>
       <p v-if="dirty" class="fp-hint fp-warn">Diff показывает созданные коммиты. Сохраните состав, чтобы увидеть результат правок.</p>
+      <div v-if="store.run.scenario === 'full' && store.run.stage === 'confirmation'" class="fp-mr-draft">
+        <span class="fp-label">Merge request</span>
+        <input v-model="mrDraft.title" class="control control-sm" aria-label="Заголовок МР" placeholder="Заголовок МР" :disabled="!editable" />
+        <textarea v-model="mrDraft.description" class="control" aria-label="Описание МР" rows="8" placeholder="Описание МР" :disabled="!editable" />
+        <small>Создастся после push: {{ store.run.options.targetBranch }} ← {{ store.run.branch }}. Ревьюеров, исполнителей и остальное подставят настройки проекта.</small>
+      </div>
       <div v-if="editable" class="fp-actions">
-        <button type="button" class="btn btn-ghost btn-sm" :disabled="store.busy || !dirty" @click="save">Сохранить состав</button>
+        <button type="button" class="btn btn-ghost btn-sm" :disabled="store.busy || !dirty && !mrDirty" @click="save">Сохранить</button>
         <span class="fp-spacer" />
-        <button type="button" class="btn btn-blue btn-sm" :disabled="store.busy" @click="accept">Принять{{ store.run.scenario === 'commits' ? '' : ' и push' }}</button>
+        <button type="button" class="btn btn-blue btn-sm" :disabled="store.busy || !!mrProblem" :title="mrProblem" @click="accept">Принять{{ store.run.scenario === 'commits' ? '' : store.run.scenario === 'full' ? ', push и МР' : ' и push' }}</button>
       </div>
       <div v-if="editable || store.run.status === 'error' && store.run.stage === 'commits'" class="fp-note">
-        <textarea v-model="note" class="control" rows="2" :placeholder="editable ? 'Попросить агента переделать коммиты' : 'Замечание агенту для повторной попытки'" @keydown.enter.ctrl.exact.prevent="askAgent" @keydown.enter.meta.exact.prevent="askAgent" />
+        <textarea v-model="note" class="control" rows="2" :placeholder="editable ? (store.run.scenario === 'full' ? 'Попросить агента переделать коммиты или МР' : 'Попросить агента переделать коммиты') : 'Замечание агенту для повторной попытки'" @keydown.enter.ctrl.exact.prevent="askAgent" @keydown.enter.meta.exact.prevent="askAgent" />
         <button type="button" class="btn btn-ghost btn-sm" :disabled="store.busy || !note.trim()" title="Ctrl+Enter" @click="askAgent">{{ editable ? 'Попросить агента' : 'Повторить' }}</button>
       </div>
       <div v-if="store.run.status === 'error' || store.run.stage !== 'mr'" class="fp-actions">
@@ -174,10 +180,10 @@ const statusBadge = computed(() => ({ running: 'progress', waiting: 'open', erro
 const statusHint = computed(() => {
   const run = store.run
   if (!run) return ''
-  if (run.status === 'waiting' && run.stage === 'confirmation') return 'Проверьте коммиты: поправьте заголовки, перенесите файлы или попросите агента переделать.'
+  if (run.status === 'waiting' && run.stage === 'confirmation') return 'Проверьте коммиты' + (run.scenario === 'full' ? ' и МР' : '') + ': поправьте тексты, перенесите файлы или попросите агента переделать.'
   if (run.status === 'running' && run.stage === 'commits') return run.options.commitMode === 'single' ? 'Агент оформляет коммит…' : 'Агент разбивает изменения на коммиты…'
   if (run.status === 'running' && run.stage === 'push') return 'Отправка в origin…'
-  if (run.status === 'running' && run.stage === 'mr') return 'Агент готовит заголовок и описание МР…'
+  if (run.status === 'running' && run.stage === 'mr') return 'Создание МР…'
   return ''
 })
 const selectedCommit = computed(() => selected.value ? store.run?.commits.find(c => c.files.includes(selected.value!.path)) : undefined)
@@ -188,6 +194,11 @@ const selectedBase = computed(() => {
 const editable = computed(() => store.run?.stage === 'confirmation' && ['waiting', 'error'].includes(store.run.status))
 const clean = (list: FinishCommit[]) => JSON.stringify(list.map(({ files, title, body }) => ({ files, title, body })))
 const dirty = computed(() => clean(draft.value) !== clean(store.run?.commits ?? []))
+// The MR text of a full cycle is confirmed and edited together with the commits.
+const mrDraft = ref({ title: '', description: '' })
+const mrDirty = computed(() => store.run?.scenario === 'full' && (mrDraft.value.title !== (store.run.mr_draft?.title ?? '') || mrDraft.value.description !== (store.run.mr_draft?.description ?? '')))
+const mrProblem = computed(() => store.run?.scenario === 'full' && store.run.stage === 'confirmation' && (!mrDraft.value.title.trim() || /[\r\n]/.test(mrDraft.value.title)) ? 'Заголовок МР — одна непустая строка' : '')
+watch(() => store.run?.mr_draft, value => { mrDraft.value = { title: value?.title ?? '', description: value?.description ?? '' } }, { immediate: true })
 
 // The task may pin its own scenario and target; otherwise the project's settings decide.
 const taskData = ref<Task | null>(null)
@@ -253,12 +264,17 @@ function drag(event: DragEvent, index: number, path: string) { event.dataTransfe
 function drop(event: DragEvent, to: number) { dropTarget.value = null; try { const data = JSON.parse(event.dataTransfer?.getData('application/plangent-file') || ''); move(data.index, to, data.path) } catch { /* foreign drag */ } }
 function merge(index: number) { const c = draft.value[index]; draft.value[index - 1].files.push(...c.files); draft.value.splice(index, 1) }
 function split(index: number) { const c = draft.value[index]; draft.value.splice(index, 1, ...c.files.map(path => ({ title: c.title, body: c.body, files: [path] }))) }
-async function save() { try { await store.save(draft.value.map(({ files, title, body }) => ({ files, title, body }))); draft.value = copy(store.run?.commits ?? []) } catch { /* store error */ } }
+async function save() {
+  try {
+    if (dirty.value) { await store.save(draft.value.map(({ files, title, body }) => ({ files, title, body }))); draft.value = copy(store.run?.commits ?? []) }
+    if (mrDirty.value) await store.saveMr({ title: mrDraft.value.title.trim(), description: mrDraft.value.description })
+  } catch { /* store error */ }
+}
 async function act(name: string, data: object = {}) { try { await store.action(name, data); if (name === 'revise') note.value = '' } catch { /* store error */ } }
 function askAgent() { if (!store.busy && note.value.trim()) void act('revise', { note: note.value }) }
 async function accept() {
-  if (store.run?.scenario !== 'commits' && !await app.confirm('Принять коммиты и отправить их в origin?' + (published.value ? '' : ' Ветка будет опубликована.'), { confirmLabel: 'Принять и push' })) return
-  if (dirty.value || store.run?.status === 'error' && store.run.stage === 'confirmation') { await save(); if (store.error) return }
+  if (store.run?.scenario !== 'commits' && !await app.confirm('Принять коммиты, отправить их в origin' + (store.run?.scenario === 'full' ? ' и создать МР?' : '?') + (published.value ? '' : ' Ветка будет опубликована.'), { confirmLabel: store.run?.scenario === 'full' ? 'Принять, push и МР' : 'Принять и push' })) return
+  if (dirty.value || mrDirty.value || store.run?.status === 'error' && store.run.stage === 'confirmation') { await save(); if (store.error) return }
   await act('accept')
 }
 async function rollback() { if (await app.confirm('Откатить коммиты этого завершения? Изменения файлов останутся в рабочей папке.', { confirmLabel: 'Откатить коммиты', danger: true })) await act('rollback', { confirmed: true }) }
@@ -313,6 +329,8 @@ textarea.control { height: auto; padding: 6px 10px; resize: vertical; line-heigh
 .fp-move { max-width: 90px; height: 22px; font: inherit; font-size: 11px; color: var(--text-muted); background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius-sm); }
 .fp-commit-actions { display: flex; gap: 12px; flex-wrap: wrap; }
 .fp-diff { height: 360px; min-width: 0; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; background: var(--bg); }
+.fp-mr-draft { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg2); }
+.fp-mr-draft small { font-size: 11px; color: var(--text-faint); }
 .fp-note { display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
 .fp-log summary { cursor: pointer; color: var(--text-muted); }
 .fp-log pre { margin-top: 6px; padding: 6px 8px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 200px; overflow: auto; font-size: 11.5px; background: var(--bg2); border-radius: var(--radius-sm); }

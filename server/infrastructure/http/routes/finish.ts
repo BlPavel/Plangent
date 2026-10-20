@@ -23,6 +23,9 @@ finishRouter.get('/:id/context', gitRouteGuard(async (req, res) => { owned(req.p
 finishRouter.put('/:id/commits', gitRouteGuard(async (req, res) => {
   owned(req.params.projectId, req.params.id); res.json(await finishes().setCommits(req.params.id, req.body?.commits, false, req.body?.overrideForbidden === true));
 }));
+finishRouter.put('/:id/merge-request', gitRouteGuard(async (req, res) => {
+  owned(req.params.projectId, req.params.id); res.json(await finishes().setMergeRequest(req.params.id, req.body?.title, req.body?.description));
+}));
 finishRouter.post('/:id/revise', gitRouteGuard(async (req, res) => { owned(req.params.projectId, req.params.id); res.json(await finishes().revise(req.params.id, req.body?.note)); }));
 finishRouter.post('/:id/accept', gitRouteGuard(async (req, res) => { owned(req.params.projectId, req.params.id); res.json(await finishes().accept(req.params.id)); }));
 finishRouter.post('/:id/rollback', gitRouteGuard(async (req, res) => { owned(req.params.projectId, req.params.id); if (req.body?.confirmed !== true) throw new CodeError('Подтвердите откат коммитов'); res.json(await finishes().rollback(req.params.id)); }));
