@@ -22,10 +22,9 @@ export interface Remark {
   path: string; side: 'old' | 'new'; line: number;
   /** The branch head the line belongs to. */
   head: string;
-  body: string; author: 'developer' | 'agent'; category: string;
+  body: string; author: 'developer' | 'agent';
   remote_id: number | null; status: 'draft' | 'sent' | 'uncertain'; error: string; created_at: string;
 }
-export const CATEGORIES = ['architecture', 'bug', 'risk', 'tests', 'performance', 'security', 'style', 'other'];
 const db = () => getDb();
 const notify = (projectId: string, reviewId: string) => broadcast({ type: 'branch_review_updated', projectId, reviewId });
 const all = (reviewId: string) => db().prepare('SELECT * FROM branch_review_remarks WHERE review_id=? ORDER BY created_at,rowid').all(reviewId) as Remark[];
@@ -34,7 +33,6 @@ const body = (value: unknown) => {
   if (!text || text.length > 100000) throw new CodeError('Введите текст замечания');
   return text;
 };
-const category = (value: unknown) => typeof value === 'string' && CATEGORIES.includes(value) ? value : '';
 
 /** The GitLab position of a line, from the local diff of the review's range; it throws when the line is not in the diff. */
 async function position(projectId: string, id: string, path: unknown, side: unknown, line: unknown, refs?: DiffRefs): Promise<DiffPosition> {
@@ -63,13 +61,13 @@ export function createRemarks(resolve: Resolve = resolveCodeHost) {
     if (r.status !== 'draft') throw new CodeError('Замечание уже отправлено или требует проверки в GitLab', 409);
     return r;
   }
-  async function insert(projectId: string, id: string, input: { path?: unknown; side?: unknown; line?: unknown; body?: unknown; category?: unknown }, author: Remark['author']) {
+  async function insert(projectId: string, id: string, input: { path?: unknown; side?: unknown; line?: unknown; body?: unknown }, author: Remark['author']) {
     const r = row(projectId, id), text = body(input.body), general = input.path === undefined || input.path === '' || input.path === null;
     const side = input.side === 'old' ? 'old' : 'new';
     if (!general) await position(projectId, id, input.path, side, input.line);
     const s = await state(repo(projectId), r), key = randomUUID();
-    db().prepare('INSERT INTO branch_review_remarks(id,review_id,path,side,line,head,body,author,category) VALUES (?,?,?,?,?,?,?,?,?)')
-      .run(key, id, general ? '' : String(input.path), general ? 'new' : side, general ? 0 : Number(input.line), s.headSha, text, author, category(input.category));
+    db().prepare('INSERT INTO branch_review_remarks(id,review_id,path,side,line,head,body,author) VALUES (?,?,?,?,?,?,?,?)')
+      .run(key, id, general ? '' : String(input.path), general ? 'new' : side, general ? 0 : Number(input.line), s.headSha, text, author);
     notify(projectId, id);
     return key;
   }
@@ -77,13 +75,13 @@ export function createRemarks(resolve: Resolve = resolveCodeHost) {
     await insert(projectId, id, input, 'developer');
     return list(projectId, id);
   }
-  /** The text and the category change; a remark already uploaded as a GitLab draft is changed there too. */
-  async function edit(projectId: string, id: string, key: string, input: { body?: unknown; category?: unknown }) {
+  /** The text changes; a remark already uploaded as a GitLab draft is changed there too. */
+  async function edit(projectId: string, id: string, key: string, input: { body?: unknown }) {
     const r = row(projectId, id);
     return exclusive(id, async () => {
       const d = draft(id, key), text = input.body === undefined ? d.body : body(input.body);
       if (d.remote_id !== null && r.mr_iid) await (await resolve(projectId)).host.updateDraft(r.mr_iid, d.remote_id, { body: text });
-      db().prepare('UPDATE branch_review_remarks SET body=?,category=?,error=? WHERE id=?').run(text, input.category === undefined ? d.category : category(input.category), '', key);
+      db().prepare('UPDATE branch_review_remarks SET body=?,error=? WHERE id=?').run(text, '', key);
       notify(projectId, id);
       return list(projectId, id);
     });
@@ -194,7 +192,6 @@ export function sessionReview(session: AgentSession): ReviewRow {
 /** add_review_remark: the agent drafts a remark; the developer edits or removes it before publishing. */
 export async function agentRemark(session: AgentSession, input: Record<string, unknown>) {
   const r = sessionReview(session);
-  if (!CATEGORIES.includes(String(input.category))) throw new CodeError('Invalid category: ' + CATEGORIES.join('|'));
   const general = input.path === undefined || input.path === '' || input.path === null;
   if (!general && (!Number.isInteger(input.line) || Number(input.line) < 1)) throw new CodeError('A line remark needs path and line (a line of the diff); omit path for a remark on the whole merge request');
   try {

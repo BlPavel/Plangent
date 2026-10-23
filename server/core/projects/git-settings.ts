@@ -14,6 +14,10 @@
   git_agent_id: string;
   git_agent_model: string;
   git_agent_effort: string;
+  /** The agent that reviews merge requests and branches together with the developer; empty — the project's agent. */
+  review_agent_id: string;
+  review_agent_model: string;
+  review_agent_effort: string;
 }
 
 export const defaultGitSettings: GitSettings = {
@@ -22,6 +26,7 @@ export const defaultGitSettings: GitSettings = {
   include_description: false, finish_scenario: 'nothing', branch_prefixes: ['feature', 'fix', 'hotfix'],
   base_branch: '', mr_description_prompt: '', mr_remove_branch: false, mr_squash: false, mr_reviewers: [], mr_assignees: [],
   git_agent_id: '', git_agent_model: '', git_agent_effort: '',
+  review_agent_id: '', review_agent_model: '', review_agent_effort: '',
 };
 
 /** Nearest wins: the project, its group, the app-wide values from «Настройки», the built-in defaults. */

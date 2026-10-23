@@ -77,10 +77,9 @@ test('MR review: list with approvals, open from origin, remarks on diff lines, p
   assert.equal(info.threads[0].notes[0].mine, false);
 
   await assert.rejects(notes.add('p1', id, { path: 'a.txt', side: 'new', line: 15, body: 'далеко от diff' }), /только в diff/);
-  let state = await notes.add('p1', id, { path: 'a.txt', side: 'new', line: 2, body: 'Переименуйте', category: 'style' });
+  let state = await notes.add('p1', id, { path: 'a.txt', side: 'new', line: 2, body: 'Переименуйте' });
   state = await notes.add('p1', id, { body: 'Разбейте МР на два' });
   assert.equal(state.remarks.length, 2);
-  assert.equal(state.remarks[0].category, 'style');
   await assert.rejects(notes.publish('p1', id, state.remarks.map(r => r.id), false), /Подтвердите/);
   state = await notes.publish('p1', id, state.remarks.map(r => r.id), true);
   assert.ok(state.remarks.every(r => r.status === 'sent'));
@@ -101,9 +100,8 @@ test('MR review: list with approvals, open from origin, remarks on diff lines, p
   const mock = createAgent({ name: 'Mock', command: process.execPath });
   const session = createSession({ project_id: 'p1', agent_id: mock.id, role: 'chat', policy: 'read-only', metadata: { mr_private: true, branch_review: id } });
   assert.deepEqual(allowed(session), ['get_review_brief', 'get_branch_questions', 'reply_branch_question', 'set_review_overview', 'add_review_remark']);
-  await assert.rejects(agentRemark(session, { text: 'x', category: 'nonsense' }), /Invalid category/);
-  await assert.rejects(agentRemark(session, { text: 'x', category: 'bug', path: 'a.txt', line: 15 }), /not in the diff/);
-  assert.equal((await agentRemark(session, { text: 'Нет теста', category: 'tests', path: 'a.txt', line: 2 })).saved, true);
+  await assert.rejects(agentRemark(session, { text: 'x', path: 'a.txt', line: 15 }), /not in the diff/);
+  assert.equal((await agentRemark(session, { text: 'Нет теста', path: 'a.txt', line: 2 })).saved, true);
   await agent.setOverview(session, 'Меняет вторую строку.');
   const brief = await agent.brief(session);
   assert.equal(brief.range.head, head);

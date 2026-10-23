@@ -1,9 +1,5 @@
-import type { Remark, RemarkCategory } from './types'
+import type { Remark } from './types'
 
-export const CATEGORY_LABELS: Record<Exclude<RemarkCategory, ''>, string> = {
-  architecture: 'Архитектура', bug: 'Баг', risk: 'Риск', tests: 'Тесты', performance: 'Производительность', security: 'Безопасность', style: 'Стиль', other: 'Другое',
-}
-export const categoryOptions = [{ value: '', label: 'Без категории' }, ...Object.entries(CATEGORY_LABELS).map(([value, label]) => ({ value, label }))]
 export const remarkPlace = (r: Pick<Remark, 'path' | 'line' | 'side'>) => r.path ? r.path + ':' + r.line + (r.side === 'old' ? ' (было)' : '') : 'МР целиком'
 
 /** Remarks as markdown, for a review without a merge request: the developer pastes them on the hosting. */

@@ -19,7 +19,7 @@
         <PlainSelect :model-value="detail.review.task_id ?? ''" :options="taskOptions" small label="Задача" empty-label="Задач нет" @update:model-value="save({ task_id: $event || null })" />
       </label>
       <label class="op-field">Что ещё знать агенту
-        <textarea v-model="context" class="control op-text" rows="3" placeholder="Например: это первый шаг миграции на новый API, обратная совместимость не нужна" spellcheck="false" @blur="saveContext" />
+        <textarea v-model="context" class="control op-text" rows="4" placeholder="Например: это первый шаг миграции на новый API, обратная совместимость не нужна" spellcheck="false" @blur="saveContext" />
       </label>
     </section>
 
@@ -29,20 +29,11 @@
         <span class="op-spacer" />
         <span v-if="busy" class="op-muted">{{ agentName }} работает…</span>
       </div>
-      <NewChatPanel
-        v-if="setup" compact class="op-setup" :project-id="scope" :default-agent-id="defaultAgentId" title="Агент" fixed-policy="read-only"
-        :text="setup === 'analyze' ? 'Агент изучит МР по скиллу и контексту, напишет сводку и черновики замечаний. Код он только читает.' : 'Агент проверит, исправлены ли ваши опубликованные замечания. Ответ придёт на вкладку «Агент».'"
-        initial-text="" :send-label="setup === 'analyze' ? 'Разобрать' : 'Проверить'" :busy="sending" @start="start(setup, $event)"
-      >
-        <template #actions><button type="button" class="op-link" @click="setup = null">Отмена</button></template>
-      </NewChatPanel>
-      <template v-else>
-        <input v-model="note" class="control control-sm" placeholder="Пожелание к разбору (необязательно): например, только архитектура" spellcheck="false" @keydown.enter.prevent="click('analyze')" />
-        <div class="op-row">
-          <AppButton size="sm" variant="blue" :disabled="busy || sending" :title="busy ? 'Агент работает: дождитесь конца ответа' : 'Сводка и черновики замечаний по скиллу ревью'" @click="click('analyze')">{{ detail.review.overview ? 'Разобрать заново' : 'Разобрать агентом' }}</AppButton>
-          <AppButton v-if="detail.review.published_head" size="sm" variant="ghost" :disabled="busy || sending" title="Агент сверит ваши опубликованные замечания с новыми коммитами" @click="click('check')">Проверить исправления</AppButton>
-        </div>
-      </template>
+      <input v-model="note" class="control control-sm" placeholder="Пожелание к разбору (необязательно): например, только архитектура" spellcheck="false" @keydown.enter.prevent="click('analyze')" />
+      <div class="op-row">
+        <AppButton size="sm" variant="blue" :disabled="busy || sending" :title="busy ? 'Агент работает: дождитесь конца ответа' : 'Сводка и черновики замечаний по скиллу ревью'" @click="click('analyze')">{{ detail.review.overview ? 'Разобрать заново' : 'Разобрать агентом' }}</AppButton>
+        <AppButton v-if="detail.review.published_head" size="sm" variant="ghost" :disabled="busy || sending" title="Агент сверит ваши опубликованные замечания с новыми коммитами" @click="click('check')">Проверить исправления</AppButton>
+      </div>
       <p v-if="error" role="alert" class="op-error">{{ error }}</p>
     </section>
 
@@ -63,23 +54,21 @@
 import { computed, ref, watch } from 'vue'
 import { api } from '@core/api'
 import type { Task } from '@core/models'
-import { NewChatPanel, type NewChatRequest } from '@features/agent-chat'
 import AppButton from '@shared/ui/AppButton.vue'
 import MessageMarkdown from '@shared/ui/MessageMarkdown.vue'
 import PlainSelect from '@shared/ui/PlainSelect.vue'
 import { errorText } from '@shared/utils/errorText'
 import { branchReviewApi } from '../api'
 import type { BranchReview, MrInfo, ReviewSkill } from '../types'
-import { pickOf, useReviewAgent } from '../composables/useReviewAgent'
+import { useReviewAgent } from '../composables/useReviewAgent'
 import { plural } from '../utils'
 
 /** The start of a review: the MR description, what the agent should know, the analysis and its overview. */
-const props = defineProps<{ screenKey: string; scope: string; detail: BranchReview; info: MrInfo | null; tasksUrl: string; defaultAgentId?: string | null }>()
+const props = defineProps<{ screenKey: string; scope: string; detail: BranchReview; info: MrInfo | null; tasksUrl: string }>()
 const emit = defineEmits<{ 'open-instructions': []; asked: [] }>()
-const { screen, active, busy, agentName } = useReviewAgent(props.screenKey, computed(() => props.detail.review.head))
+const { screen, busy, agentName } = useReviewAgent(props.screenKey, computed(() => props.detail.review.head))
 const skills = ref<ReviewSkill[]>([]), tasks = ref<Task[]>([])
 const context = ref(props.detail.review.context), note = ref(''), error = ref(''), sending = ref(false), descriptionOpen = ref(false)
-const setup = ref<'analyze' | 'check' | null>(null)
 watch(() => props.detail.review.context, value => { context.value = value })
 
 const origin = { direct: 'проект', group: 'группа', global: 'везде' }
@@ -101,43 +90,41 @@ async function save(input: { context?: string; task_id?: string | null; skill_id
   catch (cause) { error.value = errorText(cause) }
 }
 function saveContext() { if (context.value !== props.detail.review.context) void save({ context: context.value }) }
-/** Without an agent for this head the first run asks who should work. */
+/** The agent is the project's review agent (project settings). */
 function click(kind: 'analyze' | 'check') {
   error.value = ''
   if (busy.value) return
   saveContext()
-  if (!active.value) { setup.value = kind; return }
   void start(kind)
 }
-async function start(kind: 'analyze' | 'check', request?: NewChatRequest) {
+async function start(kind: 'analyze' | 'check') {
   if (sending.value) return
   sending.value = true; error.value = ''
   try {
-    const agent = pickOf(request), id = props.detail.review.id
-    if (kind === 'analyze') screen.thread = (await branchReviewApi.analyze(props.scope, id, { agent, note: note.value })).thread
+    const id = props.detail.review.id
+    if (kind === 'analyze') screen.thread = (await branchReviewApi.analyze(props.scope, id, { note: note.value })).thread
     else {
-      const result = await branchReviewApi.checkFixes(props.scope, id, { agent })
+      const result = await branchReviewApi.checkFixes(props.scope, id)
       screen.questions = result.questions; screen.messages = result.messages; screen.thread = result.thread
       emit('asked')
     }
-    setup.value = null; note.value = ''
+    note.value = ''
   } catch (cause) { error.value = errorText(cause) } finally { sending.value = false }
 }
 </script>
 <style scoped>
 .op { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 4px; padding: 6px 10px 12px; font-size: 12px; }
-.op-section { display: flex; flex-direction: column; gap: 6px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.op-section { flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; padding: 8px 0; border-bottom: 1px solid var(--border); }
 .op-section:last-child { border-bottom: none; }
 .op-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
 .op-field { display: flex; flex-direction: column; gap: 4px; color: var(--text-muted); }
 .op-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .op-spacer { flex: 1; }
-.op-text { width: 100%; padding: 6px 10px; line-height: 1.45; resize: vertical; font: inherit; color: var(--text); }
+.op-text { width: 100%; min-height: 95px; flex-shrink: 0; padding: 6px 10px; line-height: 1.45; resize: vertical; font: inherit; color: var(--text); }
 .op-muted { color: var(--text-muted); line-height: 1.45; }
 .op-link { padding: 0; font: inherit; font-size: 11.5px; color: var(--blue-hover); background: none; border: none; cursor: pointer; align-self: flex-start; }
 .op-md { font-size: 12.5px; line-height: 1.55; }
 .op-description:not(.open) { max-height: 140px; overflow: hidden; }
-.op-setup { border: 1px solid var(--border); border-radius: var(--radius-sm); }
 .op-error { color: var(--danger-hover); overflow-wrap: anywhere; }
 .op-round { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--warning-text); }
 </style>

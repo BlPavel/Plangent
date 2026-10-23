@@ -2,10 +2,9 @@ import { randomUUID } from 'node:crypto';
 import { getDb } from '../../infrastructure/db/schema';
 import { broadcast } from '../shared/events';
 import { CodeError } from '../code/files';
-import { getSession } from '../agent-sessions/sessions';
 import { cancelSession, sendPrompt } from '../agent-sessions/acp-host';
 import type { AgentSession } from '../agent-sessions/types';
-import { checkLine, openThread } from './index';
+import { checkLine, openIdleThread } from './index';
 
 /**
  * The developer's questions about a branch, as threads with the agent: replies wait (sent=0) and leave in
@@ -104,14 +103,13 @@ const plural = (n: number, one: string, few: string, many: string) =>
  * Sends the queued messages (all, or of the given questions) to the review's agent in one prompt.
  * `agent` picks who answers when the review has no session for the current head yet.
  */
-export async function send(projectId: string, reviewId: string, input: { agent?: unknown; question_ids?: unknown }) {
+export async function send(projectId: string, reviewId: string, input: { question_ids?: unknown }) {
   ownReview(projectId, reviewId);
   const wanted = Array.isArray(input.question_ids) ? new Set(input.question_ids.filter((id): id is string => typeof id === 'string')) : null;
   const queued = (db().prepare("SELECT m.* FROM branch_question_messages m JOIN branch_questions q ON q.id=m.question_id WHERE q.review_id=? AND m.author='developer' AND m.sent=0 ORDER BY m.created_at,m.rowid").all(reviewId) as MessageRow[])
     .filter(m => !wanted || wanted.has(m.question_id));
   if (!queued.length) throw new CodeError('Нечего отправлять', 409);
-  const session = await openThread(projectId, reviewId, { agent: input.agent });
-  if (['starting', 'thinking'].includes(getSession(session.session_id).status)) throw new CodeError('Агент отвечает: дождитесь конца ответа', 409);
+  const session = await openIdleThread(projectId, reviewId, 'Агент отвечает: дождитесь конца ответа');
   const fresh = new Set(queued.filter(m => !thread(m.question_id).some(x => x.sent)).map(m => m.question_id)).size;
   const total = new Set(queued.map(m => m.question_id)).size;
   const mark = db().prepare('UPDATE branch_question_messages SET sent=? WHERE id=?');

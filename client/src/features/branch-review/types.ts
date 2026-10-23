@@ -55,14 +55,12 @@ export interface MrInfo {
   approvals: Approvals | null
   threads: ExternalThread[]
 }
-export type RemarkCategory = 'architecture' | 'bug' | 'risk' | 'tests' | 'performance' | 'security' | 'style' | 'other' | ''
 export interface Remark {
   id: string; review_id: string; path: string; side: 'old' | 'new'; line: number; head: string
-  body: string; author: 'developer' | 'agent'; category: RemarkCategory
+  body: string; author: 'developer' | 'agent'
   remote_id: number | null; status: 'draft' | 'sent' | 'uncertain'; error: string; created_at: string
   /** Attached to a line of an older version of the branch. */
   outdated: boolean
 }
 export interface Remarks { remarks: Remark[]; publication_error?: string }
 export interface ReviewSkill { id: string; title: string; description: string; origin: 'direct' | 'group' | 'global' }
-export interface AgentPick { agent_id: string; model: string; mode: string; config: Record<string, string> }

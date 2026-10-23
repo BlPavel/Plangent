@@ -7,7 +7,7 @@ import { IntegrationError } from '../integrations';
 import { resolveCodeHost } from '../code-hosts';
 import { toThread, type ExternalThread } from '../code-reviews/external';
 import type { CodeHost, HostApprovals, HostDiscussion, MergeRequest } from '../../models/code-host';
-import { detail, ensureReview, repo, row, state, type ReviewRow } from './index';
+import { detail, ensureReview, finishThreads, repo, row, state, type ReviewRow } from './index';
 
 /**
  * Merge requests on top of the branch review: the list of open MRs with approvals, opening one as a review
@@ -62,6 +62,21 @@ export function pinMr(id: string, mr: MergeRequest) {
   if (refs?.head_sha) db().prepare("UPDATE branch_reviews SET mr_base=?,mr_start=?,mr_head=?,updated_at=datetime('now') WHERE id=?").run(refs.base_sha ?? '', refs.start_sha ?? '', refs.head_sha, id);
 }
 
+/**
+ * Reviews of MRs that are no longer open keep an agent session and a copy of the code in the temp folder.
+ * Called with the MRs the hosting lists as open: for the others it checks the MR and cleans up when it is merged or closed.
+ */
+async function cleanClosed(projectId: string, host: CodeHost, openIids: Set<number>) {
+  const rows = db().prepare(`SELECT id,mr_iid FROM branch_reviews WHERE project_id=? AND mr_iid IS NOT NULL AND (
+    EXISTS (SELECT 1 FROM mr_private_threads t WHERE t.review_id=branch_reviews.id) OR EXISTS (SELECT 1 FROM mr_worktrees w WHERE w.review_id=branch_reviews.id AND w.active=1))`).all(projectId) as { id: string; mr_iid: number }[];
+  for (const review of rows.filter(x => !openIids.has(x.mr_iid))) {
+    try {
+      const { state: mrState } = await host.getMergeRequest(review.mr_iid);
+      if (mrState === 'merged' || mrState === 'closed') await finishThreads(projectId, review.id);
+    } catch { /* the hosting or git is unreachable: try again on the next listing */ }
+  }
+}
+
 export function createMrReviews(resolve: Resolve = resolveCodeHost) {
   async function list(scope: string) {
     const items: MrListItem[] = [], errors: { project_id: string; project_name: string; message: string }[] = [];
@@ -69,6 +84,7 @@ export function createMrReviews(resolve: Resolve = resolveCodeHost) {
       try {
         const { host } = await resolve(p.id);
         const [rows, me] = await Promise.all([host.listOpenMergeRequests(), host.currentUser().catch(() => null)]);
+        void cleanClosed(p.id, host, new Set(rows.map(mr => mr.iid)));
         const local = new Map((db().prepare('SELECT mr_iid,id,published_head FROM branch_reviews WHERE project_id=? AND mr_iid IS NOT NULL').all(p.id) as { mr_iid: number; id: string; published_head: string }[]).map(r => [r.mr_iid, r]));
         const mine = (mr: MergeRequest) => !!me && mr.author?.id === me.id;
         const reviewer = (mr: MergeRequest) => !!me && (mr.reviewers ?? []).some(u => u.id === me.id);

@@ -74,7 +74,7 @@ mcpRouter.post('/', async (req, res) => {
   if (!id) return res.status(401).json({ error: 'Unauthorized' });
   const server = new Server({ name: 'Plangent', version: '1.0.0' }, { capabilities: { tools: {} } });
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: allowed(getSession(id)).map(name => ({ name, description: tools[name].description,
-    inputSchema: { type: 'object' as const, properties: tools[name].fields, required: name === 'save_section' ? ['title', 'description'] : name === 'reply_review_item' || name === 'reply_branch_question' ? ['id', 'kind', 'text'] : name === 'add_review_remark' ? ['text', 'category'] : Object.keys(tools[name].fields), additionalProperties: false } })) }));
+    inputSchema: { type: 'object' as const, properties: tools[name].fields, required: name === 'save_section' ? ['title', 'description'] : name === 'reply_review_item' || name === 'reply_branch_question' ? ['id', 'kind', 'text'] : name === 'add_review_remark' ? ['text'] : Object.keys(tools[name].fields), additionalProperties: false } })) }));
   server.setRequestHandler(CallToolRequestSchema, async request => {
     const session = getSession(id);
     const name = request.params.name as keyof typeof tools;

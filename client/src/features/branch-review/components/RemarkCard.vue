@@ -2,7 +2,6 @@
   <div class="rc" :class="[remark.status, { agent: remark.author === 'agent', outdated: remark.outdated }]">
     <div class="rc-head">
       <span class="rc-badge" :class="remark.author" :title="remark.author === 'agent' ? 'Черновик агента: правьте или уберите' : 'Ваше замечание'">{{ remark.author === 'agent' ? 'агент' : 'я' }}</span>
-      <span v-if="remark.category" class="rc-cat">{{ CATEGORY_LABELS[remark.category] }}</span>
       <button v-if="showLocation" type="button" class="rc-link" :disabled="!remark.path" @click="emit('goto', remark)">{{ remarkPlace(remark) }}</button>
       <span v-if="remark.outdated" class="rc-warn" title="Строка из прошлой версии ветки">к старой версии</span>
       <span v-if="remark.status === 'sent'" class="rc-muted">отправлено</span>
@@ -14,9 +13,8 @@
       </template>
     </div>
     <form v-if="editing" class="rc-edit" @submit.prevent="save" @keydown.esc.stop.prevent="editing = false">
-      <textarea v-model="text" class="control rc-text" rows="4" spellcheck="false" @keydown.ctrl.enter.prevent="save" @keydown.meta.enter.prevent="save" />
+      <textarea ref="field" v-model="text" class="control rc-text" rows="4" spellcheck="false" @input="fit" @keydown.ctrl.enter.prevent="save" @keydown.meta.enter.prevent="save" />
       <div class="rc-bar">
-        <PlainSelect v-model="category" :options="categoryOptions" small label="Категория" />
         <span class="rc-spacer" />
         <button type="button" class="btn btn-subtle btn-xs" @click="editing = false">Отмена</button>
         <button class="btn btn-blue btn-xs" :disabled="!text.trim() || busy">Сохранить</button>
@@ -32,22 +30,29 @@
   </div>
 </template>
 <script setup lang="ts">
-import { ref } from 'vue'
+import { nextTick, ref } from 'vue'
 import { useAppStore } from '@core/stores/app'
 import MessageMarkdown from '@shared/ui/MessageMarkdown.vue'
-import PlainSelect from '@shared/ui/PlainSelect.vue'
 import { errorText } from '@shared/utils/errorText'
 import { branchReviewApi } from '../api'
-import type { Remark, RemarkCategory, Remarks } from '../types'
+import type { Remark, Remarks } from '../types'
 import { useBranchReviewStore } from '../stores/review'
-import { CATEGORY_LABELS, categoryOptions, remarkPlace } from '../utils'
+import { remarkPlace } from '../utils'
 
 /** A draft (or sent) remark for the merge request; the agent's drafts are edited the same way as the developer's. */
 const props = defineProps<{ remark: Remark; screenKey: string; scope: string; reviewId: string; showLocation?: boolean }>()
 const emit = defineEmits<{ goto: [remark: Remark] }>()
 const screen = useBranchReviewStore().of(props.screenKey)
 const app = useAppStore()
-const busy = ref(false), editing = ref(false), text = ref(''), category = ref<string>('')
+const busy = ref(false), editing = ref(false), text = ref('')
+const field = ref<HTMLTextAreaElement>()
+/** The field opens as tall as the text, up to a limit; longer text scrolls. */
+function fit() {
+  const el = field.value
+  if (!el) return
+  el.style.height = 'auto'
+  el.style.height = Math.min(el.scrollHeight + 2, 360) + 'px'
+}
 
 async function run(action: () => Promise<Remarks>) {
   busy.value = true
@@ -55,10 +60,10 @@ async function run(action: () => Promise<Remarks>) {
   catch (cause) { app.toast(errorText(cause), 'error'); return false }
   finally { busy.value = false }
 }
-function startEdit() { text.value = props.remark.body; category.value = props.remark.category; editing.value = true }
+function startEdit() { text.value = props.remark.body; editing.value = true; void nextTick(fit) }
 async function save() {
   if (!text.value.trim()) return
-  if (await run(() => branchReviewApi.editRemark(props.scope, props.reviewId, props.remark.id, { body: text.value, category: category.value as RemarkCategory }))) editing.value = false
+  if (await run(() => branchReviewApi.editRemark(props.scope, props.reviewId, props.remark.id, { body: text.value }))) editing.value = false
 }
 </script>
 <style scoped>
@@ -68,7 +73,6 @@ async function save() {
 .rc-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .rc-badge { padding: 0 6px; font-size: 10px; font-weight: 600; border-radius: var(--radius-pill); background: var(--blue-soft); color: var(--blue-hover); }
 .rc-badge.agent { background: var(--warning-soft); color: var(--warning-text); }
-.rc-cat { font-size: 11px; color: var(--text-muted); }
 .rc-warn { font-size: 11px; color: var(--warning-text); }
 .rc-muted { font-size: 11px; color: var(--text-muted); }
 .rc-spacer { flex: 1; }

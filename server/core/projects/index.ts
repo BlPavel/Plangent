@@ -286,12 +286,16 @@ export function saveGlobalGitSettings(value: unknown) {
 }
 
 /** Who does the git work (commit messages, commit split, MR description): the configured agent, else the project's. */
-export function gitAgent(id: string): { agentId: string; model: string; effort: string } {
+export function gitAgent(id: string) { return configuredAgent(id, 'git', 'Выберите агента для коммитов и МР в настройках'); }
+/** Who reviews code with the developer: the configured review agent, else the project's. */
+export function reviewAgent(id: string) { return configuredAgent(id, 'review', 'Выберите агента для ревью в настройках проекта'); }
+function configuredAgent(id: string, kind: 'git' | 'review', missing: string): { agentId: string; model: string; effort: string } {
   const settings = effectiveGitSettings(id).values;
-  const agentId = settings.git_agent_id || getProject(id)?.default_agent_id || '';
-  if (!agentId) throw new CodeError('Выберите агента для коммитов и МР в настройках');
+  const own = settings[`${kind}_agent_id`];
+  const agentId = own || getProject(id)?.default_agent_id || '';
+  if (!agentId) throw new CodeError(missing);
   // A model or effort only makes sense for the agent it was picked for.
-  return settings.git_agent_id ? { agentId, model: settings.git_agent_model, effort: settings.git_agent_effort } : { agentId, model: '', effort: '' };
+  return own ? { agentId, model: settings[`${kind}_agent_model`], effort: settings[`${kind}_agent_effort`] } : { agentId, model: '', effort: '' };
 }
 
 export interface CreateProjectOptions extends GitOperationOptions { reuseExisting?: boolean }

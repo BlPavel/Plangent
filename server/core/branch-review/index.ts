@@ -3,13 +3,13 @@ import path from 'node:path';
 import os from 'node:os';
 import fs from 'node:fs/promises';
 import { getDb } from '../../infrastructure/db/schema';
-import { getProject, effectiveGitSettings } from '../projects';
+import { getProject, effectiveGitSettings, reviewAgent } from '../projects';
 import { CodeError } from '../code/files';
 import { fetchRepository, runGit, serializeGit } from '../code/git-write';
 import { branches, repositoryInfo } from '../code/git';
 import { getAgent } from '../agents';
 import { getTask } from '../tasks';
-import { createSession, updateSession } from '../agent-sessions/sessions';
+import { createSession, getSession, updateSession } from '../agent-sessions/sessions';
 import { closeSession } from '../agent-sessions/acp-host';
 import { commitOf, fileAt, fileDiff, isAncestor, mergeBase, rangeCommits, rangeCount, rangeFiles, resolveRef } from './git-diff';
 
@@ -140,16 +140,26 @@ export function threads(projectId: string, id: string): Thread[] {
   row(projectId, id);
   return db().prepare('SELECT * FROM mr_private_threads WHERE review_id=? ORDER BY rowid').all(id) as Thread[];
 }
+/**
+ * The thread to send a prompt to. A session that has just been created is `starting` only because nothing was sent to it yet,
+ * so only an already existing session can be busy.
+ */
+export async function openIdleThread(projectId: string, id: string, busyMessage: string) {
+  const known = new Set(threads(projectId, id).map(t => t.session_id));
+  const thread = await openThread(projectId, id, {});
+  if (known.has(thread.session_id) && ['starting', 'thinking'].includes(getSession(thread.session_id).status)) throw new CodeError(busyMessage, 409);
+  return thread;
+}
 const briefing = (r: ReviewRow, head: string) =>
   'Ревью ветки вместе с разработчиком; код ты не меняешь и git не трогаешь. Сначала вызови get_review_brief: там описание МР, контекст и скилл ревью разработчика, обсуждения коллег и правила. ' +
   'Вопросы разработчика приходят пачками: бери их через get_branch_questions и отвечай в каждой ветке через reply_branch_question (в чат ответы не пиши). ' +
   'Код ветки доступен в текущей рабочей копии (коммит ' + head + '), сравнение с ' + r.base + '; используй git diff и git log в ней.';
 /** A chat about the whole branch (no path) or about one line of one file. Code lives in a detached read-only worktree. */
-export async function openThread(projectId: string, id: string, input: { path?: unknown; side?: unknown; line?: unknown; agent?: unknown }) {
+export async function openThread(projectId: string, id: string, input: { path?: unknown; side?: unknown; line?: unknown }) {
   const project = repo(projectId), r = row(projectId, id);
-  const pick = input.agent && typeof input.agent === 'object' ? input.agent as Record<string, unknown> : {};
-  const agentId = typeof pick.agent_id === 'string' && pick.agent_id ? pick.agent_id : project.default_agent_id;
-  if (!agentId || !getAgent(agentId)) throw new CodeError('Выберите агента', 409);
+  // Who reviews is a project setting (like the agent for commits), not a choice made in the review.
+  const agent = reviewAgent(projectId);
+  if (!getAgent(agent.agentId)) throw new CodeError('Агент для ревью не найден: выберите другого в настройках проекта', 409);
   const s = await state(project, r);
   const wholeBranch = input.path === undefined || input.path === '';
   const line = wholeBranch ? 0 : Number(input.line);
@@ -165,11 +175,9 @@ export async function openThread(projectId: string, id: string, input: { path?: 
       await runGit(s.root, ['worktree', 'add', '--detach', location, s.headSha]);
       db().prepare('INSERT INTO mr_worktrees(review_id,head,path,active) VALUES (?,?,?,1) ON CONFLICT(review_id,head) DO UPDATE SET active=1,path=excluded.path').run(id, s.headSha, location);
     }
-    const session = createSession({ project_id: projectId, agent_id: agentId, role: 'chat', policy: 'read-only', model: typeof pick.model === 'string' ? pick.model : '',
+    const session = createSession({ project_id: projectId, agent_id: agent.agentId, role: 'chat', policy: 'read-only', model: agent.model,
       title: 'Ревью · ' + (r.mr_iid ? '!' + r.mr_iid + ' · ' : '') + s.head.name + (file ? ' · ' + file.path + ':' + line : ''),
-      metadata: { mr_private: true, briefing: briefing(r, s.headSha), branch_review: id,
-        ...(typeof pick.mode === 'string' && pick.mode ? { preferredMode: pick.mode } : {}),
-        ...(pick.config && typeof pick.config === 'object' ? { preferredConfig: Object.fromEntries(Object.entries(pick.config).map(([k, v]) => [k, String(v)])) } : {}) } });
+      metadata: { mr_private: true, briefing: briefing(r, s.headSha), branch_review: id, ...(agent.effort ? { reasoningEffort: agent.effort } : {}) } });
     db().prepare('INSERT INTO mr_private_threads(id,review_id,head,path,side,line,session_id) VALUES (?,?,?,?,?,?,?)').run(session.id, id, s.headSha, filePath, side, line, session.id);
     return { id: session.id, review_id: id, head: s.headSha, path: filePath, side, line, session_id: session.id };
   });

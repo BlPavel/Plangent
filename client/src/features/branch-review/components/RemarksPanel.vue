@@ -17,7 +17,6 @@
         <div class="rp-new-head">Замечание к МР целиком</div>
         <textarea v-model="text" class="control rp-text" rows="4" placeholder="Текст уйдёт в МР общим комментарием. Ctrl+Enter — сохранить" spellcheck="false" @keydown.ctrl.enter.prevent="addGeneral" @keydown.meta.enter.prevent="addGeneral" />
         <div class="rp-bar">
-          <PlainSelect v-model="category" :options="categoryOptions" small label="Категория" />
           <span class="rp-spacer" />
           <button type="button" class="btn btn-subtle btn-xs" @click="composing = false">Отмена</button>
           <button class="btn btn-blue btn-xs" :disabled="!text.trim()">Сохранить</button>
@@ -42,12 +41,11 @@ import { computed, ref } from 'vue'
 import { useAppStore } from '@core/stores/app'
 import { platform } from '@core/platform'
 import AppButton from '@shared/ui/AppButton.vue'
-import PlainSelect from '@shared/ui/PlainSelect.vue'
 import { errorText } from '@shared/utils/errorText'
 import { branchReviewApi } from '../api'
-import type { Remark, RemarkCategory } from '../types'
+import type { Remark } from '../types'
 import { useBranchReviewStore } from '../stores/review'
-import { categoryOptions, plural, remarksMarkdown } from '../utils'
+import { plural, remarksMarkdown } from '../utils'
 import RemarkCard from './RemarkCard.vue'
 
 /** The remarks of the review: drafts grouped by place, published in one batch. */
@@ -55,7 +53,7 @@ const props = defineProps<{ screenKey: string; scope: string; reviewId: string; 
 const emit = defineEmits<{ goto: [remark: Remark] }>()
 const screen = useBranchReviewStore().of(props.screenKey)
 const app = useAppStore()
-const busy = ref(false), error = ref(''), composing = ref(false), text = ref(''), category = ref('')
+const busy = ref(false), error = ref(''), composing = ref(false), text = ref('')
 
 const drafts = computed(() => screen.remarks.filter(r => r.status !== 'sent'))
 const sent = computed(() => screen.remarks.filter(r => r.status === 'sent'))
@@ -71,8 +69,8 @@ const groups = computed(() => {
 async function addGeneral() {
   if (!text.value.trim()) return
   try {
-    screen.remarks = (await branchReviewApi.addRemark(props.scope, props.reviewId, { body: text.value, category: category.value as RemarkCategory })).remarks
-    text.value = ''; category.value = ''; composing.value = false
+    screen.remarks = (await branchReviewApi.addRemark(props.scope, props.reviewId, { body: text.value })).remarks
+    text.value = ''; composing.value = false
   } catch (cause) { error.value = errorText(cause) }
 }
 async function publish() {

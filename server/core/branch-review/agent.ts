@@ -1,15 +1,14 @@
 import { getDb } from '../../infrastructure/db/schema';
 import { broadcast } from '../shared/events';
 import { CodeError } from '../code/files';
-import { getSession } from '../agent-sessions/sessions';
 import { sendPrompt } from '../agent-sessions/acp-host';
 import type { AgentSession } from '../agent-sessions/types';
 import { getTask } from '../tasks';
 import { getLatestPlan } from '../orchestration/plans';
 import { resolveReviewSkill } from '../library/review-skill';
-import { openThread, repo, row, state } from './index';
+import { openIdleThread, repo, row, state } from './index';
 import { mrReviews } from './mr';
-import { CATEGORIES, remarks, sessionReview } from './remarks';
+import { remarks, sessionReview } from './remarks';
 import * as questions from './questions';
 
 /** How the agent reviews together with the developer; returned by get_review_brief, not editable. */
@@ -19,7 +18,7 @@ const PROTOCOL = [
   'Разбор МР (когда о нём просят): изучи весь diff диапазона (git diff range.from..HEAD в рабочей копии) и код вокруг. ' +
     'Затем один раз вызови set_review_overview: сводка в markdown — что меняется и зачем, как связаны части, на что обратить внимание при ревью (файлы со строками). Коротко, без пересказа каждого файла.',
   'Потом по каждому замечанию вызови add_review_remark. Замечание к месту: path и line из diff (side old для удалённых строк). Замечание к МР целиком (архитектура, подход, разбиение): без path. ' +
-    'text — готовый комментарий для МР от имени разработчика: конкретно, вежливо, что не так и что предложить. category: ' + CATEGORIES.join(', ') + '.',
+    'text — готовый комментарий для МР от имени разработчика: конкретно, вежливо, что не так и что предложить.',
   'Не дублируй обсуждения коллег (threads) и уже существующие замечания (remarks). Лучше меньше замечаний, но по делу. Пиши по-русски, если скилл или описание МР не требуют иного.',
 ];
 
@@ -44,7 +43,7 @@ export async function brief(session: AgentSession) {
     task: task ? { key: task.key, title: task.title ?? '', description: task.description ?? '', plan: getLatestPlan(task.id)?.content ?? '' } : null,
     skill: { title: skill.title, content: skill.content },
     threads,
-    remarks: (await remarks().list(r.project_id, r.id)).remarks.map(m => ({ where: m.path ? m.path + ':' + m.line : 'весь МР', author: m.author, category: m.category, status: m.status, text: m.body })),
+    remarks: (await remarks().list(r.project_id, r.id)).remarks.map(m => ({ where: m.path ? m.path + ':' + m.line : 'весь МР', author: m.author, status: m.status, text: m.body })),
     overview: r.overview || null,
   };
 }
@@ -59,21 +58,20 @@ export async function setOverview(session: AgentSession, text: unknown) {
 }
 
 /** Starts the agent on the whole review: an overview and draft remarks, following the chosen skill. */
-export async function analyze(projectId: string, id: string, input: { agent?: unknown; note?: unknown }) {
+export async function analyze(projectId: string, id: string, input: { note?: unknown }) {
   row(projectId, id);
-  const thread = await openThread(projectId, id, { agent: input.agent });
-  if (['starting', 'thinking'].includes(getSession(thread.session_id).status)) throw new CodeError('Агент работает: дождитесь конца ответа', 409);
+  const thread = await openIdleThread(projectId, id, 'Агент работает: дождитесь конца ответа');
   const note = typeof input.note === 'string' && input.note.trim() ? '\nПожелание разработчика: ' + input.note.trim().slice(0, 4000) : '';
   await sendPrompt(thread.session_id, [{ type: 'text', text: 'Разбери МР: вызови get_review_brief, изучи изменения, запиши сводку через set_review_overview и черновики замечаний через add_review_remark.' + note }]);
   return { thread };
 }
 /** The next round: one general question asking the agent whether the published remarks were addressed. */
-export async function checkFixes(projectId: string, id: string, input: { agent?: unknown }) {
+export async function checkFixes(projectId: string, id: string) {
   const r = row(projectId, id);
   if (!r.published_head) throw new CodeError('Вы ещё не публиковали замечаний', 409);
   const text = 'Проверь, исправлены ли мои опубликованные замечания (мои треды в threads и отправленные remarks) в коммитах после ' + r.published_head.slice(0, 12) +
     ': по каждому — исправлено / частично / нет, коротко почему. Отдельно отметь новые проблемы в этих коммитах, если они есть.';
   const added = await questions.add(projectId, id, { text });
   const question = added.questions.at(-1)!;
-  return questions.send(projectId, id, { agent: input.agent, question_ids: [question.id] });
+  return questions.send(projectId, id, { question_ids: [question.id] });
 }

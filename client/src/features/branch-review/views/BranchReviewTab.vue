@@ -68,7 +68,7 @@
         </div>
       </header>
       <div class="workspace">
-        <nav class="files" aria-label="Файлы ветки">
+        <nav class="files" aria-label="Файлы ветки" :style="{ width: filesWidth + 'px' }">
           <div class="files-head">
             Файлы
             <button v-if="detail.round_commits" type="button" class="files-filter" :class="{ on: screen.onlyChanged }" title="Только файлы, изменённые после вашего последнего ревью" @click="screen.onlyChanged = !screen.onlyChanged">новое</button>
@@ -78,12 +78,15 @@
               <span class="file-name">{{ baseName(file.path) }}</span>
               <span class="file-dir">{{ dirName(file.path) }}</span>
             </button>
-            <span v-if="countIn(file.path)" class="file-count" title="Замечания и обсуждения">{{ countIn(file.path) }}</span>
+            <span v-if="remarksIn(file.path)" class="file-count" title="Замечания: черновики и отправленные">{{ remarksIn(file.path) }}</span>
+            <span v-if="threadsIn(file.path)" class="file-count thread" title="Обсуждения в МР">{{ threadsIn(file.path) }}</span>
+            <span v-if="questionsIn(file.path)" class="file-count agent" title="Вопросы агенту">{{ questionsIn(file.path) }}</span>
             <span class="file-stat"><span v-if="file.added" class="add">+{{ file.added }}</span> <span v-if="file.deleted" class="del">−{{ file.deleted }}</span></span>
             <span v-if="file.status !== 'M'" class="file-tag" :class="file.status === 'A' ? 'add' : file.status === 'D' ? 'del' : ''">{{ file.status }}</span>
             <span v-if="file.changed_since" class="file-dot" title="Изменён после вашего последнего ревью" />
           </div>
         </nav>
+        <div class="rt-resizer" role="separator" aria-orientation="vertical" aria-label="Ширина списка файлов" title="Потяните, чтобы изменить ширину; двойной клик — сбросить" tabindex="0" @pointerdown="startResize($event, 'files')" @dblclick="filesWidth = 260" @keydown="resizeKey($event, 'files')" />
         <main class="diff-area">
           <BranchDiff
             v-if="selectedFile" :key="detail.review.id + ':' + path" :scope="scope" :review-id="detail.review.id" :head="detail.review.head" :file="selectedFile"
@@ -97,7 +100,6 @@
                     <button type="button" :class="{ on: kind === 'remark' }" title="Черновик замечания для МР" @click="kind = 'remark'">Замечание</button>
                     <button type="button" :class="{ on: kind === 'question' }" title="Приватный вопрос агенту, автор его не увидит" @click="kind = 'question'">Вопрос агенту</button>
                   </div>
-                  <PlainSelect v-if="kind === 'remark'" v-model="category" :options="categoryOptions" small label="Категория" />
                 </div>
                 <textarea v-model="draft" class="control composer-text" rows="3" :placeholder="kind === 'remark' ? 'Замечание к этой строке. Ctrl+Enter — в черновики' : 'Вопрос агенту по этой строке. Ctrl+Enter — в очередь'" spellcheck="false" @keydown.ctrl.enter.prevent="submit" @keydown.meta.enter.prevent="submit" />
                 <div class="rt-row">
@@ -110,24 +112,29 @@
               <div class="line-items">
                 <RemarkCard v-for="r in remarksAt(selectedFile.path, side, line)" :key="r.id" :remark="r" :screen-key="props.projectId" :scope="scope" :review-id="detail.review.id" />
                 <ExternalThreadCard v-for="t in threadsAt(selectedFile.path, side, line)" :key="t.id" :thread="t" :actions="threadActions" />
+                <BranchQuestionCard
+                  v-for="q in questionsAt(selectedFile.path, side, line)" :key="q.id" :question="q" :messages="messagesOf(q.id)" :screen-key="props.projectId" :scope="scope" :review-id="detail.review.id"
+                  @send-now="screen.panel = 'agent'" @to-remark="toRemark(q, $event)"
+                />
               </div>
             </template>
           </BranchDiff>
           <div v-else class="empty-state">{{ screen.onlyChanged ? 'После вашего ревью файлы не менялись.' : 'В этом диапазоне нет изменённых файлов.' }}</div>
         </main>
-        <aside class="side" aria-label="Ревью">
+        <div class="rt-resizer" role="separator" aria-orientation="vertical" aria-label="Ширина правой панели" title="Потяните, чтобы изменить ширину; двойной клик — сбросить" tabindex="0" @pointerdown="startResize($event, 'side')" @dblclick="sideWidth = 420" @keydown="resizeKey($event, 'side')" />
+        <aside class="side" aria-label="Ревью" :style="{ width: sideWidth + 'px' }">
           <div class="side-tabs" role="tablist">
             <button v-for="t in panels" :key="t.id" type="button" role="tab" :aria-selected="screen.panel === t.id" :class="{ on: screen.panel === t.id }" @click="screen.panel = t.id">
               {{ t.label }}<span v-if="t.count" class="side-count">{{ t.count }}</span>
             </button>
           </div>
           <OverviewPanel
-            v-if="screen.panel === 'overview'" :screen-key="props.projectId" :scope="scope" :detail="detail" :info="info" :tasks-url="tasksUrl" :default-agent-id="defaultAgentId"
+            v-if="screen.panel === 'overview'" :screen-key="props.projectId" :scope="scope" :detail="detail" :info="info" :tasks-url="tasksUrl"
             @open-instructions="emit('open-instructions')" @asked="screen.panel = 'agent'"
           />
           <RemarksPanel v-else-if="screen.panel === 'remarks'" :screen-key="props.projectId" :scope="scope" :review-id="detail.review.id" :mr="!!detail.review.mr_iid" @goto="gotoRemark" />
           <DiscussPanel
-            v-else-if="screen.panel === 'agent'" :screen-key="props.projectId" :scope="scope" :project-id="scope" :review-id="detail.review.id" :head="detail.review.head" :default-agent-id="defaultAgentId"
+            v-else-if="screen.panel === 'agent'" :screen-key="props.projectId" :scope="scope" :review-id="detail.review.id" :head="detail.review.head"
             @goto="goto" @to-remark="toRemark"
           />
           <div v-else class="side-threads">
@@ -150,18 +157,18 @@ import BranchSelect from '@shared/ui/BranchSelect.vue'
 import PlainSelect from '@shared/ui/PlainSelect.vue'
 import { errorText } from '@shared/utils/errorText'
 import { branchReviewApi } from '../api'
-import type { BranchQuestion, BranchRef, BranchReview, MrInfo, MrListItem, Remark, RemarkCategory } from '../types'
+import type { BranchQuestion, BranchRef, BranchReview, MrInfo, MrListItem, Remark } from '../types'
 import BranchDiff from '../components/BranchDiff.vue'
+import BranchQuestionCard from '../components/BranchQuestionCard.vue'
 import DiscussPanel from '../components/DiscussPanel.vue'
 import MrList from '../components/MrList.vue'
 import OverviewPanel from '../components/OverviewPanel.vue'
 import RemarkCard from '../components/RemarkCard.vue'
 import RemarksPanel from '../components/RemarksPanel.vue'
 import { useBranchReviewStore, type ReviewPanel } from '../stores/review'
-import { categoryOptions } from '../utils'
 
 /** Passed for a group: the review works on one of its projects. */
-const props = defineProps<{ projectId: string; members?: { id: string; name: string }[]; defaultAgentId?: string | null }>()
+const props = defineProps<{ projectId: string; members?: { id: string; name: string }[] }>()
 const emit = defineEmits<{ 'open-instructions': [] }>()
 const app = useAppStore()
 const isGroup = computed(() => !!props.members)
@@ -170,9 +177,30 @@ const scope = computed(() => isGroup.value ? memberId.value : props.projectId)
 const screen = useBranchReviewStore().of(props.projectId)
 const { memberId, list, branch, baseRef, detail, info, path } = toRefs(screen)
 const error = ref(''), busy = ref(false), loadingMrs = ref(false), opening = ref<string | null>(null), selection = ref<LineSelection | null>(null), draft = ref('')
-const kind = ref<'remark' | 'question'>('remark'), category = ref('')
+const kind = ref<'remark' | 'question'>('remark')
 let alive = true
 onBeforeUnmount(() => { alive = false })
+
+// Panel widths are view-local and remembered between visits, like on the Код tab.
+const clampWidth = (value: number) => Math.min(640, Math.max(220, Math.round(value)))
+const stored = (key: string, fallback: number) => clampWidth(Number(localStorage.getItem(key)) || fallback)
+const filesWidth = ref(stored('review.filesWidth', 260)), sideWidth = ref(stored('review.sideWidth', 420))
+watch(filesWidth, value => localStorage.setItem('review.filesWidth', String(value)))
+watch(sideWidth, value => localStorage.setItem('review.sideWidth', String(value)))
+function startResize(event: PointerEvent, panel: 'files' | 'side') {
+  const startX = event.clientX, target = panel === 'files' ? filesWidth : sideWidth, start = target.value
+  const move = (e: PointerEvent) => { target.value = clampWidth(start + (panel === 'files' ? e.clientX - startX : startX - e.clientX)) }
+  const stop = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', stop); document.body.style.userSelect = '' }
+  document.body.style.userSelect = 'none'
+  window.addEventListener('pointermove', move)
+  window.addEventListener('pointerup', stop)
+}
+function resizeKey(event: KeyboardEvent, panel: 'files' | 'side') {
+  if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+  event.preventDefault()
+  const target = panel === 'files' ? filesWidth : sideWidth
+  target.value = clampWidth(target.value + ((event.key === 'ArrowRight') === (panel === 'files') ? 16 : -16))
+}
 
 const visibleFiles = computed(() => (detail.value?.files ?? []).filter(f => !screen.onlyChanged || f.changed_since))
 const selectedFile = computed(() => visibleFiles.value.find(f => f.path === path.value))
@@ -198,13 +226,20 @@ const panels = computed<{ id: ReviewPanel; label: string; count: number }[]>(() 
 ])
 
 // What sits under a line of the diff: the developer's and the agent's remarks and colleagues' GitLab threads.
-const remarksAt = (file: string, side: CodeSide, line: number) => screen.remarks.filter(r => r.path === file && r.side === side && r.line === line && !r.outdated)
+// A published remark of an MR comes back as a GitLab thread: the diff shows the thread, not both.
+const inDiff = (r: Remark) => !r.outdated && !(r.status === 'sent' && detail.value?.review.mr_iid)
+const remarksAt = (file: string, side: CodeSide, line: number) => screen.remarks.filter(r => r.path === file && r.side === side && r.line === line && inDiff(r))
 const threadsAt = (file: string, side: CodeSide, line: number) => (info.value?.threads ?? []).filter(t => t.path === file && t.side === side && t.line === line)
+const questionsAt = (file: string, side: CodeSide, line: number) => screen.questions.filter(q => q.path === file && q.side === side && q.line === line)
+const messagesOf = (id: string) => screen.messages.filter(m => m.question_id === id)
 const itemsOf = (file: string) => [
-  ...screen.remarks.filter(r => r.path === file && !r.outdated).map(r => ({ side: r.side, line: r.line })),
+  ...screen.questions.filter(q => q.path === file).map(q => ({ side: q.side, line: q.line })),
+  ...screen.remarks.filter(r => r.path === file && inDiff(r)).map(r => ({ side: r.side, line: r.line })),
   ...(info.value?.threads ?? []).filter(t => t.path === file && t.line).map(t => ({ side: t.side, line: t.line! })),
 ]
-const countIn = (file: string) => itemsOf(file).length
+const questionsIn = (file: string) => screen.questions.filter(q => q.path === file).length
+const remarksIn = (file: string) => screen.remarks.filter(r => r.path === file && inDiff(r)).length
+const threadsIn = (file: string) => (info.value?.threads ?? []).filter(t => t.path === file && t.line).length
 
 async function run<T>(fn: () => Promise<T>, accept?: (value: T) => void) {
   if (busy.value) return undefined
@@ -260,7 +295,7 @@ async function submit() {
   const line = selection.value, text = draft.value.trim(), id = detail.value?.review.id
   if (!line || !text || !id) return
   try {
-    if (kind.value === 'remark') screen.remarks = (await branchReviewApi.addRemark(scope.value, id, { path: line.path, side: line.side, line: line.startLine, body: text, category: category.value as RemarkCategory })).remarks
+    if (kind.value === 'remark') screen.remarks = (await branchReviewApi.addRemark(scope.value, id, { path: line.path, side: line.side, line: line.startLine, body: text })).remarks
     else {
       const result = await branchReviewApi.addQuestion(scope.value, id, { path: line.path, side: line.side, line: line.startLine, text })
       screen.questions = result.questions; screen.messages = result.messages
@@ -363,7 +398,10 @@ code { font-size: 11.5px; }
 .rt-commits summary { cursor: pointer; font-size: 12px; }
 .rt-commits ul { max-height: 160px; overflow: auto; margin: 4px 0 0; padding-left: 16px; font-size: 12px; }
 .workspace { display: flex; flex: 1; min-height: 0; overflow: hidden; }
-.files { width: 260px; flex-shrink: 0; overflow: auto; border-right: 1px solid var(--border); }
+.rt-resizer { position: relative; z-index: 2; flex-shrink: 0; width: 0; cursor: col-resize; outline: none; }
+.rt-resizer::before { content: ''; position: absolute; top: 0; bottom: 0; left: -3px; width: 6px; opacity: 0.6; transition: background 0.12s; }
+.rt-resizer:hover::before, .rt-resizer:focus-visible::before { background: var(--blue); }
+.files { flex-shrink: 0; overflow: auto; border-right: 1px solid var(--border); }
 .files-head { display: flex; align-items: center; gap: 6px; padding: 8px 10px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); border-bottom: 1px solid var(--border); }
 .files-filter { margin-left: auto; padding: 0 6px; font: inherit; font-size: 10.5px; text-transform: none; letter-spacing: 0; color: var(--warning-text); background: none; border: 1px solid var(--warning-soft); border-radius: var(--radius-pill); cursor: pointer; }
 .files-filter.on { background: var(--warning-soft); }
@@ -373,7 +411,9 @@ code { font-size: 11.5px; }
 .file button { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 2px 0; font: inherit; text-align: left; color: var(--text); background: none; border: none; cursor: pointer; }
 .file-name { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .file-dir { font-size: 10.5px; color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.file-count { flex-shrink: 0; min-width: 16px; padding: 0 5px; font-size: 10px; font-weight: 600; text-align: center; border-radius: var(--radius-pill); background: var(--blue-soft); color: var(--blue-hover); }
+.file-count { flex-shrink: 0; min-width: 16px; padding: 0 5px; font-size: 10px; font-weight: 600; text-align: center; border-radius: var(--radius-pill); background: rgba(56, 139, 253, 0.25); color: var(--blue-hover); }
+.file-count.thread { background: rgba(210, 153, 34, 0.28); color: var(--warning-text); }
+.file-count.agent { background: rgba(35, 134, 54, 0.28); color: var(--accent-hover); }
 .file-stat { flex-shrink: 0; font-size: 10.5px; }
 .file-stat .add, .file-tag.add { color: #3fb950; }
 .file-stat .del, .file-tag.del { color: var(--danger-hover); }
@@ -385,7 +425,7 @@ code { font-size: 11.5px; }
 .composer-text { width: 100%; padding: 8px 10px; line-height: 1.45; resize: vertical; font: inherit; }
 .line-items { display: flex; flex-direction: column; gap: 4px; width: min(100%, 640px); }
 .line-items:empty { display: none; }
-.side { width: 420px; flex-shrink: 0; display: flex; flex-direction: column; min-height: 0; border-left: 1px solid var(--border); font-size: 12px; }
+.side { flex-shrink: 0; display: flex; flex-direction: column; min-height: 0; border-left: 1px solid var(--border); font-size: 12px; }
 .side-tabs { display: flex; gap: 2px; padding: 0 6px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
 .side-count { margin-left: 4px; padding: 0 5px; font-size: 10px; font-weight: 600; border-radius: var(--radius-pill); background: var(--blue-soft); color: var(--blue-hover); }
 .side-threads { flex: 1; min-height: 0; overflow: auto; padding: 4px 10px 10px; }

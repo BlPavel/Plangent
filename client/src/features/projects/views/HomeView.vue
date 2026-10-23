@@ -95,7 +95,7 @@
       <!-- Tab: Инструкции -->
       <!-- Mounted only while open: the screen watches the project folder. -->
       <div v-if="activeTab === 'code' && !isGroup" class="tab-content"><CodeTab :project-id="currentProject.id" :task="codeTask" :default-agent-id="projectsStore.agentFor(currentProject)" @back="backToTask" /></div>
-      <div v-if="activeTab === 'review'" class="tab-content"><BranchReviewTab :key="currentProject.id" :project-id="currentProject.id" :default-agent-id="projectsStore.agentFor(currentProject)" :members="isGroup ? projectsStore.members(currentProject.id) : undefined" @open-instructions="openReviewSkills" /></div>
+      <div v-if="activeTab === 'review'" class="tab-content"><BranchReviewTab :key="currentProject.id" :project-id="currentProject.id" :members="isGroup ? projectsStore.members(currentProject.id) : undefined" @open-instructions="openReviewSkills" /></div>
       <div v-if="activeTab === 'settings'" class="tab-content"><ProjectSettingsTab :key="currentProject.id" :project="currentProject" /></div>
       <div v-show="activeTab === 'instructions'" class="tab-content instructions-tab">
         <InstructionsWorkspace v-if="currentProject" :project-id="currentProject.id" :default-agent-id="projectsStore.agentFor(currentProject)" :requested="instructionsRequest" />

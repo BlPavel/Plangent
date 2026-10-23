@@ -44,7 +44,7 @@ export const plangentTools = {
   set_review_overview: { description: 'Save the overview of the merge request (markdown): what changes and why, how the parts connect, what to look at. Replaces the previous overview.', fields: { text: { type: 'string' } } },
   add_review_remark: {
     description: 'Add a draft remark for the developer to edit and publish. With path and line it is attached to that line of the diff (side old for a removed line); without path it is about the whole merge request. text is the ready comment in the developer\'s voice.',
-    fields: { text: { type: 'string' }, category: { type: 'string', enum: ['architecture', 'bug', 'risk', 'tests', 'performance', 'security', 'style', 'other'] },
+    fields: { text: { type: 'string' },
       path: { type: 'string' }, line: { type: 'integer', minimum: 1 }, side: { type: 'string', enum: ['new', 'old'] } },
   },
   get_review_context: { description: 'Get assigned plan and executor context.', fields: {} },
@@ -85,7 +85,7 @@ export function isPlangentToolCall(tool: Pick<ToolCallUpdate, 'title' | 'kind' |
   if ('title' in input && 'description' in input &&
     Object.keys(input).every(key => key in plangentTools.save_section.fields)) return true;
   // A remark on the whole MR leaves out path, line and side.
-  if ('text' in input && 'category' in input &&
+  if ('text' in input &&
     Object.keys(input).every(key => key in plangentTools.add_review_remark.fields)) return true;
   return signatures.includes(Object.keys(input).sort().join(','));
 }

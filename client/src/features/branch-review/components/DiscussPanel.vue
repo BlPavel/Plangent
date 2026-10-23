@@ -11,19 +11,12 @@
       <span v-else class="muted">Агент только читает код и отвечает в карточках</span>
     </div>
 
-    <NewChatPanel
-      v-if="setup" compact class="dp-setup" :project-id="projectId" :default-agent-id="defaultAgentId" title="Агент" fixed-policy="read-only"
-      :text="`Уйдёт ${setupCount} ${plural(setupCount, 'вопрос', 'вопроса', 'вопросов')}. Агент только читает код и отвечает в карточках.${screen.thread ? ' Ветка обновилась: начнётся новый разговор.' : ''}`"
-      initial-text="" :send-label="`Отправить ${setupCount}`" :busy="sending" @start="send(setup.ids, $event)"
-    >
-      <template #actions><button type="button" class="dp-link" @click="setup = null">Отмена</button></template>
-    </NewChatPanel>
-    <div v-else class="dp-actions">
+    <div class="dp-actions">
       <AppButton size="xs" variant="ghost" :disabled="composing" title="Вопрос не к строке, а ко всей ветке: что изменилось, на что смотреть" @click="composing = true">+ Общий</AppButton>
       <AppButton
         size="xs" variant="blue" :disabled="!pending || busy || sending"
         :title="busy ? 'Агент отвечает: дождитесь конца ответа' : pending ? 'Отправить агенту новые вопросы и ваши ответы в обсуждениях' : 'Нечего отправлять'"
-        @click="sendClick(null)"
+        @click="send(null)"
       >{{ sending ? 'Отправка…' : `Отправить${pending ? ' ' + pending : ''}` }}</AppButton>
     </div>
     <p v-if="error" role="alert" class="dp-error">{{ error }}</p>
@@ -43,7 +36,7 @@
       </div>
       <BranchQuestionCard
         v-for="q in screen.questions" :key="q.id" :question="q" :messages="thread(q.id)" :screen-key="screenKey" :scope="scope" :review-id="reviewId" :agent-busy="busy"
-        @goto="emit('goto', q)" @send-now="sendClick([q.id])" @to-remark="emit('to-remark', q, $event)"
+        @goto="emit('goto', q)" @send-now="send([q.id])" @to-remark="emit('to-remark', q, $event)"
       />
     </div>
   </div>
@@ -51,39 +44,30 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import AppButton from '@shared/ui/AppButton.vue'
-import { NewChatPanel, statusLabel, type NewChatRequest } from '@features/agent-chat'
+import { statusLabel } from '@features/agent-chat'
 import { errorText } from '@shared/utils/errorText'
 import { branchReviewApi } from '../api'
 import type { BranchQuestion } from '../types'
-import { pickOf, useReviewAgent } from '../composables/useReviewAgent'
-import { plural } from '../utils'
+import { useReviewAgent } from '../composables/useReviewAgent'
 import BranchQuestionCard from './BranchQuestionCard.vue'
 
-const props = defineProps<{ screenKey: string; scope: string; projectId: string; reviewId: string; head: string; defaultAgentId?: string | null }>()
+const props = defineProps<{ screenKey: string; scope: string; reviewId: string; head: string }>()
 const emit = defineEmits<{ goto: [question: BranchQuestion]; 'to-remark': [question: BranchQuestion, text: string] }>()
-const { screen, active, session, busy, agentName } = useReviewAgent(props.screenKey, computed(() => props.head))
+const { screen, session, busy, agentName } = useReviewAgent(props.screenKey, computed(() => props.head))
 const sending = ref(false), stopping = ref(false), error = ref(''), composing = ref(false), generalText = ref('')
-const setup = ref<{ ids: string[] | null } | null>(null)
 
 const queuedIds = computed(() => new Set(screen.messages.filter(m => m.author === 'developer' && !m.sent).map(m => m.question_id)))
 const pending = computed(() => queuedIds.value.size)
-const setupCount = computed(() => setup.value?.ids ? setup.value.ids.filter(id => queuedIds.value.has(id)).length : pending.value)
 const thread = (id: string) => screen.messages.filter(m => m.question_id === id)
 
-/** Without an agent for this head the first send asks who should answer. */
-function sendClick(ids: string[] | null) {
-  error.value = ''
-  if (!active.value) { setup.value = { ids }; return }
-  void send(ids)
-}
-async function send(ids: string[] | null, request?: NewChatRequest) {
+/** The agent is the project's review agent (project settings); a new conversation starts by itself when the branch has changed. */
+async function send(ids: string[] | null) {
   if (sending.value) return
   sending.value = true
   error.value = ''
   try {
-    const result = await branchReviewApi.send(props.scope, props.reviewId, { agent: pickOf(request), ...(ids ? { question_ids: ids } : {}) })
+    const result = await branchReviewApi.send(props.scope, props.reviewId, ids ? { question_ids: ids } : {})
     screen.questions = result.questions; screen.messages = result.messages; screen.thread = result.thread
-    setup.value = null
   } catch (cause) { error.value = errorText(cause) } finally { sending.value = false }
 }
 async function stop() {
@@ -110,8 +94,6 @@ async function addGeneral() {
 .dp-dot.thinking, .dp-dot.starting { background: var(--blue-hover); }
 .dp-dot.waiting { background: var(--warning-text); }
 .dp-spacer { flex: 1; }
-.dp-setup { flex: none; height: auto; border-bottom: 1px solid var(--border); }
-.dp-link { padding: 0; font: inherit; color: var(--blue-hover); background: none; border: none; cursor: pointer; }
 .dp-error { padding: 6px 10px; color: var(--danger-hover); overflow-wrap: anywhere; }
 .dp-list { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 6px; padding: 4px 10px 10px; }
 .dp-empty { padding: 8px 2px; color: var(--text-muted); line-height: 1.45; }
