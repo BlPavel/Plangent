@@ -10,8 +10,17 @@ export const useConflictsStore = defineStore('code-conflicts', () => {
   const operation = computed(() => state.value?.operation ?? null)
   const conflicted = computed(() => state.value?.files.filter(f => f.conflicted) ?? [])
   const working = computed(() => ['starting', 'thinking', 'waiting'].includes(state.value?.session?.status ?? ''))
-  /** Answers typed but not yet sent to the agent. */
-  const pendingAnswers = computed(() => state.value?.files.filter(f => f.note?.answer && !f.note.answer_sent).length ?? 0)
+  /** The agent's questions still waiting for the developer. */
+  const questions = computed(() => conflicted.value.filter(f => f.note?.outcome === 'question' && !f.note.answer_sent))
+  /**
+   * One main action at a time: `start` — conflicts nobody looked at (first run, next rebase stop); `working`;
+   * `answer` — the agent asked; `done` — every conflict has the agent's note, only a redo is left.
+   */
+  const mode = computed<'start' | 'working' | 'answer' | 'done'>(() => {
+    if (working.value) return 'working'
+    if (questions.value.length) return 'answer'
+    return conflicted.value.some(f => !f.note) ? 'start' : 'done'
+  })
   let unsubscribe: (() => void) | undefined, timer: ReturnType<typeof setTimeout> | undefined, generation = 0
 
   async function refresh() {
@@ -45,8 +54,7 @@ export const useConflictsStore = defineStore('code-conflicts', () => {
     } catch (cause) { if (p === projectId.value) error.value = (cause instanceof Error ? cause.message : String(cause)).replace(/^Error:\s*/, '') }
     finally { if (p === projectId.value) busy.value = false }
   }
-  const resolve = (note?: string) => act(() => conflictsApi.resolve(projectId.value, note))
-  const answer = (path: string, text: string) => act(() => conflictsApi.answer(projectId.value, path, text))
+  const resolve = (input: { note?: string; answers?: Record<string, string> } = {}) => act(() => conflictsApi.resolve(projectId.value, input))
   const stopAgent = () => act(async () => { await conflictsApi.stop(projectId.value); await refresh() })
-  return { projectId, state, busy, error, operation, conflicted, working, pendingAnswers, start, stop, refresh, resolve, answer, stopAgent }
+  return { projectId, state, busy, error, operation, conflicted, working, questions, mode, start, stop, refresh, resolve, stopAgent }
 })

@@ -22,7 +22,7 @@ export function getDb(): Database.Database {
 
 export function migrate(db: Database.Database): void {
   db.exec(`CREATE TABLE IF NOT EXISTS conflict_resolutions (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, operation_id TEXT NOT NULL, session_id TEXT NOT NULL,
-      closed INTEGER NOT NULL DEFAULT 0, summary TEXT NOT NULL DEFAULT '', summary_step TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f','now')));
+      closed INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f','now')));
     CREATE TABLE IF NOT EXISTS conflict_files (resolution_id TEXT NOT NULL REFERENCES conflict_resolutions(id) ON DELETE CASCADE, step TEXT NOT NULL, path TEXT NOT NULL,
       outcome TEXT NOT NULL CHECK(outcome IN ('resolved','question','recommend')), text TEXT NOT NULL, answer TEXT NOT NULL DEFAULT '', answer_sent INTEGER NOT NULL DEFAULT 0,
       updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f','now')), PRIMARY KEY(resolution_id,step,path));`);

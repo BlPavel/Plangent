@@ -12,7 +12,7 @@ export interface ConflictFile {
   note: { outcome: 'resolved' | 'question' | 'recommend'; text: string; answer: string; answer_sent: boolean } | null
 }
 export interface ConflictState {
-  operation: GitOperationState | null; files: ConflictFile[]; summary: string
+  operation: GitOperationState | null; files: ConflictFile[]
   session: { id: string; status: string; reason: string } | null
 }
 export interface GitBranch { name: string; ref: string; remote: boolean }

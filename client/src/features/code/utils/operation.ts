@@ -11,7 +11,3 @@ export function operationTitle(o: GitOperationState): string {
   if (o.kind === 'merge') return 'Merge ' + (o.commit ? (o.commit.name ?? short(o.commit.sha)) : '') + (o.branch ? ' в ' + o.branch : '')
   return (o.kind === 'cherry-pick' ? 'Cherry-pick' : 'Revert') + (o.commit ? ' ' + short(o.commit.sha) : '') + (o.branch ? ' в ' + o.branch : '')
 }
-/** How the developer finishes it in their own git client. */
-export function continueCommand(o: GitOperationState): string {
-  return o.kind === 'merge' ? 'git commit' : `git ${o.kind} --continue`
-}

@@ -57,8 +57,7 @@ const conflicts = (p: string) => '/projects/' + id(p) + '/conflicts'
 type ConflictState = import('./git-types').ConflictState
 export const conflictsApi = {
   state: (p: string) => api.get<ConflictState>(conflicts(p)),
-  resolve: (p: string, note?: string) => api.post<ConflictState>(conflicts(p) + '/resolve', { note }),
-  answer: (p: string, path: string, text: string) => api.put<ConflictState>(conflicts(p) + '/answer', { path, text }),
+  resolve: (p: string, input: { note?: string; answers?: Record<string, string> } = {}) => api.post<ConflictState>(conflicts(p) + '/resolve', input),
   stop: (p: string) => api.post<{ stopped: boolean }>(conflicts(p) + '/stop', {}),
 }
 

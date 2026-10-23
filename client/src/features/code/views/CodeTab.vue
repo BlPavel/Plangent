@@ -24,8 +24,8 @@
       <HistoryMenu :history="store.history" :opened-id="store.openedReviewId" @open="store.loadHistory()" @select="store.openReview($event)" @remove="removeHistoryItem" />
     </header>
     <div v-if="conflicts.operation" class="ct-op" role="status">
-      <span class="ct-op-text">{{ operationTitle(conflicts.operation) }} · {{ conflicts.conflicted.length ? 'конфликтов: ' + conflicts.conflicted.length : 'конфликтов нет' }}<template v-if="conflicts.working"> · агент работает</template></span>
-      <button v-if="conflicts.conflicted.length && !conflicts.state?.session" type="button" class="btn btn-blue btn-xs" :disabled="conflicts.busy" @click="resolveConflicts">Разрешить с агентом</button>
+      <span class="ct-op-text">{{ operationTitle(conflicts.operation) }} · {{ conflicts.conflicted.length ? 'конфликтов: ' + conflicts.conflicted.length : 'конфликтов нет' }}<template v-if="conflicts.mode === 'working'"> · агент работает</template><template v-else-if="conflicts.mode === 'answer'"> · агент ждёт ответа</template></span>
+      <button v-if="conflicts.mode === 'start' && conflicts.conflicted.length" type="button" class="btn btn-blue btn-xs" @click="openConflicts">Разрешить с агентом</button>
       <button v-else type="button" class="btn btn-ghost btn-xs" @click="showRight('conflicts')">Конфликты</button>
     </div>
     <ReviewBanners @open-items="openFirstUnresolved" />
@@ -115,7 +115,7 @@
           <button type="button" class="ct-collapse" title="Свернуть панель (Ctrl+Alt+B)" aria-label="Свернуть правую панель" @click="rightCollapsed = true">»</button>
         </div>
         <div v-if="rightTab === 'conflicts'" class="ct-scroll">
-          <ConflictPanel @open="path => open(path, 'diff')" />
+          <ConflictPanel ref="conflictPanel" @open="path => open(path, 'diff')" />
         </div>
         <template v-if="rightTab === 'remarks'">
           <ExternalThreadsPanel :can-discuss="canDiscuss" @goto="gotoExternal" @discuss="discussExternal" />
@@ -429,11 +429,14 @@ watch(() => route.query.finish, value => { if (value === '1') showRight('finish'
 // --- the developer's merge/rebase: its conflicts and the agent resolving them ----------
 const conflicts = useConflictsStore()
 watch(() => props.projectId, id => { void conflicts.start(id) }, { immediate: true })
-const conflictAttention = computed(() => conflicts.state?.files.filter(f => f.conflicted && f.note && f.note.outcome !== 'resolved' && !f.note.answer).length ?? 0)
+const conflictAttention = computed(() => conflicts.mode === 'answer' ? conflicts.questions.length : 0)
 watch(() => conflicts.operation, operation => { if (!operation && rightTab.value === 'conflicts') rightTab.value = 'remarks' })
-async function resolveConflicts() {
+const conflictPanel = ref<InstanceType<typeof ConflictPanel>>()
+/** Brings up the card; the agent starts from there, after an optional wish. */
+async function openConflicts() {
   showRight('conflicts')
-  await conflicts.resolve()
+  await nextTick()
+  conflictPanel.value?.focus()
 }
 const rightTabs = computed(() => [
   ...(conflicts.operation ? [{ id: 'conflicts' as const, label: 'Конфликты', count: conflictAttention.value || conflicts.conflicted.length, warning: !!conflictAttention.value, hint: conflictAttention.value ? `Агент ждёт ответа: ${conflictAttention.value}` : 'Конфликтных файлов' }] : []),

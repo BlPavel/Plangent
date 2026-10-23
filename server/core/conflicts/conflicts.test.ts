@@ -71,7 +71,7 @@ test('developer merge/rebase: detection, blocked writes, agent tools, edit scope
     let session = sessions.getSession(id);
     assert.equal(session.role, 'conflict-resolver'); assert.equal(session.policy, 'allow-edits');
     assert.deepEqual(session.metadata.conflict_paths, ['a.txt', 'b.txt']);
-    assert.deepEqual(allowed(session), ['get_conflicts', 'report_conflict_file', 'finish_conflicts']);
+    assert.deepEqual(allowed(session), ['get_conflicts', 'report_conflict_file']);
 
     const brief = await conflicts.conflictBrief(session);
     assert.match(brief.sides.ours, /main/); assert.match(brief.sides.theirs, /feature/);
@@ -83,17 +83,20 @@ test('developer merge/rebase: detection, blocked writes, agent tools, edit scope
     write('a.txt', 'main\nfeature\n');
     await conflicts.reportConflictFile(session, { path: path.join(repo, 'a.txt'), outcome: 'resolved', text: 'Обе строки' });
     await conflicts.reportConflictFile(session, { path: 'b.txt', outcome: 'question', text: 'Чью версию оставить?' });
-    await conflicts.answerConflict(project.id, { path: 'b.txt', text: 'main' });
-    await conflicts.finishConflicts(session, 'Готово; b.txt ждёт ответа');
     state = await conflicts.conflictState(project.id);
-    assert.equal(state.summary, 'Готово; b.txt ждёт ответа');
-    assert.deepEqual(state.files.map(f => [f.path, f.note?.outcome, f.note?.answer, f.note?.answer_sent]), [['a.txt', 'resolved', '', false], ['b.txt', 'question', 'main', false]]);
+    assert.deepEqual(state.files.map(f => [f.path, f.note?.outcome, f.note?.answer_sent]), [['a.txt', 'resolved', false], ['b.txt', 'question', false]]);
 
-    // The answers leave with the next turn of the same session.
-    state = await conflicts.resolveConflicts(project.id);
+    // Answers go with the next turn of the same session; only questions can be answered.
+    await assert.rejects(conflicts.resolveConflicts(project.id, { answers: { 'a.txt': 'x' } }), /не спрашивал/);
+    state = await conflicts.resolveConflicts(project.id, { answers: { 'b.txt': 'main' } });
     assert.equal(state.session!.id, id);
     await waitIdle(id);
-    assert.equal((await conflicts.conflictState(project.id)).files[1].note?.answer_sent, true);
+    assert.deepEqual([state.files[1].note?.answer, (await conflicts.conflictState(project.id)).files[1].note?.answer_sent], ['main', true]);
+    assert.deepEqual((await conflicts.conflictBrief(sessions.getSession(id))).answers, [{ path: 'b.txt', question: 'Чью версию оставить?', answer: 'main' }]);
+    // A new report about the file replaces the question together with the answer.
+    write('b.txt', 'main\n');
+    await conflicts.reportConflictFile(sessions.getSession(id), { path: 'b.txt', outcome: 'resolved', text: 'Оставил main' });
+    assert.equal((await conflicts.conflictState(project.id)).files[1].note?.answer, '');
 
     // The agent edits exactly the conflicted files and runs nothing but read-only git.
     session = sessions.getSession(id);

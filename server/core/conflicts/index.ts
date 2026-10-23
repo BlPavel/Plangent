@@ -21,9 +21,10 @@ const PROTOCOL = [
   'Читать версии файла: git show :1:<путь> (общий предок), :2:<путь> (ours), :3:<путь> (theirs); также git log и git diff. Какая сторона чья — в sides. При rebase стороны перевёрнуты: ours — то, на что переносят ветку (чужие изменения), theirs — переносимый коммит разработчика.',
   'Для каждого файла пойми, зачем меняла каждая сторона, и объедини так, чтобы сохранились обе правки. Не бери сторону целиком, если обе меняли по делу. Убери все маркеры <<<<<<< ||||||| ======= >>>>>>>.',
   'Править можно только конфликтные файлы. Команды (установка зависимостей, сборка, тесты, генерация) не запускай: если что-то нужно выполнить, например пересобрать lock-файл, скажи об этом в итоге.',
-  'По каждому файлу вызови report_conflict_file. outcome resolved — файл исправлен (Plangent проверит, что маркеров не осталось), в text коротко: что взял с какой стороны и почему. ' +
+  'По каждому файлу вызови report_conflict_file. outcome resolved — файл исправлен (Plangent проверит, что маркеров не осталось), в text коротко: какой конфликт и как разрешён. ' +
+    'Не пиши, что делать дальше (проверить, git add, continue) — разработчик это знает. ' +
     'question — не уверен, как объединить: не угадывай, оставь спорные места с маркерами и задай вопрос в text. recommend — правкой текста не решить (удалён с одной стороны, бинарный, lock-файл): в text — что советуешь сделать.',
-  'Ответы разработчика приходят в answers; учти их и сообщи по этим файлам заново. В конце вызови finish_conflicts с коротким итогом: что сделано и что разработчику выполнить или проверить. Пиши по-русски.',
+  'Ответы разработчика приходят в answers; учти их и сообщи по этим файлам заново. Итог в чат не пиши: всё нужное — в report_conflict_file. Пиши по-русски.',
 ];
 const CODES: Record<string, string> = {
   UU: 'изменён с обеих сторон', AA: 'добавлен с обеих сторон', DD: 'удалён с обеих сторон',
@@ -31,7 +32,7 @@ const CODES: Record<string, string> = {
 };
 const OUTCOMES = ['resolved', 'question', 'recommend'] as const;
 type Outcome = typeof OUTCOMES[number];
-interface ResolutionRow { id: string; project_id: string; operation_id: string; session_id: string; closed: number; summary: string; summary_step: string }
+interface ResolutionRow { id: string; project_id: string; operation_id: string; session_id: string; closed: number }
 interface FileRow { resolution_id: string; step: string; path: string; outcome: Outcome; text: string; answer: string; answer_sent: number; updated_at: string }
 
 const db = () => getDb();
@@ -64,7 +65,7 @@ async function current(projectId: string) {
 /** What the Код tab shows: the operation, its conflicted files with the agent's notes for this stop, and the agent's state. */
 export async function conflictState(projectId: string) {
   const { repo, operation, resolution } = await current(projectId);
-  if (!operation) return { operation: null, files: [], session: null, summary: '' };
+  if (!operation) return { operation: null, files: [], session: null };
   const step = stepOf(operation);
   const conflicts = await conflictedFiles(repo);
   const notes = resolution ? db().prepare('SELECT * FROM conflict_files WHERE resolution_id=? AND step=? ORDER BY path').all(resolution.id, step) as FileRow[] : [];
@@ -76,23 +77,36 @@ export async function conflictState(projectId: string) {
   });
   let session: { id: string; status: string; reason: string } | null = null;
   if (resolution) { try { const s = getSession(resolution.session_id); session = { id: s.id, status: s.status, reason: s.reason }; } catch { /* deleted */ } }
-  return { operation, files, session, summary: resolution && resolution.summary_step === step ? resolution.summary : '' };
+  return { operation, files, session };
 }
 
-/** «Разрешить с агентом» and «Отправить ответы»: one turn of the agent over the current conflicts and the queued answers. */
-export async function resolveConflicts(projectId: string, input: { note?: unknown } = {}) {
+/**
+ * «Разрешить с агентом», «Отправить ответы» and «Попросить переделать»: one turn of the agent over the current conflicts.
+ * `answers` — the developer's replies to the agent's questions, by file.
+ */
+export async function resolveConflicts(projectId: string, input: { note?: unknown; answers?: unknown } = {}) {
   const { repo, operation, resolution: open } = await current(projectId);
   if (!operation) throw new CodeError('Нет незавершённого merge или rebase', 409);
-  const conflicts = await conflictedFiles(repo);
   const step = stepOf(operation);
-  const answers = open ? db().prepare("SELECT * FROM conflict_files WHERE resolution_id=? AND step=? AND answer<>'' AND answer_sent=0").all(open.id, step) as FileRow[] : [];
-  if (!conflicts.length && !answers.length) throw new CodeError('Конфликтов нет', 409);
   let resolution = open;
   if (resolution) {
     const status = (() => { try { return getSession(resolution.session_id).status; } catch { return 'gone'; } })();
     if (['starting', 'thinking', 'waiting'].includes(status)) throw new CodeError('Агент работает: дождитесь конца ответа', 409);
     if (status === 'gone') { await close(resolution); resolution = undefined; }
   }
+  const replies = input.answers && typeof input.answers === 'object' && !Array.isArray(input.answers)
+    ? Object.entries(input.answers as Record<string, unknown>).filter(([, text]) => typeof text === 'string' && text.trim()) : [];
+  if (replies.length) {
+    if (!resolution) throw new CodeError('Агент ещё не разбирал конфликты', 409);
+    const save = db().prepare("UPDATE conflict_files SET answer=?,answer_sent=0 WHERE resolution_id=? AND step=? AND path=? AND outcome='question'");
+    db().transaction(() => {
+      for (const [file, text] of replies)
+        if (!save.run(String(text).trim().slice(0, 20000), resolution!.id, step, file).changes) throw new CodeError('Агент не спрашивал про ' + file, 404);
+    })();
+  }
+  const conflicts = await conflictedFiles(repo);
+  const answers = resolution ? db().prepare("SELECT * FROM conflict_files WHERE resolution_id=? AND step=? AND answer<>'' AND answer_sent=0").all(resolution.id, step) as FileRow[] : [];
+  if (!conflicts.length && !answers.length) throw new CodeError('Конфликтов нет', 409);
   if (!resolution) {
     const agent = conflictAgent(projectId);
     if (!getAgent(agent.agentId)) throw new CodeError('Агент для конфликтов не найден: выберите другого в настройках', 409);
@@ -100,7 +114,7 @@ export async function resolveConflicts(projectId: string, input: { note?: unknow
     const session = createSession({ project_id: projectId, agent_id: agent.agentId, model: agent.model, role: 'conflict-resolver', policy: 'allow-edits',
       title: 'Конфликты · ' + operation.kind + (operation.branch ? ' · ' + operation.branch : ''),
       metadata: { conflict_resolution: id, ...(agent.effort ? { reasoningEffort: agent.effort } : {}),
-        briefing: 'Ты разрешаешь конфликты merge/rebase в рабочей копии разработчика. Сначала вызови get_conflicts: там правила, стороны и список файлов. Итоги пиши только через report_conflict_file и finish_conflicts, не в чат.' } });
+        briefing: 'Ты разрешаешь конфликты merge/rebase в рабочей копии разработчика. Сначала вызови get_conflicts: там правила, стороны и список файлов. По каждому файлу сообщай только через report_conflict_file, не в чат.' } });
     db().prepare('INSERT INTO conflict_resolutions(id,project_id,operation_id,session_id) VALUES (?,?,?,?)').run(id, projectId, operation.id, session.id);
     resolution = openResolution(projectId)!;
   }
@@ -109,7 +123,7 @@ export async function resolveConflicts(projectId: string, input: { note?: unknow
   updateSession(session.id, { metadata: { ...session.metadata, conflict_paths: conflicts.map(c => c.path) } });
   const note = typeof input.note === 'string' && input.note.trim() ? '\nПожелание разработчика: ' + input.note.trim().slice(0, 4000) : '';
   const text = (answers.length ? 'Разработчик ответил по файлам (answers в get_conflicts). ' : '') +
-    (conflicts.length ? 'Разреши конфликты: вызови get_conflicts, исправь файлы, сообщи по каждому через report_conflict_file и закончи finish_conflicts.' : 'Учти ответы и закончи finish_conflicts.') + note;
+    (conflicts.length ? 'Разреши конфликты: вызови get_conflicts, исправь файлы и сообщи по каждому через report_conflict_file.' : 'Учти ответы и сообщи по этим файлам через report_conflict_file.') + note;
   db().prepare('UPDATE conflict_files SET answer_sent=1 WHERE resolution_id=? AND step=? AND answer<>\'\'').run(resolution.id, step);
   try { await sendPrompt(session.id, [{ type: 'text', text }]); }
   catch (error) {
@@ -120,17 +134,6 @@ export async function resolveConflicts(projectId: string, input: { note?: unknow
   return conflictState(projectId);
 }
 
-/** The developer's reply to the agent's question about one file; it leaves with the next «Отправить ответы». */
-export async function answerConflict(projectId: string, input: { path?: unknown; text?: unknown }) {
-  const { operation, resolution } = await current(projectId);
-  if (!operation || !resolution) throw new CodeError('Агент ещё не разбирал конфликты', 409);
-  const text = typeof input.text === 'string' ? input.text.trim().slice(0, 20000) : '';
-  const result = db().prepare('UPDATE conflict_files SET answer=?,answer_sent=0 WHERE resolution_id=? AND step=? AND path=?')
-    .run(text, resolution.id, stepOf(operation), String(input.path ?? ''));
-  if (!result.changes) throw new CodeError('Агент не писал по этому файлу', 404);
-  changed(projectId);
-  return conflictState(projectId);
-}
 export async function stopConflicts(projectId: string) {
   const resolution = openResolution(projectId);
   if (resolution) await cancelSession(resolution.session_id);
@@ -188,17 +191,8 @@ export async function reportConflictFile(session: AgentSession, args: Record<str
     if (MARKER.test(content)) throw new CodeError('В файле остались маркеры конфликта. Убери их или сообщи outcome question');
   }
   db().prepare(`INSERT INTO conflict_files(resolution_id,step,path,outcome,text) VALUES (?,?,?,?,?)
-    ON CONFLICT(resolution_id,step,path) DO UPDATE SET outcome=excluded.outcome,text=excluded.text,updated_at=strftime('%Y-%m-%d %H:%M:%f','now')`)
+    ON CONFLICT(resolution_id,step,path) DO UPDATE SET outcome=excluded.outcome,text=excluded.text,answer='',answer_sent=0,updated_at=strftime('%Y-%m-%d %H:%M:%f','now')`)
     .run(resolution.id, step, file, outcome, text.slice(0, 20000));
   changed(session.project_id);
   return { saved: true, path: file, outcome };
-}
-/** finish_conflicts */
-export async function finishConflicts(session: AgentSession, summary: unknown) {
-  const { resolution, step } = await sessionContext(session);
-  const text = typeof summary === 'string' ? summary.trim() : '';
-  if (!text) throw new CodeError('Напишите summary');
-  db().prepare('UPDATE conflict_resolutions SET summary=?,summary_step=? WHERE id=?').run(text.slice(0, 20000), step, resolution.id);
-  changed(session.project_id);
-  return { saved: true };
 }
