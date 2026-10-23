@@ -43,8 +43,10 @@ export interface ProjectGitSettings {
   commit_pattern?: string; forbidden_patterns?: string[];
   include_description?: boolean; finish_scenario?: 'nothing' | 'commits' | 'push' | 'full';
   branch_prefixes?: string[]; base_branch?: string;
-  mr_description_prompt?: string; mr_remove_branch?: boolean; mr_squash?: boolean; mr_reviewers?: string[];
+  mr_description_prompt?: string; mr_remove_branch?: boolean; mr_squash?: boolean; mr_reviewers?: string[]; mr_assignees?: string[];
   git_agent_id?: string; git_agent_model?: string; git_agent_effort?: string;
+  review_agent_id?: string; review_agent_model?: string; review_agent_effort?: string;
+  conflict_agent_id?: string; conflict_agent_model?: string; conflict_agent_effort?: string;
 }
 export interface Project {
   id: string
@@ -59,11 +61,9 @@ export interface Project {
   // What the agent is told about it.
   description: string
   default_agent_id: string | null
-  config: { extra_env?: Record<string, string>; dangerous_commands?: string[]; available_everywhere?: boolean }
+  config: { extra_env?: Record<string, string>; dangerous_commands?: string[] }
   hide_from_git?: boolean
   created_at: string
-  // Sources: groups/projects it is shared with (unless available_everywhere).
-  targets?: string[]
   source_type?: 'folder' | 'docs'
   connection_id?: string | null
   docs_config?: Record<string, unknown>
@@ -125,7 +125,7 @@ export interface Run {
   finished_at?: string
 }
 
-export type LibraryItemType = 'skill' | 'command' | 'main' | 'plan-template' | 'instruction-guide' | 'code-fixer-instruction' | 'commit-rules'
+export type LibraryItemType = 'skill' | 'command' | 'main' | 'plan-template' | 'instruction-guide' | 'code-fixer-instruction' | 'commit-rules' | 'review-skill'
 export type LibraryScope = 'global' | 'project'
 
 export interface LibraryItem {
@@ -159,7 +159,7 @@ export interface LibraryProposal {
   session_id: string
   status: LibraryProposalStatus
   action: 'create' | 'update'
-  type: 'skill' | 'main' | 'command'
+  type: 'skill' | 'main' | 'command' | 'review-skill'
   slug: string
   title: string
   description: string

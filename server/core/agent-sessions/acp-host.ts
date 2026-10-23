@@ -5,12 +5,15 @@ import { Readable, Writable } from 'stream';
 import spawn from 'cross-spawn';
 import { randomUUID } from 'crypto';
 import os from 'os';
+import path from 'path';
 import { EventEmitter } from 'events';
 import { getAgent } from '../agents';
 import { getProject } from '../projects';
-import { readOnlyRoots, workspaceBriefing, writableRoots } from '../projects/workspace';
+import { getTask } from '../tasks';
+import { listAnalysisSections } from '../orchestration/analysis';
+import { readOnlyRoots, workspaceBriefing, writableRoots, mentionedReferences, WORKSPACE_BRIEFING_VERSION } from '../projects/workspace';
 import { broadcast } from '../shared/events';
-import { addEvent, getSession, history, updateSession } from './sessions';
+import { addEvent, getSession, history, updateSession, updateAgentTitle } from './sessions';
 import { getAcpOptions, saveAcpOptions, type AcpOptions } from '../agents/acp-options';
 import { enqueue, queuedPrompts, editQueued } from './prompt-queue';
 import { permissionDecision } from './permissions';
@@ -120,8 +123,14 @@ function flush(id: string, state: LiveSession): void {
 }
 function update(id: string, notification: ACP.SessionNotification): void {
   const state = live.get(id);
-  if (!state || state.loading) return; // session/load replays history already stored locally
+  if (!state) return;
   const event = notification.update;
+  // Metadata can change while session/load replays the conversation; it is not a chat event.
+  if (event.sessionUpdate === 'session_info_update') {
+    updateAgentTitle(id, event.title);
+    return;
+  }
+  if (state.loading) return; // session/load replays history already stored locally
   if (event.sessionUpdate === 'agent_message_chunk' || event.sessionUpdate === 'agent_thought_chunk') {
     const type = event.sessionUpdate === 'agent_message_chunk' ? 'assistant' : 'thought';
     if (state.textType !== type) flush(id, state);
@@ -162,8 +171,11 @@ async function permission(id: string, request: ACP.RequestPermissionRequest): Pr
   // Codex asks with little more than the toolCallId; what the call is was sent in the earlier tool_call update.
   const announced = history(id).filter(e => e.type === 'tool_call' && e.payload.toolCallId === request.toolCall.toolCallId).pop()?.payload;
   const toolCall = { ...(announced as Partial<ACP.ToolCallUpdate> | undefined), ...Object.fromEntries(Object.entries(request.toolCall).filter(([, v]) => v != null)) } as ACP.ToolCallUpdate;
+  const conflictFiles = session.role === 'conflict-resolver' && project
+    ? ((session.metadata.conflict_paths as string[] | undefined) ?? []).map(file => path.resolve(project.repo_path, file)) : undefined;
   const decision = permissionDecision(session.policy, { ...request, toolCall }, project?.config.dangerous_commands,
-    project ? { writable: session.role === 'code-fixer' ? [project.repo_path] : writableRoots(project), readOnly: readOnlyRoots() } : undefined, session.role);
+    project ? { writable: session.role === 'code-fixer' || session.role === 'conflict-resolver' ? [project.repo_path] : writableRoots(project), readOnly: readOnlyRoots(),
+      ...(conflictFiles ? { files: conflictFiles } : {}) } : undefined, session.role);
   const option = request.options.find(o => o.kind === (decision === 'allow' ? 'allow_once' : 'reject_once'));
   if (decision !== 'ask' && option) {
     addEvent(id, 'permission_result', { title: toolCall.title, decision });
@@ -361,23 +373,31 @@ export async function sendPrompt(id: string, content: ACP.ContentBlock[]): Promi
   state.cancelled = false;
   const session = getSession(id);
   const text = content.filter(c => c.type === 'text').map(c => (c as ACP.TextContent).text).join('\n');
-  updateSession(id, { status: 'thinking', reason: '', ...(session.title === 'Новый чат' ? { title: text.slice(0, 60) || 'Вложение' } : {}) });
+  updateSession(id, { status: 'thinking', reason: '', ...(session.title === 'Новый чат' && !['manual', 'custom', 'agent'].includes(String(session.metadata.titleSource)) ? { title: text.slice(0, 60) || 'Вложение' } : {}) });
   sessionSignals.emit('thinking', id);
   // `briefing` is Plangent's instructions for the session: sent with the first message (and again if the
   // agent lost the conversation) but never shown as something the developer wrote.
-  // The workspace note (group projects, reference catalog) goes with the first message of every chat.
+  // Reference sources enter any session only through an explicit developer @mention.
   const project = getProject(session.project_id);
   const workspace = project ? workspaceBriefing(project) : '';
+  const task = session.task_id ? getTask(session.task_id) : null;
+  const authoredSections = task ? listAnalysisSections(task.id).filter(section => section.author === 'developer') : [];
+  const referenceRequest = [text, task?.title, task?.description,
+    ...authoredSections.flatMap(section => [section.title, section.description])].filter(Boolean).join('\n');
+  const references = project ? mentionedReferences(project, referenceRequest) : '';
   const roleBriefing = session.role === 'code-fixer' ? buildCodeFixerBriefing(session.project_id)
     : session.role === 'librarian' ? buildLibrarianPrompt(project?.name ?? session.project_id) : '';
   const briefing = ['Do not commit or run git commands that modify the repository. The user makes commits through Plangent. Do not add agent attribution to commit messages or pull requests.', workspace, roleBriefing || (typeof session.metadata.briefing === 'string' ? session.metadata.briefing : '')].filter(Boolean).join('\n\n');
-  const withBriefing = briefing && (!session.metadata.briefed || session.metadata.needsContext);
+  const withBriefing = briefing && (!session.metadata.briefed || session.metadata.needsContext
+    || session.metadata.workspaceBriefingVersion !== WORKSPACE_BRIEFING_VERSION);
   const prompt: ACP.ContentBlock[] = [
     ...(withBriefing ? [{ type: 'text' as const, text: briefing }] : []),
+    ...(references ? [{ type: 'text' as const, text: references }] : []),
     ...(session.metadata.needsContext ? [{ type: 'text' as const, text: `Контекст предыдущего разговора (может быть обрезан):\n${transcript(id)}\n\nНовое сообщение:` }] : []),
     ...content,
   ];
-  if (session.metadata.needsContext || withBriefing) updateSession(id, { metadata: { ...getSession(id).metadata, needsContext: false, ...(briefing ? { briefed: true } : {}) } });
+  if (session.metadata.needsContext || withBriefing) updateSession(id, { metadata: { ...getSession(id).metadata, needsContext: false,
+    ...(briefing ? { briefed: true, workspaceBriefingVersion: WORKSPACE_BRIEFING_VERSION } : {}) } });
   addEvent(id, 'user', { content, text, ...(withBriefing ? { briefing: true } : {}) });
   void state.connection.agent.request('session/prompt', { sessionId: session.acp_session_id!, prompt }).then(result => {
     flush(id, state);

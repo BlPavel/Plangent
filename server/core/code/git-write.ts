@@ -5,7 +5,7 @@ import path from 'node:path';
 import { codePath, CodeError } from './files';
 import { assembleCommitMessage, inspectCommitMessage, type CommitMessageInput } from './commit-message';
 import type { GitSettings } from '../projects/git-settings';
-import { isRepository, localBranchHead, repositoryInfo, branches } from './git';
+import { isRepository, localBranchHead, repositoryInfo, branches, gitOperation } from './git';
 
 export interface GitOperationOptions {
   signal?: AbortSignal; timeoutMs?: number; onOutput?: (chunk: string) => void;
@@ -32,13 +32,17 @@ export function redactGitOutput(text: string): string {
   return text.replace(/(https?:\/\/)[^\s/@]+(?::[^\s/@]*)?@/gi, '$1***@');
 }
 const run = runGit;
+/** Commands that run the repository's hooks. `--literal-pathspecs` is exported to hooks as GIT_LITERAL_PATHSPECS and breaks their own globs (`git add ./apps/**\/*.scss`). */
+const HOOK_COMMANDS = new Set(['commit', 'push', 'switch', 'checkout', 'merge', 'pull', 'rebase', 'clone']);
 export function runGit(root: string, args: string[], options: GitOperationOptions = {}, input?: string): Promise<string> {
   options.signal?.throwIfAborted();
   return new Promise((resolve, reject) => {
     let output = '', cancelled = false, timedOut = false, terminating = false, killError: Error | undefined;
-    const child = execFile('git', ['-c', 'core.quotepath=off', '--literal-pathspecs', ...args], {
-      cwd: root, windowsHide: true, maxBuffer: 64 * 1024 * 1024,
-      env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_PAGER: 'cat', GCM_INTERACTIVE: 'never' },
+    const hooks = HOOK_COMMANDS.has(args[0]);
+    const env: NodeJS.ProcessEnv = { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_PAGER: 'cat', GCM_INTERACTIVE: 'never' };
+    if (hooks) delete env.GIT_LITERAL_PATHSPECS;
+    const child = execFile('git', ['-c', 'core.quotepath=off', ...(hooks ? [] : ['--literal-pathspecs']), ...args], {
+      cwd: root, windowsHide: true, maxBuffer: 64 * 1024 * 1024, env,
     }, (error, stdout) => {
       clearTimeout(timer); options.signal?.removeEventListener('abort', abort);
       if (killError) return reject(killError);
@@ -107,6 +111,12 @@ async function check(root: string, options: GitOperationOptions, idle = false) {
   if (!await isRepository(root)) throw new CodeError('Project is not a Git repository');
   if (idle) options.assertIdle?.();
 }
+const operationNames = { merge: 'merge', rebase: 'rebase', 'cherry-pick': 'cherry-pick', revert: 'revert' };
+/** The developer runs merge/rebase themselves; until they finish it, Plangent does not commit, switch, pull or push. */
+export async function assertNoGitOperation(root: string) {
+  const operation = await gitOperation(root);
+  if (operation) throw new GitOperationError('Идёт ' + operationNames[operation.kind] + ': завершите или отмените его в своём git-клиенте', '', 'operation_in_progress');
+}
 function files(root: string, list: string[]): string[] {
   if (!Array.isArray(list) || !list.length || list.length > 10000 || list.some(file => typeof file !== 'string')) throw new CodeError('Choose files');
   return list.map(file => path.relative(root, codePath(root, file)).replace(/\\/g, '/'));
@@ -124,15 +134,16 @@ export async function unstage(root: string, paths: string[], options: GitOperati
   });
 }
 export async function fetchRepository(root: string, options: GitOperationOptions = {}) {
-  return serializeGit(root, async () => { await check(root, options, true); return run(root, ['fetch', '--progress', 'origin'], options); });
+  return serializeGit(root, async () => { await check(root, options); return run(root, ['fetch', '--progress', '--prune', 'origin', '+refs/heads/*:refs/remotes/origin/*'], options); });
 }
 export async function pull(root: string, options: GitOperationOptions = {}) {
-  return serializeGit(root, async () => { await check(root, options, true); return run(root, ['pull', '--ff-only', '--progress'], options); });
+  return serializeGit(root, async () => { await check(root, options, true); await assertNoGitOperation(root); return run(root, ['pull', '--ff-only', '--progress'], options); });
 }
 /** Replays local commits on top of the upstream; on a failure the rebase is aborted so the folder is left as it was. */
 export async function pullRebase(root: string, options: GitOperationOptions = {}) {
   return serializeGit(root, async () => {
     await check(root, options, true);
+    await assertNoGitOperation(root);
     try { return await run(root, ['pull', '--rebase', '--progress'], options); }
     catch (error) {
       await run(root, ['rebase', '--abort']).catch(() => undefined);
@@ -145,22 +156,37 @@ export async function pullRebase(root: string, options: GitOperationOptions = {}
 export async function push(root: string, options: GitOperationOptions = {}, force = false) {
   return serializeGit(root, async () => {
     await check(root, options, true);
+    await assertNoGitOperation(root);
     const info = await repositoryInfo(root);
     if (!info?.branch) throw new CodeError('Choose a branch before pushing');
     const upstream = await run(root, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'], options).catch(() => '');
-    return run(root, upstream ? ['push', '--progress', ...(force ? ['--force-with-lease'] : [])] : ['push', '--progress', '--set-upstream', 'origin', info.branch], options);
+    const lease = force ? ['--force-with-lease'] : [];
+    // A branch cut from origin/develop tracks develop; a plain push (push.default=simple) refuses that, so it is published under its own name.
+    const sameName = upstream.trim().split('/').slice(1).join('/') === info.branch;
+    return run(root, upstream && sameName ? ['push', '--progress', ...lease] : ['push', '--progress', ...lease, '--set-upstream', 'origin', info.branch], options);
   });
 }
 export async function switchBranch(root: string, branch: string, options: GitOperationOptions = {}) {
   return serializeGit(root, async () => {
     await check(root, options, true);
-    if (!await localBranchHead(root, branch)) throw new CodeError('Local branch not found');
-    return run(root, ['switch', '--no-guess', '--', branch], options);
+    await assertNoGitOperation(root);
+    if (typeof branch !== 'string') throw new CodeError('Invalid branch name');
+    const selected = (await branches(root)).find(item => item.name === branch);
+    if (!selected) throw new CodeError('Branch not found');
+    if (!selected.remote) return run(root, ['switch', '--no-guess', '--', branch], options);
+    const local = branch.replace(/^origin\//, '');
+    if (await localBranchHead(root, local)) return run(root, ['switch', '--no-guess', '--', local], options);
+    // Single-branch clones need a persistent mapping so Git can resolve the new upstream.
+    const mappings = (await run(root, ['config', '--get-all', 'remote.origin.fetch'], options)).trim().split('\n').map(value => value.replace(/^\+/, ''));
+    if (!mappings.includes('refs/heads/*:refs/remotes/origin/*') && !mappings.includes('refs/heads/' + local + ':' + selected.ref))
+      await run(root, ['remote', 'set-branches', '--add', 'origin', local], options);
+    return run(root, ['switch', '--track', '-c', local, selected.ref], options);
   });
 }
 export async function createBranch(root: string, name: string, base: string, options: GitOperationOptions = {}) {
   return serializeGit(root, async () => {
     await check(root, options, true);
+    await assertNoGitOperation(root);
     if (typeof name !== 'string' || name.startsWith('-')) throw new CodeError('Invalid branch name');
     const checkedName = (await run(root, ['check-ref-format', '--branch', name], options)).trim();
     if (checkedName !== name) throw new CodeError('Use an explicit branch name');
@@ -173,6 +199,7 @@ export async function createBranch(root: string, name: string, base: string, opt
 export async function resetForReassembly(root: string, base: string, expectedHead: string, options: GitOperationOptions = {}) {
   return serializeGit(root, async () => {
     await check(root, options, true);
+    await assertNoGitOperation(root);
     if (!/^[a-f0-9]{40,64}$/.test(base) || !/^[a-f0-9]{40,64}$/.test(expectedHead)) throw new CodeError('Invalid commit');
     if ((await repositoryInfo(root))?.head !== expectedHead) throw new GitOperationError('HEAD changed; reassembly is unavailable');
     await run(root, ['merge-base', '--is-ancestor', base, expectedHead], options);
@@ -188,6 +215,7 @@ export async function cloneRepository(url: string, destination: string, options:
 export async function commit(root: string, input: CommitMessageInput, getSettings: () => GitSettings, options: GitOperationOptions = {}, overrideForbidden = false) {
   return serializeGit(root, async () => {
     await check(root, options, true);
+    await assertNoGitOperation(root);
     const settings = getSettings();
     let message: string;
     try { message = assembleCommitMessage({ ...input, includeDescription: input.includeDescription ?? settings.include_description }); }

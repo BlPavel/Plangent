@@ -51,8 +51,9 @@ function toolStrings(value: unknown): string[] {
   if (value && typeof value === 'object') return Object.values(value).flatMap(toolStrings);
   return [];
 }
-/** Where the session may write: `writable[0]` is its working folder (relative paths resolve against it). */
-export interface FolderScope { writable: string[]; readOnly?: string[] }
+/** Where the session may write: `writable[0]` is its working folder (relative paths resolve against it); `files` narrows writes to these files. */
+export interface FolderScope { writable: string[]; readOnly?: string[]; files?: string[] }
+const samePath = (a: string, b: string) => process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b;
 
 /**
  * How Plangent answers an agent's permission request. Automatic approval covers edits inside the
@@ -64,6 +65,18 @@ export function permissionDecision(policy: PermissionPolicy, request: RequestPer
   if (isPlangentToolCall(tool)) return 'allow';
   const gitDecision = shellGitDecision(tool);
   if (gitDecision === 'deny') return 'deny';
+  // The conflict resolver reads, runs read-only git and edits only the conflicted files; it never asks the developer.
+  if (role === 'conflict-resolver') {
+    if (gitDecision === 'allow' || ['read', 'search', 'think'].includes(tool.kind ?? '')) return 'allow';
+    const writes = ['edit', 'delete', 'move'].includes(tool.kind ?? '') || (tool.content ?? []).some(c => c.type === 'diff');
+    if (!writes || tool.kind === 'delete' || tool.kind === 'move') return 'deny';
+    const files = touchedPaths(tool), root = scope?.writable[0];
+    if (!root || !scope?.files?.length || !files.length) return 'deny';
+    try {
+      const allowed = scope.files.map(physicalPath);
+      return files.every(file => allowed.some(target => samePath(target, physicalPath(path.resolve(root, file))))) ? 'allow' : 'deny';
+    } catch { return 'deny'; }
+  }
   if (role === 'code-fixer') {
     const writes = ['edit', 'delete', 'move'].includes(tool.kind ?? '') || (tool.content ?? []).some(c => c.type === 'diff');
     if (writes) {

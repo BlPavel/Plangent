@@ -25,7 +25,7 @@ test('finish commits → manual merge → confirmation → bare remote; recovery
   const git = (root: string, ...args: string[]) => execFileSync('git', args, { cwd: root, encoding: 'utf8', windowsHide: true, stdio: ['ignore','pipe','pipe'] }).trim();
   const db = getDb(); initSessions();
   const agent = db.prepare('SELECT id FROM agents LIMIT 1').get() as { id: string };
-  const prompts: string[] = [], created: { input: { title: string; target_branch: string }; confirmed: unknown; owner?: string }[] = [];
+  const prompts: string[] = [], created: { input: { title: string; description?: string; target_branch: string }; confirmed: unknown; owner?: string }[] = [];
   const service = createFinishService({ prompt: async (id, content) => { prompts.push(id); updateSession(id, { status: 'ready' }); assert.equal(content[0].type, 'text'); }, close: async () => {},
     resolve: async () => ({}) as never,
     mrs: { preview: async (_p, taskId, target) => ({ head: git(path.join(folder, 'repo'), 'rev-parse', 'HEAD'), task_id: taskId, connection_id: 'c', project_path: 'g/p', source_branch: 'feature/full', target_branch: target!, title: 'default', description: 'TEMPLATE', labels: 'x' }), create: async (_p, input, confirmed, owner) => { created.push({ input, confirmed, owner }); return { web_url: 'https://gitlab.test/mr/1' } as never; } } });
@@ -105,19 +105,21 @@ test('finish commits → manual merge → confirmation → bare remote; recovery
     assert.equal(git(root, 'branch', '--show-current'), 'feature/full');
     assert.equal(full.base_head, rollbackBase);
     await service.setCommits(full.id, [{ files: ['a.txt'], title: 'TASK full' }], true);
+    await assert.rejects(service.finishCommits(full.id), /set_merge_request/);
+    assert.ok(allowed(getSession(getFinish(full.id).session_id!)).includes('set_merge_request'));
+    await assert.rejects(service.setMergeRequest(full.id, 'two'+String.fromCharCode(10)+'lines', 'x'), /одна/);
+    await service.setMergeRequest(full.id, 'draft', 'Черновик');
     await service.finishCommits(full.id);
-    assert.throws(() => service.agentRun(getSession(getFinish(full.id).session_id!), ['mr']), /не управляет/);
-    await assert.rejects(service.createMergeRequest(full.id, 'early', 'x'), /только на этапе МР/);
+    assert.deepEqual(getFinish(full.id).mr_draft, { title: 'draft', description: 'Черновик' });
+    // The user edits the text while confirming; nothing is created or pushed before accept.
+    await service.setMergeRequest(full.id, ' TASK-1 title ', 'Описание');
+    assert.equal(created.length, 0);
     const accepted = await service.accept(full.id);
-    assert.deepEqual([accepted.stage, accepted.status, accepted.pushed, getFinish(full.id).mr_url], ['mr', 'running', true, null]);
-    const committer = getSession(accepted.session_id!);
-    assert.ok(allowed(committer).includes('create_merge_request'));
-    assert.throws(() => service.agentRun(committer), /не управляет/);
-    await assert.rejects(service.createMergeRequest(full.id, 'two'+String.fromCharCode(10)+'lines', 'x'), /одна/);
-    assert.deepEqual(await service.createMergeRequest(full.id, ' TASK-1 title ', 'Описание'), { url: 'https://gitlab.test/mr/1' });
-    assert.deepEqual([getFinish(full.id).stage, getFinish(full.id).status, getFinish(full.id).mr_url], ['done', 'complete', 'https://gitlab.test/mr/1']);
+    assert.deepEqual([accepted.stage, accepted.status, accepted.pushed, accepted.mr_url], ['done', 'complete', true, 'https://gitlab.test/mr/1']);
+    await assert.rejects(service.setMergeRequest(full.id, 'late', 'x'), /до подтверждения/);
+    assert.equal(created[0].input.description, 'Описание');
     assert.deepEqual([created[0].input.title, created[0].input.target_branch, created[0].confirmed, created[0].owner], ['TASK-1 title', 'feature/work', true, full.id]);
-    assert.ok(!allowed(getSession(getFinish(first.id).session_id!)).includes('create_merge_request'));
+    assert.ok(!allowed(getSession(getFinish(first.id).session_id!)).includes('set_merge_request'));
     const noHost = createFinishService({ resolve: async () => { throw new Error('нет подключения'); } });
     await assert.rejects(noHost.start(project.id, { scenario: 'full', targetBranch: 'main' }), /хостингу.*нет подключения/);
     assert.equal(git(remote, 'rev-parse', 'refs/heads/feature/full'), git(root, 'rev-parse', 'HEAD'));

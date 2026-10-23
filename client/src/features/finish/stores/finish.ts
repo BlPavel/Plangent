@@ -2,7 +2,7 @@ import { ref, onScopeDispose } from 'vue'
 import { defineStore } from 'pinia'
 import { onServerEvent } from '@core/api/events'
 import { finishApi } from '../api'
-import type { FinishRun, FinishOptions, FinishCommit } from '../types'
+import type { FinishRun, FinishOptions, FinishCommit, MrDraft } from '../types'
 export const useFinishStore = defineStore('finish', () => {
  const projectId = ref(''), run = ref<FinishRun | null>(null), busy = ref(false), error = ref('')
  let version = 0
@@ -28,6 +28,7 @@ export const useFinishStore = defineStore('finish', () => {
  }
  const start = (options: FinishOptions) => mutate(p => finishApi.start(p, options))
  const save = (commits: FinishCommit[]) => { const id = run.value!.id; return mutate(p => finishApi.commits(p, id, commits)) }
+ const saveMr = (draft: MrDraft) => { const id = run.value!.id; return mutate(p => finishApi.mergeRequest(p, id, draft)) }
  const action = (name: string, data: object = {}) => { const id = run.value!.id; return mutate(p => finishApi.action(p, id, name, data)) }
- return { projectId, run, busy, error, load, start, save, action }
+ return { projectId, run, busy, error, load, start, save, saveMr, action }
 })

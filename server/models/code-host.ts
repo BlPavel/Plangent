@@ -21,6 +21,18 @@ export interface MergeRequest {
     sha: string;
     updated_at: string;
     diff_refs: DiffRefs;
+    created_at?: string;
+    draft?: boolean;
+    user_notes_count?: number;
+    reviewers?: HostUser[];
+}
+/** Who approved a merge request and how many approvals its rules still need (null: the host does not say). */
+export interface HostApprovals {
+    approved_by: HostUser[];
+    required: number | null;
+    left: number | null;
+    /** The connected account has approved. */
+    mine: boolean;
 }
 export interface MrVersion {
     id: number;
@@ -52,6 +64,7 @@ export interface HostNote {
     author: HostUser;
     position?: DiffPosition;
     system?: boolean;
+    resolvable?: boolean;
     resolved?: boolean;
 }
 export interface HostDiscussion {
@@ -75,6 +88,9 @@ export interface CreateMergeRequest {
     labels?: string;
     /** Logins for hosts that address reviewers by name (GitHub); numeric ids stay in reviewer_ids (GitLab). */
     reviewer_logins?: string[];
+    /** Same split as the reviewers: GitLab ids in assignee_ids, GitHub logins in assignee_logins. */
+    assignee_ids?: number[];
+    assignee_logins?: string[];
     remove_source_branch?: boolean;
     squash?: boolean;
 }
@@ -88,6 +104,9 @@ export interface CodeHost {
     readonly capabilities: HostCapabilities;
     getMergeRequest(iid: number): Promise<MergeRequest>;
     listReviewRequests(): Promise<MergeRequest[]>;
+    listOpenMergeRequests(): Promise<MergeRequest[]>;
+    /** Null when approvals are not available on this host or for this account. */
+    getApprovals(iid: number): Promise<HostApprovals | null>;
     searchMergeRequests(query: string): Promise<MergeRequest[]>;
     getVersions(iid: number): Promise<MrVersion[]>;
     getDiff(iid: number, version?: number): Promise<MrDiff[]>;
@@ -95,6 +114,10 @@ export interface CodeHost {
     listDiscussions(iid: number): Promise<HostDiscussion[]>;
     createDiscussion(iid: number, note: ReviewNote): Promise<HostDiscussion>;
     replyToDiscussion(iid: number, discussion: string, body: string): Promise<HostNote>;
+    resolveDiscussion(iid: number, discussion: string, resolved: boolean): Promise<void>;
+    updateNote(iid: number, discussion: string, note: number, body: string): Promise<void>;
+    deleteNote(iid: number, discussion: string, note: number): Promise<void>;
+    currentUser(): Promise<HostUser>;
     detectCapabilities(iid: number): Promise<HostCapabilities>;
     createDraftNotes(iid: number, notes: ReviewNote[], created: (index: number, id: number) => void): Promise<void>;
     publishDrafts(iid: number, ids: number[], published: (id: number) => void): Promise<void>;

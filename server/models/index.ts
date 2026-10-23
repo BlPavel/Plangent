@@ -36,8 +36,6 @@ export interface Agent {
 export interface ProjectConfig {
   dangerous_commands?: string[];
   extra_env?: Record<string, string>;
-  // Sources only: shown to agents of every project, not just the targets.
-  available_everywhere?: boolean;
   // Sources only: how the folder gets its files; just 'folder' for now (see docs/DOCS-PROPOSAL.md).
   source_type?: SourceType;
 }
@@ -50,7 +48,7 @@ export interface ProjectGitSettings {
   commit_pattern?: string; forbidden_patterns?: string[];
   include_description?: boolean; finish_scenario?: 'nothing' | 'commits' | 'push' | 'full';
   branch_prefixes?: string[]; base_branch?: string;
-  mr_description_prompt?: string; mr_remove_branch?: boolean; mr_squash?: boolean; mr_reviewers?: string[];
+  mr_description_prompt?: string; mr_remove_branch?: boolean; mr_squash?: boolean; mr_reviewers?: string[]; mr_assignees?: string[];
 }
 export interface Project {
   id: string;
@@ -68,8 +66,6 @@ export interface Project {
   config: ProjectConfig;
   hide_from_git: boolean;
   created_at: string;
-  // Sources only: the groups/projects it is available for (unless available_everywhere).
-  targets?: string[];
   source_type: SourceType;
   connection_id: string | null;
   docs_config: Record<string, unknown>;
@@ -207,7 +203,7 @@ export interface Run {
   finished_at?: string;
 }
 
-export type LibraryItemType = 'skill' | 'command' | 'main' | 'plan-template' | 'instruction-guide' | 'code-fixer-instruction' | 'commit-rules';
+export type LibraryItemType = 'skill' | 'command' | 'main' | 'plan-template' | 'instruction-guide' | 'code-fixer-instruction' | 'commit-rules' | 'review-skill';
 // global: everywhere. project: only the groups/projects listed in `targets` (a group covers its projects).
 export type LibraryScope = 'global' | 'project';
 
@@ -263,7 +259,7 @@ export interface LibraryProposal {
   session_id: string;
   status: LibraryProposalStatus;
   action: 'create' | 'update';
-  type: 'skill' | 'main' | 'command';
+  type: 'skill' | 'main' | 'command' | 'review-skill';
   slug: string;
   title: string;
   description: string;

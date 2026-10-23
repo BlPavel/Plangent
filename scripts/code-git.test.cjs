@@ -16,7 +16,7 @@ function component(file, mocks) {
   const exports = {}
   vm.runInNewContext(ts.transpileModule(compiled, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-  }).outputText, { exports, require: name => name in mocks ? mocks[name] : require(name), setTimeout, clearTimeout }, { filename: file })
+  }).outputText, { exports, require: name => name in mocks ? mocks[name] : require(name), setTimeout, clearTimeout, document, window }, { filename: file })
   return exports.default
 }
 const settle = async () => { await new Promise(resolve => setTimeout(resolve, 380)); await nextTick() }
@@ -71,7 +71,9 @@ test('commit box: the agent suggests a message, the user edits it, adds a coauth
     assert.equal(calls[0].data.includeCoauthors, true)
     assert.equal(calls[0].data.coauthors[0].email, 'peer@test.invalid')
     assert.equal(calls[0].data.overrideForbidden, false)
-    assert.match(screen.root.querySelector('pre').textContent, /pre-commit/)
+    assert.match(screen.root.querySelector('[role="status"]').textContent, /Коммит создан/)
+    assert.equal(screen.root.querySelector('pre'), null, 'a successful commit does not show the hook log')
+    assert.equal(screen.root.querySelector('.cb-cancel'), null)
     assert.match(screen.root.textContent, /prev/, 'the last commit stays visible')
     git.blocked = 'Идёт выполнение'; input(message, 'TASK next'); await nextTick()
     assert.ok(button(screen.root, 'Закоммитить 1').disabled)
@@ -135,13 +137,48 @@ test('changes list splits tracked and new files and stages a whole group', async
   } finally { screen.close() }
 })
 
+/** The real branch field is a typed input with a dropdown; here a plain select with the same options stands in. */
+const BranchSelectStub = { props: ['modelValue', 'options'], emits: ['update:modelValue'], setup(props, { emit }) { return () => h('select', { onChange: e => emit('update:modelValue', e.target.value) }, (props.options ?? []).map(o => h('option', { value: o.value, selected: o.value === props.modelValue }, o.label))) } }
 const BranchNameStub = { props: ['modelValue'], emits: ['update:modelValue'], setup(props, { emit }) { return () => h('input', { 'aria-label': 'Имя новой ветки', value: props.modelValue, onInput: e => emit('update:modelValue', e.target.value) }) } }
+test('branch picker refreshes origin, switches remote branches, preserves the chosen base and explains failures', async () => {
+  const calls = []; let closed = 0, fail = true
+  const refs = [{ name: 'main', ref: 'refs/heads/main', remote: false }, { name: 'origin/release', ref: 'refs/remotes/origin/release', remote: true }]
+  const git = reactive({ projectId: 'p', repository: { branch: 'main' }, branches: refs.slice(0, 1), blocked: '', settings: { branch_prefixes: [], base_branch: 'main' },
+    refreshBranches: async () => refs,
+    run: async (action, data) => { calls.push([action, data]); if (fail) throw Object.assign(new Error('Git operation failed'), { output: 'Your local changes would be overwritten by checkout' }) },
+  })
+  const comp = component('client/src/features/code/components/BranchPicker.vue', {
+    '../stores/git': { useGitStore: () => git }, '@shared/ui/BranchNameInput.vue': { default: BranchNameStub }, '@shared/ui/BranchSelect.vue': { default: BranchSelectStub },
+  })
+  const screen = mount(comp, { onClose: () => closed++ })
+  try {
+    await settle()
+    const remote = [...screen.root.querySelectorAll('.item')].find(b => b.textContent === 'origin/release')
+    assert.ok(remote, 'the remote branch appears after refresh')
+    remote.click(); await settle()
+    assert.equal(calls[0][0], 'switch'); assert.equal(calls[0][1].branch, 'origin/release')
+    assert.match(screen.root.querySelector('[role="alert"]').textContent, /local changes would be overwritten/)
+    assert.equal(closed, 0)
+    const base = screen.root.querySelector('select')
+    Object.defineProperty(base, 'value', { configurable: true, writable: true, value: 'origin/release' })
+    for (const option of base.querySelectorAll('option')) option.selected = option.getAttribute('value') === 'origin/release'
+    base.dispatchEvent(new window.Event('change', { bubbles: true })); await nextTick()
+    git.settings = { branch_prefixes: [], base_branch: 'main' }; await nextTick()
+    fail = false
+    input(screen.root.querySelector('[aria-label="Имя новой ветки"]'), 'feature/work'); await nextTick()
+    screen.root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await settle()
+    assert.equal(calls.at(-1)[0], 'branch'); assert.equal(calls.at(-1)[1].base, 'origin/release'); assert.equal(closed, 1)
+    remote.click(); await settle(); assert.equal(closed, 2)
+  } finally { screen.close() }
+})
+
 function finishPanel(store, git) {
+  git.refreshBranches = async () => git.branches
   return component('client/src/features/finish/components/FinishPanel.vue', {
     '@core/api': { api: { get: async () => null } },
     '@core/stores/app': { useAppStore: () => ({ confirm: async () => true }) },
     '@features/code': { CommitDiff: { render: () => null }, CoauthorsField: { render: () => null }, GitAgentNote: { render: () => null }, useGitStore: () => git },
-    '@shared/ui/BranchNameInput.vue': { default: BranchNameStub },
+    '@shared/ui/BranchNameInput.vue': { default: BranchNameStub }, '@shared/ui/BranchSelect.vue': { default: BranchSelectStub },
     '@shared/utils/finish-scenarios': { FINISH_SCENARIOS: { commits: { label: 'Только коммиты', hint: '' }, push: { label: 'Коммиты и push', hint: '' }, full: { label: 'Полный цикл', hint: '' } } },
     '../stores/finish': { useFinishStore: () => store },
     '../api': { finishApi: { context: async () => ({ changes: [], diffs: {} }) } },
@@ -201,7 +238,7 @@ test('finish confirmation accepts a title edited in the rendered form and shows 
  } finally { screen.close() }
 })
 
-test('MR threads are pulled by button and a reply needs confirmation', async () => {
+test('MR threads render with their location', async () => {
  const calls = []
  const store = { data: null, loading: false, error: '', pull: async () => { calls.push('pull'); store.data = { mr: { iid: 3, url: 'u', title: 't', state: 'opened' }, threads: [{ id: 'd1', resolved: false, path: 'a.ts', line: 4, side: 'new', notes: [{ id: 1, author: 'Иван', body: 'почему так?' }] }] } },
   reply: async (id, body) => { calls.push(['reply', id, body]) } }

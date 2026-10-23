@@ -40,6 +40,7 @@
       <NewChatPanel
         v-else
         :project-id="projectId"
+        :draft-key="`new-chat:${projectId}`"
         :default-agent-id="defaultAgentId"
         title="Новый чат"
         text="Выберите агента и опишите задачу. Агент работает в папке проекта; модель, режим и остальное можно поменять и во время чата."
@@ -66,16 +67,22 @@ import ChatView from './ChatView.vue'
 import type { ContentBlock } from './ChatComposer.vue'
 import NewChatPanel, { type NewChatRequest } from './NewChatPanel.vue'
 import { useChatStore, type ChatSession } from '../stores/sessions'
+import { useChatDraftsStore } from '../stores/drafts'
 
 const props = defineProps<{ projectId: string; defaultAgentId?: string | null }>()
 const store = useChatStore(), agents = useAgentsStore(), app = useAppStore()
-const selected = ref(''), error = ref(''), creating = ref(false), renameId = ref(''), title = ref('')
+const drafts = useChatDraftsStore()
+const selected = computed({
+  get: () => drafts.selectedByProject[props.projectId] ?? '',
+  set: (id: string) => { drafts.selectedByProject[props.projectId] = id },
+})
+const error = ref(''), creating = ref(false), renameId = ref(''), title = ref('')
 const initial = ref<{ id: string; content: ContentBlock[] } | null>(null)
 
 const sessions = computed(() => store.sessions.filter(s => s.project_id === props.projectId && s.role === 'chat'))
 const agentName = (id: string) => agents.agents.find(a => a.id === id)?.name ?? ''
 
-watch(() => props.projectId, () => { selected.value = ''; void store.connect() }, { immediate: true })
+watch(() => props.projectId, () => { void store.connect() }, { immediate: true })
 // The first message is handed to ChatView once; never resend it when the chat is reopened.
 watch(selected, id => { if (initial.value && initial.value.id !== id) initial.value = null })
 

@@ -56,6 +56,8 @@ export class GitHub implements CodeHost {
     // The pull request already exists: reviewers and labels are best effort and must not make the creation look failed.
     const reviewers = input.reviewer_logins ?? [], labels = (input.labels ?? '').split(',').map(l => l.trim()).filter(Boolean);
     if (reviewers.length) await this.request(this.prefix + '/pulls/' + pr.number + '/requested_reviewers', 'POST', { reviewers }).catch(() => undefined);
+    const assignees = input.assignee_logins ?? []
+    if (assignees.length) await this.request(this.prefix + '/issues/' + pr.number + '/assignees', 'POST', { assignees }).catch(() => undefined);
     if (labels.length) await this.request(this.prefix + '/issues/' + pr.number + '/labels', 'POST', { labels }).catch(() => undefined);
     return this.map(pr);
   }
@@ -63,12 +65,18 @@ export class GitHub implements CodeHost {
 
   listReviewRequests(): Promise<MergeRequest[]> { return unsupported('список PR на ревью'); }
   searchMergeRequests(): Promise<MergeRequest[]> { return unsupported('поиск PR'); }
+  listOpenMergeRequests(): Promise<MergeRequest[]> { return unsupported('список открытых PR'); }
+  getApprovals(): Promise<null> { return unsupported('аппрувы PR'); }
   getVersions(): Promise<never> { return unsupported('версии PR'); }
   getDiff(): Promise<never> { return unsupported('diff PR через API'); }
   getFile(): Promise<string> { return unsupported('чтение файла через API'); }
   listDiscussions(): Promise<never> { return unsupported('обсуждения PR'); }
   createDiscussion(): Promise<never> { return unsupported('публикация замечаний'); }
   replyToDiscussion(): Promise<never> { return unsupported('ответы в обсуждениях'); }
+  resolveDiscussion(): Promise<void> { return unsupported('закрытие обсуждений'); }
+  updateNote(): Promise<void> { return unsupported('правка комментариев'); }
+  deleteNote(): Promise<void> { return unsupported('удаление комментариев'); }
+  currentUser(): Promise<never> { return unsupported('текущий пользователь'); }
   detectCapabilities() { return Promise.resolve(this.capabilities); }
   createDraftNotes(): Promise<void> { return unsupported('черновики замечаний'); }
   publishDrafts(): Promise<void> { return unsupported('публикация замечаний'); }

@@ -48,12 +48,24 @@ export const codeReviewsApi = {
   removeReview: (p: string, r: string) => api.delete<void>(review(p, r)),
   external: (p: string, signal?: AbortSignal) => api.get<ExternalThreads>(reviews(p) + '/external', signal),
   replyExternal: (p: string, discussion: string, body: string) => api.post<ExternalThreads>(reviews(p) + '/external/' + id(discussion) + '/reply', { body, confirmed: true }),
+  editExternalNote: (p: string, discussion: string, note: number, body: string) => api.put<ExternalThreads>(reviews(p) + '/external/' + id(discussion) + '/notes/' + note, { body }),
+  deleteExternalNote: (p: string, discussion: string, note: number) => api.delete<ExternalThreads>(reviews(p) + '/external/' + id(discussion) + '/notes/' + note + '?confirmed=true'),
+  resolveExternal: (p: string, discussion: string, resolved: boolean) => api.put<ExternalThreads>(reviews(p) + '/external/' + id(discussion) + '/resolved', { resolved }),
+}
+
+const conflicts = (p: string) => '/projects/' + id(p) + '/conflicts'
+type ConflictState = import('./git-types').ConflictState
+export const conflictsApi = {
+  state: (p: string) => api.get<ConflictState>(conflicts(p)),
+  resolve: (p: string, input: { note?: string; answers?: Record<string, string> } = {}) => api.post<ConflictState>(conflicts(p) + '/resolve', input),
+  stop: (p: string) => api.post<{ stopped: boolean }>(conflicts(p) + '/stop', {}),
 }
 
 const git = (p: string) => '/projects/' + id(p) + '/git'
 export const gitApi = {
   repository: (p: string) => api.get<import('./git-types').GitTracking | null>(git(p) + '/repository'),
   branches: (p: string) => api.get<import('./git-types').GitBranch[]>(git(p) + '/branches'),
+  refreshBranches: (p: string) => api.post<import('./git-types').GitBranch[]>(git(p) + '/branches/refresh', {}),
   settings: (p: string) => api.get<import('./git-types').GitPreferences>(git(p) + '/settings'),
   coauthors: (p: string) => api.get<import('./git-types').Coauthor[]>(git(p) + '/coauthors'),
   operation: (p: string, action: string, input: object = {}) => api.post<{ output: string; operationId: string }>(git(p) + '/' + action, input),

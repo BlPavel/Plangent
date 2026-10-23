@@ -12,7 +12,7 @@ function git(root: string, ...args: string[]): string {
   return execFileSync('git', ['-c', 'core.autocrlf=false', ...args], { cwd: root, encoding: 'utf8', windowsHide: true });
 }
 
-test('branch review: open, viewed marks follow file content, new commits and force-push are reported', async t => {
+test('branch review: open, files changed after the last publication, new commits and force-push are reported', async t => {
   const { getDb } = await import('../../infrastructure/db/schema');
   const review = await import('./index');
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'plangent-branch-review-repo-'));
@@ -43,15 +43,17 @@ test('branch review: open, viewed marks follow file content, new commits and for
   await assert.rejects(review.diff('p1', id, 'missing.txt'), /не найден/);
   await assert.rejects(review.detail('other', id), /Проект не найден/);
 
-  assert.equal((await review.setViewed('p1', id, 'a.txt', true)).files[0].viewed, 'viewed');
+  // As if remarks were published at this head: the next round shows what the author changed after it.
+  getDb().prepare('UPDATE branch_reviews SET published_head=? WHERE id=?').run(opened.review.head, id);
   await review.acknowledge('p1', id);
   await fs.writeFile(path.join(root, 'a.txt'), 'one\ntwo\nthree\n');
   git(root, 'add', '-A'); git(root, 'commit', '-m', 'Follow-up');
   const updated = await review.detail('p1', id);
   assert.equal(updated.new_commits, 1);
   assert.equal(updated.rewritten, false);
-  assert.equal(updated.files.find(f => f.path === 'a.txt')?.viewed, 'changed');
-  assert.equal(updated.files.find(f => f.path === 'b.txt')?.viewed, 'none');
+  assert.equal(updated.round_commits, 1);
+  assert.equal(updated.files.find(f => f.path === 'a.txt')?.changed_since, true);
+  assert.equal(updated.files.find(f => f.path === 'b.txt')?.changed_since, false);
   assert.equal((await review.acknowledge('p1', id)).new_commits, 0);
 
   git(root, 'reset', '--hard', 'main');

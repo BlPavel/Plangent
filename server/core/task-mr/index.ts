@@ -26,10 +26,12 @@ export function createTaskMrService(resolve = resolveCodeHost, generate = oneSho
     const {project,task,settings}=context(projectId,taskId), info=await repositoryInfo(project.repo_path), c=await resolve(projectId);
     if (!info?.head || !info.branch) throw new CodeError('Выберите локальную рабочую ветку');
     if (task?.branch_name && task.branch_name !== info.branch) throw new CodeError('Переключитесь на ветку задачи: ' + task.branch_name,409);
+    const refs = await branches(project.repo_path);
+    const fallback = ['origin/main', 'origin/master'].find(name => refs.some(b => b.name === name))?.replace(/^origin\//, '') || '';
     const key=task?.external_key||task?.key||'', title=[key,task?.title||info.branch].filter(Boolean).join(' ');
-    return {head:info.head,task_id:taskId,connection_id:c.connectionId,project_path:c.projectPath,source_branch:info.branch,target_branch:(target||task?.target_branch||task?.base_branch||settings.base_branch||'').replace(/^origin\//,''),title,
+    return {head:info.head,task_id:taskId,connection_id:c.connectionId,project_path:c.projectPath,source_branch:info.branch,target_branch:(target||task?.target_branch||task?.base_branch||settings.base_branch||fallback).replace(/^origin\//,''),title,
       description:[task?.title||title,key,task?.jira_url].filter(Boolean).join('\n\n'),
-      reviewer_ids:settings.mr_reviewers.map(Number).filter(id=>Number.isSafeInteger(id)&&id>0),reviewer_logins:settings.mr_reviewers.filter(name=>/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(name)&&!/^\d+$/.test(name)),remove_source_branch:settings.mr_remove_branch,squash:settings.mr_squash};
+      reviewer_ids:settings.mr_reviewers.map(Number).filter(id=>Number.isSafeInteger(id)&&id>0),reviewer_logins:settings.mr_reviewers.filter(name=>/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(name)&&!/^\d+$/.test(name)),assignee_ids:settings.mr_assignees.map(Number).filter(id=>Number.isSafeInteger(id)&&id>0),assignee_logins:settings.mr_assignees.filter(name=>/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(name)&&!/^\d+$/.test(name)),remove_source_branch:settings.mr_remove_branch,squash:settings.mr_squash};
   }
   async function describe(projectId: string, input: MrPreview) {
     validate(input);
@@ -57,6 +59,8 @@ export function createTaskMrService(resolve = resolveCodeHost, generate = oneSho
     if(!input.title?.trim() || input.title.length>1000 || typeof input.description!=='string' || input.description.length>100000 || typeof input.target_branch!=='string' || !input.target_branch || input.source_branch===input.target_branch) throw new CodeError('Проверьте заголовок и целевую ветку');
     if(input.reviewer_ids && (!Array.isArray(input.reviewer_ids)||input.reviewer_ids.some(id=>!Number.isSafeInteger(id)||id<1)))throw new CodeError('Invalid reviewers');
     if(input.reviewer_logins&&(!Array.isArray(input.reviewer_logins)||input.reviewer_logins.some(name=>typeof name!=='string'||!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(name))))throw new CodeError('Invalid reviewers');
+    if(input.assignee_ids&&(!Array.isArray(input.assignee_ids)||input.assignee_ids.some(id=>!Number.isSafeInteger(id)||id<1)))throw new CodeError('Invalid assignees');
+    if(input.assignee_logins&&(!Array.isArray(input.assignee_logins)||input.assignee_logins.some(name=>typeof name!=='string'||!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(name))))throw new CodeError('Invalid assignees');
     if(input.labels!==undefined&&typeof input.labels!=='string'||input.squash!==undefined&&typeof input.squash!=='boolean'||input.remove_source_branch!==undefined&&typeof input.remove_source_branch!=='boolean')throw new CodeError('Invalid MR options');
     return serializeGit(project.repo_path,async()=>{
       assertRepositoryIdle(projectId,owner);
@@ -67,8 +71,8 @@ export function createTaskMrService(resolve = resolveCodeHost, generate = oneSho
       if(existing){if(existing.target_branch!==input.target_branch)throw new CodeError('Для этой ветки уже существует МР с другой целевой веткой: '+existing.web_url,409);save(input.task_id,existing,c);return existing;}
       const db=getDb(), key=projectId+':'+c.connectionId+':'+c.projectPath+':'+input.source_branch;
       if(db.prepare('SELECT 1 FROM mr_creation_intents WHERE id=?').get(key))throw new CodeError('Результат предыдущей отправки неизвестен. Проверьте МР на хостинге и обновите статус; повторная отправка заблокирована.',409);
-      const bs=await branches(project.repo_path);
-      if(!bs.some(b=>b.name===input.target_branch||b.name==='origin/'+input.target_branch))throw new CodeError('Целевая ветка не найдена');
+      const targetHead = (await runGit(project.repo_path, ['ls-remote', '--heads', 'origin', 'refs/heads/' + input.target_branch])).trim();
+      if (!targetHead) throw new CodeError('Целевая ветка не найдена в origin');
       if(task?.branch_name && task.branch_name !== info.branch)throw new CodeError('Переключитесь на ветку задачи',409);
       // Always publish this branch to origin under the previewed name, independent of upstream configuration.
       const remote = (await runGit(project.repo_path,['ls-remote','--heads','origin','refs/heads/'+info.branch])).trim().split(/\s+/)[0];
@@ -76,8 +80,8 @@ export function createTaskMrService(resolve = resolveCodeHost, generate = oneSho
       if((await repositoryInfo(project.repo_path))?.head!==input.head || (await changedFiles(project.repo_path)).length)throw new CodeError('Рабочая ветка изменилась во время push. Откройте превью заново',409);
       db.prepare('INSERT INTO mr_creation_intents(id) VALUES (?)').run(key);
       try{
-        const {source_branch,target_branch,title,description,reviewer_ids,reviewer_logins,labels,remove_source_branch,squash}=input;
-        const mr=await c.host.createMergeRequest({source_branch,target_branch,title,description,reviewer_ids,reviewer_logins,labels,remove_source_branch,squash});
+        const {source_branch,target_branch,title,description,reviewer_ids,reviewer_logins,assignee_ids,assignee_logins,labels,remove_source_branch,squash}=input;
+        const mr=await c.host.createMergeRequest({source_branch,target_branch,title,description,reviewer_ids,reviewer_logins,assignee_ids,assignee_logins,labels,remove_source_branch,squash});
         save(input.task_id,mr,c);db.prepare('DELETE FROM mr_creation_intents WHERE id=?').run(key);return mr;
       }catch(error){
         const status=(error as {remote_status?:number}).remote_status;

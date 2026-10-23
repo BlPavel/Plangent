@@ -65,6 +65,30 @@ test('repository queue survives a failure and observes aborted queued operations
   await stage(root, ['a']); assert.equal(events.length, 1);
 });
 
+test('fetch discovers all origin branches with a narrow refspec and remote selection creates or reuses a local branch', async t => {
+  const root = await fixture(t);
+  await fs.writeFile(path.join(root, 'a'), 'base'); await stage(root, ['a']);
+  await commit(root, { title: 'base' }, () => defaultGitSettings);
+  const remote = path.join(root, 'origin.git'); git(root, 'init', '--bare', remote);
+  git(remote, 'symbolic-ref', 'HEAD', 'refs/heads/main');
+  git(root, 'remote', 'add', 'origin', remote); await push(root);
+  git(root, 'config', 'remote.origin.fetch', '+refs/heads/main:refs/remotes/origin/main');
+  git(remote, 'branch', 'release', 'main');
+  assert.ok(!(await branches(root)).some(b => b.name === 'origin/release'));
+  await fetchRepository(root, { assertIdle: () => { throw Error('finish owns the worktree'); } });
+  assert.ok((await branches(root)).some(b => b.name === 'origin/release'));
+  await switchBranch(root, 'origin/release');
+  assert.equal((await repositoryInfo(root))?.branch, 'release');
+  assert.equal((await trackingInfo(root))?.upstream, 'origin/release');
+  await switchBranch(root, 'main'); await switchBranch(root, 'origin/release');
+  assert.equal((await repositoryInfo(root))?.branch, 'release');
+  await createBranch(root, 'new-work', 'origin/release');
+  assert.equal((await repositoryInfo(root))?.branch, 'new-work');
+  git(remote, 'branch', '-d', 'release'); await fetchRepository(root);
+  assert.ok(!(await branches(root)).some(b => b.name === 'origin/release'));
+  assert.ok((await branches(root)).some(b => b.name === 'release' && !b.remote));
+});
+
 test('hook output, timeout and cancellation terminate the operation and release its queue', async t => {
   const root = await fixture(t); await fs.writeFile(path.join(root, 'a'), 'a'); await stage(root, ['a']);
   const hook = path.join(root, '.git/hooks/pre-commit');
@@ -86,4 +110,13 @@ test('format mismatch is a warning and explicit human coauthor is committed', as
   await fs.writeFile(path.join(root, 'a'), 'a'); await stage(root, ['a']);
   await commit(root, { title: 'fix', includeCoauthors: true, coauthors: [{ name: 'Peer', email: 'peer@test.invalid' }] }, () => ({ ...defaultGitSettings, commit_pattern: '^TASK-' }));
   assert.match(git(root, 'log', '-1', '--format=%B'), /Co-authored-by: Peer <peer@test.invalid>/);
+});
+
+test('hooks run without literal pathspecs, so their own globs still work', async t => {
+  const root = await fixture(t); await fs.mkdir(path.join(root, 'apps/web'), { recursive: true });
+  await fs.writeFile(path.join(root, 'apps/web/a.scss'), 'a {}'); await stage(root, ['apps/web/a.scss']);
+  // A lint-staged style hook: re-adds the files it formatted by a glob.
+  await fs.writeFile(path.join(root, '.git/hooks/pre-commit'), '#!/bin/sh\ngit add ./apps/**/*.scss || exit 1\n', { mode: 0o755 });
+  await commit(root, { title: 'with hook' }, () => defaultGitSettings);
+  assert.equal((await repositoryInfo(root))?.message, 'with hook');
 });

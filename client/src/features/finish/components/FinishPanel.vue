@@ -15,6 +15,14 @@
         </label>
       </fieldset>
 
+      <label v-if="options.scenario === 'full'" class="fp-field">
+        <span class="fp-label">Целевая ветка МР</span>
+        <BranchSelect v-model="options.targetBranch" :options="targets.map(name => ({ value: name, label: 'origin/' + name }))" small placeholder="Выберите ветку" label="Целевая ветка МР" />
+        <button type="button" class="fp-link" :disabled="refreshingBranches" @click="refreshBranches">{{ refreshingBranches ? 'Обновление из origin…' : 'Обновить ветки из origin' }}</button>
+        <small v-if="branchesError" role="alert">{{ branchesError }}</small>
+        <small>{{ mrDefaults }}</small>
+      </label>
+
       <fieldset class="fp-field">
         <legend>Коммиты</legend>
         <label class="fp-choice">
@@ -42,15 +50,6 @@
         <small v-else-if="newBranch">Ветка создастся от текущей, коммиты лягут в неё.</small>
         <small v-if="options.scenario !== 'commits' && (!published || newBranch || sameBranch)">При push ветка будет опубликована в origin.</small>
       </div>
-
-      <label v-if="options.scenario === 'full'" class="fp-field">
-        <span class="fp-label">Целевая ветка МР</span>
-        <select v-model="options.targetBranch" class="control control-sm">
-          <option value="" disabled>Выберите ветку</option>
-          <option v-for="name in targets" :key="name" :value="name">{{ name }}</option>
-        </select>
-        <small>{{ mrDefaults }}</small>
-      </label>
 
       <div class="fp-footer">
         <GitAgentNote />
@@ -97,13 +96,19 @@
         </div>
       </div>
       <p v-if="dirty" class="fp-hint fp-warn">Diff показывает созданные коммиты. Сохраните состав, чтобы увидеть результат правок.</p>
+      <div v-if="store.run.scenario === 'full' && store.run.stage === 'confirmation'" class="fp-mr-draft">
+        <span class="fp-label">Merge request</span>
+        <input v-model="mrDraft.title" class="control control-sm" aria-label="Заголовок МР" placeholder="Заголовок МР" :disabled="!editable" />
+        <textarea v-model="mrDraft.description" class="control" aria-label="Описание МР" rows="8" placeholder="Описание МР" :disabled="!editable" />
+        <small>Создастся после push: {{ store.run.options.targetBranch }} ← {{ store.run.branch }}. Ревьюеров, исполнителей и остальное подставят настройки проекта.</small>
+      </div>
       <div v-if="editable" class="fp-actions">
-        <button type="button" class="btn btn-ghost btn-sm" :disabled="store.busy || !dirty" @click="save">Сохранить состав</button>
+        <button type="button" class="btn btn-ghost btn-sm" :disabled="store.busy || !dirty && !mrDirty" @click="save">Сохранить</button>
         <span class="fp-spacer" />
-        <button type="button" class="btn btn-blue btn-sm" :disabled="store.busy" @click="accept">Принять{{ store.run.scenario === 'commits' ? '' : ' и push' }}</button>
+        <button type="button" class="btn btn-blue btn-sm" :disabled="store.busy || !!mrProblem" :title="mrProblem" @click="accept">Принять{{ store.run.scenario === 'commits' ? '' : store.run.scenario === 'full' ? ', push и МР' : ' и push' }}</button>
       </div>
       <div v-if="editable || store.run.status === 'error' && store.run.stage === 'commits'" class="fp-note">
-        <textarea v-model="note" class="control" rows="2" :placeholder="editable ? 'Попросить агента переделать коммиты' : 'Замечание агенту для повторной попытки'" @keydown.enter.ctrl.exact.prevent="askAgent" @keydown.enter.meta.exact.prevent="askAgent" />
+        <textarea v-model="note" class="control" rows="2" :placeholder="editable ? (store.run.scenario === 'full' ? 'Попросить агента переделать коммиты или МР' : 'Попросить агента переделать коммиты') : 'Замечание агенту для повторной попытки'" @keydown.enter.ctrl.exact.prevent="askAgent" @keydown.enter.meta.exact.prevent="askAgent" />
         <button type="button" class="btn btn-ghost btn-sm" :disabled="store.busy || !note.trim()" title="Ctrl+Enter" @click="askAgent">{{ editable ? 'Попросить агента' : 'Повторить' }}</button>
       </div>
       <div v-if="store.run.status === 'error' || store.run.stage !== 'mr'" class="fp-actions">
@@ -123,6 +128,7 @@ import { api } from '@core/api'
 import { useAppStore } from '@core/stores/app'
 import { CommitDiff, CoauthorsField, GitAgentNote, useGitStore } from '@features/code'
 import BranchNameInput from '@shared/ui/BranchNameInput.vue'
+import BranchSelect from '@shared/ui/BranchSelect.vue'
 import { FINISH_SCENARIOS } from '@shared/utils/finish-scenarios'
 import { useFinishStore } from '../stores/finish'
 import { finishApi } from '../api'
@@ -135,15 +141,15 @@ const emit = defineEmits<{ attention: [] }>()
 const copy = <T,>(value: T): T => JSON.parse(JSON.stringify(value))
 const message = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause)).replace(/^Error:\s*/, '')
 const app = useAppStore(), store = useFinishStore(), git = useGitStore()
-const localError = ref('')
+const localError = ref(''), branchesError = ref(''), refreshingBranches = ref(false)
 const scenarioOptions = (['commits', 'push', 'full'] as const).map(value => ({ value, ...FINISH_SCENARIOS[value] }))
 const options = ref<FinishOptions>({ scenario: 'commits', commitMode: 'split', includeDescription: false, includeCoauthors: false, coauthors: [], targetBranch: '' })
 const newBranch = ref(false), branchName = ref('')
 const prefixes = computed(() => git.settings?.branch_prefixes ?? [])
 const published = computed(() => !!git.repository?.upstream)
-/** MR targets are named without origin/: local and remote copies of a branch are one choice. */
+/** Only origin branches can be MR targets; the host API expects their unprefixed names. */
 const targets = computed(() => {
-  const names = [...new Set(git.branches.map(b => b.name.replace(/^origin\//, '')))].filter(name => name !== 'HEAD')
+  const names = [...new Set(git.branches.filter(b => b.remote).map(b => b.name.replace(/^origin\//, '')))].filter(name => name !== 'HEAD')
   const wanted = options.value.targetBranch
   return wanted && !names.includes(wanted) ? [wanted, ...names] : names
 })
@@ -151,7 +157,7 @@ const sameBranch = computed(() => !!props.branch && props.branch === options.val
 const mrDefaults = computed(() => {
   const s = git.settings
   if (!s) return ''
-  const parts = [s.mr_reviewers.length ? 'ревьюеры: ' + s.mr_reviewers.length : 'без ревьюеров', s.mr_squash ? 'squash' : '', s.mr_remove_branch ? 'удалить ветку после слияния' : ''].filter(Boolean)
+  const parts = [s.mr_reviewers.length ? 'ревьюеры: ' + s.mr_reviewers.length : 'без ревьюеров', s.mr_assignees?.length ? 'исполнители: ' + s.mr_assignees.length : '', s.mr_squash ? 'squash' : '', s.mr_remove_branch ? 'удалить ветку после слияния' : ''].filter(Boolean)
   return 'Из настроек проекта: ' + parts.join(', ') + '. Заголовок и описание напишет агент.'
 })
 const needsBranchName = computed(() => newBranch.value || sameBranch.value)
@@ -174,10 +180,10 @@ const statusBadge = computed(() => ({ running: 'progress', waiting: 'open', erro
 const statusHint = computed(() => {
   const run = store.run
   if (!run) return ''
-  if (run.status === 'waiting' && run.stage === 'confirmation') return 'Проверьте коммиты: поправьте заголовки, перенесите файлы или попросите агента переделать.'
+  if (run.status === 'waiting' && run.stage === 'confirmation') return 'Проверьте коммиты' + (run.scenario === 'full' ? ' и МР' : '') + ': поправьте тексты, перенесите файлы или попросите агента переделать.'
   if (run.status === 'running' && run.stage === 'commits') return run.options.commitMode === 'single' ? 'Агент оформляет коммит…' : 'Агент разбивает изменения на коммиты…'
   if (run.status === 'running' && run.stage === 'push') return 'Отправка в origin…'
-  if (run.status === 'running' && run.stage === 'mr') return 'Агент готовит заголовок и описание МР…'
+  if (run.status === 'running' && run.stage === 'mr') return 'Создание МР…'
   return ''
 })
 const selectedCommit = computed(() => selected.value ? store.run?.commits.find(c => c.files.includes(selected.value!.path)) : undefined)
@@ -188,6 +194,11 @@ const selectedBase = computed(() => {
 const editable = computed(() => store.run?.stage === 'confirmation' && ['waiting', 'error'].includes(store.run.status))
 const clean = (list: FinishCommit[]) => JSON.stringify(list.map(({ files, title, body }) => ({ files, title, body })))
 const dirty = computed(() => clean(draft.value) !== clean(store.run?.commits ?? []))
+// The MR text of a full cycle is confirmed and edited together with the commits.
+const mrDraft = ref({ title: '', description: '' })
+const mrDirty = computed(() => store.run?.scenario === 'full' && (mrDraft.value.title !== (store.run.mr_draft?.title ?? '') || mrDraft.value.description !== (store.run.mr_draft?.description ?? '')))
+const mrProblem = computed(() => store.run?.scenario === 'full' && store.run.stage === 'confirmation' && (!mrDraft.value.title.trim() || /[\r\n]/.test(mrDraft.value.title)) ? 'Заголовок МР — одна непустая строка' : '')
+watch(() => store.run?.mr_draft, value => { mrDraft.value = { title: value?.title ?? '', description: value?.description ?? '' } }, { immediate: true })
 
 // The task may pin its own scenario and target; otherwise the project's settings decide.
 const taskData = ref<Task | null>(null)
@@ -197,7 +208,7 @@ function applyDefaults() {
   const scenario = (taskData.value?.finish_scenario ?? s.finish_scenario) as Scenario
   options.value = {
     ...options.value, scenario: scenario === 'nothing' ? 'commits' : scenario, includeDescription: s.include_description,
-    targetBranch: (taskData.value?.target_branch || taskData.value?.base_branch || s.base_branch || '').replace(/^origin\//, ''),
+    targetBranch: (taskData.value?.target_branch || taskData.value?.base_branch || s.base_branch || ['main', 'master'].find(name => git.branches.some(b => b.name === 'origin/' + name)) || '').replace(/^origin\//, ''),
   }
   branchName.value = (s.branch_prefixes[0] ? s.branch_prefixes[0] + '/' : '') + (props.task?.key ?? '')
 }
@@ -215,6 +226,20 @@ watch(() => [props.projectId, props.task?.id], async () => {
     if (mine === generation) await store.load(props.projectId, id)
   } catch (cause) { if (mine === generation) localError.value = message(cause) }
 }, { immediate: true })
+async function refreshBranches() {
+  if (refreshingBranches.value) return
+  const mine = generation, projectId = props.projectId
+  refreshingBranches.value = true; branchesError.value = ''
+  try {
+    const refs = await git.refreshBranches()
+    if (mine === generation && projectId === git.projectId) {
+      git.branches = refs
+      if (!options.value.targetBranch) options.value.targetBranch = ['main', 'master'].find(name => refs.some(b => b.name === 'origin/' + name)) ?? ''
+    }
+  } catch (cause) { if (mine === generation) branchesError.value = message(cause) }
+  finally { if (mine === generation) refreshingBranches.value = false }
+}
+watch(() => options.value.scenario, scenario => { if (scenario === 'full') void refreshBranches() }, { immediate: true })
 // The git store loads the settings by itself; the form picks them up once they arrive.
 watch(() => git.settings, (value, previous) => { if (value && !previous) applyDefaults() })
 watch(() => store.run?.commits, (commits, previous) => { if (clean(draft.value) === clean(previous ?? []) || !draft.value.length) draft.value = copy(commits ?? []) }, { deep: true })
@@ -239,12 +264,17 @@ function drag(event: DragEvent, index: number, path: string) { event.dataTransfe
 function drop(event: DragEvent, to: number) { dropTarget.value = null; try { const data = JSON.parse(event.dataTransfer?.getData('application/plangent-file') || ''); move(data.index, to, data.path) } catch { /* foreign drag */ } }
 function merge(index: number) { const c = draft.value[index]; draft.value[index - 1].files.push(...c.files); draft.value.splice(index, 1) }
 function split(index: number) { const c = draft.value[index]; draft.value.splice(index, 1, ...c.files.map(path => ({ title: c.title, body: c.body, files: [path] }))) }
-async function save() { try { await store.save(draft.value.map(({ files, title, body }) => ({ files, title, body }))); draft.value = copy(store.run?.commits ?? []) } catch { /* store error */ } }
+async function save() {
+  try {
+    if (dirty.value) { await store.save(draft.value.map(({ files, title, body }) => ({ files, title, body }))); draft.value = copy(store.run?.commits ?? []) }
+    if (mrDirty.value) await store.saveMr({ title: mrDraft.value.title.trim(), description: mrDraft.value.description })
+  } catch { /* store error */ }
+}
 async function act(name: string, data: object = {}) { try { await store.action(name, data); if (name === 'revise') note.value = '' } catch { /* store error */ } }
 function askAgent() { if (!store.busy && note.value.trim()) void act('revise', { note: note.value }) }
 async function accept() {
-  if (store.run?.scenario !== 'commits' && !await app.confirm('Принять коммиты и отправить их в origin?' + (published.value ? '' : ' Ветка будет опубликована.'), { confirmLabel: 'Принять и push' })) return
-  if (dirty.value || store.run?.status === 'error' && store.run.stage === 'confirmation') { await save(); if (store.error) return }
+  if (store.run?.scenario !== 'commits' && !await app.confirm('Принять коммиты, отправить их в origin' + (store.run?.scenario === 'full' ? ' и создать МР?' : '?') + (published.value ? '' : ' Ветка будет опубликована.'), { confirmLabel: store.run?.scenario === 'full' ? 'Принять, push и МР' : 'Принять и push' })) return
+  if (dirty.value || mrDirty.value || store.run?.status === 'error' && store.run.stage === 'confirmation') { await save(); if (store.error) return }
   await act('accept')
 }
 async function rollback() { if (await app.confirm('Откатить коммиты этого завершения? Изменения файлов останутся в рабочей папке.', { confirmLabel: 'Откатить коммиты', danger: true })) await act('rollback', { confirmed: true }) }
@@ -299,6 +329,8 @@ textarea.control { height: auto; padding: 6px 10px; resize: vertical; line-heigh
 .fp-move { max-width: 90px; height: 22px; font: inherit; font-size: 11px; color: var(--text-muted); background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius-sm); }
 .fp-commit-actions { display: flex; gap: 12px; flex-wrap: wrap; }
 .fp-diff { height: 360px; min-width: 0; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; background: var(--bg); }
+.fp-mr-draft { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg2); }
+.fp-mr-draft small { font-size: 11px; color: var(--text-faint); }
 .fp-note { display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
 .fp-log summary { cursor: pointer; color: var(--text-muted); }
 .fp-log pre { margin-top: 6px; padding: 6px 8px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 200px; overflow: auto; font-size: 11.5px; background: var(--bg2); border-radius: var(--radius-sm); }

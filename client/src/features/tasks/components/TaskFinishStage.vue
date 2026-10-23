@@ -9,7 +9,10 @@
     <p v-if="!state" class="tf-hint">После ревью в табе «Код» запустите «Завершить работу»: агент сделает коммиты по сценарию ниже.</p>
     <div class="tf-grid">
       <label><span>Сценарий</span>
-        <select v-model="scenario" class="control control-sm" :disabled="busy" @change="save"><option value="">Из настроек · {{ labels[defaults.finish_scenario || 'nothing'] }}</option><option v-for="(label, value) in labels" :key="value" :value="value">{{ label }}</option></select>
+        <PlainSelect
+          :model-value="scenario" :options="Object.entries(labels).map(([value, label]) => ({ value, label }))" small :disabled="busy" :empty-label="'Из настроек · ' + labels[defaults.finish_scenario || 'nothing']" placeholder="Из настроек" label="Сценарий"
+          @update:model-value="scenario = $event; save()"
+        />
       </label>
       <label><span>Целевая ветка МР</span>
         <input v-model="target" class="control control-sm" list="task-finish-branches" :placeholder="defaults.base_branch || 'Из настроек'" :disabled="busy" @change="save" />
@@ -27,6 +30,7 @@ import { onServerEvent } from '@core/api/events'
 import type { Task, ProjectGitSettings } from '@core/models'
 import { codeTarget, gitApi, type GitBranch } from '@features/code'
 import { errorText } from '@shared/utils/errorText'
+import PlainSelect from '@shared/ui/PlainSelect.vue'
 import { finishScenarioLabels } from '@shared/utils/finish-scenarios'
 const props = defineProps<{ projectId: string; task: Task }>()
 const labels = finishScenarioLabels

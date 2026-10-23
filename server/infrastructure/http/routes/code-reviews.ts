@@ -29,6 +29,15 @@ export function createCodeReviewsRouter(service: () => ReturnType<typeof createR
     const { body: text, confirmed } = body(req);
     res.json(await externalThreads().reply(req.params.projectId, req.params.discussionId, text, confirmed));
   }));
+  router.put('/external/:discussionId/resolved', guard(async (req, res) => {
+    res.json(await externalThreads().resolve(req.params.projectId, req.params.discussionId, body(req).resolved));
+  }));
+  router.put('/external/:discussionId/notes/:noteId', guard(async (req, res) => {
+    res.json(await externalThreads().edit(req.params.projectId, req.params.discussionId, Number(req.params.noteId), body(req).body));
+  }));
+  router.delete('/external/:discussionId/notes/:noteId', guard(async (req, res) => {
+    res.json(await externalThreads().remove(req.params.projectId, req.params.discussionId, Number(req.params.noteId), req.query.confirmed === 'true'));
+  }));
   router.get('/attention', guard((req, res) => res.json(service().attention(req.params.projectId))));
   router.post('/:reviewId/rounds', guard(async (req, res) => {
     const { session_id, note, item_ids } = body(req);

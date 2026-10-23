@@ -23,6 +23,11 @@
       <button type="button" class="ct-refresh" :class="{ spinning: store.loading }" :disabled="store.loading" title="Обновить: статус, дерево и открытый файл" :aria-busy="store.loading" aria-label="Обновить" @click="store.refresh()">⟳</button>
       <HistoryMenu :history="store.history" :opened-id="store.openedReviewId" @open="store.loadHistory()" @select="store.openReview($event)" @remove="removeHistoryItem" />
     </header>
+    <div v-if="conflicts.operation" class="ct-op" role="status">
+      <span class="ct-op-text">{{ operationTitle(conflicts.operation) }} · {{ conflicts.conflicted.length ? 'конфликтов: ' + conflicts.conflicted.length : 'конфликтов нет' }}<template v-if="conflicts.mode === 'working'"> · агент работает</template><template v-else-if="conflicts.mode === 'answer'"> · агент ждёт ответа</template></span>
+      <button v-if="conflicts.mode === 'start' && conflicts.conflicted.length" type="button" class="btn btn-blue btn-xs" @click="openConflicts">Разрешить с агентом</button>
+      <button v-else type="button" class="btn btn-ghost btn-xs" @click="showRight('conflicts')">Конфликты</button>
+    </div>
     <ReviewBanners @open-items="openFirstUnresolved" />
     <div v-if="store.error" class="ct-error">{{ store.error }} <button type="button" class="ct-link" @click="store.refresh()">Повторить</button></div>
 
@@ -109,6 +114,9 @@
           </button>
           <button type="button" class="ct-collapse" title="Свернуть панель (Ctrl+Alt+B)" aria-label="Свернуть правую панель" @click="rightCollapsed = true">»</button>
         </div>
+        <div v-if="rightTab === 'conflicts'" class="ct-scroll">
+          <ConflictPanel ref="conflictPanel" @open="path => open(path, 'diff')" />
+        </div>
         <template v-if="rightTab === 'remarks'">
           <ExternalThreadsPanel :can-discuss="canDiscuss" @goto="gotoExternal" @discuss="discussExternal" />
           <div class="ct-pane">
@@ -117,7 +125,7 @@
         </template>
         <!-- Kept mounted: the finish run reports its progress (and the tab's badge) while another tab is open. -->
         <div v-if="store.repository" v-show="rightTab === 'finish'" class="ct-scroll">
-          <FinishPanel :key="projectId + (task?.id || '')" :project-id="projectId" :task="task" :blocked="git.blocked" :branch="store.branch" @attention="showRight('finish')" />
+          <FinishPanel :key="projectId + (task?.id || '')" :project-id="projectId" :task="task" :blocked="git.writeBlocked" :branch="store.branch" @attention="showRight('finish')" />
         </div>
         <div v-if="store.repository && rightTab === 'mr'" class="ct-scroll">
           <TaskMrPanel :key="projectId + (task?.id || '')" :project-id="projectId" :task-id="task?.id" stacked />
@@ -165,6 +173,9 @@ import QuickOpen from '../components/QuickOpen.vue'
 import ReviewBanners from '../components/ReviewBanners.vue'
 import ReviewPanel from '../components/ReviewPanel.vue'
 import SearchPanel from '../components/SearchPanel.vue'
+import ConflictPanel from '../components/ConflictPanel.vue'
+import { useConflictsStore } from '../stores/conflicts'
+import { operationTitle } from '../utils/operation'
 
 const props = defineProps<{
   projectId: string
@@ -180,7 +191,7 @@ const external = useExternalThreadsStore()
 watch(() => props.projectId, id => external.reset(id), { immediate: true })
 const pathsOf = (list: GitChange[]) => list.flatMap(c => [c.path, ...(c.originalPath ? [c.originalPath] : [])])
 async function stageMany(list: GitChange[], stage: boolean) { try { await git.run(stage ? 'stage' : 'unstage', { paths: pathsOf(list) }); await store.refresh() } catch { /* git error displayed in the branch bar */ } }
-const toggleStage = (change: GitChange) => stageMany([change], ['.', ' ', '?'].includes(change.indexStatus))
+const toggleStage = (change: GitChange) => stageMany([change], change.status === 'U' || ['.', ' ', '?'].includes(change.indexStatus))
 /** Ticks «к коммиту» only make sense for the folder against HEAD. */
 const stageable = computed(() => !!store.repository && store.effectiveBase === 'head' && !store.openedReviewId)
 watch(() => props.projectId, id => { void git.start(id) }, { immediate: true })
@@ -406,7 +417,7 @@ async function discussExternal(t: ExternalThread) {
 // --- right panel: the review and its agent ---------------------------------------
 const attention = computed(() => store.items.filter(item => threadState(item, store.messages) === 'waiting').length)
 // --- right panel tabs: the review, «Завершение работ» and the branch's MR ----------
-type RightTab = 'remarks' | 'finish' | 'mr'
+type RightTab = 'remarks' | 'finish' | 'mr' | 'conflicts'
 const route = useRoute()
 const finish = useFinishStore()
 const finishStages = stages
@@ -415,12 +426,26 @@ const finishDone = computed(() => !!finish.run && ['complete', 'cancelled'].incl
 const finishAttention = computed(() => !!finish.run && ['waiting', 'error'].includes(finish.run.status))
 function showRight(tab: RightTab) { rightCollapsed.value = false; rightTab.value = tab }
 watch(() => route.query.finish, value => { if (value === '1') showRight('finish') })
+// --- the developer's merge/rebase: its conflicts and the agent resolving them ----------
+const conflicts = useConflictsStore()
+watch(() => props.projectId, id => { void conflicts.start(id) }, { immediate: true })
+const conflictAttention = computed(() => conflicts.mode === 'answer' ? conflicts.questions.length : 0)
+watch(() => conflicts.operation, operation => { if (!operation && rightTab.value === 'conflicts') rightTab.value = 'remarks' })
+const conflictPanel = ref<InstanceType<typeof ConflictPanel>>()
+/** Brings up the card; the agent starts from there, after an optional wish. */
+async function openConflicts() {
+  showRight('conflicts')
+  await nextTick()
+  conflictPanel.value?.focus()
+}
 const rightTabs = computed(() => [
+  ...(conflicts.operation ? [{ id: 'conflicts' as const, label: 'Конфликты', count: conflictAttention.value || conflicts.conflicted.length, warning: !!conflictAttention.value, hint: conflictAttention.value ? `Агент ждёт ответа: ${conflictAttention.value}` : 'Конфликтных файлов' }] : []),
   { id: 'remarks' as const, label: 'Замечания', count: attention.value || store.items.length, warning: !!attention.value, hint: attention.value ? `Ждут вашего ответа: ${attention.value}` : '' },
   { id: 'finish' as const, label: 'Завершение', count: finishAttention.value ? 1 : 0, warning: true, hint: 'Ждёт вашего решения' },
   { id: 'mr' as const, label: 'МР', count: 0, warning: false, hint: '' },
 ])
 const rightRail = computed(() => [
+  ...(conflicts.operation ? [{ id: 'conflicts', label: 'Конфликты', icon: 'conflicts' as const, count: conflictAttention.value || conflicts.conflicted.length, tone: conflictAttention.value ? 'warning' as const : undefined, dot: conflicts.state?.session?.status }] : []),
   { id: 'remarks', label: 'Замечания', icon: 'remarks' as const, count: attention.value || store.items.length, tone: attention.value ? 'warning' as const : undefined, dot: agent.session?.status },
   { id: 'finish', label: 'Завершение работ', icon: 'finish' as const, count: finishAttention.value ? 1 : 0, tone: 'warning' as const },
   { id: 'mr', label: 'МР', icon: 'mr' as const },
@@ -476,7 +501,7 @@ async function begin(projectId: string) {
 }
 
 onMounted(() => { window.addEventListener('keydown', onKey) })
-onBeforeUnmount(() => { window.removeEventListener('keydown', onKey); store.stop(); git.stop() })
+onBeforeUnmount(() => { window.removeEventListener('keydown', onKey); store.stop(); git.stop(); conflicts.stop() })
 watch(() => props.projectId, id => { void begin(id) }, { immediate: true })
 </script>
 
@@ -500,6 +525,8 @@ watch(() => props.projectId, id => { void begin(id) }, { immediate: true })
 .ct-crumb:focus-visible, .ct-refresh:focus-visible, .ct-tab:focus-visible, .ct-link:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; border-radius: var(--radius-sm); }
 .ct-refresh.spinning { animation: ct-spin 0.9s linear infinite; }
 @keyframes ct-spin { to { transform: rotate(360deg); } }
+.ct-op { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex-shrink: 0; padding: 6px 14px; font-size: 12px; border-bottom: 1px solid var(--border); background: var(--warning-bg, var(--bg2)); box-shadow: inset 3px 0 0 var(--warning); }
+.ct-op-text { flex: 1 1 320px; min-width: 0; color: var(--text); }
 .ct-error { padding: 6px 14px; font-size: 12px; color: var(--danger-hover); background: var(--danger-soft); border-bottom: 1px solid var(--border); }
 .ct-link { padding: 0 6px; font: inherit; font-size: 12px; color: var(--blue-hover); background: none; border: none; cursor: pointer; white-space: nowrap; }
 .ct-link:hover { text-decoration: underline; }

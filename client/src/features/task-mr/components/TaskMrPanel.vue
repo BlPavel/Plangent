@@ -21,17 +21,17 @@
         <span class="tm-muted"><code>{{ draft.source_branch }}</code> → <code>{{ draft.target_branch || '?' }}</code></span>
       </div>
       <label class="tm-field"><span class="tm-name">Целевая ветка</span>
-        <select v-model="draft.target_branch" class="control control-sm" :disabled="busy" required>
-          <option value="" disabled>Выберите ветку</option>
-          <option v-for="name in targets" :key="name" :value="name">{{ name }}</option>
-        </select>
+        <BranchSelect v-model="draft.target_branch" :options="targets.map(name => ({ value: name, label: 'origin/' + name }))" small :disabled="busy" placeholder="Выберите ветку" label="Целевая ветка" />
+        <button type="button" class="tm-action" :disabled="refreshing" @click="refreshTargets">{{ refreshing ? 'Обновление из origin…' : 'Обновить ветки из origin' }}</button>
+        <small v-if="branchesError" role="alert" class="tm-warn">{{ branchesError }}</small>
+        <small>Целевая ветка находится в репозитории origin.</small>
         <small v-if="draft.target_branch === draft.source_branch" class="tm-warn">Целевая ветка совпадает с исходной.</small>
       </label>
       <label class="tm-field"><span class="tm-name">Заголовок</span>
         <input v-model="draft.title" class="control control-sm" :disabled="busy" maxlength="1000" required />
       </label>
       <label class="tm-field">
-        <span class="tm-name tm-row">Описание <span class="tm-spacer" /><button type="button" class="tm-action" :disabled="busy" @click="describe">✨ {{ generating ? 'Агент пишет…' : 'Предложить' }}</button></span>
+        <span class="tm-name tm-row">Описание <span class="tm-spacer" /><button type="button" class="tm-action" :disabled="busy || refreshing || !draft.target_branch || draft.target_branch === draft.source_branch" @click="describe">✨ {{ generating ? 'Агент пишет…' : 'Предложить' }}</button></span>
         <textarea v-model="draft.description" class="control" :disabled="busy" rows="8" maxlength="100000" :placeholder="generating ? 'Агент готовит черновик описания…' : ''" />
       </label>
       <div class="tm-field">
@@ -64,6 +64,7 @@ import { api } from '@core/api'
 import { useAppStore } from '@core/stores/app'
 import type { Task } from '@core/models'
 import MemberPicker from '@shared/ui/MemberPicker.vue'
+import BranchSelect from '@shared/ui/BranchSelect.vue'
 import { errorText } from '@shared/utils/errorText'
 import { taskMrApi } from '../api'
 import type { MrPreview, TaskMr } from '../types'
@@ -73,6 +74,7 @@ const props = defineProps<{ projectId: string; taskId?: string; stacked?: boolea
 type Member = { value: string; login: string; name: string }
 const app = useAppStore(), busy = ref(false), generating = ref(false), error = ref(''), draft = ref<MrPreview | null>(null), mr = ref<TaskMr | null>(null), done = ref(false)
 const branches = ref<string[]>([]), reviewers = ref<string[]>([]), members = ref<Member[]>([]), membersNote = ref('')
+const refreshing = ref(false), branchesError = ref('')
 const states: Record<string, string> = { opened: 'Открыт', merged: 'Влит', closed: 'Закрыт', locked: 'Заблокирован' }
 const badges: Record<string, string> = { opened: 'open', merged: 'done', closed: 'neutral', locked: 'progress' }
 const safeUrl = computed(() => { try { const u = new URL(mr.value?.web_url || ''); return ['http:', 'https:'].includes(u.protocol) && !u.username && !u.password ? u.href : undefined } catch { return undefined } })
@@ -98,7 +100,7 @@ async function refresh() {
   finally { if (mine === generation) busy.value = false }
 }
 watch(() => [props.projectId, props.taskId], async () => {
-  const mine = ++generation; draft.value = null; mr.value = null; error.value = ''; busy.value = false; done.value = false
+  const mine = ++generation; draft.value = null; mr.value = null; error.value = ''; busy.value = false; done.value = false; refreshing.value = false; branchesError.value = ''; branches.value = []
   if (!props.taskId) return
   try {
     const task = await api.get<Task>('/projects/' + encodeURIComponent(props.projectId) + '/tasks/' + encodeURIComponent(props.taskId))
@@ -111,24 +113,43 @@ watch(() => [props.projectId, props.taskId], async () => {
 
 async function open() {
   if (busy.value) return
-  const mine = generation, p = encodeURIComponent(props.projectId); busy.value = true; error.value = ''
+  const mine = ++generation, p = encodeURIComponent(props.projectId); busy.value = true; error.value = ''; refreshing.value = false; branchesError.value = ''
   try {
-    const [value, list, people] = await Promise.all([
-      taskMrApi.preview(props.projectId, props.taskId),
-      api.get<{ name: string }[]>('/projects/' + p + '/git/branches'),
-      api.get<Member[]>('/projects/' + p + '/host-members').then(m => ({ m, note: '' }), cause => ({ m: [] as Member[], note: 'Список участников недоступен (' + errorText(cause) + ') — введите логин или ID.' })),
-    ])
+    const value = await taskMrApi.preview(props.projectId, props.taskId)
     if (mine !== generation) return
     draft.value = value
     reviewers.value = [...value.reviewer_ids.map(String), ...(value.reviewer_logins ?? [])]
-    branches.value = [...new Set(list.map(b => b.name.replace(/^origin\//, '')))].filter(name => name !== 'HEAD' && name !== value.source_branch)
-    members.value = people.m; membersNote.value = people.note
+    void api.get<Member[]>('/projects/' + p + '/host-members').then(people => {
+      if (mine === generation) { members.value = people; membersNote.value = '' }
+    }, cause => {
+      if (mine === generation) { members.value = []; membersNote.value = 'Список участников недоступен (' + errorText(cause) + ') — введите логин или ID.' }
+    })
   } catch (cause) { if (mine === generation) error.value = errorText(cause) }
   finally { if (mine === generation) busy.value = false }
-  if (mine === generation && draft.value) await describe()
+  if (mine === generation && draft.value) void refreshTargets()
+}
+function setTargets(list: { name: string }[]) {
+  branches.value = [...new Set(list.filter(b => b.name.startsWith('origin/') && b.name !== 'origin/HEAD').map(b => b.name.slice(7)))].filter(name => name !== draft.value?.source_branch)
+  if (draft.value && !draft.value.target_branch) draft.value.target_branch = ['main', 'master'].find(name => branches.value.includes(name)) ?? ''
+}
+async function refreshTargets() {
+  if (refreshing.value) return
+  const mine = generation, p = encodeURIComponent(props.projectId)
+  refreshing.value = true; branchesError.value = ''
+  try {
+    const list = await api.post<{ name: string }[]>('/projects/' + p + '/git/branches/refresh', {})
+    if (mine === generation) setTargets(list)
+  } catch (cause) {
+    if (mine !== generation) return
+    branchesError.value = 'Не удалось обновить ветки из origin: ' + errorText(cause)
+    try {
+      const list = await api.get<{ name: string }[]>('/projects/' + p + '/git/branches')
+      if (mine === generation) setTargets(list)
+    } catch { /* Keep the form available with the selected target and the fetch error. */ }
+  } finally { if (mine === generation) refreshing.value = false }
 }
 async function describe() {
-  if (!draft.value || busy.value) return
+  if (!draft.value || busy.value || refreshing.value || !draft.value.target_branch || draft.value.target_branch === draft.value.source_branch) return
   const mine = generation, value = { ...draft.value }; busy.value = true; generating.value = true; error.value = ''
   try {
     const result = await taskMrApi.describe(props.projectId, value)
@@ -154,7 +175,9 @@ async function create() {
 }
 async function cancel() {
   if (busy.value && !generating.value) return
-  if (!draft.value || await app.confirm('Закрыть превью МР? Несохранённый текст будет потерян.', { confirmLabel: 'Закрыть' })) draft.value = null
+  if (!draft.value || await app.confirm('Закрыть превью МР? Несохранённый текст будет потерян.', { confirmLabel: 'Закрыть' })) {
+    generation++; draft.value = null; busy.value = false; generating.value = false; refreshing.value = false
+  }
 }
 </script>
 

@@ -1,6 +1,9 @@
 import { finishes, getFinish } from '../../core/finish';
 import { reviews } from '../../core/code-reviews/reviews';
 import { agentView as branchQuestions, agentReply as branchReply } from '../../core/branch-review/questions';
+import { brief as reviewBrief, setOverview as setReviewOverview } from '../../core/branch-review/agent';
+import { agentRemark } from '../../core/branch-review/remarks';
+import { conflictBrief, reportConflictFile } from '../../core/conflicts';
 import { analysisToolContext, saveAnalystSection } from '../../core/orchestration/analysis-context';
 import { Router } from 'express';
 import { randomBytes, randomUUID } from 'crypto';
@@ -39,12 +42,13 @@ function finishScenario(session: AgentSession) {
   try { return typeof id === 'string' ? getFinish(id).scenario : null; } catch { return null; }
 }
 export function allowed(session: AgentSession): PlangentTool[] {
-  if (session.metadata.branch_review) return ['get_branch_questions', 'reply_branch_question'];
+  if (session.metadata.branch_review) return ['get_review_brief', 'get_branch_questions', 'reply_branch_question', 'set_review_overview', 'add_review_remark'];
   if (session.role === 'executor') return session.policy === 'read-only' ? ['request_help', 'report_progress'] : ['complete_step', 'request_help', 'report_progress'];
   if (session.role === 'reviewer') return ['get_review_context', 'add_finding', 'submit_review'];
   if (session.role === 'analyst') return ['get_analysis', 'save_section'];
   if (session.role === 'code-fixer') return ['get_review', 'start_review_item', 'reply_review_item'];
-  if (session.role === 'committer') return [...['get_finish_context', 'set_commits', 'finish_commits'] as PlangentTool[], ...(finishScenario(session) === 'full' ? ['create_merge_request' as const] : [])];
+  if (session.role === 'conflict-resolver') return ['get_conflicts', 'report_conflict_file'];
+  if (session.role === 'committer') return [...['get_finish_context', 'set_commits', 'finish_commits'] as PlangentTool[], ...(finishScenario(session) === 'full' ? ['set_merge_request' as const] : [])];
   if (session.role === 'librarian') return ['get_library', 'get_library_item', 'propose_library_change'];
   if (session.role === 'planner') return ['get_plan', 'submit_plan'];
   return [];
@@ -72,21 +76,21 @@ mcpRouter.post('/', async (req, res) => {
   if (!id) return res.status(401).json({ error: 'Unauthorized' });
   const server = new Server({ name: 'Plangent', version: '1.0.0' }, { capabilities: { tools: {} } });
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: allowed(getSession(id)).map(name => ({ name, description: tools[name].description,
-    inputSchema: { type: 'object' as const, properties: tools[name].fields, required: name === 'save_section' ? ['title', 'description'] : name === 'reply_review_item' || name === 'reply_branch_question' ? ['id', 'kind', 'text'] : Object.keys(tools[name].fields), additionalProperties: false } })) }));
+    inputSchema: { type: 'object' as const, properties: tools[name].fields, required: name === 'save_section' ? ['title', 'description'] : name === 'reply_review_item' || name === 'reply_branch_question' ? ['id', 'kind', 'text'] : name === 'add_review_remark' ? ['text'] : Object.keys(tools[name].fields), additionalProperties: false } })) }));
   server.setRequestHandler(CallToolRequestSchema, async request => {
     const session = getSession(id);
     const name = request.params.name as keyof typeof tools;
     if (!allowed(session).includes(name)) throw new Error('Tool not allowed for this role');
     if (!['thinking', 'waiting'].includes(session.status)) throw new Error('Session has no active turn');
     const args = request.params.arguments ?? {};
-    for (const field of ['save_section', 'propose_library_change', 'reply_review_item', 'set_commits'].includes(name) ? [] : Object.keys(tools[name].fields)) {
+    for (const field of ['save_section', 'propose_library_change', 'reply_review_item', 'set_commits', 'add_review_remark'].includes(name) ? [] : Object.keys(tools[name].fields)) {
       if (field === 'line' ? !Number.isInteger(args[field]) || Number(args[field]) < 1 : typeof args[field] !== 'string' || !String(args[field]).trim()) throw new Error(`Invalid ${field}`);
     }
-    if (name === 'get_finish_context' || name === 'set_commits' || name === 'finish_commits' || name === 'create_merge_request') {
+    if (name === 'get_finish_context' || name === 'set_commits' || name === 'finish_commits' || name === 'set_merge_request') {
       try {
-        const service = finishes(), runId = service.agentRun(session, name === 'create_merge_request' ? ['mr'] : name === 'get_finish_context' ? ['commits', 'mr'] : ['commits']);
+        const service = finishes(), runId = service.agentRun(session);
         const result = name === 'get_finish_context' ? await service.context(runId)
-          : name === 'create_merge_request' ? await service.createMergeRequest(runId, args.title, args.description)
+          : name === 'set_merge_request' ? await service.setMergeRequest(runId, args.title, args.description)
           : name === 'set_commits' ? await service.setCommits(runId, args.commits, true)
           : await service.finishCommits(runId);
         addEvent(id, name, { finish_id: runId });
@@ -104,10 +108,25 @@ mcpRouter.post('/', async (req, res) => {
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (e) { return { isError: true, content: [{ type: 'text', text: e instanceof Error ? e.message : String(e) }] }; }
     }
+    if (name === 'get_conflicts' || name === 'report_conflict_file') {
+      try {
+        const result = name === 'get_conflicts' ? await conflictBrief(session) : await reportConflictFile(session, args);
+        if (name === 'report_conflict_file') addEvent(id, name, { summary: String(args.path) + ': ' + String(args.outcome) });
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+      } catch (e) { return { isError: true, content: [{ type: 'text', text: e instanceof Error ? e.message : String(e) }] }; }
+    }
     if (name === 'get_branch_questions' || name === 'reply_branch_question') {
       try {
         const result = name === 'get_branch_questions' ? branchQuestions(session) : branchReply(session, String(args.id ?? ''), args);
         if (name === 'reply_branch_question') addEvent(id, name, { item_id: String(args.id), kind: args.kind, text: args.text });
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+      } catch (e) { return { isError: true, content: [{ type: 'text', text: e instanceof Error ? e.message : String(e) }] }; }
+    }
+    if (name === 'get_review_brief' || name === 'set_review_overview' || name === 'add_review_remark') {
+      try {
+        const result = name === 'get_review_brief' ? await reviewBrief(session) : name === 'set_review_overview' ? await setReviewOverview(session, args.text) : await agentRemark(session, args);
+        if (name === 'set_review_overview') addEvent(id, name, { summary: 'Сводка МР сохранена' });
+        if (name === 'add_review_remark') addEvent(id, name, { summary: 'Черновик замечания: ' + String(args.text ?? '').slice(0, 120) });
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (e) { return { isError: true, content: [{ type: 'text', text: e instanceof Error ? e.message : String(e) }] }; }
     }

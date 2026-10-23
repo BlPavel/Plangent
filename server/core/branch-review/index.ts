@@ -3,37 +3,47 @@ import path from 'node:path';
 import os from 'node:os';
 import fs from 'node:fs/promises';
 import { getDb } from '../../infrastructure/db/schema';
-import { getProject, effectiveGitSettings } from '../projects';
+import { getProject, effectiveGitSettings, reviewAgent } from '../projects';
 import { CodeError } from '../code/files';
 import { fetchRepository, runGit, serializeGit } from '../code/git-write';
 import { branches, repositoryInfo } from '../code/git';
 import { getAgent } from '../agents';
-import { createSession, updateSession } from '../agent-sessions/sessions';
+import { getTask } from '../tasks';
+import { createSession, getSession, updateSession } from '../agent-sessions/sessions';
 import { closeSession } from '../agent-sessions/acp-host';
 import { commitOf, fileAt, fileDiff, isAncestor, mergeBase, rangeCommits, rangeCount, rangeFiles, resolveRef } from './git-diff';
 
-interface Row { id: string; project_id: string; branch: string; base: string; seen_head: string }
+export interface ReviewRow {
+  id: string; project_id: string; branch: string; base: string; seen_head: string;
+  /** Set when the review was opened from a merge request; its diff refs pin the compared range to the MR's. */
+  mr_iid: number | null; mr_base: string; mr_start: string; mr_head: string;
+  context: string; task_id: string | null; skill_id: string | null;
+  overview: string; overview_head: string;
+  /** Head of the branch when the developer last published remarks: the next round starts there. */
+  published_head: string;
+}
 interface Thread { id: string; review_id: string; head: string; path: string; side: string; line: number; session_id: string }
 const db = () => getDb();
 
-function repo(projectId: string) {
+export function repo(projectId: string) {
   const project = getProject(projectId);
   if (!project || project.kind !== 'project') throw new CodeError('Проект не найден', 404);
   return project;
 }
-function row(projectId: string, id: string): Row {
-  const r = db().prepare('SELECT * FROM branch_reviews WHERE id=? AND project_id=?').get(id, projectId) as Row | undefined;
+export function row(projectId: string, id: string): ReviewRow {
+  const r = db().prepare('SELECT * FROM branch_reviews WHERE id=? AND project_id=?').get(id, projectId) as ReviewRow | undefined;
   if (!r) throw new CodeError('Ревью не найдено', 404);
   return r;
 }
-async function state(project: ReturnType<typeof repo>, r: Row) {
+export async function state(project: ReturnType<typeof repo>, r: ReviewRow) {
   const root = project.repo_path;
   const [head, base] = await Promise.all([resolveRef(root, r.branch), resolveRef(root, r.base)]);
   const headSha = await commitOf(root, head.ref), baseSha = await commitOf(root, base.ref);
-  const from = await mergeBase(root, baseSha, headSha);
+  // The MR's own base gives exactly the diff GitLab shows, so remark positions match its lines.
+  const pinned = r.mr_iid && r.mr_head === headSha && r.mr_base ? await commitOf(root, r.mr_base).catch(() => '') : '';
+  const from = pinned || await mergeBase(root, baseSha, headSha);
   return { root, head, base, headSha, from };
 }
-const viewedRows = (id: string) => db().prepare('SELECT path,sig FROM branch_review_viewed WHERE review_id=?').all(id) as { path: string; sig: string }[];
 
 export async function listBranches(projectId: string) {
   const project = repo(projectId), root = project.repo_path;
@@ -47,28 +57,40 @@ export async function fetchBranches(projectId: string) {
   await fetchRepository(repo(projectId).repo_path);
   return listBranches(projectId);
 }
-export async function openReview(projectId: string, input: { branch?: unknown; base?: unknown }) {
+/** One review per branch pair; opening it again returns the same review with its remarks and chats. */
+export async function ensureReview(projectId: string, branchRef: unknown, baseRef: unknown): Promise<string> {
   const project = repo(projectId), root = project.repo_path;
-  const head = await resolveRef(root, input.branch), base = await resolveRef(root, input.base);
+  const head = await resolveRef(root, branchRef), base = await resolveRef(root, baseRef);
   if (head.ref === base.ref) throw new CodeError('Выберите разные ветки');
-  const existing = db().prepare('SELECT * FROM branch_reviews WHERE project_id=? AND branch=? AND base=?').get(projectId, head.ref, base.ref) as Row | undefined;
-  const id = existing?.id ?? randomUUID();
-  if (!existing) db().prepare('INSERT INTO branch_reviews(id,project_id,branch,base) VALUES (?,?,?,?)').run(id, projectId, head.ref, base.ref);
-  return detail(projectId, id);
+  const existing = db().prepare('SELECT id FROM branch_reviews WHERE project_id=? AND branch=? AND base=?').get(projectId, head.ref, base.ref) as { id: string } | undefined;
+  if (existing) return existing.id;
+  const id = randomUUID();
+  // A new review starts with the skill used last in this project.
+  const last = db().prepare('SELECT skill_id FROM branch_reviews WHERE project_id=? AND skill_id IS NOT NULL ORDER BY updated_at DESC LIMIT 1').get(projectId) as { skill_id: string } | undefined;
+  db().prepare('INSERT INTO branch_reviews(id,project_id,branch,base,skill_id) VALUES (?,?,?,?,?)').run(id, projectId, head.ref, base.ref, last?.skill_id ?? null);
+  return id;
+}
+export async function openReview(projectId: string, input: { branch?: unknown; base?: unknown }) {
+  return detail(projectId, await ensureReview(projectId, input.branch, input.base));
 }
 export async function detail(projectId: string, id: string) {
   const project = repo(projectId), r = row(projectId, id), s = await state(project, r);
   const [files, commits, count] = await Promise.all([rangeFiles(s.root, s.from, s.headSha), rangeCommits(s.root, s.from, s.headSha), rangeCount(s.root, s.from, s.headSha)]);
-  const marks = new Map(viewedRows(id).map(v => [v.path, v.sig]));
   const moved = !!r.seen_head && r.seen_head !== s.headSha;
   const descends = moved && await isAncestor(s.root, r.seen_head, s.headSha);
+  // The next round: files the author changed after the developer's last publication.
+  const round = r.published_head && r.published_head !== s.headSha && await isAncestor(s.root, r.published_head, s.headSha)
+    ? { commits: await rangeCount(s.root, r.published_head, s.headSha), files: new Set((await rangeFiles(s.root, r.published_head, s.headSha)).map(f => f.path)) } : null;
   return {
-    review: { id, project_id: projectId, branch: r.branch, base: r.base, branch_name: s.head.name, base_name: s.base.name, head: s.headSha, merge_base: s.from },
-    files: files.map(f => ({ ...f, viewed: !marks.has(f.path) ? 'none' : marks.get(f.path) === f.sig ? 'viewed' : 'changed' })),
+    review: { id, project_id: projectId, branch: r.branch, base: r.base, branch_name: s.head.name, base_name: s.base.name, head: s.headSha, merge_base: s.from,
+      mr_iid: r.mr_iid, context: r.context, task_id: r.task_id, skill_id: r.skill_id, overview: r.overview, overview_head: r.overview_head, published_head: r.published_head },
+    files: files.map(f => ({ ...f, changed_since: !!round?.files.has(f.path) })),
     commits, commit_count: count,
     new_commits: descends ? await rangeCount(s.root, r.seen_head, s.headSha) : 0,
     /** The branch was force-pushed since the last acknowledged state. */
     rewritten: moved && !descends,
+    /** Commits after the last publication; zero before the first one. */
+    round_commits: round?.commits ?? 0,
   };
 }
 /** Manual update only: fetch, then recompute against the refreshed refs. */
@@ -97,31 +119,47 @@ export async function content(projectId: string, id: string, p: unknown) {
   if (file.status === 'D' || file.binary) return { content: '' };
   return { content: await fileAt(s.root, s.headSha, file.path) };
 }
-export async function setViewed(projectId: string, id: string, p: unknown, value: unknown) {
-  const { file } = await findFile(projectId, id, p);
-  if (value) db().prepare('INSERT INTO branch_review_viewed(review_id,path,sig) VALUES (?,?,?) ON CONFLICT(review_id,path) DO UPDATE SET sig=excluded.sig').run(id, file.path, file.sig);
-  else db().prepare('DELETE FROM branch_review_viewed WHERE review_id=? AND path=?').run(id, file.path);
+/** The developer's context for the agent: free text, a Plangent task and the review skill. */
+export function setContext(projectId: string, id: string, input: { context?: unknown; task_id?: unknown; skill_id?: unknown }) {
+  const r = row(projectId, id);
+  const context = typeof input.context === 'string' ? input.context.slice(0, 20000) : r.context;
+  const task = input.task_id === undefined ? r.task_id : typeof input.task_id === 'string' && input.task_id ? input.task_id : null;
+  const owner = task ? getTask(task)?.project_id : null;
+  if (task && owner !== projectId && owner !== repo(projectId).group_id) throw new CodeError('Задача не найдена', 404);
+  const skill = input.skill_id === undefined ? r.skill_id : typeof input.skill_id === 'string' && input.skill_id ? input.skill_id : null;
+  db().prepare("UPDATE branch_reviews SET context=?,task_id=?,skill_id=?,updated_at=datetime('now') WHERE id=?").run(context, task, skill, id);
   return detail(projectId, id);
 }
 
 /** Validates a question's place: the file is in the review and the line number is sane. */
 export async function checkLine(projectId: string, id: string, p: unknown, side: unknown, line: unknown) {
   if (!['old', 'new'].includes(String(side)) || !Number.isSafeInteger(Number(line)) || Number(line) < 1) throw new CodeError('Некорректная строка');
-  await findFile(projectId, id, p);
+  return findFile(projectId, id, p);
 }
 export function threads(projectId: string, id: string): Thread[] {
   row(projectId, id);
   return db().prepare('SELECT * FROM mr_private_threads WHERE review_id=? ORDER BY rowid').all(id) as Thread[];
 }
-const briefing = (r: Row, head: string) =>
-  'Ревью локальной ветки без изменения кода. Вопросы разработчика приходят пачками: вызови get_branch_questions, ответь в каждой ветке обсуждения через reply_branch_question (в чат ответы не пиши), ' +
-  'не меняй файлы и git. Код ветки доступен в текущей рабочей копии (коммит ' + head + '), сравнение с ' + r.base + '; используй git diff и git log в ней.';
+/**
+ * The thread to send a prompt to. A session that has just been created is `starting` only because nothing was sent to it yet,
+ * so only an already existing session can be busy.
+ */
+export async function openIdleThread(projectId: string, id: string, busyMessage: string) {
+  const known = new Set(threads(projectId, id).map(t => t.session_id));
+  const thread = await openThread(projectId, id, {});
+  if (known.has(thread.session_id) && ['starting', 'thinking'].includes(getSession(thread.session_id).status)) throw new CodeError(busyMessage, 409);
+  return thread;
+}
+const briefing = (r: ReviewRow, head: string) =>
+  'Ревью ветки вместе с разработчиком; код ты не меняешь и git не трогаешь. Сначала вызови get_review_brief: там описание МР, контекст и скилл ревью разработчика, обсуждения коллег и правила. ' +
+  'Вопросы разработчика приходят пачками: бери их через get_branch_questions и отвечай в каждой ветке через reply_branch_question (в чат ответы не пиши). ' +
+  'Код ветки доступен в текущей рабочей копии (коммит ' + head + '), сравнение с ' + r.base + '; используй git diff и git log в ней.';
 /** A chat about the whole branch (no path) or about one line of one file. Code lives in a detached read-only worktree. */
-export async function openThread(projectId: string, id: string, input: { path?: unknown; side?: unknown; line?: unknown; agent?: unknown }) {
+export async function openThread(projectId: string, id: string, input: { path?: unknown; side?: unknown; line?: unknown }) {
   const project = repo(projectId), r = row(projectId, id);
-  const pick = input.agent && typeof input.agent === 'object' ? input.agent as Record<string, unknown> : {};
-  const agentId = typeof pick.agent_id === 'string' && pick.agent_id ? pick.agent_id : project.default_agent_id;
-  if (!agentId || !getAgent(agentId)) throw new CodeError('Выберите агента', 409);
+  // Who reviews is a project setting (like the agent for commits), not a choice made in the review.
+  const agent = reviewAgent(projectId);
+  if (!getAgent(agent.agentId)) throw new CodeError('Агент для ревью не найден: выберите другого в настройках проекта', 409);
   const s = await state(project, r);
   const wholeBranch = input.path === undefined || input.path === '';
   const line = wholeBranch ? 0 : Number(input.line);
@@ -137,16 +175,14 @@ export async function openThread(projectId: string, id: string, input: { path?: 
       await runGit(s.root, ['worktree', 'add', '--detach', location, s.headSha]);
       db().prepare('INSERT INTO mr_worktrees(review_id,head,path,active) VALUES (?,?,?,1) ON CONFLICT(review_id,head) DO UPDATE SET active=1,path=excluded.path').run(id, s.headSha, location);
     }
-    const session = createSession({ project_id: projectId, agent_id: agentId, role: 'chat', policy: 'read-only', model: typeof pick.model === 'string' ? pick.model : '',
-      title: 'Ревью · ' + s.head.name + (file ? ' · ' + file.path + ':' + line : ''),
-      metadata: { mr_private: true, briefing: briefing(r, s.headSha), branch_review: id,
-        ...(typeof pick.mode === 'string' && pick.mode ? { preferredMode: pick.mode } : {}),
-        ...(pick.config && typeof pick.config === 'object' ? { preferredConfig: Object.fromEntries(Object.entries(pick.config).map(([k, v]) => [k, String(v)])) } : {}) } });
+    const session = createSession({ project_id: projectId, agent_id: agent.agentId, role: 'chat', policy: 'read-only', model: agent.model,
+      title: 'Ревью · ' + (r.mr_iid ? '!' + r.mr_iid + ' · ' : '') + s.head.name + (file ? ' · ' + file.path + ':' + line : ''),
+      metadata: { mr_private: true, briefing: briefing(r, s.headSha), branch_review: id, ...(agent.effort ? { reasoningEffort: agent.effort } : {}) } });
     db().prepare('INSERT INTO mr_private_threads(id,review_id,head,path,side,line,session_id) VALUES (?,?,?,?,?,?,?)').run(session.id, id, s.headSha, filePath, side, line, session.id);
     return { id: session.id, review_id: id, head: s.headSha, path: filePath, side, line, session_id: session.id };
   });
 }
-/** Removes worktrees and closes agents; the review marks and the chat history stay. */
+/** Removes worktrees and closes agents; the remarks and the chat history stay. */
 export async function finishThreads(projectId: string, id: string) {
   const project = repo(projectId);
   row(projectId, id);

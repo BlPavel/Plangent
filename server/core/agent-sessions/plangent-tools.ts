@@ -9,7 +9,7 @@ export const plangentTools = {
     } } },
   } },
   finish_commits: { description: 'Hand completed commits to the user for confirmation. Never push yourself.', fields: {} },
-  create_merge_request: { description: 'Create the merge request after the push. Give only the title (one line) and the description following the template. Plangent sets target branch, reviewers, labels and options.', fields: { title: { type: 'string' }, description: { type: 'string' } } },
+  set_merge_request: { description: 'Full cycle only: write the merge request. Give the title (one line) and the description following the template from the context. The user confirms it with the commits; Plangent sets target branch, reviewers, assignees, labels and options and creates the MR after the push.', fields: { title: { type: 'string' }, description: { type: 'string' } } },
   get_library: { description: 'Get the project library catalog, instruction authoring guide and available levels. Call first.', fields: {} },
   get_library_item: { description: 'Read an available library item, including content.', fields: { id: { type: 'string' } } },
   propose_library_change: {
@@ -17,7 +17,7 @@ export const plangentTools = {
     fields: { proposal: { type: 'object', additionalProperties: false,
       required: ['action', 'type', 'slug', 'title', 'content', 'explanation'],
       properties: {
-        action: { type: 'string', enum: ['create', 'update'] }, type: { type: 'string', enum: ['skill', 'main', 'command'] },
+        action: { type: 'string', enum: ['create', 'update'] }, type: { type: 'string', enum: ['skill', 'main', 'command', 'review-skill'] },
         slug: { type: 'string' }, title: { type: 'string' }, description: { type: 'string' }, frontmatter: { type: 'object' },
         content: { type: 'string' }, explanation: { type: 'string' }, item_id: { type: 'string' },
         scope: { type: 'string', enum: ['global', 'project'] }, targets: { type: 'array', items: { type: 'string' } },
@@ -39,6 +39,18 @@ export const plangentTools = {
   reply_branch_question: {
     description: 'Reply in a question thread of the branch review; the thread then waits for the developer. kind: answer (plain reply), options (approaches as a numbered list with your recommendation), questions (clarifying questions). One reply per thread per turn.',
     fields: { id: { type: 'string' }, kind: { type: 'string', enum: ['answer', 'options', 'questions'] }, text: { type: 'string' } },
+  },
+  get_review_brief: { description: 'Read the review of the merge request: the rules (protocol), the compared range, the MR description, the developer\'s context and review skill, colleagues\' threads and existing remarks. Call first.', fields: {} },
+  set_review_overview: { description: 'Save the overview of the merge request (markdown): what changes and why, how the parts connect, what to look at. Replaces the previous overview.', fields: { text: { type: 'string' } } },
+  add_review_remark: {
+    description: 'Add a draft remark for the developer to edit and publish. With path and line it is attached to that line of the diff (side old for a removed line); without path it is about the whole merge request. text is the ready comment in the developer\'s voice.',
+    fields: { text: { type: 'string' },
+      path: { type: 'string' }, line: { type: 'integer', minimum: 1 }, side: { type: 'string', enum: ['new', 'old'] } },
+  },
+  get_conflicts: { description: 'Read the merge/rebase conflicts to resolve: the rules (protocol), the operation, whose changes are ours/theirs (sides), the conflicted files, your earlier notes and the developer\'s answers. Call first.', fields: {} },
+  report_conflict_file: {
+    description: 'Report one conflicted file. outcome resolved: you merged it, no conflict markers left; text says only which conflict it was and how you resolved it, no next steps. question: you are unsure; text is your question. recommend: it cannot be fixed by editing text (deleted on one side, binary, lock file); text is your advice.',
+    fields: { path: { type: 'string' }, outcome: { type: 'string', enum: ['resolved', 'question', 'recommend'] }, text: { type: 'string' } },
   },
   get_review_context: { description: 'Get assigned plan and executor context.', fields: {} },
   add_finding: { description: 'Report a review finding.', fields: { file: { type: 'string' }, line: { type: 'integer', minimum: 1 }, severity: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] }, message: { type: 'string' } } },
@@ -77,5 +89,8 @@ export function isPlangentToolCall(tool: Pick<ToolCallUpdate, 'title' | 'kind' |
   if (title !== JSON.stringify(input)) return false;
   if ('title' in input && 'description' in input &&
     Object.keys(input).every(key => key in plangentTools.save_section.fields)) return true;
+  // A remark on the whole MR leaves out path, line and side.
+  if ('text' in input &&
+    Object.keys(input).every(key => key in plangentTools.add_review_remark.fields)) return true;
   return signatures.includes(Object.keys(input).sort().join(','));
 }

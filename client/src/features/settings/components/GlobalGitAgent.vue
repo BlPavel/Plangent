@@ -1,6 +1,8 @@
 <template>
   <section class="global-git">
-    <GitAgentFields :model-value="own" :inherited="{}" fallback="Агент проекта" @update:model-value="change" />
+    <GitAgentFields :model-value="own" :inherited="{}" fallback="Агент по умолчанию проекта" @update:model-value="change" />
+    <GitAgentFields kind="review" :model-value="own" :inherited="{}" fallback="Агент по умолчанию проекта" @update:model-value="change" />
+    <GitAgentFields kind="conflict" :model-value="own" :inherited="{}" fallback="Как агент для коммитов" @update:model-value="change" />
     <SaveStatus :state="state" />
   </section>
 </template>

@@ -26,6 +26,13 @@ export interface BaseChanges { base: string; end: string; changes: GitChange[]; 
 export type ReviewHistory = CodeReview & { read_only: boolean; commits: number | null; rounds: number; items: number; resolved: number; unresolved: number }
 
 /** A colleague's discussion on the current branch's merge request (not a thread with the agent). */
-export interface ExternalNote { id: number; author: string; body: string }
+export interface ExternalNote { id: number; author: string; body: string; mine: boolean }
 export interface ExternalThread { id: string; resolved: boolean; path: string | null; line: number | null; side: 'new' | 'old'; notes: ExternalNote[] }
+/** Where a GitLab thread card sends its actions: the Код tab's own MR by default, or another MR (the Ревью tab). */
+export interface ExternalThreadActions {
+  reply(discussion: string, body: string): Promise<unknown>
+  resolve(discussion: string, resolved: boolean): Promise<unknown>
+  editNote(discussion: string, note: number, body: string): Promise<unknown>
+  deleteNote(discussion: string, note: number): Promise<unknown>
+}
 export interface ExternalThreads { mr: { iid: number; title: string; url: string; state: string } | null; threads: ExternalThread[] }

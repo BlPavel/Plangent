@@ -21,12 +21,25 @@ export function getDb(): Database.Database {
 }
 
 export function migrate(db: Database.Database): void {
+  db.exec(`CREATE TABLE IF NOT EXISTS conflict_resolutions (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, operation_id TEXT NOT NULL, session_id TEXT NOT NULL,
+      closed INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f','now')));
+    CREATE TABLE IF NOT EXISTS conflict_files (resolution_id TEXT NOT NULL REFERENCES conflict_resolutions(id) ON DELETE CASCADE, step TEXT NOT NULL, path TEXT NOT NULL,
+      outcome TEXT NOT NULL CHECK(outcome IN ('resolved','question','recommend')), text TEXT NOT NULL, answer TEXT NOT NULL DEFAULT '', answer_sent INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f','now')), PRIMARY KEY(resolution_id,step,path));`);
   db.exec(`CREATE TABLE IF NOT EXISTS mr_worktrees (review_id TEXT NOT NULL, head TEXT NOT NULL, path TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1, PRIMARY KEY(review_id,head));
     CREATE TABLE IF NOT EXISTS mr_private_threads (id TEXT PRIMARY KEY, review_id TEXT NOT NULL, head TEXT NOT NULL, path TEXT NOT NULL, side TEXT NOT NULL, line INTEGER NOT NULL, session_id TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS branch_reviews (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, branch TEXT NOT NULL, base TEXT NOT NULL, seen_head TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT (datetime('now')), UNIQUE(project_id,branch,base));
     CREATE TABLE IF NOT EXISTS branch_review_viewed (review_id TEXT NOT NULL, path TEXT NOT NULL, sig TEXT NOT NULL, PRIMARY KEY(review_id,path));
     CREATE TABLE IF NOT EXISTS branch_questions (id TEXT PRIMARY KEY, review_id TEXT NOT NULL, path TEXT NOT NULL DEFAULT '', side TEXT NOT NULL DEFAULT 'new', line INTEGER NOT NULL DEFAULT 0, closed INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f','now')));
-    CREATE TABLE IF NOT EXISTS branch_question_messages (id TEXT PRIMARY KEY, question_id TEXT NOT NULL REFERENCES branch_questions(id) ON DELETE CASCADE, author TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'text', text TEXT NOT NULL, sent INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f','now')));`);
+    CREATE TABLE IF NOT EXISTS branch_question_messages (id TEXT PRIMARY KEY, question_id TEXT NOT NULL REFERENCES branch_questions(id) ON DELETE CASCADE, author TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'text', text TEXT NOT NULL, sent INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f','now')));
+    CREATE TABLE IF NOT EXISTS branch_review_remarks (id TEXT PRIMARY KEY, review_id TEXT NOT NULL, path TEXT NOT NULL DEFAULT '', side TEXT NOT NULL DEFAULT 'new', line INTEGER NOT NULL DEFAULT 0, head TEXT NOT NULL, body TEXT NOT NULL,
+      author TEXT NOT NULL DEFAULT 'developer' CHECK(author IN ('developer','agent')), category TEXT NOT NULL DEFAULT '', remote_id INTEGER,
+      status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','sent','uncertain')), error TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f','now')));`);
+  // A review opened from a merge request, the developer's context for the agent and the agent's overview.
+  const reviewColumns = new Set((db.prepare('PRAGMA table_info(branch_reviews)').all() as { name: string }[]).map(c => c.name));
+  for (const [name, type] of [['mr_iid', 'INTEGER'], ['mr_base', "TEXT NOT NULL DEFAULT ''"], ['mr_start', "TEXT NOT NULL DEFAULT ''"], ['mr_head', "TEXT NOT NULL DEFAULT ''"],
+    ['context', "TEXT NOT NULL DEFAULT ''"], ['task_id', 'TEXT'], ['skill_id', 'TEXT'], ['overview', "TEXT NOT NULL DEFAULT ''"], ['overview_head', "TEXT NOT NULL DEFAULT ''"], ['published_head', "TEXT NOT NULL DEFAULT ''"]])
+    if (!reviewColumns.has(name)) db.exec(`ALTER TABLE branch_reviews ADD COLUMN ${name} ${type}`);
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS agents (
@@ -567,6 +580,8 @@ function migrateFinish(db: Database.Database): void {
       CREATE INDEX finish_task ON finish_runs(task_id, created_at);
     `);
   }
+  // The MR title and description the user confirms together with the commits.
+  if (!(db.prepare('PRAGMA table_info(finish_runs)').all() as { name: string }[]).some(column => column.name === 'mr_draft')) db.exec('ALTER TABLE finish_runs ADD COLUMN mr_draft TEXT');
   db.exec(`
     UPDATE finish_runs SET status='error', error='Приложение перезапущено. Проверьте коммиты и продолжите завершение.' WHERE status='running';
   `);

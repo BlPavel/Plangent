@@ -47,7 +47,7 @@ test('branch questions: queued thread, edits, agent replies through the session'
   const session = createSession({ project_id: 'p1', agent_id: agent.id, role: 'chat', policy: 'read-only', metadata: { mr_private: true, branch_review: id } });
   getDb().prepare('UPDATE branch_question_messages SET sent=1 WHERE id=?').run(first.id);
   const { allowed } = await import('../../infrastructure/mcp/server');
-  assert.deepEqual(allowed(session), ['get_branch_questions', 'reply_branch_question']);
+  assert.deepEqual(allowed(session), ['get_review_brief', 'get_branch_questions', 'reply_branch_question', 'set_review_overview', 'add_review_remark']);
   const view = q.agentView(session);
   assert.equal(view.assigned.length, 1);
   assert.equal(view.assigned[0].where, 'a.txt:2 (новая версия)');

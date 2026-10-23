@@ -1,4 +1,4 @@
-import type { CodeHost, HostCapabilities, MergeRequest, MrVersion, MrDiff, HostDiscussion, HostNote, ReviewNote, CreateMergeRequest } from '../../../models/code-host';
+import type { CodeHost, HostUser, HostCapabilities, HostApprovals, MergeRequest, MrVersion, MrDiff, HostDiscussion, HostNote, ReviewNote, CreateMergeRequest } from '../../../models/code-host';
 import { authenticatedRequest, IntegrationHttpError } from '../../../infrastructure/http/integration-client';
 import { IntegrationError } from '../../integrations';
 export type HostRequest = typeof authenticatedRequest;
@@ -54,6 +54,23 @@ export class GitLab implements CodeHost {
     }>('/api/v4/user');
     return this.list<MergeRequest>(this.prefix + '/merge_requests?state=opened&scope=all&reviewer_id=' + user.id);
   }
+  listOpenMergeRequests() {
+    return this.list<MergeRequest>(this.prefix + '/merge_requests?state=opened&scope=all&order_by=updated_at');
+  }
+  async getApprovals(iid: number): Promise<HostApprovals | null> {
+    let reply: { approved_by?: { user?: HostUser }[]; approvals_required?: number; approvals_left?: number; user_has_approved?: boolean };
+    try {
+      reply = await this.request(this.mr(iid) + '/approvals');
+    }
+    catch (e) {
+      // Free tiers and restricted accounts have no approvals endpoint: the list shows no counter.
+      if (unsupported(e) || e instanceof IntegrationHttpError && e.status === 403)
+        return null;
+      throw e;
+    }
+    const num = (v: unknown) => typeof v === 'number' && Number.isFinite(v) ? v : null;
+    return { approved_by: (reply.approved_by ?? []).map(a => a.user).filter((u): u is HostUser => !!u), required: num(reply.approvals_required), left: num(reply.approvals_left), mine: reply.user_has_approved === true };
+  }
   async searchMergeRequests(query: string) {
     const value = query.trim().replace(/^!/, '');
     if (/^\d+$/.test(value)) {
@@ -104,6 +121,23 @@ export class GitLab implements CodeHost {
   }
   replyToDiscussion(iid: number, discussion: string, body: string) {
     return this.request<HostNote>(this.mr(iid) + '/discussions/' + encodeURIComponent(discussion) + '/notes', 'POST', { body });
+  }
+  async resolveDiscussion(iid: number, discussion: string, resolved: boolean) {
+    await this.request(this.mr(iid) + '/discussions/' + encodeURIComponent(discussion), 'PUT', { resolved });
+  }
+  private note(iid: number, discussion: string, note: number) {
+    if (!Number.isSafeInteger(note) || note < 1)
+      throw new IntegrationError('Invalid note');
+    return this.mr(iid) + '/discussions/' + encodeURIComponent(discussion) + '/notes/' + note;
+  }
+  async updateNote(iid: number, discussion: string, note: number, body: string) {
+    await this.request(this.note(iid, discussion, note), 'PUT', { body });
+  }
+  async deleteNote(iid: number, discussion: string, note: number) {
+    await this.request(this.note(iid, discussion, note), 'DELETE');
+  }
+  currentUser() {
+    return this.request<HostUser>('/api/v4/user');
   }
   async detectCapabilities(iid: number) {
     if (this.capabilities.batchReview === null) {

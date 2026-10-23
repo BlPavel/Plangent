@@ -8,27 +8,27 @@
         <button v-if="changed(field.key)" type="button" class="gs-link" :title="'Вернуть ' + (sources?.[field.key] === 'group' ? 'значение группы' : sources?.[field.key] === 'global' ? 'глобальное значение' : 'значение по умолчанию')" @click="reset(field.key)">сбросить</button>
       </div>
 
-      <select v-if="field.key === 'finish_scenario'" class="control control-sm" :value="value(field.key)" @change="set(field.key, ($event.target as HTMLSelectElement).value)"><option v-for="(label, option) in scenarios" :key="option" :value="option">{{ label }}</option></select>
+      <PlainSelect v-if="field.key === 'finish_scenario'" :model-value="String(value(field.key) ?? '')" :options="Object.entries(scenarios).map(([option, label]) => ({ value: option, label }))" small :label="field.label" @update:model-value="set(field.key, $event)" />
       <template v-else-if="field.kind === 'boolean'" />
-      <select v-else-if="field.kind === 'branch' && branches?.length" class="control control-sm" :value="String(value(field.key) ?? '')" @change="set(field.key, ($event.target as HTMLSelectElement).value)">
-        <option value="">Не задана</option>
-        <option v-for="name in branchOptions(String(value(field.key) ?? ''))" :key="name" :value="name">{{ name }}</option>
-      </select>
+      <BranchSelect
+        v-else-if="field.kind === 'branch' && branches?.length" :model-value="String(value(field.key) ?? '')" :options="branchOptions(String(value(field.key) ?? '')).map(name => ({ value: name, label: name }))"
+        small empty-label="Не задана" placeholder="Не задана" :label="field.label" @update:model-value="set(field.key, $event)"
+      />
       <input v-else-if="field.kind === 'branch'" class="control control-sm" :value="String(value(field.key) ?? '')" :placeholder="field.placeholder" @input="set(field.key, ($event.target as HTMLInputElement).value)" />
       <template v-else-if="field.kind === 'tags'">
         <div class="gs-tags">
           <span v-for="tag in tags(field.key)" :key="tag" class="gs-tag">{{ tagLabel(field.key, tag) }}<button type="button" class="gs-x" :aria-label="'Убрать ' + tag" @click="removeTag(field.key, tag)">×</button></span>
           <input
-            v-if="!(field.key === 'mr_reviewers' && members?.length)" class="gs-tag-input" :placeholder="tags(field.key).length ? 'Добавить…' : field.placeholder"
+            v-if="!(isPeople(field.key) && members?.length)" class="gs-tag-input" :placeholder="tags(field.key).length ? 'Добавить…' : field.placeholder"
             @keydown.enter.prevent="addTag(field.key, $event)" @blur="addTag(field.key, $event)"
           />
-          <MemberPicker v-else :members="freeMembers" @pick="set('mr_reviewers', [...tags('mr_reviewers'), $event])" />
+          <MemberPicker v-else :members="freeMembers(field.key)" @pick="set(field.key, [...tags(field.key), $event])" />
         </div>
         <button v-if="field.defaults && !tags(field.key).length" type="button" class="gs-link gs-apply" @click="set(field.key, [...field.defaults])">Применить дефолтные: {{ field.defaults.join(', ') }}</button>
       </template>
       <textarea v-else class="control" rows="4" :placeholder="field.placeholder" :value="String(value(field.key) ?? '')" @input="set(field.key, ($event.target as HTMLTextAreaElement).value)" />
 
-      <small v-if="field.key === 'mr_reviewers' && membersNote" class="gs-hint">{{ membersNote }}</small>
+      <small v-if="isPeople(field.key) && membersNote" class="gs-hint">{{ membersNote }}</small>
       <small v-if="field.hint" class="gs-hint">{{ field.hint }}</small>
     </div>
   </div>
@@ -37,6 +37,8 @@
 import { computed } from 'vue'
 import type { ProjectGitSettings } from '@core/models'
 import MemberPicker from '@shared/ui/MemberPicker.vue'
+import BranchSelect from '@shared/ui/BranchSelect.vue'
+import PlainSelect from '@shared/ui/PlainSelect.vue'
 import { finishScenarioLabels } from '@shared/utils/finish-scenarios'
 type Member = { value: string; login: string; name: string }
 const props = defineProps<{ modelValue: ProjectGitSettings; inherited: ProjectGitSettings; sources?: Record<string, string>; section: 'branches' | 'mr'; branches?: string[]; members?: Member[]; membersNote?: string }>()
@@ -55,6 +57,7 @@ const sections: Record<'branches' | 'mr', Field[]> = {
   { key: 'mr_description_prompt', label: 'Как описывать МР', placeholder: 'Коротко: что и зачем изменено. Без списка файлов. Упомяни миграции и breaking changes.', hint: 'Инструкция для агента, который пишет описание. Пусто — агент решает сам.' },
   { key: 'mr_remove_branch', label: 'Удалять исходную ветку после слияния', kind: 'boolean' },
   { key: 'mr_squash', label: 'Объединять коммиты при слиянии (squash)', kind: 'boolean' },
+  { key: 'mr_assignees', label: 'Исполнители по умолчанию', kind: 'tags', placeholder: 'логин или ID', hint: 'Назначаются на МР при создании (Assignees).' },
   { key: 'mr_reviewers', label: 'Ревьюеры по умолчанию', kind: 'tags', placeholder: 'логин или ID' },
  ],
 }
@@ -64,10 +67,12 @@ const has = (key: Key) => Object.hasOwn(props.modelValue, key)
 const value = (key: Key) => has(key) ? props.modelValue[key] : props.inherited[key]
 const changed = (key: Key) => has(key) && JSON.stringify(props.modelValue[key]) !== JSON.stringify(props.inherited[key])
 const tags = (key: Key) => (value(key) as string[] | undefined) ?? []
-const freeMembers = computed(() => (props.members ?? []).filter(m => !tags('mr_reviewers').includes(m.value)))
-const tagLabel = (key: Key, tag: string) => key === 'mr_reviewers' ? props.members?.find(m => m.value === tag)?.name ?? tag : tag
+/** Reviewers and assignees are picked from the same people the code host knows. */
+const isPeople = (key: Key) => key === 'mr_reviewers' || key === 'mr_assignees'
+const freeMembers = (key: Key) => (props.members ?? []).filter(m => !tags(key).includes(m.value))
+const tagLabel = (key: Key, tag: string) => isPeople(key) ? props.members?.find(m => m.value === tag)?.name ?? tag : tag
 // A stored branch that is not in the list (not fetched yet) stays selectable.
-const branchOptions = (current: string) => current && !props.branches?.includes(current) ? [current, ...props.branches!] : props.branches
+const branchOptions = (current: string) => current && !props.branches?.includes(current) ? [current, ...props.branches!] : props.branches!
 function set(key: Key, next: unknown) { emit('update:modelValue', { ...props.modelValue, [key]: next }) }
 function reset(key: Key) { const next = { ...props.modelValue }; delete next[key]; emit('update:modelValue', next) }
 function addTag(key: Key, event: Event) {

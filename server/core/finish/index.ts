@@ -7,17 +7,23 @@ import { taskMrs } from '../task-mr';
 import { resolveCodeHost } from '../code-hosts';
 import { CodeError } from '../code/files';
 import { assertRepositoryIdle } from '../code/git-busy';
-import { serializeGit, resetForReassembly, stage, commit, push, createBranch, fetchRepository } from '../code/git-write';
+import { serializeGit, resetForReassembly, stage, commit, push, createBranch, fetchRepository, GitOperationError, assertNoGitOperation } from '../code/git-write';
 import { repositoryInfo, treeChanges, snapshot, diffFile, originUrl, publishedWorkflowCommits, changedFiles } from '../code/git';
 import { assembleCommitMessage, cleanCommitMessage, inspectCommitMessage, validateCommitMessage } from '../code/commit-message';
 import { createSession, getSession, updateSession } from '../agent-sessions/sessions';
 import { sendPrompt, sessionSignals, closeSession } from '../agent-sessions/acp-host';
 import type { AgentSession } from '../agent-sessions/types';
-import type { FinishCommit, FinishOptions, FinishRun } from '../../models/finish';
+import type { FinishCommit, FinishMrDraft, FinishOptions, FinishRun } from '../../models/finish';
 import { getFinish, activeFinish, insertFinish, updateFinish, taskFinishState } from './store';
 import { transition } from './state';
 import { broadcast } from '../shared/events';
 export { getFinish, activeFinish, taskFinishState };
+/** What the user sees for a failed step: for git, the reason is in its output (a hook, an identity, a lock), not in the generic message. */
+function failure(error: unknown) {
+  if (!(error instanceof Error)) return String(error);
+  const output = error instanceof GitOperationError ? error.output.trim().split('\n').slice(-15).join('\n') : '';
+  return output ? error.message + '\n' + output : error.message;
+}
 const final = (run: FinishRun) => ['complete', 'cancelled'].includes(run.status);
 export function validateCommitFiles(commits: unknown, paths: string[]): asserts commits is FinishCommit[] {
   if (!Array.isArray(commits) || !commits.length || commits.length > 1000) throw new CodeError('Предложите список коммитов');
@@ -69,7 +75,7 @@ export function createFinishService(dependencies: {
       catch (error) {
         const latest = getFinish(id);
         // Validation errors before a git mutation do not invalidate the user's confirmation.
-        updateFinish(id, { ...(latest.status === 'running' ? { status: 'error' as const } : {}), error: String(error) });
+        updateFinish(id, { ...(latest.status === 'running' ? { status: 'error' as const } : {}), error: failure(error) });
         notify(getFinish(id), 'Ошибка завершения работ'); throw error;
       } finally { controllers.delete(id); }
     });
@@ -88,43 +94,45 @@ export function createFinishService(dependencies: {
   }
   async function beginAgent(run: FinishRun) {
     const agent = gitAgent(run.project_id);
-    const single = run.options.commitMode === 'single';
+    const single = run.options.commitMode === 'single', full = run.scenario === 'full';
     const session = run.session_id ? getSession(run.session_id) : createSession({
       project_id: run.project_id, task_id: run.task_id, agent_id: agent.agentId, model: agent.model,
       role: 'committer', policy: 'read-only', title: 'Завершение работ',
-      metadata: { finish_id: run.id, ...(agent.effort ? { reasoningEffort: agent.effort } : {}), briefing: 'Ты предлагаешь состав коммитов. В начале вызови get_finish_context, затем set_commits с полным списком (заголовки и описания пиши строго по commit_rules из контекста), затем finish_commits. '
+      metadata: { finish_id: run.id, ...(agent.effort ? { reasoningEffort: agent.effort } : {}), briefing: 'Ты предлагаешь состав коммитов. В начале вызови get_finish_context, затем set_commits с полным списком (заголовки и описания пиши строго по commit_rules из контекста), '
+        + (full ? 'затем set_merge_request с заголовком (одна строка) и описанием МР по шаблону из контекста (mr.template; он подставит остальное: целевую ветку, ревьюеров, исполнителей), ' : '') + 'затем finish_commits. '
         + (single ? 'Все изменения — ровно один коммит. ' : 'Сколько коммитов сделать, решай сам: по одному на логически отдельное изменение, мелочи не дроби. ')
         + 'При ошибке исправь список. Файлы и git через shell не изменяй. Коммиты выполняет сервер Plangent; push выполняет пользователь после подтверждения. Не добавляй атрибуцию агента.' },
     });
     if (session.role !== 'committer' || session.policy !== 'read-only') throw new CodeError('Invalid committer session');
     updateFinish(run.id, { session_id: session.id });
-    await prompt(session.id, [{ type: 'text', text: run.note ? 'Переделай коммиты: ' + run.note
-      : single ? 'Оформи все изменения одним коммитом и передай его на подтверждение.' : 'Разбей изменения на осмысленные коммиты и передай их на подтверждение.' }]);
+    await prompt(session.id, [{ type: 'text', text: run.note ? 'Переделай' + (full ? ' коммиты и МР' : ' коммиты') + ': ' + run.note
+      : single ? 'Оформи все изменения одним коммитом' + (full ? ', напиши МР' : '') + ' и передай на подтверждение.' : 'Разбей изменения на осмысленные коммиты' + (full ? ', напиши МР' : '') + ' и передай на подтверждение.' }]);
   }
-  /** The MR stage: the agent only writes the title and description; target branch and defaults come from the workflow. */
-  async function beginMr(run: FinishRun) {
-    if (!run.session_id) throw new CodeError('Нет сессии агента');
-    const preview = await mrs().preview(run.project_id, run.task_id ?? undefined, run.options.targetBranch);
-    const task = run.task_id ? getTask(run.task_id) : null;
-    await prompt(run.session_id, [{ type: 'text', text: 'Коммиты отправлены. Подготовь заголовок (одна строка) и описание МР по шаблону и вызови create_merge_request. Целевую ветку, ревьюеров и остальное Plangent подставит сам. Не добавляй атрибуцию агента.' + '\nШаблон описания:\n' + preview.description
-      + '\nЗаголовок по умолчанию: ' + preview.title + '\nВнешний ключ: ' + (task?.external_key || '') + '\nКоммиты:\n' + run.commits.map(c => '- ' + c.title).join('\n') }]);
-  }
-  async function createMergeRequest(id: string, title: unknown, description: unknown) {
+  /** The text the user confirms with the commits: only the full cycle has one. */
+  function validateMr(title: unknown, description: unknown): FinishMrDraft {
     if (typeof title !== 'string' || !title.trim() || title.length > 1000 || /[\r\n\0]/.test(title)) throw new CodeError('Заголовок МР — одна непустая строка');
     if (typeof description !== 'string' || description.length > 100000) throw new CodeError('Некорректное описание МР');
+    return { title: title.trim(), description };
+  }
+  /** The agent (while it proposes the commits) or the user (while they confirm) sets the MR text; nothing is created yet. */
+  async function setMergeRequest(id: string, title: unknown, description: unknown) {
+    const draft = validateMr(title, description);
     const run = getFinish(id);
-    if (final(run) || run.stage !== 'mr') throw new CodeError('МР создаётся только на этапе МР', 409);
-    if (run.mr_url) return { url: run.mr_url };
-    updateFinish(id, { status: 'running', error: '' });
+    if (final(run) || run.scenario !== 'full' || !['commits', 'confirmation'].includes(run.stage)) throw new CodeError('МР можно менять до подтверждения, только в полном цикле', 409);
+    return updateFinish(id, { mr_draft: draft });
+  }
+  /** After the push: creates the MR from the confirmed text; a failure leaves the run at this stage so «Повторить» retries it. */
+  async function publishMr(run: FinishRun) {
+    if (!run.mr_draft) throw new CodeError('Нет текста МР. Откатите коммиты и начните заново', 409);
     try {
       const preview = await mrs().preview(run.project_id, run.task_id ?? undefined, run.options.targetBranch);
-      const mr = await mrs().create(run.project_id, { ...preview, title: title.trim(), description }, true, run.id);
-      const done = updateFinish(id, { ...transition(getFinish(id), 'mr_done'), mr_url: mr.web_url, error: '' });
+      const mr = await mrs().create(run.project_id, { ...preview, title: run.mr_draft.title, description: run.mr_draft.description }, true, run.id);
+      const done = updateFinish(run.id, { ...transition(getFinish(run.id), 'mr_done'), mr_url: mr.web_url, error: '' });
       if (run.session_id) { await close(run.session_id).catch(() => {}); updateSession(run.session_id, { status: 'complete' }); }
       notify(done, 'МР создан', mr.web_url);
-      return { url: mr.web_url };
+      return done;
     } catch (error) {
-      const failed = updateFinish(id, { status: 'error', error: String(error) });
+      const failed = updateFinish(run.id, { status: 'error', error: failure(error) });
       notify(failed, 'Ошибка создания МР'); throw error;
     }
   }
@@ -139,7 +147,7 @@ export function createFinishService(dependencies: {
     if (input.commitMode !== undefined && !['single', 'split'].includes(input.commitMode)) throw new CodeError('Invalid commit mode');
     if (input.scenario === 'full' && (typeof input.targetBranch !== 'string' || !input.targetBranch.trim())) throw new CodeError('Выберите целевую ветку');
     const scenario = input.scenario;
-    if (scenario === 'full') await resolveHost(projectId).catch(error => { throw new CodeError('«Полный цикл» недоступен без подключения к хостингу: ' + (error instanceof Error ? error.message : String(error))); });
+    if (scenario === 'full') await resolveHost(projectId).catch(error => { throw new CodeError('«Полный цикл» недоступен без подключения к хостингу: ' + (error instanceof Error ? error.message : failure(error))); });
     for (const key of ['targetBranch', 'branchName', 'task_id'] as const) {
       if (input[key] !== undefined && typeof input[key] !== 'string') throw new CodeError('Invalid ' + key);
     }
@@ -153,6 +161,7 @@ export function createFinishService(dependencies: {
     assembleCommitMessage({ title: 'validate', ...params });
     return serializeGit(project.repo_path, async () => {
       assertRepositoryIdle(projectId);
+      await assertNoGitOperation(project.repo_path);
       if (activeFinish(projectId)) throw new CodeError('В проекте уже идёт завершение', 409);
       const info = await repositoryInfo(project.repo_path);
       if (!info?.head || !info.branch) throw new CodeError('Нужна локальная ветка с исходным коммитом');
@@ -164,7 +173,7 @@ export function createFinishService(dependencies: {
       const now = new Date().toISOString();
       let run = insertFinish({ id: randomUUID(), project_id: projectId, task_id: input.task_id ?? null, scenario, options: params,
         base_head: info.head, branch: info.branch, snapshot_tree: tree, stage: 'branch', status: 'running', commits: [],
-        session_id: null, note: '', error: '', output: '', pushed: false, mr_url: null, created_at: now, updated_at: now });
+        session_id: null, note: '', error: '', output: '', pushed: false, mr_url: null, mr_draft: null, created_at: now, updated_at: now });
       try {
         if (params.branchName) {
           await createBranch(project.repo_path, params.branchName, info.branch, optionsFor(run));
@@ -172,8 +181,12 @@ export function createFinishService(dependencies: {
         }
         run = updateFinish(run.id, transition(run, 'branch_ready'));
         await beginAgent(run); return getFinish(run.id);
-      } catch (error) { run = updateFinish(run.id, { status: 'error', error: String(error) }); notify(run, 'Ошибка завершения работ'); throw error; }
+      } catch (error) { run = updateFinish(run.id, { status: 'error', error: failure(error) }); notify(run, 'Ошибка завершения работ'); throw error; }
     });
+  }
+  /** The MR body the project's defaults start from (task title, key, link): the agent writes the real description over it. */
+  async function mrTemplate(run: FinishRun) {
+    try { const preview = await mrs().preview(run.project_id, run.task_id ?? undefined, run.options.targetBranch); return { title: preview.title, description: preview.description }; } catch { return null; }
   }
   async function context(id: string) {
     const run = getFinish(id), root = rootFor(run);
@@ -187,7 +200,8 @@ export function createFinishService(dependencies: {
       diffs[change.path] = diff.slice(0, remaining); remaining -= diffs[change.path].length;
     }
     return { changes, diffs, diffLimit: 200000, settings: effectiveGitSettings(run.project_id).values, commit_rules: resolveCommitRules(run.project_id), options: run.options,
-      task: task ? { key: task.key, title: task.title, description: task.description } : null, commits: run.commits, note: run.note };
+      task: task ? { key: task.key, title: task.title, description: task.description } : null, commits: run.commits, note: run.note,
+      mr: run.scenario === 'full' ? { draft: run.mr_draft, template: await mrTemplate(run) } : null };
   }
   async function setCommits(id: string, proposed: unknown, generated = false, overrideForbidden = false) {
     return locked(id, async (run, root) => {
@@ -222,12 +236,13 @@ export function createFinishService(dependencies: {
           if (await snapshot(root) !== run.snapshot_tree) throw new CodeError('Хук изменил рабочие файлы. Проверьте изменения во внешнем клиенте');
         }
         return updateFinish(id, { status: run.stage === 'confirmation' ? 'waiting' : 'running', error: '' });
-      } catch (error) { updateFinish(id, { status: 'error', error: String(error) }); throw error; }
+      } catch (error) { updateFinish(id, { status: 'error', error: failure(error) }); throw error; }
     });
   }
   async function finishCommits(id: string) {
     return locked(id, async (run, root) => {
       if (!run.commits.length || run.commits.some(c => !c.sha)) throw new CodeError('Сначала создайте все коммиты');
+      if (run.scenario === 'full' && !run.mr_draft) throw new CodeError('Сначала вызовите set_merge_request: напишите заголовок и описание МР');
       await unchanged(run, root);
       const changes = (await treeChanges(root, run.base_head, run.snapshot_tree)).changes;
       validateCommitFiles(run.commits, changes.map(c => c.path));
@@ -250,7 +265,7 @@ export function createFinishService(dependencies: {
     return locked(id, async (run, root) => {
       if (run.status === 'error' && run.stage === 'mr') {
         run = updateFinish(id, { status: 'running', error: '' });
-        await beginMr(run); return getFinish(id);
+        return publishMr(run);
       }
       if (run.status === 'error' && run.stage === 'push') {
         // A lost network response may already have published the commits; retrying a normal push is safe.
@@ -265,7 +280,7 @@ export function createFinishService(dependencies: {
         if (!info?.branch || info.branch === target) throw new CodeError('Push в целевую ветку запрещён');
         await push(root, optionsFor(run));
         run = updateFinish(id, { ...transition(run, 'push_done'), pushed: true });
-        if (run.stage === 'mr') { await beginMr(run); return getFinish(id); }
+        if (run.stage === 'mr') return publishMr(run);
       }
       if (run.session_id) { await close(run.session_id).catch(() => {}); updateSession(run.session_id, { status: 'complete' }); }
       notify(run, 'Завершение выполнено'); return run;
@@ -289,7 +304,7 @@ export function createFinishService(dependencies: {
     if (run.session_id !== session.id || run.project_id !== session.project_id || final(run) || !stages.includes(run.stage)) throw new CodeError('Сессия не управляет этим завершением');
     return id;
   }
-  return { start, context, setCommits, finishCommits, createMergeRequest, revise, accept, rollback, agentRun,
+  return { start, context, setCommits, finishCommits, setMergeRequest, revise, accept, rollback, agentRun,
     cancelOperation(id: string) { controllers.get(id)?.abort(); },
   };
 }

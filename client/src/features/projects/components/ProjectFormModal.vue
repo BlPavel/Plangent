@@ -12,9 +12,8 @@
       <FormField
         v-model="form.description" label="Описание для агента" type="textarea" :rows="2"
         placeholder="UI-кит компании: компоненты, токены, примеры в /stories"
-        hint="Агент видит только имя, путь и это описание — сам справочник читает, лишь когда нужно."
+        hint="Имя, путь и описание передаются агенту только при явном @упоминании справочника."
       />
-      <AvailabilityField v-model="availability" hint="Где агент знает о справочнике без упоминания. Через @ его можно указать где угодно." />
     </template>
 
     <!-- A new project or group asks only for what creating it needs; the rest lives on its «Настройки» tab. -->
@@ -68,7 +67,6 @@ import DocsSourceFields from './DocsSourceFields.vue'
 import type { DocsForm } from '@core/models/integrations'
 import { errorText, type ErrorDictionary } from '@shared/utils/errorText'
 import { ERRORS as DOCS_ERRORS, FORM as DOCS_FORM } from '../utils/docs-hints'
-import AvailabilityField, { type Availability } from './AvailabilityField.vue'
 
 const CLONE_HINT = 'SSH (git@…) работает с вашим ключом. По HTTPS за SSO вместо пароля нужен токен GitLab.'
 const CLONE_ERRORS: ErrorDictionary = [
@@ -115,7 +113,6 @@ watch(() => form.value.repo_path, async folder => {
 })
 const sourceType = ref('folder'), docsValid = ref(true)
 const docsForm = ref<DocsForm>({ connection_id: '', docs_config: {}, docs_selection: [] })
-const availability = ref<Availability>({ everywhere: false, targets: [] })
 
 const suggestedCloneFolder = computed(() => cloneUrl.value.replace(/[?#].*$/, '').replace(/\/+$/, '').replace(/\.git$/, '').split(/[/:]/).pop() || 'repository')
 
@@ -130,7 +127,6 @@ watch(() => props.modelValue, open => {
     name: p.name, key: p.key ?? '', repo_path: p.repo_path,
     group_id: p.group_id ?? '', description: p.description, default_agent_id: p.default_agent_id ?? '',
   } : { ...blank(), group_id: props.groupId ?? '' }
-  availability.value = { everywhere: !!p?.config.available_everywhere, targets: [...(p?.targets ?? (props.groupId ? [props.groupId] : []))] }
 }, { immediate: true })
 
 async function save(useExisting: unknown = false) {
@@ -151,10 +147,7 @@ async function save(useExisting: unknown = false) {
     if (!docsValid.value) return appStore.toast(DOCS_FORM.jsonInvalid, 'error')
   }
   if (kind !== 'group' && !(kind === 'source' && sourceType.value === 'docs') && !f.repo_path.trim()) return appStore.toast('Укажите папку', 'error')
-  const config = {
-    ...props.project?.config,
-    ...(kind === 'source' ? { available_everywhere: availability.value.everywhere } : {}),
-  }
+  const config = { ...props.project?.config }
   const data = {
     kind,
     ...(isClone ? { creation_mode: 'clone' as const, operationId: operationId.value = crypto.randomUUID(), reuse_existing: useExisting === true } : {}),
@@ -163,7 +156,7 @@ async function save(useExisting: unknown = false) {
     name: kind === 'source' ? f.key.trim() : f.name.trim(),
     ...(kind === 'group' ? {} : { key: f.key.trim() || null, repo_path: f.repo_path.trim() }),
     ...(kind === 'project' ? { group_id: f.group_id || null } : {}),
-    ...(kind === 'source' ? { targets: availability.value.targets, source_type: sourceType.value as 'folder' | 'docs', ...(sourceType.value === 'docs' ? docsForm.value : {}) } : {}),
+    ...(kind === 'source' ? { source_type: sourceType.value as 'folder' | 'docs', ...(sourceType.value === 'docs' ? docsForm.value : {}) } : {}),
     description: f.description.trim(),
     default_agent_id: f.default_agent_id || null,
     config,

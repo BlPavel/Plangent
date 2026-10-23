@@ -10,6 +10,12 @@ export const useGitStore = defineStore('code-git', () => {
   /** lastAction lets each panel show the result of its own operation (commit — in the commit panel, the rest — in the header). */
   const operationId = ref(''), output = ref(''), error = ref(''), lastAction = ref('')
   const blocked = computed(() => operationId.value ? 'Выполняется git-операция' : repository.value?.busyReason ?? '')
+  /** While the developer's merge/rebase goes on, staging still works (it marks a conflict resolved); committing, switching, pull and push wait. */
+  const operationBlock = computed(() => {
+    const kind = repository.value?.operation?.kind
+    return kind ? `Идёт ${kind}: завершите или отмените его в своём git-клиенте` : ''
+  })
+  const writeBlocked = computed(() => blocked.value || operationBlock.value)
   /** What «Diff ветки» compares with: origin/<base branch from the settings>, else origin/main or origin/master. */
   const baseRef = computed(() => {
     const remote = branches.value.filter(b => b.remote).map(b => b.name)
@@ -47,9 +53,16 @@ export const useGitStore = defineStore('code-git', () => {
     })
     await refresh()
   }
+  async function refreshBranches() {
+    const p = projectId.value
+    const refs = await gitApi.refreshBranches(p)
+    if (p === projectId.value) branches.value = refs
+    return refs
+  }
   function stop() { unsubscribe?.(); unsubscribe = undefined; clearTimeout(timer); generation++; projectId.value = '' }
   async function run(action: string, input: object = {}) {
-    if (blocked.value) throw new Error(blocked.value)
+    const reason = ['stage', 'unstage', 'fetch'].includes(action) ? blocked.value : writeBlocked.value
+    if (reason) throw new Error(reason)
     const p = projectId.value, current = crypto.randomUUID()
     operationId.value = current; lastAction.value = action; output.value = ''; error.value = ''
     try {
@@ -71,5 +84,5 @@ export const useGitStore = defineStore('code-git', () => {
   }
   /** Hides the result of the finished operation. */
   function dismiss() { if (!operationId.value) { error.value = ''; output.value = ''; lastAction.value = '' } }
-  return { projectId, repository, branches, settings, coauthors, operationId, output, error, lastAction, blocked, baseRef, start, stop, refresh, run, cancel, dismiss }
+  return { projectId, repository, branches, settings, coauthors, operationId, output, error, lastAction, blocked, operationBlock, writeBlocked, baseRef, start, stop, refresh, refreshBranches, run, cancel, dismiss }
 })

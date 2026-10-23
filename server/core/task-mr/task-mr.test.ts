@@ -15,7 +15,8 @@ test('manual task MR: preview, agent draft, confirmation, origin push, recovery 
  const {createProject}=await import('../projects');
  const {createTask,updateTask,getTask}=await import('../tasks');
  const {createTaskMrService}=await import('./index');
- const {createTaskMrRouter}=await import('../../infrastructure/http/routes/task-mr');
+  const {createTaskMrRouter}=await import('../../infrastructure/http/routes/task-mr');
+  const { gitRouter } = await import('../../infrastructure/http/routes/git');
  const {IntegrationError}=await import('../integrations');
  const git=(root:string,...args:string[])=>execFileSync('git',args,{cwd:root,encoding:'utf8',windowsHide:true,stdio:['ignore','pipe','pipe']}).trim();
  const root=path.join(folder,'repo'),remote=path.join(folder,'origin.git');
@@ -29,9 +30,13 @@ test('manual task MR: preview, agent draft, confirmation, origin push, recovery 
   // Deliberately wrong upstream: creation must still publish origin/feature/task, never main.
   git(root,'branch','--set-upstream-to','origin/main');
   const db=getDb();migrate(db);
+  const { initSessions, createSession, updateSession } = await import('../agent-sessions/sessions');
+  initSessions();
   const agent=db.prepare('SELECT id FROM agents LIMIT 1').get() as {id:string};
   const project=createProject({name:'Task MR',repo_path:root,default_agent_id:agent.id,git_settings:{base_branch:'main',mr_description_prompt:'Пиши кратко',mr_reviewers:['12'],mr_squash:true}});
   const task=createTask({project_id:project.id,key:'Local-1',title:'Task title'});updateTask(task.id,{external_key:'PROJ-123',base_branch:'origin/main',branch_name:'feature/task',jira_url:'https://jira.test/PROJ-123'});
+  const session = createSession({ project_id: project.id, agent_id: agent.id, role: 'chat', policy: 'allow-edits' });
+  updateSession(session.id, { status: 'thinking' });
   const mainBefore=git(remote,'rev-parse','refs/heads/main');
   let creates=0,found:MergeRequest|null=null,createError:Error|undefined;
   const host={
@@ -51,6 +56,8 @@ test('manual task MR: preview, agent draft, confirmation, origin push, recovery 
   await assert.rejects(service.create(project.id,{...preview,connection_id:'different'},true),/изменились/);
   await fs.writeFile(path.join(root,'dirty.txt'),'dirty');await assert.rejects(service.create(project.id,preview,true),/закоммитьте/);await fs.unlink(path.join(root,'dirty.txt'));
   const edited={...preview,title:'PROJ-123 Edited by developer',description:'Human edited draft'};
+  await assert.rejects(service.create(project.id, {...edited, target_branch: 'local-target'}, true), /не найдена в origin/);
+  assert.equal(creates, 0, 'a local-only target is rejected before publishing');
   const mr=await service.create(project.id,edited,true);assert.equal(mr.title,edited.title);assert.equal(mr.description,edited.description);assert.equal(creates,1);
   assert.equal(git(remote,'rev-parse','refs/heads/feature/task'),preview.head);assert.equal(git(remote,'rev-parse','refs/heads/main'),mainBefore);
   const saved=JSON.parse(getTask(task.id)!.mr_link!);assert.equal(saved.url,mr.web_url);assert.equal(saved.state,'opened');
@@ -64,7 +71,11 @@ test('manual task MR: preview, agent draft, confirmation, origin push, recovery 
   git(root,'switch','-c','feature/rejected');updateTask(task.id,{branch_name:'feature/rejected'});const rejected=await service.preview(project.id,task.id);
   createError=Object.assign(new Error('remote validation'),{remote_status:400});await assert.rejects(service.create(project.id,rejected,true),/remote validation/);
   createError=undefined;assert.equal((await service.create(project.id,rejected,true)).state,'opened');
-  const app=express();app.use(express.json({strict:false}));app.use('/projects/:projectId/task-mr',createTaskMrRouter(()=>service));http=app.listen(0,'127.0.0.1');await once(http,'listening');const address=http.address() as {port:number};
+  const app=express();app.use(express.json({strict:false}));app.use('/projects/:projectId/task-mr',createTaskMrRouter(()=>service));app.use('/projects/:projectId/git',gitRouter);http=app.listen(0,'127.0.0.1');await once(http,'listening');const address=http.address() as {port:number};
+  git(remote, 'branch', 'remote-only', 'main');
+  const refreshBranches = await fetch('http://127.0.0.1:' + address.port + '/projects/' + project.id + '/git/branches/refresh', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+  assert.equal(refreshBranches.status, 200);
+  assert.ok((await refreshBranches.json() as { name: string }[]).some(b => b.name === 'origin/remote-only'));
   const post=async(action:string,body:unknown)=>fetch('http://127.0.0.1:'+address.port+'/projects/'+project.id+'/task-mr/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   assert.equal((await post('create',null)).status,400);assert.equal((await post('refresh',{})).status,400);assert.equal((await post('create',{...rejected,confirmed:false})).status,400);
   const otherRoot=path.join(folder,'other');await fs.mkdir(otherRoot);const other=createTask({project_id:createProject({name:'Other',repo_path:otherRoot}).id,key:'Other'});assert.equal((await post('preview',{task_id:other.id})).status,404);

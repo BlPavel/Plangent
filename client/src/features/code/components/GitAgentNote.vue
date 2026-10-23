@@ -1,7 +1,7 @@
 <template>
-  <span class="agent-note" :class="{ missing: !agent }" :title="agent ? 'Меняется в «Инструкции → Коммиты» проекта или в глобальных настройках' : ''">
+  <span class="agent-note" :class="{ missing: !agent }" :title="agent ? 'Меняется в «Настройки → Агент для коммитов и МР» проекта или в глобальных настройках' : ''">
     <template v-if="agent">Агент: {{ name }}<template v-if="agent.model"> · {{ agent.model }}</template><template v-if="agent.effort"> · рассуждения {{ agent.effort }}</template> · только чтение</template>
-    <template v-else>Агент для коммитов и МР не выбран — укажите его в «Инструкции → Коммиты» или в настройках</template>
+    <template v-else>Агент для коммитов и МР не выбран — укажите его в настройках проекта или в глобальных настройках</template>
   </span>
 </template>
 

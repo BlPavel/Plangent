@@ -11,6 +11,7 @@
       <button class="stab" :class="{ active: tab === 'plan-template' }" @click="tab = 'plan-template'">Шаблон плана</button>
       <button class="stab" :class="{ active: tab === 'instruction-guide' }" @click="tab = 'instruction-guide'">Руководство по инструкциям</button>
       <button class="stab" :class="{ active: tab === 'code-fixer' }" @click="tab = 'code-fixer'">Агент доработки</button>
+      <button class="stab" :class="{ active: tab === 'review-skills' }" @click="tab = 'review-skills'">Ревью</button>
       <button class="stab" :class="{ active: tab === 'commit-rules' }" @click="tab = 'commit-rules'">Коммиты</button>
       <button class="stab" :class="{ active: tab === 'notes' }" @click="tab = 'notes'">Доработки</button>
     </div>
@@ -74,13 +75,13 @@
     </div>
 
     <!-- Skills (global) -->
-    <div v-show="tab === 'skills'" class="tab-body">
+    <div v-if="tab === 'skills'" class="tab-body">
       <p class="hint">Глобальные скиллы разработчика применяются ко всем агентам во всех проектах. Инструкции для конкретного проекта задаются во вкладке «Инструкции» внутри проекта.</p>
       <SkillsManager scope="global" :allowed-types="['skill']" />
     </div>
 
     <!-- Plan template (global) -->
-    <div v-show="tab === 'plan-template'" class="tab-body">
+    <div v-show="tab === 'plan-template'" class="tab-body plan-template-tab">
       <p class="hint">Глобальный шаблон применяется ко всем проектам, если проект не переопределил его в своих инструкциях.</p>
       <PlanTemplateEditor scope="global" />
     </div>
@@ -95,6 +96,12 @@
     <div v-show="tab === 'code-fixer'" class="tab-body">
       <p class="hint">Глобальная инструкция действует во всех проектах, если проект или группа не переопределили её во вкладке «Инструкции» → «Агент доработки».</p>
       <CodeFixerInstructionEditor scope="global" />
+    </div>
+
+    <!-- Review skills (global) -->
+    <div v-if="tab === 'review-skills'" class="tab-body">
+      <p class="hint">Глобальные скиллы ревью доступны во всех проектах. Скиллы под конкретный проект пишутся во вкладке «Инструкции» → «Ревью» внутри проекта, в том числе вместе с агентом.</p>
+      <SkillsManager scope="global" :allowed-types="['review-skill']" />
     </div>
 
     <!-- Commit message rules (global) -->
@@ -202,7 +209,7 @@ const appStore = useAppStore()
 const agentsStore = useAgentsStore()
 const chatStore = useChatStore()
 
-type Tab = 'agents' | 'skills' | 'plan-template' | 'instruction-guide' | 'code-fixer' | 'commit-rules' | 'notes' | 'connections'
+type Tab = 'agents' | 'skills' | 'plan-template' | 'instruction-guide' | 'code-fixer' | 'review-skills' | 'commit-rules' | 'notes' | 'connections'
 // Other screens link straight to a tab, e.g. a docs source's «Изменить пароль» → ?tab=connections&fix=<id>.
 const route = useRoute()
 const tab = ref<Tab>(route.query.tab === 'connections' ? 'connections' : 'agents')
@@ -424,6 +431,9 @@ onMounted(() => {
   flex-direction: column;
   gap: var(--sp-4);
 }
+
+.plan-template-tab { min-height: 0; overflow: hidden; }
+.plan-template-tab > .hint { flex-shrink: 0; }
 
 .stab {
   background: none;
