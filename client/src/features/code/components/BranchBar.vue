@@ -14,8 +14,8 @@
     <div class="bb-row">
       <div class="bb-branch">
         <button
-          type="button" class="bb-name" :disabled="!!git.blocked" :aria-expanded="choosing"
-          :title="git.blocked || 'Переключить ветку или создать новую'" @click="choosing = !choosing"
+          type="button" class="bb-name" :disabled="!!git.writeBlocked" :aria-expanded="choosing"
+          :title="git.writeBlocked || 'Переключить ветку или создать новую'" @click="choosing = !choosing"
         ><span class="bb-icon">⎇</span>{{ branchName }}<span class="bb-caret">▾</span></button>
         <BranchPicker v-if="choosing" :task="task" up @close="choosing = false" />
       </div>
@@ -24,7 +24,7 @@
       </span>
       <span v-else class="bb-sync" title="Ветки нет в origin">локальная</span>
       <span class="bb-spacer" />
-      <SplitButton :items="menu" :disabled="!!git.blocked || git.repository.detached" :menu-disabled="!!git.blocked" :title="git.blocked || primary.title" @click="run(primary.id)">
+      <SplitButton :items="menu" :disabled="!!git.writeBlocked || git.repository.detached" :menu-disabled="!!git.blocked" :title="git.writeBlocked || primary.title" @click="run(primary.id)">
         {{ running === primary.id ? primary.label + '…' : primary.label }}
       </SplitButton>
     </div>
@@ -57,11 +57,11 @@ const primary = computed(() => {
 })
 const menu = computed<MenuItem[]>(() => [
   { label: 'Fetch', hint: 'Получить новое из origin, ничего не меняя', action: () => run('fetch') },
-  { label: 'Pull', hint: 'Подтянуть коммиты (только fast-forward)', disabled: !published.value, action: () => run('pull') },
-  { label: 'Pull --rebase', hint: 'Подтянуть коммиты, переложив ваши локальные поверх них. При конфликте отменяется', disabled: !published.value, action: () => run('pull-rebase') },
+  { label: 'Pull', hint: git.operationBlock || 'Подтянуть коммиты (только fast-forward)', disabled: !published.value || !!git.operationBlock, action: () => run('pull') },
+  { label: 'Pull --rebase', hint: git.operationBlock || 'Подтянуть коммиты, переложив ваши локальные поверх них. При конфликте отменяется', disabled: !published.value || !!git.operationBlock, action: () => run('pull-rebase') },
   { separator: true },
-  { label: published.value ? 'Push' : 'Опубликовать', hint: published.value ? 'Отправить коммиты в origin' : 'Создать ветку в origin', action: () => run('push') },
-  { label: 'Force push', hint: 'Перезаписать ветку в origin (с проверкой, что там нет чужих коммитов)', danger: true, disabled: !published.value, action: () => void forcePush() },
+  { label: published.value ? 'Push' : 'Опубликовать', hint: git.operationBlock || (published.value ? 'Отправить коммиты в origin' : 'Создать ветку в origin'), disabled: !!git.operationBlock, action: () => run('push') },
+  { label: 'Force push', hint: git.operationBlock || 'Перезаписать ветку в origin (с проверкой, что там нет чужих коммитов)', danger: true, disabled: !published.value || !!git.operationBlock, action: () => void forcePush() },
   { separator: true },
   { label: 'Diff ветки', hint: git.baseRef ? 'Все изменения ветки относительно ' + git.baseRef : 'Нет веток origin: сделайте Fetch', disabled: !git.baseRef, action: () => void code.setBase('remote', git.baseRef) },
 ])

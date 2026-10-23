@@ -7,7 +7,7 @@
         <div v-if="group.items.length" class="group-title">{{ group.title }}</div>
         <button
           v-for="branch in group.items" :key="branch.ref" type="button" class="item" :class="{ current: branch.name === current, base: branch.name === base }"
-          :disabled="!!git.blocked || branch.name === current" :title="git.blocked || (branch.remote ? 'Переключиться на ветку из origin' : branch.name === current ? 'Текущая ветка' : 'Переключиться')" @click="pick(branch)"
+          :disabled="!!git.writeBlocked || branch.name === current" :title="git.writeBlocked || (branch.remote ? 'Переключиться на ветку из origin' : branch.name === current ? 'Текущая ветка' : 'Переключиться')" @click="pick(branch)"
         >{{ branch.name }}<span v-if="branch.name === current" class="tag">текущая</span></button>
       </template>
       <div v-if="!filtered.length" class="muted empty">Ветки не найдены</div>
@@ -22,7 +22,7 @@
       <div class="actions">
         <span class="muted hint">Esc — закрыть</span>
         <button type="button" class="btn btn-subtle btn-sm" @click="emit('close')">Закрыть</button>
-        <button type="submit" class="btn btn-blue btn-sm" :disabled="!name.trim() || name.endsWith('/') || !base || !!git.blocked" :title="git.blocked">Создать и переключиться</button>
+        <button type="submit" class="btn btn-blue btn-sm" :disabled="!name.trim() || name.endsWith('/') || !base || !!git.writeBlocked" :title="git.writeBlocked">Создать и переключиться</button>
       </div>
     </form>
   </div>

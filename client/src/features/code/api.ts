@@ -53,6 +53,15 @@ export const codeReviewsApi = {
   resolveExternal: (p: string, discussion: string, resolved: boolean) => api.put<ExternalThreads>(reviews(p) + '/external/' + id(discussion) + '/resolved', { resolved }),
 }
 
+const conflicts = (p: string) => '/projects/' + id(p) + '/conflicts'
+type ConflictState = import('./git-types').ConflictState
+export const conflictsApi = {
+  state: (p: string) => api.get<ConflictState>(conflicts(p)),
+  resolve: (p: string, note?: string) => api.post<ConflictState>(conflicts(p) + '/resolve', { note }),
+  answer: (p: string, path: string, text: string) => api.put<ConflictState>(conflicts(p) + '/answer', { path, text }),
+  stop: (p: string) => api.post<{ stopped: boolean }>(conflicts(p) + '/stop', {}),
+}
+
 const git = (p: string) => '/projects/' + id(p) + '/git'
 export const gitApi = {
   repository: (p: string) => api.get<import('./git-types').GitTracking | null>(git(p) + '/repository'),

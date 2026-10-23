@@ -253,6 +253,76 @@ export async function trackingInfo(root: string) {
   const origin = await originUrl(root);
   return { ...info, upstream, ahead: counts[0], behind: counts[1], origin: origin ? publicRemoteUrl(origin) : null, detachedBranches };
 }
+/** A merge, rebase, cherry-pick or revert the developer started and has not finished yet. */
+export interface GitOperationState {
+  kind: 'merge' | 'rebase' | 'cherry-pick' | 'revert';
+  /** The same while one operation goes on: a rebase keeps it across all its stops. */
+  id: string;
+  /** The branch being rebased, or the branch HEAD is on. */
+  branch: string | null;
+  /** rebase: the commit being replayed; cherry-pick/revert: the picked commit; merge: the merged-in commit. */
+  commit: { sha: string; subject: string; name: string | null } | null;
+  /** rebase: what the branch is replayed onto. */
+  onto: { sha: string; name: string | null } | null;
+  /** rebase: which commit of how many. */
+  step: { done: number; total: number } | null;
+}
+async function gitFile(file: string): Promise<string | null> {
+  return fs.readFile(file, 'utf8').then(text => text.trim(), () => null);
+}
+async function refName(root: string, sha: string): Promise<string | null> {
+  const names = (await run(root, ['for-each-ref', '--points-at', sha, '--format=%(refname:short)', 'refs/heads/', 'refs/remotes/']).catch(() => ''))
+    .split('\n').map(name => name.trim()).filter(name => name && !name.endsWith('/HEAD'));
+  return names.find(name => name.startsWith('origin/')) ?? names[0] ?? null;
+}
+async function commitInfo(root: string, ref: string) {
+  const sha = await run(root, ['rev-parse', '--verify', '--quiet', ref + '^{commit}']).then(s => s.trim(), () => '');
+  if (!sha) return null;
+  const subject = (await run(root, ['log', '-1', '--format=%s', sha, '--']).catch(() => '')).trim();
+  return { sha, subject, name: await refName(root, sha) };
+}
+/** Read from the files Git keeps while an operation is in progress; null when there is none. */
+export async function gitOperation(root: string): Promise<GitOperationState | null> {
+  if (!await isRepository(root)) return null;
+  const names = ['rebase-merge', 'rebase-apply', 'MERGE_HEAD', 'CHERRY_PICK_HEAD', 'REVERT_HEAD', 'sequencer'];
+  const paths = (await run(root, ['rev-parse', '--path-format=absolute', ...names.flatMap(name => ['--git-path', name])])).split('\n').map(line => line.trim());
+  const at = Object.fromEntries(names.map((name, i) => [name, paths[i]]));
+  const exists = (file: string) => fs.stat(file).then(() => true, () => false);
+  const branch = await run(root, ['symbolic-ref', '--quiet', '--short', 'HEAD']).then(s => s.trim(), () => null);
+  for (const dir of [at['rebase-merge'], at['rebase-apply']]) {
+    if (!await exists(dir)) continue;
+    // `git am` uses the same folder; it is not a rebase.
+    if (await exists(path.join(dir, 'applying'))) return null;
+    const merge = dir === at['rebase-merge'];
+    const [head, onto, origHead, done, total] = await Promise.all(['head-name', 'onto', 'orig-head', merge ? 'msgnum' : 'next', merge ? 'end' : 'last']
+      .map(name => gitFile(path.join(dir, name))));
+    const ontoSha = onto ?? '';
+    return {
+      kind: 'rebase', id: 'rebase:' + (origHead ?? '') + ':' + ontoSha,
+      branch: head ? head.replace(/^refs\/heads\//, '') : null,
+      commit: await commitInfo(root, 'REBASE_HEAD'),
+      onto: ontoSha ? { sha: ontoSha, name: await refName(root, ontoSha) } : null,
+      step: done && total && Number(total) > 0 ? { done: Number(done), total: Number(total) } : null,
+    };
+  }
+  if (await exists(at.MERGE_HEAD)) {
+    const commit = await commitInfo(root, 'MERGE_HEAD');
+    const head = await run(root, ['rev-parse', '--verify', '--quiet', 'HEAD']).then(s => s.trim(), () => '');
+    return { kind: 'merge', id: 'merge:' + head + ':' + (commit?.sha ?? ''), branch, commit, onto: null, step: null };
+  }
+  for (const [kind, file] of [['cherry-pick', 'CHERRY_PICK_HEAD'], ['revert', 'REVERT_HEAD']] as const) {
+    if (!await exists(at[file])) continue;
+    const commit = await commitInfo(root, file);
+    // A picked series keeps its starting point in the sequencer folder.
+    const series = await gitFile(path.join(at.sequencer, 'head'));
+    return { kind, id: kind + ':' + (series ?? commit?.sha ?? ''), branch, commit, onto: null, step: null };
+  }
+  return null;
+}
+/** Unmerged files with their two-letter code (UU both modified, DU deleted by us, …). */
+export async function conflictedFiles(root: string): Promise<{ path: string; code: string }[]> {
+  return (await changedFiles(root)).filter(change => change.status === 'U').map(change => ({ path: change.path, code: change.indexStatus + change.worktreeStatus }));
+}
 export async function stagedDiff(root: string): Promise<string> {
   return run(root, ['diff', '--cached', '--no-ext-diff', '--no-textconv', '--']);
 }

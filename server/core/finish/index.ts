@@ -7,7 +7,7 @@ import { taskMrs } from '../task-mr';
 import { resolveCodeHost } from '../code-hosts';
 import { CodeError } from '../code/files';
 import { assertRepositoryIdle } from '../code/git-busy';
-import { serializeGit, resetForReassembly, stage, commit, push, createBranch, fetchRepository, GitOperationError } from '../code/git-write';
+import { serializeGit, resetForReassembly, stage, commit, push, createBranch, fetchRepository, GitOperationError, assertNoGitOperation } from '../code/git-write';
 import { repositoryInfo, treeChanges, snapshot, diffFile, originUrl, publishedWorkflowCommits, changedFiles } from '../code/git';
 import { assembleCommitMessage, cleanCommitMessage, inspectCommitMessage, validateCommitMessage } from '../code/commit-message';
 import { createSession, getSession, updateSession } from '../agent-sessions/sessions';
@@ -161,6 +161,7 @@ export function createFinishService(dependencies: {
     assembleCommitMessage({ title: 'validate', ...params });
     return serializeGit(project.repo_path, async () => {
       assertRepositoryIdle(projectId);
+      await assertNoGitOperation(project.repo_path);
       if (activeFinish(projectId)) throw new CodeError('В проекте уже идёт завершение', 409);
       const info = await repositoryInfo(project.repo_path);
       if (!info?.head || !info.branch) throw new CodeError('Нужна локальная ветка с исходным коммитом');

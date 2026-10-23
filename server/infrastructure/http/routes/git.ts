@@ -6,7 +6,7 @@ import { effectiveGitSettings, gitAgent } from '../../../core/projects';
 import { commit } from '../../../core/code/git-write';
 import { getProject } from '../../../core/projects';
 import { CodeError } from '../../../core/code/files';
-import { branches, trackingInfo, recentCoauthors, originUrl } from '../../../core/code/git';
+import { branches, trackingInfo, recentCoauthors, originUrl, gitOperation } from '../../../core/code/git';
 import { stage, unstage, fetchRepository, pull, pullRebase, push, pushForce, switchBranch, createBranch, GitOperationError, type GitOperationOptions } from '../../../core/code/git-write';
 import { assertRepositoryIdle } from '../../../core/code/git-busy';
 import { localOrigin } from '../local-origin';
@@ -50,7 +50,7 @@ gitRouter.get('/repository', gitRouteGuard(async (req, res) => {
   const root = gitRoot(req); let busyReason = '';
   try { assertRepositoryIdle(req.params.projectId); } catch (error) { busyReason = (error as Error).message; }
   const info = await trackingInfo(root);
-  res.json(info ? { ...info, busyReason } : null);
+  res.json(info ? { ...info, busyReason, operation: await gitOperation(root) } : null);
 }));
 // `agent` — who actually does the git work here, so the screens can name it without repeating the fallback rules.
 gitRouter.get('/settings', gitRouteGuard((req, res) => {

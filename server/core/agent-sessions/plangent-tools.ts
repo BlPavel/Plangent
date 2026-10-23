@@ -47,6 +47,12 @@ export const plangentTools = {
     fields: { text: { type: 'string' },
       path: { type: 'string' }, line: { type: 'integer', minimum: 1 }, side: { type: 'string', enum: ['new', 'old'] } },
   },
+  get_conflicts: { description: 'Read the merge/rebase conflicts to resolve: the rules (protocol), the operation, whose changes are ours/theirs (sides), the conflicted files, your earlier notes and the developer\'s answers. Call first.', fields: {} },
+  report_conflict_file: {
+    description: 'Report one conflicted file. outcome resolved: you merged it, no conflict markers left; text says what you took from which side and why. question: you are unsure; text is your question. recommend: it cannot be fixed by editing text (deleted on one side, binary, lock file); text is your advice.',
+    fields: { path: { type: 'string' }, outcome: { type: 'string', enum: ['resolved', 'question', 'recommend'] }, text: { type: 'string' } },
+  },
+  finish_conflicts: { description: 'Finish the turn with a short summary: what was done and what the developer should run or check. Never stage, commit or continue the operation yourself.', fields: { summary: { type: 'string' } } },
   get_review_context: { description: 'Get assigned plan and executor context.', fields: {} },
   add_finding: { description: 'Report a review finding.', fields: { file: { type: 'string' }, line: { type: 'integer', minimum: 1 }, severity: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] }, message: { type: 'string' } } },
   submit_review: { description: 'Submit review verdict.', fields: { verdict: { type: 'string', enum: ['approved', 'changes_requested'] } } },

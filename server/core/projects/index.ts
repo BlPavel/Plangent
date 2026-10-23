@@ -289,6 +289,14 @@ export function saveGlobalGitSettings(value: unknown) {
 export function gitAgent(id: string) { return configuredAgent(id, 'git', 'Выберите агента для коммитов и МР в настройках'); }
 /** Who reviews code with the developer: the configured review agent, else the project's. */
 export function reviewAgent(id: string) { return configuredAgent(id, 'review', 'Выберите агента для ревью в настройках проекта'); }
+/** Who resolves merge/rebase conflicts: the configured conflict agent, else the git agent, else the project's. */
+export function conflictAgent(id: string) {
+  const settings = effectiveGitSettings(id).values;
+  if (!settings.conflict_agent_id) {
+    try { return gitAgent(id); } catch { throw new CodeError('Выберите агента для конфликтов в настройках'); }
+  }
+  return { agentId: settings.conflict_agent_id, model: settings.conflict_agent_model, effort: settings.conflict_agent_effort };
+}
 function configuredAgent(id: string, kind: 'git' | 'review', missing: string): { agentId: string; model: string; effort: string } {
   const settings = effectiveGitSettings(id).values;
   const own = settings[`${kind}_agent_id`];

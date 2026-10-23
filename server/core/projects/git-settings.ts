@@ -18,6 +18,10 @@
   review_agent_id: string;
   review_agent_model: string;
   review_agent_effort: string;
+  /** The agent that resolves merge/rebase conflicts; empty — the git agent, then the project's. */
+  conflict_agent_id: string;
+  conflict_agent_model: string;
+  conflict_agent_effort: string;
 }
 
 export const defaultGitSettings: GitSettings = {
@@ -27,6 +31,7 @@ export const defaultGitSettings: GitSettings = {
   base_branch: '', mr_description_prompt: '', mr_remove_branch: false, mr_squash: false, mr_reviewers: [], mr_assignees: [],
   git_agent_id: '', git_agent_model: '', git_agent_effort: '',
   review_agent_id: '', review_agent_model: '', review_agent_effort: '',
+  conflict_agent_id: '', conflict_agent_model: '', conflict_agent_effort: '',
 };
 
 /** Nearest wins: the project, its group, the app-wide values from «Настройки», the built-in defaults. */

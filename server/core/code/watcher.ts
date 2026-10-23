@@ -13,7 +13,7 @@ export function relevantChange(file: string): boolean {
   const parts = file.replace(/\\/g, '/').split('/');
   if (parts.some(p => excluded.has(p))) return false;
   const git = parts.indexOf('.git');
-  return git < 0 || /^(HEAD|index|packed-refs|refs(?:\/|$))/.test(parts.slice(git + 1).join('/'));
+  return git < 0 || /^(HEAD|index|packed-refs|refs(?:\/|$)|MERGE_HEAD|CHERRY_PICK_HEAD|REVERT_HEAD|rebase-merge|rebase-apply)/.test(parts.slice(git + 1).join('/'));
 }
 
 /** One native recursive watcher per root on Windows/macOS, only Git metadata on Linux. */
@@ -48,7 +48,7 @@ export function subscribeCode(root: string, projectId: string, notify: Subscript
         cwd: root, windowsHide: true, encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'],
       }).trim();
       if (process.platform === 'linux' || !gitDir.startsWith(root + path.sep)) {
-        add(gitDir, false, file => file === 'HEAD' || file === 'index' || file === 'packed-refs');
+        add(gitDir, false, file => ['HEAD', 'index', 'packed-refs', 'MERGE_HEAD', 'CHERRY_PICK_HEAD', 'REVERT_HEAD', 'rebase-merge', 'rebase-apply'].includes(file));
       }
     } catch (error) {
       // Non-Git Linux projects use manual refresh. Windows/macOS still watch their working files.

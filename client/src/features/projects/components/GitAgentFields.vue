@@ -1,7 +1,7 @@
 <template>
   <div class="git-agent">
     <div class="ga-head">
-      <span class="ga-label">{{ kind === 'review' ? 'Агент для ревью' : 'Агент для коммитов и МР' }}</span>
+      <span class="ga-label">{{ kind === 'review' ? 'Агент для ревью' : kind === 'conflict' ? 'Агент для конфликтов' : 'Агент для коммитов и МР' }}</span>
       <button v-if="own" type="button" class="ga-link" :title="'Вернуть ' + inheritedName" @click="reset">сбросить</button>
     </div>
     <div class="ga-row">
@@ -11,6 +11,7 @@
     </div>
     <small class="ga-hint">
       <template v-if="kind === 'review'">Разбирает МР и ветки на вкладке «Ревью»: пишет сводку и черновики замечаний, отвечает на вопросы по коду. Работает только на чтение: файлы и git он не меняет.</template>
+      <template v-else-if="kind === 'conflict'">Разрешает конфликты merge и rebase, которые вы запустили сами («Разрешить с агентом» во вкладке «Код»). Правит только конфликтные файлы; add, continue и abort делаете вы. Здесь нужна модель посильнее.</template>
       <template v-else>Пишет сообщения коммитов («✨»), разбивает изменения в «Завершении работ» и готовит описание МР. Работает только на чтение: файлы и git он не меняет, коммиты делает Plangent.</template>
       <template v-if="!own"> Сейчас: {{ inheritedName }}.</template>
     </small>
@@ -25,7 +26,7 @@ import { useAgentsStore } from '@features/agents'
 import { useChatStore, modelAndEffort } from '@features/agent-chat'
 
 /** The git agent of a project, group or the whole app; empty agent — the level below decides (in the end the project's own agent). */
-const props = withDefaults(defineProps<{ modelValue: ProjectGitSettings; inherited: ProjectGitSettings; source?: string; fallback: string; kind?: 'git' | 'review' }>(), { kind: 'git', source: undefined })
+const props = withDefaults(defineProps<{ modelValue: ProjectGitSettings; inherited: ProjectGitSettings; source?: string; fallback: string; kind?: 'git' | 'review' | 'conflict' }>(), { kind: 'git', source: undefined })
 const emit = defineEmits<{ 'update:modelValue': [value: ProjectGitSettings] }>()
 const agents = useAgentsStore(), chat = useChatStore()
 if (!agents.agents.length) void agents.load()

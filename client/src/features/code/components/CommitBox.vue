@@ -18,7 +18,7 @@
         👥<span v-if="coauthors.length" class="cb-badge">{{ coauthors.length }}</span>
       </button>
       <span class="cb-hint">Ctrl+Enter</span>
-      <button v-if="overrideNeeded" type="button" class="btn btn-danger-ghost btn-sm" :disabled="!!git.blocked || checking" @click="commit(mode, true)">Всё равно</button>
+      <button v-if="overrideNeeded" type="button" class="btn btn-danger-ghost btn-sm" :disabled="!!git.writeBlocked || checking" @click="commit(mode, true)">Всё равно</button>
       <SplitButton variant="blue" :items="menu" :disabled="!canCommit" :menu-disabled="!canCommit" :title="disabledReason" @click="commit(mode, false)">
         {{ committing ? 'Коммит…' : mode === 'staged' ? `Закоммитить ${stagedCount}` : 'Закоммитить всё' }}
       </SplitButton>
@@ -50,7 +50,7 @@ const generating = ref(false), checking = ref(false), error = ref(''), check = r
 /** committing — this box's commit is running; shown — its hook output is still relevant. */
 const committing = ref(false), shown = ref(false), done = ref(false)
 
-const isStaged = (change: GitChange) => !['.', ' ', '?'].includes(change.indexStatus)
+const isStaged = (change: GitChange) => change.status !== 'U' && !['.', ' ', '?'].includes(change.indexStatus)
 const stagedCount = computed(() => code.changes.filter(isStaged).length)
 /** With something ticked the commit takes just that; otherwise everything, like Zed's «Commit Tracked». */
 const mode = computed<'staged' | 'all'>(() => (stagedCount.value ? 'staged' : 'all'))
@@ -63,7 +63,7 @@ const body = computed(() => message.value.split('\n').slice(1).join('\n').trim()
 const input = computed<CommitInput>(() => ({ title: title.value, body: body.value, includeDescription: !!body.value, includeCoauthors: coauthors.value.length > 0, coauthors: coauthors.value }))
 const forbidden = computed(() => check.value?.violations.some(v => v.kind === 'forbidden'))
 const formatWarning = computed(() => check.value?.violations.some(v => v.kind === 'format'))
-const disabledReason = computed(() => git.blocked || (!code.changes.length ? 'Нет изменений' : !title.value ? 'Напишите сообщение коммита' : ''))
+const disabledReason = computed(() => git.writeBlocked || (!code.changes.length ? 'Нет изменений' : !title.value ? 'Напишите сообщение коммита' : ''))
 const canCommit = computed(() => !disabledReason.value && !checking.value && !generating.value && !committing.value)
 const errorOf = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause)).replace(/^Error:\s*/, '')
 

@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "concurrently -n server,client -c blue,green \"tsx watch server/index.ts\" \"vite --config client/vite.config.ts\"",
     "build": "tsc -p tsconfig.server.json && node scripts/copy-runtime.cjs && vite build --config client/vite.config.ts",
-    "test": "tsx --test server/core/code/*.test.ts server/core/branch-review/*.test.ts server/core/finish/*.test.ts server/core/code-reviews/*.test.ts server/core/code-hosts/gitlab/*.test.ts server/core/code-hosts/github/*.test.ts server/core/mr-review/*.test.ts server/core/task-mr/*.test.ts server/core/library/*.test.ts server/core/agent-sessions/*.test.ts server/core/orchestration/*.test.ts server/core/projects/*.test.ts server/infrastructure/secrets/*.test.ts server/infrastructure/db/*.test.ts server/core/integrations/*.test.ts server/core/docs-sources/*.test.ts",
+    "test": "tsx --test server/core/code/*.test.ts server/core/branch-review/*.test.ts server/core/finish/*.test.ts server/core/conflicts/*.test.ts server/core/code-reviews/*.test.ts server/core/code-hosts/gitlab/*.test.ts server/core/code-hosts/github/*.test.ts server/core/mr-review/*.test.ts server/core/task-mr/*.test.ts server/core/library/*.test.ts server/core/agent-sessions/*.test.ts server/core/orchestration/*.test.ts server/core/projects/*.test.ts server/infrastructure/secrets/*.test.ts server/infrastructure/db/*.test.ts server/core/integrations/*.test.ts server/core/docs-sources/*.test.ts",
     "lint": "eslint client/src",
     "start": "node server/dist/index.js",
     "postinstall": "node scripts/postinstall.js",

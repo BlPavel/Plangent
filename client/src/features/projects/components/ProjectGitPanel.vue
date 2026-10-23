@@ -9,6 +9,10 @@
         kind="review" :model-value="gitSettings" :inherited="inherited" :source="inheritedSources.review_agent_id"
         :fallback="project.kind === 'group' ? 'Агент по умолчанию каждого проекта' : 'Агент по умолчанию'" @update:model-value="change"
       />
+      <GitAgentFields
+        kind="conflict" :model-value="gitSettings" :inherited="inherited" :source="inheritedSources.conflict_agent_id"
+        fallback="Как агент для коммитов" @update:model-value="change"
+      />
     </template>
     <GitSettingsFields
       v-else :model-value="gitSettings" :section="section" :branches="branchNames" :members="members" :members-note="membersNote"

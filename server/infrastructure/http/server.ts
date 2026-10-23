@@ -14,6 +14,7 @@ import fs from 'fs';
 import { codeRouter } from './routes/code';
 import { finishRouter } from './routes/finish';
 import { gitRouter } from './routes/git';
+import { conflictsRouter } from './routes/conflicts';
 import { codeReviewsRouter } from './routes/code-reviews';
 import { attachCodeSubscriptions } from './code-subscriptions';
 import { projectsRouter } from './routes/projects';
@@ -79,6 +80,7 @@ export function createApp() {
   app.use('/api/projects/:projectId/code', codeRouter);
   app.use('/api/projects/:projectId/git', gitRouter);
   app.use('/api/projects/:projectId/finish', finishRouter);
+  app.use('/api/projects/:projectId/conflicts', conflictsRouter);
   app.use('/api/projects/:projectId/code-reviews', codeReviewsRouter);
   app.use('/api/projects/:projectId/task-mr', taskMrRouter);
   app.use('/api/projects/:projectId/mr-review', mrReviewRouter);

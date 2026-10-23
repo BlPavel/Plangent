@@ -42,7 +42,8 @@ const props = withDefaults(defineProps<{
 }>(), { emptyText: '', stageDisabled: '' })
 const emit = defineEmits<{ open: [change: GitChange]; 'toggle-stage': [change: GitChange]; 'stage-many': [changes: GitChange[], stage: boolean] }>()
 
-const staged = (change: GitChange) => !['.', ' ', '?'].includes(change.indexStatus)
+/** A conflicted file is not staged yet: ticking it (`git add`) marks the conflict resolved. */
+const staged = (change: GitChange) => change.status !== 'U' && !['.', ' ', '?'].includes(change.indexStatus)
 const sorted = computed(() => [...props.changes].sort((a, b) => a.path.localeCompare(b.path)))
 const groups = computed(() => {
   if (!props.stageable) return [{ id: 'all', title: '', items: sorted.value }]

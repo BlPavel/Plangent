@@ -21,6 +21,11 @@ export function getDb(): Database.Database {
 }
 
 export function migrate(db: Database.Database): void {
+  db.exec(`CREATE TABLE IF NOT EXISTS conflict_resolutions (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, operation_id TEXT NOT NULL, session_id TEXT NOT NULL,
+      closed INTEGER NOT NULL DEFAULT 0, summary TEXT NOT NULL DEFAULT '', summary_step TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f','now')));
+    CREATE TABLE IF NOT EXISTS conflict_files (resolution_id TEXT NOT NULL REFERENCES conflict_resolutions(id) ON DELETE CASCADE, step TEXT NOT NULL, path TEXT NOT NULL,
+      outcome TEXT NOT NULL CHECK(outcome IN ('resolved','question','recommend')), text TEXT NOT NULL, answer TEXT NOT NULL DEFAULT '', answer_sent INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f','now')), PRIMARY KEY(resolution_id,step,path));`);
   db.exec(`CREATE TABLE IF NOT EXISTS mr_worktrees (review_id TEXT NOT NULL, head TEXT NOT NULL, path TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1, PRIMARY KEY(review_id,head));
     CREATE TABLE IF NOT EXISTS mr_private_threads (id TEXT PRIMARY KEY, review_id TEXT NOT NULL, head TEXT NOT NULL, path TEXT NOT NULL, side TEXT NOT NULL, line INTEGER NOT NULL, session_id TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS branch_reviews (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, branch TEXT NOT NULL, base TEXT NOT NULL, seen_head TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT (datetime('now')), UNIQUE(project_id,branch,base));
