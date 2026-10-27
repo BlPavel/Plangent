@@ -20,10 +20,10 @@ export function initQueues(): void {
     queue.status = 'stopped';
     queue.reason = 'Приложение перезапущено';
     for (const s of queue.stages.flatMap(st => st.sessions)) {
-      if (!isActive(s)) continue;
+      if (!isActive(s) && !(s.kind === 'review' && s.status === 'queued')) continue;
       s.status = 'stopped';
       // initSessions() flagged their chats "waiting — continue the session"; the queue will start them anew instead.
-      for (const id of [s.sessionId, s.reviewSessionId]) {
+      for (const id of [s.sessionId]) {
         if (id && getDb().prepare('SELECT 1 FROM agent_sessions WHERE id=?').get(id)) updateSession(id, { status: 'complete', reason: 'Очередь остановлена: приложение перезапущено' });
       }
     }
@@ -34,13 +34,20 @@ export function initQueues(): void {
 export const isActive = (s: OrchestratorQueueSession) => !['queued', 'complete', 'failed', 'stopped'].includes(s.status);
 export const isFrozen = (q: TaskQueue) => q.status === 'running' || q.status === 'paused';
 
+// Drop obsolete queue configuration when loading queues saved by older versions.
+function parseQueue(data: string): TaskQueue {
+  const fields: (keyof OrchestratorQueueSession)[] = ['kind', 'skillId', 'reviewId', 'remarks', 'id', 'points', 'agentId', 'queueMode', 'permissionPolicy', 'status', 'reason', 'model', 'reasoningEffort', 'runId', 'sessionId', 'mode'];
+  return JSON.parse(data, (key, value) => key === 'sessions' && Array.isArray(value)
+    ? value.map(session => ({ kind: 'steps', ...Object.fromEntries(fields.filter(field => field in session).map(field => [field, session[field]])) })) : value);
+}
+
 function allQueues(): TaskQueue[] {
-  return (getDb().prepare('SELECT data FROM task_queues').all() as { data: string }[]).map(r => JSON.parse(r.data));
+  return (getDb().prepare('SELECT data FROM task_queues').all() as { data: string }[]).map(r => parseQueue(r.data));
 }
 
 export function getQueue(taskId: string, projectId: string): TaskQueue {
   const row = getDb().prepare('SELECT data FROM task_queues WHERE task_id=?').get(taskId) as { data: string } | undefined;
-  return row ? JSON.parse(row.data) : { taskId, projectId, status: 'idle', stages: [], stageIndex: 0, pauseRequested: false, updatedAt: new Date().toISOString() };
+  return row ? parseQueue(row.data) : { taskId, projectId, status: 'idle', stages: [], stageIndex: 0, pauseRequested: false, updatedAt: new Date().toISOString() };
 }
 
 export function saveQueue(queue: TaskQueue, notify = true): TaskQueue {
@@ -60,6 +67,19 @@ export function archiveFinished(queue: TaskQueue): void {
   if (!done.length) return;
   queue.stages = queue.stages.filter(st => !done.includes(st));
   queue.history = [{ id: uuidv4(), finishedAt: new Date().toISOString(), stages: done }, ...(queue.history ?? [])].slice(0, 20);
+}
+
+/** Keep the completed result and its chat; a deliberate repeat is fresh work. */
+export function repeatReview(queue: TaskQueue, id: string): boolean {
+  const source = [...queue.stages, ...(queue.history ?? []).flatMap(r => r.stages)]
+    .flatMap(st => st.sessions).find(s => s.id === id && s.kind === 'review' && s.status === 'complete');
+  if (!source) return false;
+  queue.stages.push({ id: uuidv4(), pauseAfter: false, sessions: [{
+    id: uuidv4(), kind: 'review', agentId: source.agentId, model: source.model,
+    reasoningEffort: source.reasoningEffort, skillId: source.skillId,
+    queueMode: 'execute', permissionPolicy: 'ask', status: 'queued',
+  }] });
+  return true;
 }
 
 export interface ActiveQueue { projectId: string; taskId: string; taskKey: string }
@@ -92,7 +112,7 @@ export function blockedQueues(): BlockedQueue[] {
       const row = getDb().prepare('SELECT status FROM agent_sessions WHERE id=?').get(id) as { status: string } | undefined;
       return row?.status === 'waiting';
     };
-    const asking = live.find(s => s.status === 'waiting_for_developer' || s.status === 'ready_for_execution' || chatWaiting(s.sessionId) || chatWaiting(s.reviewSessionId));
+    const asking = live.find(s => s.status === 'waiting_for_developer' || s.status === 'ready_for_execution' || chatWaiting(s.sessionId));
     if (asking) add(asking.status === 'ready_for_execution' ? 'шаг ждёт команды на выполнение' : 'агенту нужен ваш ответ');
   }
   return result;
@@ -103,14 +123,16 @@ export function remapQueuePoints(taskId: string, idMap: Record<string, string>):
   const row = getDb().prepare('SELECT data FROM task_queues WHERE task_id=?').get(taskId) as { data: string } | undefined;
   if (!row || !Object.keys(idMap).length) return;
   const queue: TaskQueue = JSON.parse(row.data);
-  for (const s of queue.stages.flatMap(st => st.sessions)) s.points = s.points.map(p => idMap[p.toLowerCase()] ?? p);
+  for (const s of queue.stages.flatMap(st => st.sessions)) {
+    if (s.kind !== 'review') s.points = (s.points ?? []).map(p => idMap[p.toLowerCase()] ?? p);
+  }
   saveQueue(queue);
 }
 
 export interface StageInput {
   id?: string;
   pauseAfter?: boolean;
-  sessions: (Partial<OrchestratorQueueSession> & { points: string[]; agentId: string })[];
+  sessions: (Partial<OrchestratorQueueSession> & { points?: string[]; agentId: string })[];
 }
 
 const POLICIES: ExecutionPolicy[] = ['allow-all', 'allow-edits', 'ask'];
@@ -121,18 +143,18 @@ export function replaceStages(queue: TaskQueue, input: StageInput[]): TaskQueue 
   const known = new Map(queue.stages.flatMap(st => st.sessions).map(s => [s.id, s]));
   const stages: QueueStage[] = [];
   for (const st of input) {
-    const sessions = (st.sessions ?? []).filter(s => Array.isArray(s.points) && s.points.length && s.agentId).map(s => {
+    const sessions = (st.sessions ?? []).filter(s => s.agentId && (s.kind === 'review' || (Array.isArray(s.points) && s.points.length))).map(s => {
       const prev = s.id ? known.get(s.id) : undefined;
       const session: OrchestratorQueueSession = {
         ...(prev ?? { id: uuidv4(), status: 'queued' as const }),
-        points: s.points.map(String),
+        kind: s.kind === 'review' ? 'review' : 'steps',
+        points: s.kind === 'review' ? undefined : s.points!.map(String),
+        skillId: s.kind === 'review' && typeof s.skillId === 'string' ? s.skillId : undefined,
         agentId: s.agentId,
         queueMode: s.queueMode === 'review_first' ? 'review_first' : 'execute',
         permissionPolicy: POLICIES.includes(s.permissionPolicy as ExecutionPolicy) ? s.permissionPolicy as ExecutionPolicy : 'allow-all',
         model: s.model || undefined,
         reasoningEffort: s.reasoningEffort || undefined,
-        reviewerId: s.reviewerId || undefined,
-        maxReviewRounds: Math.max(1, Math.min(10, s.maxReviewRounds ?? 2)),
       };
       return session;
     });

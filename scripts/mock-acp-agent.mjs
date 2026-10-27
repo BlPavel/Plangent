@@ -18,6 +18,10 @@ agent({ name: 'mock' })
   .onRequest('session/prompt', async ctx => {
     cancelled = false;
     const text = ctx.params.prompt.map(p => p.text ?? '').join('');
+    if (process.argv.includes('--hold-task-review') && text.includes('get_task_review_brief')) {
+      while (!cancelled) await new Promise(resolve => setTimeout(resolve, 20));
+      return { stopReason: 'cancelled' };
+    }
     if (process.argv.includes('--inspect-workspace')) {
       await ctx.client.notify('session/update', { sessionId: 'mock-session', update: {
         sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: JSON.stringify({ cwd: workspaceCwd, prompt: ctx.params.prompt }) },
@@ -37,11 +41,11 @@ agent({ name: 'mock' })
       });
       await new Promise(resolve => setTimeout(resolve, 60));
     }
-    if (text.includes('complete_step tool') || text.includes('finish with submit_review')) {
+    if (text.includes('complete_step tool')) {
       const mcp = mcpServers.find(s => s.name === 'plangent');
-      const name = text.includes('finish with submit_review') ? 'submit_review' : 'complete_step';
+      const name = 'complete_step';
       const response = await fetch(mcp.url, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', ...Object.fromEntries(mcp.headers.map(h => [h.name, h.value])) },
-        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: name === 'submit_review' ? { verdict: 'approved' } : { summary: 'Done' } } }) });
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: { summary: 'Done' } } }) });
       const result = await response.json();
       if (!response.ok || result.error || result.result?.isError) throw new Error(JSON.stringify(result));
     }

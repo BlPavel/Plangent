@@ -138,7 +138,7 @@ export function createReviewService(db: Database.Database = getDb(), dependencie
     if (origin === 'task' && !db.prepare('SELECT id FROM tasks WHERE id=? AND project_id=?').get(originId, projectId))
       throw new CodeError('Task not found', 404);
   }
-  async function addDraft(projectId: string, input: Draft, origin: 'project' | 'task' = 'project', originId = projectId) {
+  async function addDraft(projectId: string, input: Draft, origin: 'project' | 'task' = 'project', originId = projectId, author: 'developer' | 'agent' = 'developer') {
     return exclusive(projectId, async () => {
       const { root, info } = await context(projectId);
       const data = validateDraft(root, info, input);
@@ -149,8 +149,10 @@ export function createReviewService(db: Database.Database = getDb(), dependencie
       await ensureSame(root, info);
       return db.transaction(() => {
         const review = openCurrent(projectId, info) ?? createCurrent(projectId, info, origin, originId);
-        const item = store.createItem({ ...data, review_id: review.id, round_id: null, author: 'developer',
+        const item = store.createItem({ ...data, review_id: review.id, round_id: null, author, origin, origin_id: originId,
+          task_key: origin === 'task' ? (db.prepare('SELECT key FROM tasks WHERE id=?').get(originId) as { key: string }).key : null,
           status: 'draft', answer: null, outdated: false, carried_from_item_id: null, code_snippet, comparison_base });
+        notify(review.id, item);
         return { review, item };
       })();
     });
@@ -335,7 +337,8 @@ export function createReviewService(db: Database.Database = getDb(), dependencie
     const item = itemFor(review.id, itemId);
     const round = item.round_id ? store.getRound(item.round_id) : null;
     if (!round || round.session_id !== session.id) throw new CodeError('Item belongs to another chat', 403);
-    return { review, item };
+    notify(review.id, item);
+        return { review, item };
   }
   /** start_review_item: the item the agent works on now, so its permission requests show in that card. */
   function focusItem(session: AgentSession, itemId: string) {
@@ -671,7 +674,24 @@ export function createReviewService(db: Database.Database = getDb(), dependencie
       })();
     });
   }
-  return { addDraft, updateDraft, removeItem, makeGeneral, finish, markViewed, openFile, current,
+  async function addAgentDraft(projectId: string, taskId: string, input: Draft) {
+    // Attach to current worktree lines, including committed changes.
+    let data = { ...input, side: 'new' as const, comparison_ref: undefined, comparison_base: undefined };
+    const root = project(projectId).repo_path;
+    if (data.scope === 'line') {
+      const file = await readCodeFile(root, filePath(root, data.file!)).catch(() => null);
+      const lines = file?.content?.replace(/\r\n/g, '\n').split('\n');
+      if (!lines || !Number.isSafeInteger(data.line_start) || data.line_start! < 1
+        || !Number.isSafeInteger(data.line_end ?? data.line_start)
+        || (data.line_end ?? data.line_start!) < data.line_start!
+        || (data.line_end ?? data.line_start!) > lines.length
+        || !lines.slice(data.line_start! - 1, data.line_end ?? data.line_start!).join('\n')) {
+        data = { ...data, scope: 'file', line_start: undefined, line_end: undefined };
+      }
+    }
+    return addDraft(projectId, data, 'task', taskId, 'agent');
+  }
+  return { addAgentDraft, addDraft, updateDraft, removeItem, makeGeneral, finish, markViewed, openFile, current,
     history, detail, reviewDiff, remoteComparison, baseChanges, removeReview, markViewedCurrent, sendRound, stop, getAgentReview, focusItem, replyItem, addMessage, removeMessage, closeItem, attention };
 }
 

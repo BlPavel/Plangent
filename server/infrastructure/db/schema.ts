@@ -21,6 +21,35 @@ export function getDb(): Database.Database {
 }
 
 export function migrate(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS plan_reviews (
+      id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      plan_version INTEGER NOT NULL, plan_content TEXT NOT NULL, round INTEGER NOT NULL,
+      session_id TEXT, skill_id TEXT, overview TEXT NOT NULL DEFAULT '',
+      coverage TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(coverage)),
+      status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','completed','failed')),
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f','now')), UNIQUE(task_id,round)
+    );
+    CREATE TABLE IF NOT EXISTS plan_review_remarks (
+      id TEXT PRIMARY KEY, review_id TEXT NOT NULL REFERENCES plan_reviews(id) ON DELETE CASCADE,
+      steps TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(steps)),
+      kind TEXT NOT NULL CHECK(kind IN ('contradiction','order','coverage','extra','unclear','risk')),
+      text TEXT NOT NULL, suggestion TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','accepted','discussing','rejected','sent','applied','answered')),
+      decision TEXT NOT NULL DEFAULT '', sent_status TEXT CHECK(sent_status IN ('accepted','discussing')),
+      planner_session_id TEXT, outdated INTEGER NOT NULL DEFAULT 0 CHECK(outdated IN (0,1)), applied_version INTEGER,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f','now'))
+    );
+    CREATE INDEX IF NOT EXISTS plan_review_remarks_review ON plan_review_remarks(review_id);
+    CREATE TABLE IF NOT EXISTS plan_review_messages (
+      id TEXT PRIMARY KEY, remark_id TEXT NOT NULL REFERENCES plan_review_remarks(id) ON DELETE CASCADE,
+      author TEXT NOT NULL CHECK(author IN ('developer','reviewer','planner')),
+      text TEXT NOT NULL, sent INTEGER NOT NULL DEFAULT 0 CHECK(sent IN (0,1)),
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f','now'))
+    );
+    CREATE INDEX IF NOT EXISTS plan_review_messages_remark ON plan_review_messages(remark_id);
+  `);
+
   db.exec(`CREATE TABLE IF NOT EXISTS conflict_resolutions (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, operation_id TEXT NOT NULL, session_id TEXT NOT NULL,
       closed INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f','now')));
     CREATE TABLE IF NOT EXISTS conflict_files (resolution_id TEXT NOT NULL REFERENCES conflict_resolutions(id) ON DELETE CASCADE, step TEXT NOT NULL, path TEXT NOT NULL,
@@ -172,12 +201,15 @@ export function migrate(db: Database.Database): void {
 
   db.exec('CREATE TABLE IF NOT EXISTS mr_creation_intents (id TEXT PRIMARY KEY)');
   migrateFinish(db);
-  for (const name of ['finish_scenario', 'target_branch', 'external_key', 'base_branch', 'mr_link']) {
+  for (const name of ['finish_scenario', 'target_branch', 'external_key', 'base_branch', 'mr_link', 'base_commit']) {
     const columns = db.prepare('PRAGMA table_info(tasks)').all() as { name: string }[];
     if (!columns.some(column => column.name === name)) db.exec('ALTER TABLE tasks ADD COLUMN ' + name + ' TEXT');
   }
 
   // Add columns that may be missing on existing DBs (idempotent)
+  const planColumns = db.prepare('PRAGMA table_info(plans)').all() as { name: string }[];
+  if (!planColumns.some(column => column.name === 'session_id')) db.exec('ALTER TABLE plans ADD COLUMN session_id TEXT');
+  if (!planColumns.some(column => column.name === 'author')) db.exec("ALTER TABLE plans ADD COLUMN author TEXT NOT NULL DEFAULT 'developer'");
   try { db.exec(`ALTER TABLE agents ADD COLUMN layout_profile TEXT`); } catch { /* already exists */ }
   try { db.exec(`ALTER TABLE agents ADD COLUMN model TEXT NOT NULL DEFAULT ''`); } catch { /* already exists */ }
   try { db.exec(`ALTER TABLE agents ADD COLUMN reasoning_effort TEXT NOT NULL DEFAULT ''`); } catch { /* already exists */ }
@@ -491,6 +523,9 @@ function migrateCodeReviews(db: Database.Database): void {
       );
     `);
     const itemColumns = db.prepare('PRAGMA table_info(code_review_item)').all() as { name: string }[];
+    if (!itemColumns.some(c => c.name === 'origin')) db.exec("ALTER TABLE code_review_item ADD COLUMN origin TEXT NOT NULL DEFAULT 'project'");
+    if (!itemColumns.some(c => c.name === 'origin_id')) db.exec('ALTER TABLE code_review_item ADD COLUMN origin_id TEXT');
+    if (!itemColumns.some(c => c.name === 'task_key')) db.exec('ALTER TABLE code_review_item ADD COLUMN task_key TEXT');
     if (!itemColumns.some(c => c.name === 'comparison_base')) db.exec('ALTER TABLE code_review_item ADD COLUMN comparison_base TEXT');
     if (!itemColumns.some(column => column.name === 'closed')) {
       db.exec('ALTER TABLE code_review_item ADD COLUMN closed INTEGER NOT NULL DEFAULT 0 CHECK(closed IN (0,1))');

@@ -146,6 +146,15 @@ export async function remoteMergeBase(root: string, ref: string, end = 'HEAD'): 
   return (await run(root, ['merge-base', remote, end])).trim();
 }
 const remoteBase = (base: string) => base.startsWith('origin/') || base.startsWith('refs/remotes/');
+export async function taskWorktreeChanges(root: string, base: string) {
+  const from = await revision(root, base);
+  const tracked = (await run(root, ['diff', '--no-ext-diff', '--no-textconv', '--name-only', '-z', from, '--'])).split('\0').filter(Boolean);
+  const untracked = (await changedFiles(root)).filter(f => f.status === '?').map(f => f.path);
+  return Promise.all([...new Set([...tracked, ...untracked])].map(async file => ({
+    file, diff: await diffFile(root, file, { base }),
+  })));
+}
+
 export interface DiffOptions { base?: string; end?: string; ignoreWhitespace?: boolean; originalPath?: string }
 
 export async function diffFile(root: string, file: string, options: DiffOptions = {}): Promise<string> {

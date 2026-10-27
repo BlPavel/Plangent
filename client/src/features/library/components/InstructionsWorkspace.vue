@@ -19,8 +19,8 @@
         </template>
       </SkillsManager>
       <template v-else-if="view === 'review'">
-        <p class="hint">Скиллы ревью говорят агенту во вкладке «Ревью», что важно в МР этого проекта и что пропускать. Перед разбором вы выбираете один из них; без скиллов работает стандартный.</p>
-        <SkillsManager class="skills" scope="project" :project-id="projectId" :allowed-types="['review-skill']">
+        <p class="hint">Скиллы ревью задают, что проверять в МР или плане задачи. Без своих скиллов используется стандартный. Стандартный скилл ревью плана можно скопировать в редактор и изменить.</p>
+        <SkillsManager class="skills" scope="project" :project-id="projectId" :allowed-types="['review-skill', 'plan-review-skill']">
           <template #actions>
             <AppButton v-if="!panelOpen" variant="subtle" size="sm" title="Агент изучит код проекта, расспросит вас и предложит скилл ревью" @click="panelOpen = true">✦ Написать с агентом</AppButton>
           </template>

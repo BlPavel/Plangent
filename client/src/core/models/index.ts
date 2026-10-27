@@ -76,6 +76,7 @@ export interface Project {
 }
 
 export interface Task {
+  base_commit?: string | null;
   external_key?: string | null;
   base_branch?: string | null;
   mr_link?: string | null;
@@ -104,6 +105,8 @@ export interface PlanStep {
 }
 
 export interface Plan {
+  session_id: string | null
+  author: 'agent' | 'developer'
   id: string
   task_id: string
   content: string
@@ -125,7 +128,7 @@ export interface Run {
   finished_at?: string
 }
 
-export type LibraryItemType = 'skill' | 'command' | 'main' | 'plan-template' | 'instruction-guide' | 'code-fixer-instruction' | 'commit-rules' | 'review-skill'
+export type LibraryItemType = 'skill' | 'command' | 'main' | 'plan-template' | 'instruction-guide' | 'code-fixer-instruction' | 'commit-rules' | 'review-skill' | 'plan-review-skill'
 export type LibraryScope = 'global' | 'project'
 
 export interface LibraryItem {
@@ -159,7 +162,7 @@ export interface LibraryProposal {
   session_id: string
   status: LibraryProposalStatus
   action: 'create' | 'update'
-  type: 'skill' | 'main' | 'command' | 'review-skill'
+  type: 'skill' | 'main' | 'command' | 'review-skill' | 'plan-review-skill'
   slug: string
   title: string
   description: string
@@ -200,13 +203,13 @@ export type QueueSessionMode = 'execute' | 'review_first'
 export type ExecutionPolicy = 'allow-all' | 'allow-edits' | 'ask'
 
 export interface OrchestratorQueueSession {
-  reviewerId?: string
-  reviewSessionId?: string
-  reviewRound?: number
-  maxReviewRounds?: number
   reason?: string
   id: string
-  points: string[]
+  kind?: 'steps' | 'review'
+  points?: string[]
+  skillId?: string
+  reviewId?: string
+  remarks?: number
   agentId: string
   queueMode: QueueSessionMode
   permissionPolicy: ExecutionPolicy
@@ -252,17 +255,17 @@ export interface TaskQueue {
 interface QueueEventBase { taskId: string; projectId?: string; taskKey?: string }
 export type OrchestratorEvent = QueueEventBase & (
   | { type: 'queue_updated'; queue: TaskQueue }
-  | { type: 'review_started'; sessionId: string; reviewSessionId: string }
   | { type: 'session_started'; sessionId: string; runId: string; terminalSessionId: string; mode: 'acp'; points: string[] }
   | { type: 'session_ready_for_execution'; sessionId: string; message: string }
   | { type: 'session_complete'; sessionId: string; runId?: string }
   | { type: 'session_waiting'; sessionId: string; message: string }
   | { type: 'session_failed'; sessionId: string; reason: string }
-  | { type: 'queue_finished'; failed: number }
+  | { type: 'queue_finished'; failed: number; remarks?: number }
   | { type: 'queue_paused'; stageIndex: number }
   | { type: 'run_failed'; reason: string }
   | { type: 'analysis_updated'; actor: 'developer' | 'agent' }
   | { type: 'task_status'; status: Task['status'] }
+  | { type: 'task_updated' }
   // idMap: old → new step ids when the planner's plan was renumbered in order.
   | { type: 'plan_updated'; content?: string; steps: PlanStep[]; idMap?: Record<string, string> }
 )

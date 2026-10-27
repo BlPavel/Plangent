@@ -88,7 +88,7 @@ test('code fixer rounds, MCP isolation, developer decisions and instruction inhe
     const id = session.id; ids.push(id);
     await ready(id);
     assert.deepEqual(allowed(sessions.getSession(id)), ['get_review', 'start_review_item', 'reply_review_item']);
-    for (const role of ['chat', 'executor', 'reviewer', 'librarian', 'analyst', 'planner'] as const)
+    for (const role of ['chat', 'executor', 'librarian', 'analyst', 'planner'] as const)
       assert.ok(!allowed({ ...sessions.getSession(id), role }).includes('get_review'));
     assert.equal((await json('/sessions', { project_id: group.id, agent_id: agent.id, role: 'code-fixer' })).status, 400);
     const { review, item } = await service.addDraft(project.id, { scope: 'file', file: 'code.ts', kind: 'fix', text: 'Fix code' });

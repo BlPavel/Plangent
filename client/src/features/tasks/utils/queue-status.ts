@@ -17,8 +17,8 @@ export interface SessionState {
  * One place that turns a queue session (plus its live agent chats) into what the UI shows.
  * The chat is the finer signal: a permission request or a question shows there first.
  */
-export function sessionState(s: OrchestratorQueueSession, chat?: ChatLike, review?: ChatLike): SessionState {
-  const asking = [review, chat].find(c => c?.status === 'waiting')
+export function sessionState(s: OrchestratorQueueSession, chat?: ChatLike): SessionState {
+  const asking = [chat].find(c => c?.status === 'waiting')
   switch (s.status) {
     case 'queued': return { label: 'В очереди', tone: 'neutral', attention: false, live: false }
     case 'stopped': return { label: 'Остановлен', tone: 'neutral', detail: 'Запустится снова вместе с очередью', attention: false, live: false }
@@ -30,8 +30,7 @@ export function sessionState(s: OrchestratorQueueSession, chat?: ChatLike, revie
       return { label: 'Нужна помощь', tone: 'progress', detail: asking?.reason || s.reason || 'Агент ждёт вашего ответа', attention: true, live: true }
   }
   if (asking) return { label: 'Нужна помощь', tone: 'progress', detail: asking.reason || 'Агент ждёт вашего ответа', attention: true, live: true }
-  if (s.status === 'reviewing' && s.reviewSessionId) return { label: `Ревью · круг ${s.reviewRound ?? 1}`, tone: 'open', attention: false, live: true }
-  if (s.status === 'reviewing') return { label: 'Изучает шаги', tone: 'open', attention: false, live: true }
+  if (s.status === 'reviewing') return { label: s.kind === 'review' ? 'Ревью' : 'Изучает шаги', tone: 'open', attention: false, live: true }
   return { label: 'Выполняется', tone: 'open', attention: false, live: true }
 }
 
@@ -68,4 +67,10 @@ export function pointsLabel(points: string[]) {
     i = j
   }
   return parts.join(', ')
+}
+
+/** 1 замечание, 2 замечания, 5 замечаний */
+export function remarksLabel(n: number) {
+  const tens = n % 100, ones = n % 10
+  return `${n} ${tens >= 11 && tens <= 14 ? 'замечаний' : ones === 1 ? 'замечание' : ones >= 2 && ones <= 4 ? 'замечания' : 'замечаний'}`
 }

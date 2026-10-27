@@ -76,6 +76,7 @@ export interface Project {
 }
 
 export interface Task {
+  base_commit?: string | null;
   external_key?: string | null;
   base_branch?: string | null;
   mr_link?: string | null;
@@ -93,6 +94,8 @@ export interface Task {
 }
 
 export interface Plan {
+  session_id: string | null;
+  author: 'agent' | 'developer';
   id: string;
   task_id: string;
   content: string;
@@ -137,15 +140,15 @@ export type ExecutionPolicy = 'allow-all' | 'allow-edits' | 'ask';
 
 export interface OrchestratorQueueSession {
   id: string;
-  points: string[];           // point ids (pN)
+  kind?: 'steps' | 'review';
+  points?: string[];           // point ids (pN), absent for review
+  skillId?: string;
+  reviewId?: string;
+  remarks?: number;
   agentId: string;
   queueMode: QueueSessionMode;
   permissionPolicy: ExecutionPolicy;
   status: OrchestratorSessionStatus;
-  reviewerId?: string;
-  reviewSessionId?: string;
-  reviewRound?: number;
-  maxReviewRounds?: number;
   reason?: string;
   // Per-run override of the agent's configured model/reasoning_effort
   // (see Agent.model / Agent.reasoning_effort) — leave unset to use the agent's default.
@@ -203,7 +206,7 @@ export interface Run {
   finished_at?: string;
 }
 
-export type LibraryItemType = 'skill' | 'command' | 'main' | 'plan-template' | 'instruction-guide' | 'code-fixer-instruction' | 'commit-rules' | 'review-skill';
+export type LibraryItemType = 'skill' | 'command' | 'main' | 'plan-template' | 'instruction-guide' | 'code-fixer-instruction' | 'commit-rules' | 'review-skill' | 'plan-review-skill';
 // global: everywhere. project: only the groups/projects listed in `targets` (a group covers its projects).
 export type LibraryScope = 'global' | 'project';
 
@@ -259,7 +262,7 @@ export interface LibraryProposal {
   session_id: string;
   status: LibraryProposalStatus;
   action: 'create' | 'update';
-  type: 'skill' | 'main' | 'command' | 'review-skill';
+  type: 'skill' | 'main' | 'command' | 'review-skill' | 'plan-review-skill';
   slug: string;
   title: string;
   description: string;

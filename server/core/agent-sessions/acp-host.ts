@@ -404,7 +404,7 @@ export async function sendPrompt(id: string, content: ACP.ContentBlock[]): Promi
     addEvent(id, 'turn_end', { stopReason: result.stopReason });
     const latest = getSession(id);
     // A session being shut down is not "waiting": whoever closes it sets the final status.
-    if (latest.status === 'thinking' && !state.stopping) updateSession(id, { status: latest.role === 'executor' || latest.role === 'reviewer' ? 'waiting' : 'ready',
+    if (latest.status === 'thinking' && !state.stopping) updateSession(id, { status: latest.role === 'executor' ? 'waiting' : 'ready',
       reason: latest.role === 'executor' ? (latest.policy === 'read-only' ? 'Обсуждение завершено' : 'Агент остановился без отчёта') : '' });
     sessionSignals.emit('turn_end', id);
   }).catch(error => {
@@ -465,6 +465,13 @@ setInterval(() => {
     }
   }
 }, 60_000).unref();
+export function sessionAvailability(id: string) {
+  const session = getSession(id), state = live.get(id);
+  const busy = ['starting', 'thinking', 'waiting'].includes(session.status) || !!(state?.busy || state?.loading || state?.stopping);
+  const capabilities = session.metadata.agentCapabilities as { loadSession?: boolean } | undefined;
+  const resumable = !!state || !session.acp_session_id || !!capabilities?.loadSession;
+  return { busy, resumable, available: !busy && resumable };
+}
 export function snapshot(id: string) {
   const state = live.get(id);
   return { session: getSession(id), queue: queuedPrompts(id), streaming: state ? { text: state.text, type: state.textType } : null,

@@ -1,5 +1,6 @@
 import { taskMrRouter } from './routes/task-mr';
 import { mrReviewRouter } from './routes/mr-review';
+import { planReviewRouter } from './routes/plan-review';
 import { branchReviewRouter } from './routes/branch-review';
 import { integrationsRouter } from './routes/integrations';
 import { terminalsRouter } from './routes/terminals';
@@ -85,6 +86,7 @@ export function createApp() {
   app.use('/api/projects/:projectId/task-mr', taskMrRouter);
   app.use('/api/projects/:projectId/mr-review', mrReviewRouter);
   app.use('/api/projects/:projectId/branch-review', branchReviewRouter);
+  app.use('/api/projects/:projectId/tasks/:taskId/plan-reviews', planReviewRouter);
   app.use('/api/projects', projectsRouter);
   app.use('/api/projects/:projectId/tasks', tasksRouter);
   app.use('/api/projects/:projectId/tasks/:taskId/plans', plansRouter);

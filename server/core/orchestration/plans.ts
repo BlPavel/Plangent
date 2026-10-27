@@ -1,3 +1,4 @@
+import { emitPlanSaved } from './plan-events';
 import { v4 as uuidv4 } from 'uuid';
 import { getDb } from '../../infrastructure/db/schema';
 import { Plan, PlanFrontmatter, PlanStep } from '../../models';
@@ -21,23 +22,31 @@ export function listPlans(task_id: string): Plan[] {
   return rows.map(parsePlanRow);
 }
 
-export function createPlan(data: { task_id: string; content: string }): Plan {
+export interface PlanAuthor { author: Plan['author']; session_id?: string | null }
+
+export function createPlan(data: { task_id: string; content: string } & Partial<PlanAuthor>): Plan {
   const id = uuidv4();
   const db = getDb();
   const latest = getLatestPlan(data.task_id);
   const version = latest ? latest.version + 1 : 1;
   db.prepare(`
-    INSERT INTO plans (id, task_id, content, version) VALUES (?, ?, ?, ?)
-  `).run(id, data.task_id, data.content, version);
-  return getPlan(id)!;
+    INSERT INTO plans (id, task_id, content, version, session_id, author) VALUES (?, ?, ?, ?, ?, ?)
+  `).run(id, data.task_id, data.content, version, data.author === 'agent' ? data.session_id ?? null : null, data.author ?? 'developer');
+  const plan = getPlan(id)!;
+  emitPlanSaved({ taskId: plan.task_id, content: plan.content, previousContent: latest?.content ?? '', version: plan.version, sessionId: plan.session_id, idMap: {} });
+  return plan;
 }
 
-export function updatePlan(id: string, content: string): Plan | null {
+export function updatePlan(id: string, content: string, writer: PlanAuthor = { author: 'developer' }, idMap: Record<string, string> = {}, removedSteps: string[] = []): Plan | null {
   const db = getDb();
+  const previous = getPlan(id);
   db.prepare(`
-    UPDATE plans SET content=?, updated_at=datetime('now') WHERE id=?
-  `).run(content, id);
-  return getPlan(id);
+    UPDATE plans SET content=?, session_id=?, author=?, updated_at=datetime('now') WHERE id=?
+  `).run(content, writer.author === 'agent' ? writer.session_id ?? null : null, writer.author, id);
+  const plan = getPlan(id);
+  if (plan && previous && (previous.content !== content || Object.keys(idMap).length))
+    emitPlanSaved({ taskId: plan.task_id, content, previousContent: previous.content, version: plan.version, sessionId: plan.session_id, idMap, removedSteps });
+  return plan;
 }
 
 // Parse YAML frontmatter block

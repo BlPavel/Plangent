@@ -62,7 +62,7 @@ export function materializePlanFile(task: Task, plan: Plan, repoPath: string): s
   const finalContent = ensurePlanFileHint(changed ? withIds : plan.content);
 
   if (changed || finalContent !== plan.content) {
-    updatePlan(plan.id, finalContent);
+    updatePlan(plan.id, finalContent, plan);
   }
 
   markPlangentWrite(filePath);
@@ -103,7 +103,9 @@ export function watchPlanFile(
   const watcher = fs.watch(dir, (_event, filename) => {
     // Some platforms report the changed filename; when they do, ignore other files.
     if (filename && filename !== fileName) return;
-    if (isPlangentWrite(filePath)) return;
+    if (isPlangentWrite(filePath)) {
+      try { if (fs.readFileSync(filePath, 'utf8') === getLatestPlan(task.id)?.content) return; } catch { return; }
+    }
 
     if (debounce) clearTimeout(debounce);
     debounce = setTimeout(() => {
@@ -127,6 +129,7 @@ export function watchPlanFile(
       }
 
       // Sync to DB
+      if (content === getLatestPlan(task.id)?.content) return;
       updatePlan(planId, content);
 
       // Emit live point-update events
@@ -220,7 +223,7 @@ export function watchPlanDirForCreate(task: Task, repoPath: string): void {
  * A plan handed over by the planner (MCP submit_plan): checked, numbered, stored and written to
  * the plan file. Ids are Plangent's, so ones the agent invented are dropped and renumbered.
  */
-export function submitPlan(task: Task, repoPath: string, content: string, renumber: boolean): { steps: string[]; removed: string[] } {
+export function submitPlan(task: Task, repoPath: string, content: string, renumber: boolean, sessionId?: string): { steps: string[]; removed: string[] } {
   validateAnalysisLinks(task.id, content);
   const previous = getLatestPlan(task.id);
   const known = new Set(parsePlanSteps(previous?.content ?? '').map(s => s.id?.toLowerCase()).filter(Boolean));
@@ -238,7 +241,8 @@ export function submitPlan(task: Task, repoPath: string, content: string, renumb
   const dirWatcher = dirWatchers.get(task.id);
   if (dirWatcher) { dirWatcher.close(); dirWatchers.delete(task.id); }
   ensureGitExclude(repoPath);
-  const plan = previous ? updatePlan(previous.id, cleaned)! : createPlan({ task_id: task.id, content: cleaned });
+  const writer = sessionId ? { author: 'agent' as const, session_id: sessionId } : { author: 'developer' as const, session_id: null };
+  const plan = previous ? updatePlan(previous.id, cleaned, writer, idMap, removed)! : createPlan({ task_id: task.id, content: cleaned, ...writer });
   const written = materializePlanFile(task, plan, repoPath);
   watchPlanFile(task, plan.id, repoPath);
 

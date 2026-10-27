@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="task-view">
     <div class="task-header app-drag">
       <AppButton variant="subtle" size="sm" @click="goBack">← Назад</AppButton>
@@ -32,12 +32,14 @@
         <FormField v-model="titleDraft" label="Название" placeholder="Название задачи" :disabled="savingTitle" />
       </div>
     </AppModal>
-    <TaskMrPanel v-if="pid && task" :project-id="pid" :task-id="task.id" />
 
     <!-- Tab bar -->
     <div class="task-tab-bar">
       <button class="tab-btn" :class="{ active: activeTab === 'analysis' }" @click="activeTab = 'analysis'">Анализ</button>
-      <button class="tab-btn" :class="{ active: activeTab === 'plan' }" @click="activeTab = 'plan'">План</button>
+      <button class="tab-btn" :class="{ active: activeTab === 'plan' }" @click="activeTab = 'plan'">
+        План
+        <span v-if="planAttention" class="tab-count warn" title="Карточки ревью плана, которые ждут вашего решения или ответа планировщика">{{ planAttention }}</span>
+      </button>
       <button v-if="!taskDone" class="tab-btn" :class="{ active: activeTab === 'exec' }" @click="activeTab = 'exec'">
         Выполнение
         <span v-if="attentionCount" class="tab-count warn" title="Шаги, которым нужен ваш ответ">{{ attentionCount }}</span>
@@ -58,6 +60,9 @@
     <!-- Tab: План -->
     <div v-show="activeTab === 'plan'" class="tab-body">
       <PlanPanel
+        @review-attention="planAttention = $event"
+        :task-id="tid ?? ''"
+        :queue-frozen="queue.frozen.value"
         :plan="plan"
         :readonly="taskDone"
         :planning-message="planningMessage"
@@ -111,8 +116,7 @@
             @open="selectedQueueId = $event"
             @start="startQueue"
           />
-          <TaskGit v-if="pid && task" :key="task.id" :project-id="pid" :task="task" />
-          <TaskFinishStage v-if="pid && task" :key="task.id" :project-id="pid" :task="task" />
+          <TaskGit v-if="pid && task" :key="task.id" :project-id="pid" :task="task" :frozen="queue.frozen.value" @updated="task = $event; appStore.currentTask = $event" />
         </div>
         <aside class="exec-right">
           <StepDetailPanel :session="selectedSession" :stage-number="selectedStage + 1" :agents="agents" :steps="plan.steps" />
@@ -140,7 +144,6 @@ import { AnalysisNavigationKey } from '../composables/analysisNavigation'
 import PlanPanel from '../components/PlanPanel.vue'
 import StepPicker from '../components/StepPicker.vue'
 import TaskGit from '../components/TaskGit.vue'
-import TaskFinishStage from '../components/TaskFinishStage.vue'
 import ExecutionQueue from '../components/ExecutionQueue.vue'
 import StepDetailPanel from '../components/StepDetailPanel.vue'
 import StatusBadge from '@shared/ui/StatusBadge.vue'
@@ -148,7 +151,6 @@ import AppButton from '@shared/ui/AppButton.vue'
 import AppModal from '@shared/ui/AppModal.vue'
 import FormField from '@shared/ui/FormField.vue'
 import IconTrash from '@shared/ui/IconTrash.vue'
-import { TaskMrPanel } from '@features/task-mr'
 import { CodeButton } from '@features/code'
 import { useChatStore, type NewChatRequest, type ContentBlock } from '@features/agent-chat'
 import { useTaskQueue, TaskQueueKey } from '../composables/useTaskQueue'
@@ -310,7 +312,8 @@ const selectedQueueId = ref<string | null>(null)
 const selectedSession = computed(() => queue.allSessions.value.find(s => s.id === selectedQueueId.value))
 const selectedStage = computed(() => queue.stages.value.findIndex(st => st.sessions.some(s => s.id === selectedQueueId.value)))
 const chat = (id?: string) => id ? chatStore.sessions.find(c => c.id === id) : undefined
-const attentionCount = computed(() => queue.sessions.value.filter(s => sessionState(s, chat(s.sessionId), chat(s.reviewSessionId)).attention).length)
+const planAttention = ref(0)
+const attentionCount = computed(() => queue.sessions.value.filter(s => sessionState(s, chat(s.sessionId)).attention).length)
 
 async function startQueue() {
   // The first launch is the moment to ask for (browser) notification permission: it is a click.
@@ -328,7 +331,7 @@ function openChatFromRoute() {
   if (typeof chatId !== 'string') return
   if (analysisChats.value.some(c => c.id === chatId)) { selectedAnalysisChat.value = chatId; activeTab.value = 'analysis'; return }
   if (planningChats.value.some(c => c.id === chatId)) { selectedPlanningChat.value = chatId; planningOpen.value = true; activeTab.value = 'plan'; return }
-  const s = queue.allSessions.value.find(x => x.sessionId === chatId || x.reviewSessionId === chatId)
+  const s = queue.allSessions.value.find(x => x.sessionId === chatId)
   if (s) { activeTab.value = 'exec'; selectedQueueId.value = s.id }
   else routeChatPending = true
 }
@@ -375,6 +378,9 @@ async function handleEvent(event: OrchestratorEvent) {
     case 'queue_finished':
       await loadPlan()
       break
+    case 'task_updated':
+      await loadTask()
+      break
   }
 }
 
@@ -400,7 +406,7 @@ onMounted(async () => {
   if (!plan.value) activeTab.value = 'analysis'
   // Open where the work is: a running queue, or a step that waits for the developer.
   if (!taskDone.value && queue.sessions.value.length && (queue.frozen.value || attentionCount.value)) activeTab.value = 'exec'
-  const first = queue.sessions.value.find(s => sessionState(s, chat(s.sessionId), chat(s.reviewSessionId)).attention)
+  const first = queue.sessions.value.find(s => sessionState(s, chat(s.sessionId)).attention)
     ?? queue.sessions.value.find(s => sessionState(s).live)
   if (first) selectedQueueId.value = first.id
   openChatFromRoute()
@@ -432,7 +438,7 @@ const analysisLockedReason = computed(() => {
   if (taskDone.value) return 'Завершённая задача доступна только для чтения'
   const working = queue.sessions.value.some(s => {
     if (!['running', 'reviewing'].includes(s.status)) return false
-    const id = s.status === 'reviewing' ? s.reviewSessionId : s.sessionId
+    const id = s.sessionId
     return !id || chat(id)?.status !== 'waiting'
   })
   return queue.queue.value?.status === 'running' && working ? 'Анализ нельзя менять, пока агенты выполняют очередь' : ''
@@ -592,3 +598,4 @@ async function savePlan() {
 .exec-left { min-height: 0; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 20px; border-right: 1px solid var(--border); }
 .exec-right { min-height: 0; min-width: 0; display: flex; flex-direction: column; }
 </style>
+

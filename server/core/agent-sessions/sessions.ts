@@ -46,7 +46,7 @@ export function listSessions(projectId?: string): AgentSession[] {
     : getDb().prepare('SELECT * FROM agent_sessions ORDER BY created_at DESC').all()).map(parse);
 }
 export function createSession(data: Pick<AgentSession, 'project_id' | 'agent_id' | 'role' | 'policy'> & Partial<AgentSession>): AgentSession {
-  if (data.role === 'librarian' || data.role === 'committer') data = { ...data, policy: 'read-only' };
+  if (data.role === 'librarian' || data.role === 'committer' || data.role === 'plan-reviewer' || data.role === 'task-reviewer') data = { ...data, policy: 'read-only' };
   const id = randomUUID();
   getDb().prepare(`INSERT INTO agent_sessions
     (id, project_id, task_id, run_id, step_ids, role, agent_id, model, title, status, policy)
@@ -57,7 +57,7 @@ export function createSession(data: Pick<AgentSession, 'project_id' | 'agent_id'
   return getSession(id);
 }
 export function updateSession(id: string, data: Partial<AgentSession>): AgentSession {
-  if (data.policy && data.policy !== 'read-only' && (['librarian', 'committer'].includes(getSession(id).role) || getSession(id).metadata.mr_private)) throw new Error('Librarian sessions are read-only');
+  if (data.policy && data.policy !== 'read-only' && (['librarian', 'committer', 'plan-reviewer', 'task-reviewer'].includes(getSession(id).role) || getSession(id).metadata.mr_private)) throw new Error('Librarian sessions are read-only');
   const allowed = ['title', 'status', 'reason', 'model', 'acp_session_id', 'policy', 'metadata'];
   const entries = Object.entries(data).filter(([key]) => allowed.includes(key));
   if (entries.length) getDb().prepare(`UPDATE agent_sessions SET ${entries.map(([k]) => `${k}=?`).join(',')}, updated_at=datetime('now') WHERE id=?`)

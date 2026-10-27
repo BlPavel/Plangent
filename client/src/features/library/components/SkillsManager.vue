@@ -78,6 +78,7 @@
         :is-edit="!!editItem"
         :existing-main-id="existingMainId"
         :allowed-types="availableTypeValues"
+        @copy-system-default="copySystemDefault"
       />
       <AvailabilityField
         v-if="form.type !== 'plan-template' && !ownProjectOnly" v-model="availability" class="availability" own-folder :within="scope === 'project' ? projectId : undefined"
@@ -121,15 +122,17 @@ const availableTypeValues = computed<LibraryItemType[]>(() => props.allowedTypes
 const filterType = ref<LibraryItemType | ''>(availableTypeValues.value.length === 1 ? availableTypeValues.value[0] : '')
 const syncing = ref(false)
 
-const typeOptions = [
+const typeOptions = computed(() => [
   { value: '' as const, label: 'Все' },
   { value: 'skill' as LibraryItemType, label: 'Скиллы' },
   { value: 'command' as LibraryItemType, label: 'Команды' },
   { value: 'main' as LibraryItemType, label: 'Главный файл' },
-].filter(t => t.value === '' || availableTypeValues.value.includes(t.value))
+  { value: 'review-skill' as LibraryItemType, label: 'Ревью МР' },
+  { value: 'plan-review-skill' as LibraryItemType, label: 'Ревью плана' },
+].filter(t => t.value === '' || availableTypeValues.value.includes(t.value)))
 
 function typeLabel(t: LibraryItemType) {
-  return { 'commit-rules': 'правила коммитов', 'code-fixer-instruction': 'Агент доработки', skill: 'скилл', command: 'команда', main: 'main', 'plan-template': 'шаблон плана', 'instruction-guide': 'руководство по инструкциям', 'review-skill': 'скилл ревью' }[t]
+  return { 'commit-rules': 'правила коммитов', 'code-fixer-instruction': 'Агент доработки', skill: 'скилл', command: 'команда', main: 'main', 'plan-template': 'шаблон плана', 'instruction-guide': 'руководство по инструкциям', 'review-skill': 'скилл ревью', 'plan-review-skill': 'скилл ревью плана' }[t]
 }
 
 // Each mounted list owns its results: hidden project views can reload independently of settings.
@@ -149,7 +152,7 @@ async function reload() {
     if (scope.value === 'global') params.set('scope', 'global')
     else if (props.projectId) params.set('forProject', props.projectId)
     const result = await api.get<LibraryItem[]>(`/library?${params}`)
-    if (revision === loadRevision) items.value = result
+    if (revision === loadRevision) items.value = result.filter(item => availableTypeValues.value.includes(item.type))
   } catch (e) {
     if (revision === loadRevision) appStore.toast(String(e), 'error')
   } finally {
@@ -232,6 +235,11 @@ const showModal = ref(false)
 const editItem = ref<LibraryItem | null>(null)
 const defaultForm = () => ({ type: (availableTypeValues.value[0] ?? 'skill') as LibraryItemType, slug: '', title: '', description: '', agent_filter: [] as string[], disableModelInvocation: false, content: '' })
 const form = ref(defaultForm())
+async function copySystemDefault() {
+  if (form.value.type !== 'plan-review-skill') return
+  try { form.value.content = (await api.get<{ content: string }>('/library/plan-review-skill/defaults')).content }
+  catch (cause) { appStore.toast(String(cause), 'error') }
+}
 const availability = ref<Availability>({ everywhere: true, targets: [] })
 
 function slugify(s: string): string {
@@ -290,7 +298,7 @@ async function save() {
 
   const slug = editItem.value
     ? form.value.slug
-    : isMain ? 'main' : form.value.type === 'plan-template' ? slugify(form.value.title || 'default_plan') : form.value.type === 'review-skill' ? 'review_' + Date.now().toString(36) : slugify(form.value.title)
+    : isMain ? 'main' : form.value.type === 'plan-template' ? slugify(form.value.title || 'default_plan') : (form.value.type === 'review-skill' || form.value.type === 'plan-review-skill') ? 'review_' + Date.now().toString(36) : slugify(form.value.title)
   const title = isMain ? (form.value.title.trim() || 'Главный файл') : form.value.title.trim()
 
   const payload = {

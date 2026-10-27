@@ -134,13 +134,13 @@ export function createReviewStore(db: Database.Database = getDb()) {
       const id = randomUUID();
       db.prepare(`INSERT INTO code_review_item(
         id,review_id,round_id,author,scope,file,line_start,line_end,side,kind,text,refs,
-        code_snippet,status,answer,outdated,carried_from_item_id,closed,comparison_base
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+        code_snippet,status,answer,outdated,carried_from_item_id,closed,comparison_base,origin,origin_id,task_key
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
         id, data.review_id, data.round_id ?? null, data.author ?? 'developer',
         data.scope, data.file ?? null, data.line_start ?? null, data.line_end ?? null,
         data.side ?? 'new', data.kind, data.text, encodeRefs(data.refs ?? []),
         data.code_snippet ?? '', data.status ?? 'draft', data.answer ?? null,
-        data.outdated ? 1 : 0, data.carried_from_item_id ?? null, data.closed ? 1 : 0, data.comparison_base ?? null);
+        data.outdated ? 1 : 0, data.carried_from_item_id ?? null, data.closed ? 1 : 0, data.comparison_base ?? null, data.origin ?? 'project', data.origin_id ?? null, data.task_key ?? null);
       return getItem(id)!;
     })();
   }

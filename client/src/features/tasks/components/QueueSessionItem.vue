@@ -15,10 +15,9 @@
       <div class="session-text">
         <div class="session-title">
           <span class="agent">{{ agentName }}</span>
-          <code class="points" :title="session.points.join(', ')">{{ pointsText }}</code>
-          <span v-if="session.queueMode === 'review_first'" class="tag" title="Агент сначала изучает шаги без правок и ждёт вашей команды">сначала обсудить</span>
-          <span v-if="session.reviewerId" class="tag" :title="`Ревью: ${reviewerName}`">ревью</span>
-          <span v-if="session.permissionPolicy !== 'allow-all'" class="tag">{{ policyShort }}</span>
+          <code class="points" :title="(session.points ?? []).join(', ')">{{ pointsText }}</code>
+          <span v-if="session.kind !== 'review' && session.queueMode === 'review_first'" class="tag" title="Агент сначала изучает шаги без правок и ждёт вашей команды">сначала обсудить</span>
+          <span v-if="session.kind !== 'review' && session.permissionPolicy !== 'allow-all'" class="tag">{{ policyShort }}</span>
         </div>
         <div class="session-step" :title="stepsTitle">{{ firstStepText }}</div>
       </div>
@@ -44,16 +43,16 @@
     </div>
 
     <div v-if="session.status === 'complete' && codeLink" class="session-detail">
-      <AppButton variant="ghost" size="xs" title="Открыть изменения проекта на вкладке «Код»" @click.stop="viewChanges">Посмотреть изменения</AppButton>
+      <AppButton variant="ghost" size="xs" title="Открыть изменения проекта на вкладке «Код»" @click.stop="viewChanges">{{ session.kind === 'review' ? 'Открыть в «Коде»' : 'Посмотреть изменения' }}</AppButton>
     </div>
 
-    <div v-if="showSettings && editable" class="settings" @click.stop>
+    <QueueReviewItem v-if="showSettings && editable && session.kind === 'review'" :session="session" :agents="agents" @click.stop />
+    <div v-else-if="showSettings && editable" class="settings" @click.stop>
       <label><span>Агент</span><AppSelect :model-value="session.agentId" :options="agentOptions" size="sm" @update:model-value="patch({ agentId: $event, model: undefined, reasoningEffort: undefined })" /></label>
       <label v-if="modelChoices.length"><span>Модель</span><AppSelect :model-value="session.model ?? agent?.model ?? ''" :options="modelChoices" size="sm" placeholder="По умолчанию" @update:model-value="patch({ model: $event })" /></label>
       <label v-if="effortChoices.length"><span>Рассуждения</span><AppSelect :model-value="session.reasoningEffort ?? agent?.reasoning_effort ?? ''" :options="effortChoices" size="sm" placeholder="По умолчанию" @update:model-value="patch({ reasoningEffort: $event })" /></label>
       <label><span>Режим</span><AppSelect :model-value="session.queueMode" :options="MODE_OPTIONS" size="sm" @update:model-value="patch({ queueMode: $event as QueueSessionMode })" /></label>
       <label><span>Разрешения</span><AppSelect :model-value="session.permissionPolicy" :options="POLICY_OPTIONS" size="sm" heading="Опасные команды (rm -rf, git push --force и т. п.) всегда спрашиваются" @update:model-value="patch({ permissionPolicy: $event as ExecutionPolicy })" /></label>
-      <label><span>Ревью</span><AppSelect :model-value="session.reviewerId ?? ''" :options="reviewOptions" size="sm" @update:model-value="patch({ reviewerId: $event || undefined })" /></label>
     </div>
   </div>
 </template>
@@ -64,12 +63,13 @@ import { useRouter } from 'vue-router'
 import { useAppStore } from '@core/stores/app'
 import { codeTarget } from '@features/code'
 import type { Agent, ExecutionPolicy, OrchestratorQueueSession, PlanStep, QueueSessionMode, QueueStage } from '@core/models'
+import QueueReviewItem from './QueueReviewItem.vue'
 import AppButton from '@shared/ui/AppButton.vue'
 import AppSelect from '@shared/ui/AppSelect.vue'
 import AppMenu, { type MenuItem } from '@shared/ui/AppMenu.vue'
 import { useChatStore, modelAndEffort } from '@features/agent-chat'
 import { TaskQueueKey, liveSessionMenu } from '../composables/useTaskQueue'
-import { pointsLabel, MODE_OPTIONS, POLICY_OPTIONS, type SessionState } from '../utils/queue-status'
+import { pointsLabel, remarksLabel, MODE_OPTIONS, POLICY_OPTIONS, type SessionState } from '../utils/queue-status'
 
 const props = defineProps<{
   session: OrchestratorQueueSession
@@ -95,9 +95,7 @@ function viewChanges() { if (codeLink.value) void router.push(codeTarget(codeLin
 
 const agent = computed(() => props.agents.find(a => a.id === props.session.agentId))
 const agentName = computed(() => agent.value?.name ?? props.session.agentId)
-const reviewerName = computed(() => props.agents.find(a => a.id === props.session.reviewerId)?.name ?? '')
 const agentOptions = computed(() => props.agents.map(a => ({ value: a.id, label: a.name })))
-const reviewOptions = computed(() => [{ value: '', label: 'Без ревью' }, ...props.agents.map(a => ({ value: a.id, label: `Ревью: ${a.name}` }))])
 const options = computed(() => modelAndEffort(chatStore.agentOptions[props.session.agentId]))
 const modelChoices = computed(() => options.value.models)
 const effortChoices = computed(() => options.value.efforts)
@@ -105,14 +103,24 @@ watch([showSettings, () => props.session.agentId], ([open, id]) => {
   if (open && id && !chatStore.agentOptions[id]) void chatStore.fetchAgentOptions(id)
 })
 
-const pointsText = computed(() => pointsLabel(props.session.points))
-const sessionSteps = computed(() => props.session.points.map(p => props.steps.find(s => s.id === p)).filter((s): s is PlanStep => !!s))
+const pointsText = computed(() => props.session.kind === 'review' ? 'Ревью' : pointsLabel(props.session.points ?? []))
+const sessionSteps = computed(() => (props.session.points ?? []).map(p => props.steps.find(s => s.id === p)).filter((s): s is PlanStep => !!s))
+// What a review item will look at: the same point the developer sees in «Ветка», and a warning where the result would be misleading.
+const reviewText = computed(() => {
+  const s = props.session
+  if (s.status === 'complete') return `Ревью: ${remarksLabel(s.remarks ?? 0)}${s.remarks ? ' · черновики агента в «Коде»' : ''}`
+  const base = app.currentTask?.base_commit
+  const scope = base ? `изменения задачи от ${base.slice(0, 7)}` : 'изменения с момента запуска очереди'
+  const parallel = props.stage.sessions.some(x => x.id !== s.id && x.kind !== 'review' && x.status !== 'complete')
+  return `Проверит ${scope} · только чтение${parallel ? ' · в одном этапе с шагами увидит их незаконченную работу' : ''}`
+})
 const firstStepText = computed(() => {
+  if (props.session.kind === 'review') return reviewText.value
   const [first, ...rest] = sessionSteps.value
   if (!first) return 'Шаг удалён из плана'
   return rest.length ? `${first.text} и ещё ${rest.length}` : first.text
 })
-const stepsTitle = computed(() => sessionSteps.value.map(s => `${s.id}. ${s.text}`).join('\n'))
+const stepsTitle = computed(() => props.session.kind === 'review' ? reviewText.value : sessionSteps.value.map(s => `${s.id}. ${s.text}`).join('\n'))
 const policyShort = computed(() => props.session.permissionPolicy === 'ask' ? 'спрашивает всё' : 'только правки')
 
 const canDrag = computed(() => props.editable && props.session.status !== 'complete')
@@ -125,13 +133,16 @@ function onDragStart(e: DragEvent) {
 }
 
 function stageHint(st: QueueStage) {
-  return st.sessions.map(x => `${props.agents.find(a => a.id === x.agentId)?.name ?? x.agentId} · ${pointsLabel(x.points)}`).join(', ')
+  return st.sessions.map(x => `${props.agents.find(a => a.id === x.agentId)?.name ?? x.agentId} · ${x.kind === 'review' ? 'Ревью' : pointsLabel(x.points ?? [])}`).join(', ')
 }
 
 function patch(p: Partial<OrchestratorQueueSession>) { void queue.updateSession(props.session.id, p) }
 
 const menuItems = computed<MenuItem[]>(() => {
   const s = props.session
+  if (s.kind === 'review' && s.status === 'complete' && !queue.frozen.value && app.currentTask?.status !== 'done') {
+    return [{ label: 'Начать заново', hint: 'Добавить повторное ревью в конец очереди', action: () => queue.sessionAction(s.id, 'restart') }]
+  }
   if (props.editable) {
     const others = queue.stages.value
       .map((st, i) => ({ st, i }))

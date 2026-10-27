@@ -7,6 +7,8 @@ import { listAgents } from '../agents';
 import { groupMembers, listProjects } from '../projects';
 import { readItemContent, readOverrideContent, buildSkillFileContent } from './library-manager';
 
+const NON_SYNC_TYPES = new Set<LibraryItem['type']>(['plan-template', 'instruction-guide', 'code-fixer-instruction', 'commit-rules', 'review-skill', 'plan-review-skill']);
+
 const PLANGENT_MARKER_START = (slug: string) => `<!-- plangent:${slug}:start -->`;
 const PLANGENT_MARKER_END = (slug: string) => `<!-- plangent:${slug}:end -->`;
 
@@ -215,7 +217,7 @@ interface SyncTarget {
 }
 
 function targetsForItem(item: LibraryItem, agent: Agent, project: Project | null): SyncTarget[] {
-  if (item.type === 'plan-template' || item.type === 'instruction-guide' || item.type === 'code-fixer-instruction' || item.type === 'commit-rules' || item.type === 'review-skill') return [];
+  if (NON_SYNC_TYPES.has(item.type)) return [];
 
   const profile = getLayoutProfile(agent);
   if (!profile) return [];
@@ -256,6 +258,7 @@ function targetsForItem(item: LibraryItem, agent: Agent, project: Project | null
 }
 
 export function syncItem(item: LibraryItem): void {
+  if (NON_SYNC_TYPES.has(item.type)) return;
   if (!item.enabled) { unsyncItem(item); return; }
 
   const agents = listAgents(true);
@@ -280,13 +283,12 @@ export function syncItem(item: LibraryItem): void {
 
 /** Removes the item's files; `only` limits that to some projects (e.g. one that lost access to the item). */
 export function unsyncItem(item: LibraryItem, only?: Project[]): void {
+  if (NON_SYNC_TYPES.has(item.type)) return;
   const agents = listAgents(true);
   const projects = only ?? itemProjects(item);
 
   for (const agent of agents) {
     for (const project of projects) {
-      if (item.type === 'plan-template' || item.type === 'instruction-guide' || item.type === 'code-fixer-instruction' || item.type === 'commit-rules' || item.type === 'review-skill') continue;
-
       const profile = getLayoutProfile(agent);
       if (!profile) continue;
 

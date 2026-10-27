@@ -21,6 +21,7 @@
           <AppButton size="sm" variant="danger-ghost" @click="stop">■ Остановить</AppButton>
         </template>
         <template v-else>
+          <AppButton v-if="editable" size="sm" variant="ghost" :disabled="!agents.length" :title="agents.length ? 'Добавить в очередь проверку изменений задачи: агент только читает код, а замечания оставляет черновиками во вкладке «Код»' : 'Нет настроенных агентов'" @click="addReview">+ Ревью</AppButton>
           <AppButton v-if="pendingCount && !taskDone" size="sm" variant="primary" @click="$emit('start')">
             ▶ {{ resumable ? 'Продолжить' : 'Запустить' }}
           </AppButton>
@@ -40,7 +41,7 @@
 
     <div v-if="!stages.length" class="queue-empty">
       <template v-if="history.length">Предыдущая очередь выполнена — она в истории ниже. Добавьте шаги, чтобы собрать новую.</template>
-      <template v-else>Выберите шаги плана и добавьте их в очередь. Шаги одного этапа выполняются параллельно, этапы — по порядку.</template>
+      <template v-else>Выберите шаги плана и добавьте их в очередь. Шаги одного этапа выполняются параллельно, этапы — по порядку. Кнопка «+ Ревью» ставит в очередь проверку изменений задачи.</template>
     </div>
 
     <div v-if="editable && pendingCount > 1" class="queue-hint">
@@ -154,7 +155,7 @@ import { TaskQueueKey } from '../composables/useTaskQueue'
 import { queueStatusLabel, sessionState, stageColor } from '../utils/queue-status'
 import QueueSessionItem from './QueueSessionItem.vue'
 
-defineProps<{ agents: Agent[]; steps: PlanStep[]; selectedId: string | null; taskDone: boolean }>()
+const props = defineProps<{ agents: Agent[]; steps: PlanStep[]; selectedId: string | null; taskDone: boolean }>()
 defineEmits<{ select: [id: string]; open: [id: string]; start: [] }>()
 
 const queue = inject(TaskQueueKey)!
@@ -164,10 +165,14 @@ const chatStore = useChatStore()
 const stages = computed(() => queue.stages.value)
 const status = computed(() => queue.queue.value?.status ?? 'idle')
 const frozen = computed(() => queue.frozen.value)
-const editable = computed(() => !frozen.value)
+const editable = computed(() => !frozen.value && !props.taskDone)
+function addReview() {
+  const agentId = app.currentProject?.default_agent_id || props.agents[0]?.id
+  if (agentId) void queue.addSessions([{ kind: 'review', agentId, queueMode: 'execute', permissionPolicy: 'ask' }], 'new')
+}
 
 function chat(id?: string) { return id ? chatStore.sessions.find(c => c.id === id) : undefined }
-function stateOf(s: OrchestratorQueueSession) { return sessionState(s, chat(s.sessionId), chat(s.reviewSessionId)) }
+function stateOf(s: OrchestratorQueueSession) { return sessionState(s, chat(s.sessionId)) }
 const isFinished = (stage: QueueStage) => stage.sessions.every(s => s.status === 'complete')
 
 const states = computed(() => queue.sessions.value.map(stateOf))

@@ -20,7 +20,7 @@ test("Plangent's own tools pass under every policy, lookalikes do not", () => {
     ({ sessionId: 's', options: [], toolCall: { toolCallId: 't', kind: 'other', title, rawInput } });
   for (const policy of ['ask', 'allow-edits', 'read-only'] as const) {
     assert.equal(permissionDecision(policy, args({ summary: 'done' })), 'allow', policy);
-    assert.equal(permissionDecision(policy, args({ verdict: 'approved' })), 'allow', policy);
+    assert.equal(permissionDecision(policy, args({ verdict: 'approved' })), policy === 'read-only' ? 'deny' : 'ask', policy);
     assert.equal(permissionDecision(policy, args({})), 'allow', policy);
     assert.equal(permissionDecision(policy, request('other', 'mcp__plangent__complete_step')), 'allow', policy);
   }
@@ -56,7 +56,7 @@ test('edit policy only auto-approves known edit and read operations', () => {
 });
 
 test('shell git writes are denied for every role and policy', () => {
-  for (const role of [undefined, 'executor', 'reviewer', 'analyst', 'code-fixer', 'librarian', 'planner']) {
+  for (const role of [undefined, 'executor', 'analyst', 'code-fixer', 'librarian', 'planner']) {
     for (const policy of ['ask', 'allow-all', 'allow-edits', 'read-only'] as const) {
       for (const command of ['commit', 'push', 'merge', 'rebase', 'reset', 'checkout', 'switch', 'stash', 'tag', 'cherry-pick', 'am', 'apply --index', 'add', 'pull', 'clean', 'branch new', 'custom-alias']) {
         for (const prefix of ['git ', 'git -C "some repo" ', 'cmd /c git ', '& "C:\\Program Files\\Git\\bin\\git.exe" --literal-pathspecs '])

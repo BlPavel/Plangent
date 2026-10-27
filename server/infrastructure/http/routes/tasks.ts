@@ -1,4 +1,6 @@
 import { createTaskBranch } from '../../../core/tasks/git';
+import { captureTaskBaseCommit } from '../../../core/tasks/base-commit';
+import { getQueue, isFrozen } from '../../../core/orchestration/queue';
 import { Router, Request, Response } from 'express';
 import { listTasks, getTask, createTask, updateTask, deleteTask } from '../../../core/tasks';
 import { getProject, groupMembers } from '../../../core/projects';
@@ -9,6 +11,15 @@ import { closeSession } from '../../../core/agent-sessions/acp-host';
 import { deletePlanFile } from '../../../core/orchestration/plan-file';
 
 export const tasksRouter = Router({ mergeParams: true });
+
+tasksRouter.post('/:taskId/base-commit', async (req: Request, res: Response) => {
+  const task = getTask(req.params.taskId);
+  if (!task || task.project_id !== req.params.projectId) return res.status(404).json({ error: 'Not found' });
+  if (task.status === 'done' || isFrozen(getQueue(task.id, task.project_id)))
+    return res.status(409).json({ error: 'Точку отсчёта можно менять, пока очередь не запущена' });
+  try { res.json(await captureTaskBaseCommit(task.id, true)); }
+  catch (cause) { res.status(400).json({ error: cause instanceof Error ? cause.message : String(cause) }); }
+});
 
 tasksRouter.get('/', (req: Request, res: Response) => {
   const { projectId } = req.params;

@@ -1,3 +1,4 @@
+import { createPlannerSession } from '../../../core/orchestration/planner-session';
 import { getPlanFilePath } from '../../../core/orchestration/task-files';
 import { Router, Request, Response } from 'express';
 import { listRuns, getRun, createRun, updateRun, addCompletedStep, finishRun } from '../../../core/runs';
@@ -83,7 +84,7 @@ runsRouter.post('/', async (req: Request, res: Response) => {
     if (purpose === 'plan' || purpose === 'analysis') {
       // Nothing is sent yet: the briefing goes out, hidden, with the developer's first message.
       const { mode, config } = req.body;
-      const chat = createChat({ project_id: projectId, task_id: taskId, run_id: run.id, agent_id: agent.id, role: purpose === 'analysis' ? 'analyst' : 'planner', policy: 'read-only',
+      const chat = (purpose === 'plan' ? createPlannerSession : createChat)({ project_id: projectId, task_id: taskId, run_id: run.id, agent_id: agent.id, role: purpose === 'analysis' ? 'analyst' : 'planner', policy: 'read-only',
         model: agent.model, title: task.key + (purpose === 'analysis' ? ' · Анализ' : ' · Планирование'), metadata: { briefing: prompt, reasoningEffort: agent.reasoning_effort,
           ...(typeof mode === 'string' && mode ? { preferredMode: mode } : {}),
           ...(config && typeof config === 'object' ? { preferredConfig: Object.fromEntries(Object.entries(config).map(([k, v]) => [k, String(v)])) } : {}) } });

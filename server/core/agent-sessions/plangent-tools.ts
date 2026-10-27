@@ -2,6 +2,17 @@ import type { ToolCallUpdate } from '@agentclientprotocol/sdk';
 
 /** Tools the Plangent MCP server gives agents (served by infrastructure/mcp/server.ts). */
 export const plangentTools = {
+  get_task_review_brief: { description: 'Read task review protocol, skill, captured task diff, analysis, plan, executor reports and existing branch review items. Call first.', fields: {} },
+  add_task_remark: { description: 'Create an agent draft in Code. Lines refer to the current worktree. Invalid lines become file remarks.', fields: {
+    scope: { type: 'string', enum: ['line', 'file', 'general'] }, kind: { type: 'string', enum: ['fix', 'question'] }, text: { type: 'string' },
+    file: { type: 'string' }, line_start: { type: 'integer', minimum: 1 }, line_end: { type: 'integer', minimum: 1 },
+  } },
+  submit_task_review: { description: 'Complete the task review with a short summary. The queue continues without waiting for findings to be resolved.', fields: { summary: { type: 'string' } } },
+  get_plan_review_brief: { description: 'Read review protocol, plan, analysis, skill, wish and decision history. Call first.', fields: {} },
+  set_plan_review_overview: { description: 'Finish review: save overview and coverage; missing/partial rows link to cards.', fields: { overview: { type: 'string' }, coverage: { type: 'array', items: { type: 'object', required: ['requirement', 'steps', 'status'], properties: { requirement: { type: 'string' }, steps: { type: 'array', items: { type: 'string' } }, status: { type: 'string', enum: ['covered', 'missing', 'partial'] }, remark_id: { type: 'string' } } } } } },
+  add_plan_remark: { description: 'Create a plan card. steps: existing pN ids, [] for the whole plan.', fields: { steps: { type: 'array', items: { type: 'string' } }, kind: { type: 'string', enum: ['contradiction', 'order', 'coverage', 'extra', 'unclear', 'risk'] }, text: { type: 'string' }, suggestion: { type: 'string' } } },
+  get_plan_review_items: { description: 'Read assigned cards with threads and decisions. Call get_plan first.', fields: {} },
+  reply_plan_remark: { description: 'Reply in an assigned card. Explain using current pN ids.', fields: { id: { type: 'string' }, kind: { type: 'string', enum: ['answer', 'options', 'questions', 'change', 'disagree'] }, text: { type: 'string' } } },
   get_finish_context: { description: 'Read changed files, diffs, commit rules, task context, options and user revision note. Call first.', fields: {} },
   set_commits: { description: 'Submit the full commit list. Include each changed file exactly once. Plangent creates commits. Correct errors and retry.', fields: {
     commits: { type: 'array', minItems: 1, items: { type: 'object', additionalProperties: false, required: ['files','title'], properties: {
@@ -17,7 +28,7 @@ export const plangentTools = {
     fields: { proposal: { type: 'object', additionalProperties: false,
       required: ['action', 'type', 'slug', 'title', 'content', 'explanation'],
       properties: {
-        action: { type: 'string', enum: ['create', 'update'] }, type: { type: 'string', enum: ['skill', 'main', 'command', 'review-skill'] },
+        action: { type: 'string', enum: ['create', 'update'] }, type: { type: 'string', enum: ['skill', 'main', 'command', 'review-skill', 'plan-review-skill'] },
         slug: { type: 'string' }, title: { type: 'string' }, description: { type: 'string' }, frontmatter: { type: 'object' },
         content: { type: 'string' }, explanation: { type: 'string' }, item_id: { type: 'string' },
         scope: { type: 'string', enum: ['global', 'project'] }, targets: { type: 'array', items: { type: 'string' } },
@@ -52,9 +63,6 @@ export const plangentTools = {
     description: 'Report one conflicted file. outcome resolved: you merged it, no conflict markers left; text says only which conflict it was and how you resolved it, no next steps. question: you are unsure; text is your question. recommend: it cannot be fixed by editing text (deleted on one side, binary, lock file); text is your advice.',
     fields: { path: { type: 'string' }, outcome: { type: 'string', enum: ['resolved', 'question', 'recommend'] }, text: { type: 'string' } },
   },
-  get_review_context: { description: 'Get assigned plan and executor context.', fields: {} },
-  add_finding: { description: 'Report a review finding.', fields: { file: { type: 'string' }, line: { type: 'integer', minimum: 1 }, severity: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] }, message: { type: 'string' } } },
-  submit_review: { description: 'Submit review verdict.', fields: { verdict: { type: 'string', enum: ['approved', 'changes_requested'] } } },
   get_analysis: { description: 'Get analysis sections, descriptions and attachment paths. Call before analyzing.', fields: {} },
   save_section: {
     description: 'Save an analysis section. Omit slug to create; supply existing slug to update. Defaults to worked, author agent. Source or developer material edits require an explicit developer request and source_requested=true.',
@@ -89,6 +97,10 @@ export function isPlangentToolCall(tool: Pick<ToolCallUpdate, 'title' | 'kind' |
   if (title !== JSON.stringify(input)) return false;
   if ('title' in input && 'description' in input &&
     Object.keys(input).every(key => key in plangentTools.save_section.fields)) return true;
+  if ('steps' in input && 'kind' in input && 'text' in input &&
+    Object.keys(input).every(key => key in plangentTools.add_plan_remark.fields)) return true;
+  if ('scope' in input && 'kind' in input && 'text' in input &&
+    Object.keys(input).every(key => key in plangentTools.add_task_remark.fields)) return true;
   // A remark on the whole MR leaves out path, line and side.
   if ('text' in input &&
     Object.keys(input).every(key => key in plangentTools.add_review_remark.fields)) return true;

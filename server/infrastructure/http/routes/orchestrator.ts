@@ -6,7 +6,7 @@ import { getTask, updateTask } from '../../../core/tasks';
 import { getProject } from '../../../core/projects';
 import { getAgent } from '../../../core/agents';
 import { Orchestrator, getOrchestrator } from '../../../core/orchestration/orchestrator';
-import { getQueue, saveQueue, replaceStages, isFrozen, blockedQueues, activeQueues, StageInput } from '../../../core/orchestration/queue';
+import { getQueue, saveQueue, replaceStages, repeatReview, isFrozen, blockedQueues, activeQueues, StageInput } from '../../../core/orchestration/queue';
 import { deletePlanFile, materializePlanFile } from '../../../core/orchestration/plan-file';
 import { materializeTaskAnalysis } from '../../../core/orchestration/analysis';
 import { getLatestPlan, parsePlanSteps } from '../../../core/orchestration/plans';
@@ -22,7 +22,7 @@ queuesRouter.get('/active', (_req: Request, res: Response) => res.json(activeQue
 
 function taskQueue(req: Request, res: Response) {
   const { projectId, taskId } = req.params;
-  if (!getProject(projectId) || !getTask(taskId)) { res.status(404).json({ error: 'Task not found' }); return null; }
+  if (!getProject(projectId) || getTask(taskId)?.project_id !== projectId) { res.status(404).json({ error: 'Task not found' }); return null; }
   return getOrchestrator(taskId)?.queue ?? getQueue(taskId, projectId);
 }
 
@@ -87,7 +87,17 @@ orchestratorRouter.post('/queue/resume', withOrchestrator(orch => orch.resume())
 orchestratorRouter.post('/queue/sessions/:sessionId/complete', withOrchestrator((orch, req) => orch.manualComplete(req.params.sessionId)));
 orchestratorRouter.post('/queue/sessions/:sessionId/execute', withOrchestrator((orch, req) => orch.executeReadySession(req.params.sessionId)));
 orchestratorRouter.post('/queue/sessions/:sessionId/skip', withOrchestrator((orch, req) => orch.skipSession(req.params.sessionId)));
-orchestratorRouter.post('/queue/sessions/:sessionId/restart', withOrchestrator((orch, req) => orch.restartSession(req.params.sessionId)));
+orchestratorRouter.post('/queue/sessions/:sessionId/restart', async (req: Request, res: Response) => {
+  const queue = taskQueue(req, res);
+  if (!queue) return;
+  if (getTask(req.params.taskId)?.status === 'done') return res.status(409).json({ error: 'Задача завершена' });
+  const orch = getOrchestrator(req.params.taskId);
+  try {
+    if (orch) { await orch.restartSession(req.params.sessionId); return res.json(orch.queue); }
+    if (!repeatReview(queue, req.params.sessionId)) return res.status(409).json({ error: 'Нет завершённого ревью для повторного запуска' });
+    return res.json(saveQueue(queue));
+  } catch (error) { return res.status(400).json({ error: String(error instanceof Error ? error.message : error) }); }
+});
 
 // POST /projects/:projectId/tasks/:taskId/done
 // Mark task done — delete plan file, keep DB records

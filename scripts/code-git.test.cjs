@@ -172,6 +172,48 @@ test('branch picker refreshes origin, switches remote branches, preserves the ch
   } finally { screen.close() }
 })
 
+test('task branches use the shared picker, bind the current branch, save created branches and respect write locks', async () => {
+  const calls = [], saves = []
+  const task = reactive({ id: 't', key: 'TASK-1', branch_name: 'old', base_commit: 'a'.repeat(40) })
+  const refs = [{ name: 'main', ref: 'refs/heads/main', remote: false }]
+  const git = reactive({ projectId: 'p', repository: { branch: 'main', head: 'b'.repeat(40) }, branches: refs, settings: { branch_prefixes: [], base_branch: 'main' }, writeBlocked: '',
+    start: async () => {}, stop: () => {}, refreshBranches: async () => refs,
+    run: async (action, data) => { calls.push([action, data]); git.repository.branch = data.branch ?? data.name },
+  })
+  const picker = component('client/src/features/code/components/BranchPicker.vue', {
+    '../stores/git': { useGitStore: () => git }, '@shared/ui/BranchNameInput.vue': { default: BranchNameStub }, '@shared/ui/BranchSelect.vue': { default: BranchSelectStub },
+  })
+  const comp = component('client/src/features/tasks/components/TaskGit.vue', {
+    '@features/code': { BranchPicker: picker, useGitStore: () => git },
+    '@shared/utils/errorText': { errorText: String },
+    '@core/api': { api: {
+      patch: async (url, data) => { saves.push([url, data]); return { ...task, ...data } },
+      post: async url => { saves.push([url]); return { ...task, base_commit: git.repository.head } },
+    } },
+  })
+  const screen = mount(comp, { projectId: 'p', task, onUpdated: updated => Object.assign(task, updated) })
+  try {
+    assert.match(screen.root.textContent, /Вы на ветке main, задача на old/)
+    button(screen.root, 'Выбрать / создать').click(); await settle()
+    screen.root.querySelector('.item').click(); await settle()
+    assert.equal(task.branch_name, 'main')
+    assert.equal(calls.length, 0, 'binding the current branch does not switch again')
+    assert.equal(saves[0][0], '/projects/p/tasks/t')
+    button(screen.root, 'Выбрать / создать').click(); await settle()
+    input(screen.root.querySelector('[aria-label="Имя новой ветки"]'), 'feature/task'); await nextTick()
+    screen.root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await settle()
+    assert.equal(calls.at(-1)[0], 'branch')
+    assert.equal(task.branch_name, 'feature/task')
+    assert.equal(screen.root.querySelector('.tg-warning'), null)
+    button(screen.root, 'Считать от текущего коммита').click(); await settle()
+    assert.equal(task.base_commit, 'b'.repeat(40))
+    assert.equal(saves.at(-1)[0], '/projects/p/tasks/t/base-commit')
+    git.writeBlocked = 'Идёт rebase'; await nextTick()
+    assert.ok(button(screen.root, 'Выбрать / создать').disabled)
+    assert.ok(button(screen.root, 'Считать от текущего коммита').disabled)
+  } finally { screen.close() }
+})
+
 function finishPanel(store, git) {
   git.refreshBranches = async () => git.branches
   return component('client/src/features/finish/components/FinishPanel.vue', {

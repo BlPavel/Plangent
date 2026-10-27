@@ -4,6 +4,8 @@
       <span class="it-dot" :title="label" />
       <span class="it-kind" :title="item.kind === 'question' ? 'Вопрос' : 'Замечание'">{{ item.kind === 'question' ? '?' : '!' }}</span>
       <span v-if="location" class="it-loc">{{ location }}</span>
+      <span v-if="item.author === 'agent'" class="it-flag">агент</span>
+      <span v-if="item.author === 'agent' && item.origin === 'task'" class="it-flag">ревью задачи{{ item.task_key ? ' ' + item.task_key : '' }}</span>
       <span class="it-summary">{{ summary }}</span>
       <span v-if="permissions.length" class="it-flag" title="Агент ждёт вашего разрешения">разрешение</span>
       <span class="it-status">{{ label }}</span>
@@ -13,8 +15,8 @@
       <pre v-if="item.outdated && item.code_snippet" class="it-snippet" title="Код, к которому относилось замечание">{{ item.code_snippet }}</pre>
       <div v-if="item.outdated" class="it-note">Код изменился, строка не найдена. Удалите пункт или превратите его в общий.</div>
 
-      <div class="it-msg developer">
-        <div class="it-msg-head">Вы · {{ item.kind === 'question' ? 'вопрос' : 'замечание' }}</div>
+      <div class="it-msg" :class="item.author">
+        <div class="it-msg-head">{{ item.author === 'agent' ? 'Агент' : 'Вы' }} · {{ item.kind === 'question' ? 'вопрос' : 'замечание' }}</div>
         <MessageMarkdown :text="item.text" />
         <div v-if="item.refs.length" class="it-refs">
           <button v-for="target in item.refs" :key="target" type="button" class="it-ref" :title="'Открыть: ' + target" @click="emit('open-ref', target)">@{{ target }}</button>

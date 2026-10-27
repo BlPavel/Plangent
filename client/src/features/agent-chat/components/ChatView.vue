@@ -57,15 +57,6 @@
               <span>{{ entry.content }}</span>
             </div>
           </div>
-          <div v-else-if="row.type === 'add_finding'" class="card finding">
-            <span class="finding-severity" :class="row.payload.severity">{{ severityLabel(String(row.payload.severity)) }}</span>
-            <code class="finding-loc">{{ row.payload.file }}:{{ row.payload.line }}</code>
-            <div class="finding-message">{{ row.payload.message }}</div>
-          </div>
-          <div v-else-if="row.type === 'submit_review'" class="card verdict" :class="row.payload.verdict">
-            {{ row.payload.verdict === 'approved' ? '✓ Ревью одобрено' : '↻ Нужны исправления' }}
-          </div>
-          <slot v-else-if="cards?.includes(row.type)" name="card" :event="row" />
           <div v-else-if="NOTICES[row.type]" class="card notice" :class="row.type">
             <div class="card-label">{{ NOTICES[row.type] }}</div>
             <div class="notice-text">{{ row.payload.summary ?? row.payload.question ?? row.payload.note ?? row.payload.text ?? '' }}</div>
@@ -162,7 +153,6 @@ let follow = true
 let pendingId = 0
 
 const NOTICES: Record<string, string> = { notice: 'Сессия перезапущена', complete_step: 'Шаг завершён', request_help: 'Агенту нужна помощь', report_progress: 'Прогресс', submit_plan: 'План' }
-const severityLabel = (severity: string) => ({ low: 'Низкая', medium: 'Средняя', high: 'Высокая', critical: 'Критично' }[severity] ?? severity)
 
 const agentName = computed(() => agents.agents.find(a => a.id === snap.value?.session.agent_id)?.name ?? '')
 const busy = computed(() => ['thinking', 'starting'].includes(snap.value?.session.status ?? ''))
@@ -342,15 +332,4 @@ kbd { font-family: inherit; font-size: 11px; padding: 1px 5px; border: 1px solid
 .queue-label { font-size: 11px; font-weight: 600; color: var(--warning-text); white-space: nowrap; }
 .queue-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); }
 
-.finding { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; border-left: 3px solid var(--border-strong); }
-.finding-severity { font-size: 10px; font-weight: 600; padding: 1px 7px; border-radius: 8px; border: 1px solid var(--border); color: var(--text-muted); white-space: nowrap; }
-.finding-severity.low { border-color: var(--text-muted); }
-.finding-severity.medium { border-color: var(--warning); color: var(--warning); }
-.finding-severity.high { border-color: var(--danger-hover); color: var(--danger-hover); }
-.finding-severity.critical { border-color: var(--danger); color: #fff; background: var(--danger); }
-.finding-loc { font-family: 'Cascadia Code', 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-muted); }
-.finding-message { flex-basis: 100%; font-size: 13px; }
-.verdict { font-weight: 600; text-align: center; }
-.verdict.approved { color: var(--accent-hover); }
-.verdict.changes_requested { color: var(--warning); }
 </style>

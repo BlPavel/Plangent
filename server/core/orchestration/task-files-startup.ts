@@ -21,7 +21,10 @@ export function initTaskFile(task: Task): void {
   const plan = getLatestPlan(task.id) ?? (fs.existsSync(file)
     ? createPlan({ task_id: task.id, content: fs.readFileSync(file, 'utf8') }) : null);
   if (plan) {
-    if (fs.existsSync(file)) updatePlan(plan.id, fs.readFileSync(file, 'utf8'));
+    if (fs.existsSync(file)) {
+      const content = fs.readFileSync(file, 'utf8');
+      if (content !== plan.content) updatePlan(plan.id, content);
+    }
     materializePlanFile(task, getLatestPlan(task.id)!, project.repo_path);
     watchPlanFile(task, plan.id, project.repo_path);
   }

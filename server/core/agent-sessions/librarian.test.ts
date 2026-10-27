@@ -53,7 +53,7 @@ test('librarian HTTP and MCP workflow keeps files read-only and briefs the first
     assert.equal(session.role, 'librarian');
     assert.equal(session.policy, 'read-only');
     assert.deepEqual(allowed(sessions.getSession(id)), ['get_library', 'get_library_item', 'propose_library_change']);
-    for (const role of ['chat', 'analyst', 'planner', 'executor', 'reviewer'] as const)
+    for (const role of ['chat', 'analyst', 'planner', 'executor'] as const)
       assert.ok(!allowed({ ...sessions.getSession(id), role }).includes('get_library'));
     assert.equal((await json('/sessions/' + id, { policy: 'allow-all' }, 'PATCH')).status, 400);
     assert.equal((await json('/sessions', { project_id: project.id, agent_id: agent.id, role: 'executor' })).status, 400);

@@ -70,23 +70,30 @@ test('stdio ACP lifecycle persists coalesced messages, serializes queue, resolve
       const plannerMcp = sessionMcpConfig(planner, true)[0] as { url: string; headers: { name: string; value: string }[] };
       const plannerHeaders = Object.fromEntries(plannerMcp.headers.map(h => [h.name, h.value]));
       const tools = (await (await call(plannerHeaders, 'tools/list')).json() as { result: { tools: { name: string }[] } }).result.tools.map(t => t.name);
-      assert.deepEqual(tools, ['get_plan', 'submit_plan']);
+      assert.deepEqual(tools, ['get_plan', 'submit_plan', 'get_plan_review_items', 'reply_plan_remark']);
       repository.updateSession(planner.id, { status: 'thinking' });
       const empty = await (await call(plannerHeaders, 'tools/call', { name: 'submit_plan', arguments: { content: 'just prose' } })).json() as { result: { isError?: boolean } };
       assert.equal(empty.result.isError, true);
       await call(plannerHeaders, 'tools/call', { name: 'submit_plan', arguments: { content: '# Plan\n- [ ] (p7) Invented id\n- [ ] Second' } });
       const { getLatestPlan } = await import('../orchestration/plans');
       assert.match(getLatestPlan(planTask.id)!.content, /- \[ \] \(p1\) Invented id\n- \[ \] \(p2\) Second/);
+      assert.equal(getLatestPlan(planTask.id)!.author, 'agent');
+      assert.equal(getLatestPlan(planTask.id)!.session_id, planner.id);
       assert.ok(fs.existsSync(path.join(temp, '.plangent', 'PLAN-TEST', 'plan.md')));
       await call(plannerHeaders, 'tools/call', { name: 'submit_plan', arguments: { content: '- [ ] (p1) Invented id\n- [ ] Inserted\n- [x] (p2) Second' } });
       assert.match(getLatestPlan(planTask.id)!.content, /\(p1\) Invented id\n- \[ \] \(p2\) Inserted\n- \[x\] \(p3\) Second/);
       (await import('../orchestration/plan-file')).stopWatchPlanFile(planTask.id);
       const task = createTask({ project_id: project.id, key: 'ACP-TEST' });
       createPlan({ task_id: task.id, content: '- [ ] (p1) First\n- [ ] (p2) Second' });
-      const queue = queues.saveQueue(queues.replaceStages(queues.getQueue(task.id, project.id), [
-        { sessions: [{ points: ['p1'], agentId: agent.id, reviewerId: agent.id }] },
+      queues.saveQueue(queues.replaceStages(queues.getQueue(task.id, project.id), [
+        { sessions: [{ points: ['p1'], agentId: agent.id }] },
         { sessions: [{ points: ['p2'], agentId: agent.id }] },
       ]));
+      const legacy = queues.getQueue(task.id, project.id);
+      Object.assign(legacy.stages[0].sessions[0], { reviewerId: agent.id, reviewSessionId: 'old-chat', reviewRound: 1, maxReviewRounds: 2 });
+      getDb().prepare('UPDATE task_queues SET data=? WHERE task_id=?').run(JSON.stringify(legacy), task.id);
+      const queue = queues.getQueue(task.id, project.id);
+      assert.ok(!Object.keys(queue.stages[0].sessions[0]).some(key => key.startsWith('review')));
       const orch = new Orchestrator(queue);
       await orch.start();
       await until(() => queue.status === 'finished');
@@ -94,7 +101,8 @@ test('stdio ACP lifecycle persists coalesced messages, serializes queue, resolve
       assert.equal(queue.stages.length, 0);
       const ran = queue.history![0].stages.flatMap(st => st.sessions);
       assert.deepEqual(ran.map(s => s.status), ['complete', 'complete']);
-      assert.equal(ran[0].reviewRound, 1);
+      assert.ok(!Object.keys(ran[0]).some(key => key.startsWith('review')));
+      assert.equal(repository.listSessions(project.id).filter(s => s.task_id === task.id).length, 2);
       // The protocol goes as a hidden briefing: the chat shows only the steps.
       const executorFirst = repository.history(ran[0].sessionId!).find(e => e.type === 'user')!;
       assert.equal(executorFirst.payload.briefing, true);

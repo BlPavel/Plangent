@@ -4,7 +4,7 @@ import { useAppStore } from '@core/stores/app'
 import type { OrchestratorQueueSession, PlanStep, QueueStage, TaskQueue } from '@core/models'
 import type { MenuItem } from '@shared/ui/AppMenu.vue'
 
-export type NewQueueSession = Pick<OrchestratorQueueSession, 'points' | 'agentId' | 'queueMode' | 'permissionPolicy' | 'model' | 'reasoningEffort'>
+export type NewQueueSession = Pick<OrchestratorQueueSession, 'kind' | 'skillId' | 'points' | 'agentId' | 'queueMode' | 'permissionPolicy' | 'model' | 'reasoningEffort'>
 /** Where to put sessions: a new stage at the end, or an existing stage (runs in parallel with it). */
 export type StageTarget = 'new' | string
 export type SessionAction = 'complete' | 'execute' | 'skip' | 'restart'
@@ -30,7 +30,7 @@ export function useTaskQueue(projectId: Ref<string | undefined>, taskId: Ref<str
   const frozen = computed(() => queue.value?.status === 'running' || queue.value?.status === 'paused')
   const pending = computed(() => sessions.value.filter(s => s.status !== 'complete'))
   // Points taken by a session that has not finished yet (they cannot be queued twice).
-  const assigned = computed(() => new Set(pending.value.flatMap(s => s.points)))
+  const assigned = computed(() => new Set(pending.value.flatMap(s => s.points ?? [])))
 
   async function load() {
     if (!projectId.value || !taskId.value) return

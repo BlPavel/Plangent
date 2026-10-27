@@ -120,7 +120,7 @@ watch(steps, list => {
 })
 
 function stageOf(s: PlanStep) {
-  const i = queue.stages.value.findIndex(st => st.sessions.some(x => x.status !== 'complete' && x.points.includes(s.id ?? '')))
+  const i = queue.stages.value.findIndex(st => st.sessions.some(x => x.status !== 'complete' && x.points?.includes(s.id ?? '')))
   return i >= 0 ? i + 1 : 0
 }
 

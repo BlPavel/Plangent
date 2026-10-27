@@ -34,6 +34,9 @@ export interface CodeReviewItem {
   review_id: string;
   round_id: string | null;
   author: 'developer' | 'agent';
+  origin?: CodeReviewOrigin;
+  origin_id?: string | null;
+  task_key?: string | null;
   scope: 'line' | 'file' | 'general';
   file: string | null;
   line_start: number | null;

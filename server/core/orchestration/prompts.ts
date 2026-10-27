@@ -1,6 +1,7 @@
 import { analysisToolContext, selectedAnalysisContext } from './analysis-context';
 import { PLAN_PROTOCOL_LOCKED } from '../library/plan-template';
 import { REVIEW_SKILL_AUTHORING } from '../library/review-skill';
+import { PLAN_REVIEW_SKILL_AUTHORING } from '../library/plan-review-skill';
 /** Hidden librarian instructions; the authoring guide itself comes from get_library. */
 export function buildLibrarianPrompt(projectName: string): string {
   return [
@@ -12,6 +13,7 @@ export function buildLibrarianPrompt(projectName: string): string {
     'For a shared group item, propose a separate project copy; do not change the shared original.',
     'After submitting, briefly explain your choice and wait for feedback. The developer applies or rejects proposals.',
     REVIEW_SKILL_AUTHORING,
+    PLAN_REVIEW_SKILL_AUTHORING,
     '',
     "Developer's message:",
   ].join('\n');
@@ -196,12 +198,3 @@ export function buildPrompt(ctx: RunContext): string {
 
 
 export const EXECUTION_REPORT = '\nWhen all assigned steps are done, call the Plangent MCP complete_step tool with a summary. If blocked, call request_help. Do not rely on plan checkboxes as completion signals.';
-
-/** Hidden reviewer briefing; the visible message only lists the steps to check. */
-export const REVIEW_BRIEFING = '[Plangent] You review the changes made for the plan steps listed below. Do not edit files. Use get_review_context, inspect the files, report actionable findings with add_finding and finish with submit_review (approved or changes_requested).';
-
-/** Review findings handed back to the executor, readable in the chat. */
-export function reviewFixMessage(findings: Record<string, unknown>[]): string {
-  const lines = findings.map(f => `- ${f.file}:${f.line} — ${f.message}`);
-  return `Ревью нашло замечания — исправь их:\n${lines.join('\n') || '- (без подробностей, см. ревью)'}\n\nКогда закончишь, снова отчитайся через complete_step.`;
-}

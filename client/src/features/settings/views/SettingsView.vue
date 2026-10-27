@@ -101,7 +101,7 @@
     <!-- Review skills (global) -->
     <div v-if="tab === 'review-skills'" class="tab-body">
       <p class="hint">Глобальные скиллы ревью доступны во всех проектах. Скиллы под конкретный проект пишутся во вкладке «Инструкции» → «Ревью» внутри проекта, в том числе вместе с агентом.</p>
-      <SkillsManager scope="global" :allowed-types="['review-skill']" />
+      <SkillsManager scope="global" :allowed-types="['review-skill', 'plan-review-skill']" />
     </div>
 
     <!-- Commit message rules (global) -->

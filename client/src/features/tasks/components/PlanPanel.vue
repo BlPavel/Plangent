@@ -1,128 +1,138 @@
-<template>
-  <div class="plan-tab">
-    <!-- Planning with an agent: plan on the left, chat on the right, header always visible -->
-    <template v-if="!readonly && planningOpen">
-      <header class="planning-bar">
-        <div class="planning-status" :class="{ live: planningLive }">
-          <span class="planning-dot" />
-          {{ planningLive ? 'Идёт планирование с агентом' : 'Планирование с агентом' }}
-        </div>
-        <span v-if="plan?.steps.length" class="planning-meta">{{ plan.steps.length }} {{ stepsWord(plan.steps.length) }}</span>
-        <div class="planning-actions">
-          <AppButton variant="ghost" size="sm" title="Вернуться к плану. Чаты сохранятся" @click="$emit('closePlanning')">Закрыть</AppButton>
-          <AppButton
-            variant="primary"
-            size="sm"
-            :disabled="!plan?.steps.length"
-            :title="plan?.steps.length ? 'Остановить агентов и зафиксировать план. Чаты сохранятся' : 'Плана пока нет'"
-            @click="$emit('approvePlan')"
-          >✓ Утвердить план</AppButton>
-        </div>
-      </header>
-
-      <div ref="split" class="planning-split" :class="{ dragging }">
-        <section class="plan-pane" :style="{ flexBasis: `${share}%` }">
-          <MessageMarkdown v-if="planText" class="plan-doc" :text="planText" />
-          <div v-else class="plan-waiting">
-            {{ planningLive ? 'Ожидаем план от агента…' : 'План появится здесь, когда агент его составит' }}
+﻿<template>
+  <div class="plan-tab" :class="{ 'with-review': plan && reviewOpen }">
+    <div ref="planMain" class="plan-main">
+      <!-- Planning with an agent: plan on the left, chat on the right, header always visible -->
+      <template v-if="!readonly && planningOpen">
+        <header class="planning-bar">
+          <div class="planning-status" :class="{ live: planningLive }">
+            <span class="planning-dot" />
+            {{ planningLive ? 'Идёт планирование с агентом' : 'Планирование с агентом' }}
           </div>
-        </section>
-        <div
-          class="splitter"
-          role="separator"
-          aria-orientation="vertical"
-          title="Потяните, чтобы изменить ширину. Двойной клик — поровну"
-          @pointerdown="startDrag"
-          @dblclick="setShare(50)"
-        />
-        <TaskChats
-          class="chat-pane"
-          label="План"
-          :chats="planningChats"
-          :selected="selectedPlanningChat"
-          :initials="initials"
-          :draft-text="planningMessage"
-          @select="$emit('selectPlanningChat', $event)"
-          @remove="(id, name) => $emit('removePlanningChat', id, name)"
-        >
-          <template #new>
-            <NewChatPanel
-              :project-id="projectId"
-              :default-agent-id="defaultAgentId"
-              title="Планирование"
-              :text="plan ? 'Скажите, что изменить в плане. Агент изучит код и обновит план — в проекте он ничего не меняет.' : 'Опишите задачу — агент изучит код и составит план. В проекте он ничего не меняет, план появится слева.'"
-              :placeholder="plan ? 'Что изменить в плане…' : 'Опишите задачу…  @ — файл'"
-              fixed-policy="read-only"
-              :initial-text="planningMessage"
-              :busy="planningLaunching"
-              :error="planningError"
-              @start="$emit('launchPlanning', $event)"
-            />
-          </template>
-        </TaskChats>
-      </div>
-    </template>
+          <span v-if="plan?.steps.length" class="planning-meta">{{ plan.steps.length }} {{ stepsWord(plan.steps.length) }}</span>
+          <div class="planning-actions">
+            <AppButton v-if="plan" variant="ghost" size="sm" :class="{ on: reviewOpen }" title="Показать или скрыть ревью плана справа" @click="reviewOpen = !reviewOpen">Ревью плана{{ attention ? ` (${attention})` : '' }}</AppButton>
+            <AppButton variant="ghost" size="sm" title="Вернуться к плану. Чаты сохранятся" @click="$emit('closePlanning')">Закрыть</AppButton>
+            <AppButton
+              variant="primary"
+              size="sm"
+              :disabled="!plan?.steps.length"
+              :title="plan?.steps.length ? 'Остановить агентов и зафиксировать план. Чаты сохранятся' : 'Плана пока нет'"
+              @click="$emit('approvePlan')"
+            >✓ Утвердить план</AppButton>
+          </div>
+        </header>
 
-    <!-- Empty state — no plan yet -->
-    <div v-else-if="!plan && (!editingPlan || readonly)" class="plan-tab-content">
-      <div class="plan-panel-header">
-        <div class="progress-line"><span>Плана пока нет</span></div>
-        <div v-if="!readonly" class="plan-header-actions">
-          <AppButton variant="primary" size="sm" @click="$emit('openPlanning')">▸ Составить план с агентом</AppButton>
-          <AppButton variant="ghost" size="sm" @click="$emit('startManualEdit')">Написать вручную</AppButton>
+        <div ref="split" class="planning-split" :class="{ dragging }">
+          <section class="plan-pane" :style="{ flexBasis: `${share}%` }">
+            <nav v-if="plan?.steps.length" class="review-step-nav" aria-label="Шаги плана">
+              <button v-for="s in plan.steps" :key="s.id ?? s.index" type="button" :data-step-id="s.id" :title="s.id && remarkCounts[s.id] ? `Открытых замечаний ревью плана: ${remarkCounts[s.id]}` : ''" :class="{ highlighted: !!s.id && highlighted.includes(s.id) }" @click="s.id && focusStepCard(s.id)">{{ s.id }}<span v-if="s.id && remarkCounts[s.id]"> ⚠{{ remarkCounts[s.id] }}</span></button>
+            </nav>
+            <MessageMarkdown v-if="planText" class="plan-doc" :text="planText" />
+            <div v-else class="plan-waiting">
+              {{ planningLive ? 'Ожидаем план от агента…' : 'План появится здесь, когда агент его составит' }}
+            </div>
+          </section>
+          <div
+            class="splitter"
+            role="separator"
+            aria-orientation="vertical"
+            title="Потяните, чтобы изменить ширину. Двойной клик — поровну"
+            @pointerdown="startDrag"
+            @dblclick="setShare(50)"
+          />
+          <TaskChats
+            class="chat-pane"
+            label="План"
+            :chats="planningChats"
+            :selected="selectedPlanningChat"
+            :initials="initials"
+            :draft-text="planningMessage"
+            @select="$emit('selectPlanningChat', $event)"
+            @remove="(id, name) => $emit('removePlanningChat', id, name)"
+          >
+            <template #new>
+              <NewChatPanel
+                :project-id="projectId"
+                :default-agent-id="defaultAgentId"
+                title="Планирование"
+                :text="plan ? 'Скажите, что изменить в плане. Агент изучит код и обновит план — в проекте он ничего не меняет.' : 'Опишите задачу — агент изучит код и составит план. В проекте он ничего не меняет, план появится слева.'"
+                :placeholder="plan ? 'Что изменить в плане…' : 'Опишите задачу…  @ — файл'"
+                fixed-policy="read-only"
+                :initial-text="planningMessage"
+                :busy="planningLaunching"
+                :error="planningError"
+                @start="$emit('launchPlanning', $event)"
+              />
+            </template>
+          </TaskChats>
+        </div>
+      </template>
+
+      <!-- Empty state — no plan yet -->
+      <div v-else-if="!plan && (!editingPlan || readonly)" class="plan-tab-content">
+        <div class="plan-panel-header">
+          <div class="progress-line"><span>Плана пока нет</span></div>
+          <div v-if="!readonly" class="plan-header-actions">
+            <AppButton variant="primary" size="sm" @click="$emit('openPlanning')">▸ Составить план с агентом</AppButton>
+            <AppButton variant="ghost" size="sm" @click="$emit('startManualEdit')">Написать вручную</AppButton>
+          </div>
+        </div>
+      </div>
+
+      <!-- Plan editor (manual) -->
+      <div v-else-if="editingPlan && !readonly" class="plan-tab-content">
+        <div class="plan-editor-wrap">
+          <textarea
+            :value="planContent"
+            @input="$emit('update:planContent', ($event.target as HTMLTextAreaElement).value)"
+            class="plan-editor"
+            placeholder="---&#10;plangent: 1&#10;key: KEY&#10;title: Title&#10;status: open&#10;---&#10;&#10;- [ ] (p1) Step 1&#10;- [ ] (p2) Step 2"
+          />
+          <div class="plan-editor-helper">
+            <span><code>[ ]</code> в начале строки = шаг очереди. Удалишь скобки - шаг пропадёт.</span>
+            <div v-if="checkboxLinePreviews.length" class="checkbox-preview">
+              <span v-for="line in checkboxLinePreviews" :key="line.text" class="checkbox-line"><code>{{ line.marker }}</code>{{ line.text }}</span>
+            </div>
+          </div>
+          <div class="plan-actions">
+            <AppButton variant="primary" size="sm" @click="$emit('savePlan')">Сохранить</AppButton>
+            <AppButton variant="ghost" size="sm" @click="$emit('cancelEdit')">Отмена</AppButton>
+          </div>
+        </div>
+      </div>
+
+      <!-- Plan view -->
+      <div v-else class="plan-tab-content">
+        <div class="plan-panel-header">
+          <div class="progress-line">
+            <span>{{ doneCount }}/{{ plan!.steps.length }} шагов</span>
+            <div class="progress-bar">
+              <div class="progress-fill" :style="{ width: progressPct + '%' }" />
+            </div>
+          </div>
+          <div v-if="!readonly" class="plan-header-actions">
+            <AppButton variant="ghost" size="sm" @click="$emit('openPlanning')">▸ Изменить план с агентом</AppButton>
+            <AppButton variant="ghost" size="sm" :class="{ on: reviewOpen }" title="Показать или скрыть ревью плана справа: агент проверит план, замечания разбираете вы" @click="reviewOpen = !reviewOpen">Ревью плана{{ attention ? ` (${attention})` : '' }}</AppButton>
+            <AppButton variant="ghost" size="sm" @click="$emit('togglePlanEdit')">Редактировать вручную</AppButton>
+          </div>
+        </div>
+        <div class="steps">
+          <div v-for="s in plan!.steps" :key="s.id ?? s.index" class="step" :data-step-id="s.id" :class="{ done: s.done, highlighted: !!s.id && highlighted.includes(s.id) }">
+            <span class="step-check readonly" :class="{ done: s.done }">{{ s.done ? '✓' : '' }}</span>
+            <span class="step-id" v-if="s.id">{{ s.id }}</span>
+            <span class="step-text"><AnalysisLinks :text="s.text" /></span>
+            <button v-if="s.id && remarkCounts[s.id]" type="button" class="remark-count" :aria-label="`Замечания к ${s.id}: ${remarkCounts[s.id]}`" :title="`Открытых замечаний ревью плана: ${remarkCounts[s.id]}`" @click="focusStepCard(s.id)">⚠{{ remarkCounts[s.id] }}</button>
+            <span v-if="s.parallelGroup" class="parallel-badge">параллельно: {{ s.parallelGroup }}</span>
+          </div>
         </div>
       </div>
     </div>
-
-    <!-- Plan editor (manual) -->
-    <div v-else-if="editingPlan && !readonly" class="plan-tab-content">
-      <div class="plan-editor-wrap">
-        <textarea
-          :value="planContent"
-          @input="$emit('update:planContent', ($event.target as HTMLTextAreaElement).value)"
-          class="plan-editor"
-          placeholder="---&#10;plangent: 1&#10;key: KEY&#10;title: Title&#10;status: open&#10;---&#10;&#10;- [ ] (p1) Step 1&#10;- [ ] (p2) Step 2"
-        />
-        <div class="plan-editor-helper">
-          <span><code>[ ]</code> в начале строки = шаг очереди. Удалишь скобки - шаг пропадёт.</span>
-          <div v-if="checkboxLinePreviews.length" class="checkbox-preview">
-            <span v-for="line in checkboxLinePreviews" :key="line.text" class="checkbox-line"><code>{{ line.marker }}</code>{{ line.text }}</span>
-          </div>
-        </div>
-        <div class="plan-actions">
-          <AppButton variant="primary" size="sm" @click="$emit('savePlan')">Сохранить</AppButton>
-          <AppButton variant="ghost" size="sm" @click="$emit('cancelEdit')">Отмена</AppButton>
-        </div>
-      </div>
-    </div>
-
-    <!-- Plan view -->
-    <div v-else class="plan-tab-content">
-      <div class="plan-panel-header">
-        <div class="progress-line">
-          <span>{{ doneCount }}/{{ plan!.steps.length }} шагов</span>
-          <div class="progress-bar">
-            <div class="progress-fill" :style="{ width: progressPct + '%' }" />
-          </div>
-        </div>
-        <div v-if="!readonly" class="plan-header-actions">
-          <AppButton variant="ghost" size="sm" @click="$emit('openPlanning')">▸ Изменить план с агентом</AppButton>
-          <AppButton variant="ghost" size="sm" @click="$emit('togglePlanEdit')">Редактировать вручную</AppButton>
-        </div>
-      </div>
-      <div class="steps">
-        <div v-for="s in plan!.steps" :key="s.id ?? s.index" class="step" :class="{ done: s.done }">
-          <span class="step-check readonly" :class="{ done: s.done }">{{ s.done ? '✓' : '' }}</span>
-          <span class="step-id" v-if="s.id">{{ s.id }}</span>
-          <span class="step-text"><AnalysisLinks :text="s.text" /></span>
-          <span v-if="s.parallelGroup" class="parallel-badge">параллельно: {{ s.parallelGroup }}</span>
-        </div>
-      </div>
-    </div>
+    <PlanReviewPanel v-if="plan" v-show="reviewOpen" ref="reviewPanel" :project-id="projectId" :task-id="taskId" :default-agent-id="defaultAgentId" :locked="queueFrozen" :readonly="!!readonly" @highlight="highlightSteps" @counts="remarkCounts = $event" @attention="attention = $event; $emit('reviewAttention', $event)" @close="reviewOpen = false" @open-planner="openPlannerChat" />
   </div>
 </template>
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref } from 'vue'
+import PlanReviewPanel from './plan-review/PlanReviewPanel.vue'
 import AnalysisLinks from './AnalysisLinks.vue'
 import TaskChats from './TaskChats.vue'
 import { NewChatPanel, MessageMarkdown, type NewChatRequest, type ContentBlock } from '@features/agent-chat'
@@ -134,6 +144,8 @@ const props = defineProps<{
   planningMessage?: string
   plan: Plan | null
   projectId: string
+  taskId: string
+  queueFrozen: boolean
   defaultAgentId?: string | null
   planningOpen: boolean
   /** A planning chat is starting or thinking right now. */
@@ -149,8 +161,9 @@ const props = defineProps<{
   doneCount: number
   progressPct: number
 }>()
-defineEmits<{
+const emit = defineEmits<{
   approvePlan: []
+  reviewAttention: [count: number]
   openPlanning: []
   closePlanning: []
   selectPlanningChat: [id: string | null]
@@ -163,6 +176,19 @@ defineEmits<{
   'update:planContent': [v: string]
 }>()
 
+const remarkCounts = ref<Record<string, number>>({})
+// The review panel is opened on demand; the number on its button is the cards that wait for the developer.
+const reviewOpen = ref(false), attention = ref(0)
+function focusStepCard(id: string) { reviewOpen.value = true; void nextTick(() => reviewPanel.value?.focusStep(id)) }
+// A card sent to a planner links to that planner's chat, in the planning view.
+function openPlannerChat(id: string) { emit('openPlanning'); emit('selectPlanningChat', id) }
+const highlighted = ref<string[]>([])
+const planMain = ref<HTMLElement>()
+const reviewPanel = ref<InstanceType<typeof PlanReviewPanel>>()
+function highlightSteps(ids: string[]) {
+  highlighted.value = ids
+  void nextTick(() => planMain.value?.querySelector<HTMLElement>('[data-step-id="' + ids[0] + '"]')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }))
+}
 // The plan file as a readable document: no frontmatter or Plangent's hint comment, steps as check marks.
 const planText = computed(() => (props.plan?.content ?? '')
   .replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '')
@@ -206,6 +232,14 @@ function startDrag(event: PointerEvent) {
 }
 </script>
 <style scoped>
+.review-step-nav { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 10px; }
+.review-step-nav button { color: var(--text-muted); background: var(--bg3); border: 1px solid var(--border); border-radius: 4px; cursor: pointer; }
+.review-step-nav .highlighted { border-color: var(--blue); background: var(--blue-soft); }
+.plan-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.plan-tab.with-review { flex-direction: row; }
+.plan-header-actions .on, .planning-actions .on { background: var(--bg3); color: var(--text); }
+.step.highlighted { background: var(--blue-soft); border-color: var(--blue); }
+.remark-count { border: 0; border-radius: 8px; color: var(--blue-hover); background: var(--blue-soft); cursor: pointer; }
 .plan-tab { flex: 1; overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
 
 .planning-bar { display: flex; align-items: center; gap: 12px; padding: 8px 20px; border-bottom: 1px solid var(--border); background: var(--bg); flex-shrink: 0; }
@@ -295,3 +329,5 @@ function startDrag(event: PointerEvent) {
 .checkbox-line code { flex-shrink: 0; border-color: var(--blue); color: var(--blue-hover); background: var(--blue-soft); font-weight: 600; }
 .plan-actions { display: flex; gap: 8px; }
 </style>
+
+

@@ -4,6 +4,7 @@ import { onServerEvent } from '@core/api/events'
 import { platform } from '@core/platform'
 import { useAppStore } from '@core/stores/app'
 import type { OrchestratorEvent } from '@core/models'
+import { remarksLabel } from '../utils/queue-status'
 
 /** Route that opens a task (in its project) and, optionally, one of its agent chats. */
 export function taskTarget(taskId: string, projectId?: string | null, chatId?: string | null) {
@@ -44,7 +45,7 @@ export function startQueueNotifications(router: Router) {
         void announce(event)
         break
       case 'queue_finished':
-        alert('очередь выполнена', event.failed ? `Готово, но пропущено шагов: ${event.failed}` : 'Все шаги выполнены — можно проверять изменения', event.failed ? 'warning' : 'success')
+        alert('очередь выполнена', (event.failed ? `Готово, но пропущено шагов: ${event.failed}` : 'Все шаги выполнены — можно проверять изменения') + (event.remarks !== undefined ? ` · Ревью: ${remarksLabel(event.remarks)}, они в «Коде»` : ''), event.failed ? 'warning' : 'success')
         void announce(event)
         break
       case 'session_failed':

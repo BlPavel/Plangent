@@ -21,7 +21,7 @@ export function assertAnalysisEditable(taskId: string): void {
 export function assertQueueAllowsAnalysis(queue: TaskQueue): void {
   const working = queue.stages.flatMap(s => s.sessions).some(s => {
     if (!['running', 'reviewing'].includes(s.status)) return false;
-    const id = s.status === 'reviewing' ? s.reviewSessionId : s.sessionId;
+    const id = s.sessionId;
     return !id || getSession(id)?.status !== 'waiting';
   });
   if (queue.status === 'running' && working) throw new Error('Анализ нельзя менять, пока агенты выполняют очередь');

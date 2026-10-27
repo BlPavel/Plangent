@@ -7,7 +7,7 @@
         <div v-if="group.items.length" class="group-title">{{ group.title }}</div>
         <button
           v-for="branch in group.items" :key="branch.ref" type="button" class="item" :class="{ current: branch.name === current, base: branch.name === base }"
-          :disabled="!!git.writeBlocked || branch.name === current" :title="git.writeBlocked || (branch.remote ? 'Переключиться на ветку из origin' : branch.name === current ? 'Текущая ветка' : 'Переключиться')" @click="pick(branch)"
+          :disabled="!!git.writeBlocked || selecting || (branch.name === current && !onSelectBranch)" :title="git.writeBlocked || (branch.remote ? 'Переключиться на ветку из origin' : branch.name === current ? 'Текущая ветка' : 'Переключиться')" @click="pick(branch)"
         >{{ branch.name }}<span v-if="branch.name === current" class="tag">текущая</span></button>
       </template>
       <div v-if="!filtered.length" class="muted empty">Ветки не найдены</div>
@@ -22,7 +22,7 @@
       <div class="actions">
         <span class="muted hint">Esc — закрыть</span>
         <button type="button" class="btn btn-subtle btn-sm" @click="emit('close')">Закрыть</button>
-        <button type="submit" class="btn btn-blue btn-sm" :disabled="!name.trim() || name.endsWith('/') || !base || !!git.writeBlocked" :title="git.writeBlocked">Создать и переключиться</button>
+        <button type="submit" class="btn btn-blue btn-sm" :disabled="selecting || !name.trim() || name.endsWith('/') || !base || !!git.writeBlocked" :title="git.writeBlocked">Создать и переключиться</button>
       </div>
     </form>
   </div>
@@ -33,10 +33,11 @@ import BranchNameInput from '@shared/ui/BranchNameInput.vue'
 import BranchSelect from '@shared/ui/BranchSelect.vue'
 import { useGitStore } from '../stores/git'
 import type { GitBranch } from '../git-types'
-const props = defineProps<{ task?: { key: string } | null; /** open above the trigger (the branch row sits at the bottom) */ up?: boolean }>()
+const props = defineProps<{ task?: { key: string } | null; /** open above the trigger (the branch row sits at the bottom) */ up?: boolean; onSelectBranch?: (branch: string) => Promise<void> }>()
 const emit = defineEmits<{ close: [] }>()
 const git = useGitStore(), search = ref(''), name = ref(''), base = ref(git.repository?.branch ?? ''), error = ref('')
 const refreshing = ref(false)
+const selecting = ref(false)
 let disposed = false
 const root = ref<HTMLElement>(), searchInput = ref<HTMLInputElement>()
 const current = computed(() => git.repository?.detached ? '' : git.repository?.branch ?? '')
@@ -55,12 +56,29 @@ const message = (cause: unknown) => {
   const output = (cause as { output?: string } | null)?.output?.trim()
   return output ? text + '\n' + output : text
 }
-function pickFirst() { const first = filtered.value.find(b => b.name !== current.value); if (first) void pick(first) }
+function pickFirst() { const first = filtered.value.find(b => props.onSelectBranch || b.name !== current.value); if (first) void pick(first) }
 async function pick(branch: GitBranch) {
+  if (selecting.value || git.writeBlocked) return
+  selecting.value = true
   error.value = ''
-  try { await git.run('switch', { branch: branch.name }); emit('close') } catch (cause) { error.value = message(cause) }
+  try {
+    if (branch.name !== current.value) await git.run('switch', { branch: branch.name })
+    await props.onSelectBranch?.(branch.name)
+    emit('close')
+  } catch (cause) { error.value = message(cause) }
+  finally { selecting.value = false }
 }
-async function create() { error.value = ''; try { await git.run('branch', { name: name.value.trim(), base: base.value }); emit('close') } catch (cause) { error.value = message(cause) } }
+async function create() {
+  if (selecting.value || git.writeBlocked) return
+  selecting.value = true; error.value = ''
+  const branch = name.value.trim()
+  try {
+    await git.run('branch', { name: branch, base: base.value })
+    await props.onSelectBranch?.(branch)
+    emit('close')
+  } catch (cause) { error.value = message(cause) }
+  finally { selecting.value = false }
+}
 function outside(event: PointerEvent) { if (root.value && !root.value.contains(event.target as Node) && !(event.target as Element).closest?.('.bb-branch')) emit('close') }
 async function refreshBranches() {
   if (refreshing.value) return

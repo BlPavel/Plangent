@@ -7,6 +7,7 @@ import { getProject } from '../../../core/projects';
 import { readItemContent, writeItemContent, deleteItemContent, writeOverrideContent, readOverrideContent, deleteOverrideContent } from '../../../core/library/library-manager';
 import { DEFAULT_CODE_FIXER_INSTRUCTION } from '../../../core/library/code-fixer-instruction';
 import { DEFAULT_COMMIT_RULES } from '../../../core/library/commit-rules';
+import { DEFAULT_PLAN_REVIEW_SKILL } from '../../../core/library/plan-review-skill';
 import { DEFAULT_INSTRUCTION_GUIDE } from '../../../core/library/instruction-guide';
 import { PLAN_PROTOCOL_LOCKED } from '../../../core/library/plan-template';
 import { syncItem, unsyncItem, syncAll } from '../../../core/library/syncer';
@@ -43,6 +44,10 @@ libraryRouter.get('/code-fixer-instruction/defaults', (_req: Request, res: Respo
 
 libraryRouter.get('/commit-rules/defaults', (_req: Request, res: Response) => {
   res.json({ content: DEFAULT_COMMIT_RULES });
+});
+
+libraryRouter.get('/plan-review-skill/defaults', (_req: Request, res: Response) => {
+  res.json({ content: DEFAULT_PLAN_REVIEW_SKILL });
 });
 
 libraryRouter.get('/instruction-guide/defaults', (_req: Request, res: Response) => {
