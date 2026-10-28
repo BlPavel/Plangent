@@ -21,7 +21,6 @@
           <AppButton size="sm" variant="danger-ghost" @click="stop">■ Остановить</AppButton>
         </template>
         <template v-else>
-          <AppButton v-if="editable" size="sm" variant="ghost" :disabled="!agents.length" :title="agents.length ? 'Добавить в очередь проверку изменений задачи: агент только читает код, а замечания оставляет черновиками во вкладке «Код»' : 'Нет настроенных агентов'" @click="addReview">+ Ревью</AppButton>
           <AppButton v-if="pendingCount && !taskDone" size="sm" variant="primary" @click="$emit('start')">
             ▶ {{ resumable ? 'Продолжить' : 'Запустить' }}
           </AppButton>
@@ -41,7 +40,7 @@
 
     <div v-if="!stages.length" class="queue-empty">
       <template v-if="history.length">Предыдущая очередь выполнена — она в истории ниже. Добавьте шаги, чтобы собрать новую.</template>
-      <template v-else>Выберите шаги плана и добавьте их в очередь. Шаги одного этапа выполняются параллельно, этапы — по порядку. Кнопка «+ Ревью» ставит в очередь проверку изменений задачи.</template>
+      <template v-else>Выберите шаги плана и добавьте их в очередь. Шаги одного этапа выполняются параллельно, этапы — по порядку. Внизу очереди можно добавить финальное ревью изменений задачи.</template>
     </div>
 
     <div v-if="editable && pendingCount > 1" class="queue-hint">
@@ -61,13 +60,13 @@
         <div
           class="stage"
           :style="{ '--stage-color': stageColor(i) }"
-          :class="{ current: frozen && i === queue.queue.value?.stageIndex, finished: isFinished(stage), parallel: stage.sessions.length > 1, over: overStage === stage.id }"
-          @dragover.prevent="dragId && (overStage = stage.id, overGap = null)"
+          :class="{ current: frozen && i === queue.queue.value?.stageIndex, finished: isFinished(stage), parallel: stage.sessions.length > 1, over: overStage === stage.id, final: isReviewStage(stage) }"
+          @dragover.prevent="dragId && !isReviewStage(stage) && (overStage = stage.id, overGap = null)"
           @dragleave.self="overStage = null"
-          @drop.prevent="drop({ stageId: stage.id })"
+          @drop.prevent="!isReviewStage(stage) && drop({ stageId: stage.id })"
         >
           <div class="stage-head">
-            <span class="stage-num"><span class="stage-dot" />Этап {{ i + 1 }}</span>
+            <span class="stage-num"><span class="stage-dot" />{{ isReviewStage(stage) ? 'Финал · ревью' : `Этап ${i + 1}` }}</span>
             <span v-if="stage.sessions.length > 1" class="stage-parallel" title="Шаги этого этапа выполняются одновременно">∥ параллельно · {{ stage.sessions.length }}</span>
             <span v-if="frozen && i === queue.queue.value?.stageIndex" class="stage-current">{{ status === 'paused' ? 'на паузе' : 'сейчас' }}</span>
             <span class="spacer" />
@@ -80,7 +79,7 @@
               @click="queue.updateStage(stage.id, { pauseAfter: !stage.pauseAfter })"
             >⏸ пауза после</button>
             <span v-else-if="stage.pauseAfter && i < stages.length - 1" class="pause-toggle on static">⏸ пауза после</span>
-            <AppMenu v-if="editable" :items="stageMenu(stage)" size="xs" title="Этап" />
+            <AppMenu v-if="editable && !isReviewStage(stage)" :items="stageMenu(stage)" size="xs" title="Этап" />
           </div>
           <div class="stage-sessions">
             <QueueSessionItem
@@ -110,6 +109,14 @@
         @dragleave="overGap = null"
         @drop.prevent="drop({ index: stages.length })"
       >Отдельным этапом в конец</div>
+      <!-- The closing review is optional and always last, so there is nothing to choose: one click adds it -->
+      <button v-if="editable && !hasReview && !dragId" type="button" class="review-slot" :disabled="!agents.length" :title="agents.length ? '' : 'Нет настроенных агентов'" @click="addReview">
+        <span class="review-plus">+</span>
+        <span class="review-slot-text">
+          <strong>Ревью в конце очереди</strong>
+          <span>Когда все шаги выполнятся, агент прочитает изменения задачи и оставит замечания черновиками в «Коде». Агента и модель можно выбрать после добавления.</span>
+        </span>
+      </button>
     </div>
 
     <!-- Earlier runs: out of the way, but their agents' chats stay one click away -->
@@ -152,7 +159,7 @@ import AppMenu, { type MenuItem } from '@shared/ui/AppMenu.vue'
 import { useAppStore } from '@core/stores/app'
 import { useChatStore } from '@features/agent-chat'
 import { TaskQueueKey } from '../composables/useTaskQueue'
-import { queueStatusLabel, sessionState, stageColor } from '../utils/queue-status'
+import { isReviewStage, queueStatusLabel, sessionState, stageColor } from '../utils/queue-status'
 import QueueSessionItem from './QueueSessionItem.vue'
 
 const props = defineProps<{ agents: Agent[]; steps: PlanStep[]; selectedId: string | null; taskDone: boolean }>()
@@ -166,6 +173,8 @@ const stages = computed(() => queue.stages.value)
 const status = computed(() => queue.queue.value?.status ?? 'idle')
 const frozen = computed(() => queue.frozen.value)
 const editable = computed(() => !frozen.value && !props.taskDone)
+
+const hasReview = computed(() => stages.value.some(isReviewStage))
 function addReview() {
   const agentId = app.currentProject?.default_agent_id || props.agents[0]?.id
   if (agentId) void queue.addSessions([{ kind: 'review', agentId, queueMode: 'execute', permissionPolicy: 'ask' }], 'new')
@@ -220,7 +229,7 @@ const queueMenu = computed<MenuItem[]>(() => [
 ])
 
 function stageMenu(stage: QueueStage): MenuItem[] {
-  const others = stages.value.map((st, i) => ({ st, i })).filter(({ st }) => st.id !== stage.id && !isFinished(st))
+  const others = stages.value.map((st, i) => ({ st, i })).filter(({ st }) => st.id !== stage.id && !isFinished(st) && !isReviewStage(st))
   return [
     ...(others.length ? [{ heading: 'Объединить с этапом' }] : []),
     ...others.map(({ st, i }) => ({
@@ -267,6 +276,13 @@ function drop(to: { stageId: string } | { index: number }) {
 .stage { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid var(--border); border-left: 3px solid var(--stage-color); border-radius: var(--radius); background: var(--bg); transition: border-color 0.12s, background 0.12s; }
 .stage.current { border-color: var(--stage-color); box-shadow: 0 0 0 1px var(--stage-color); }
 .stage.finished { opacity: 0.75; }
+.stage.final { border-style: dashed; border-left-style: solid; }
+.review-slot { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px dashed var(--border-strong); border-radius: var(--radius); background: none; color: var(--text-muted); font-family: inherit; text-align: left; cursor: pointer; transition: border-color 0.12s, background 0.12s; }
+.review-slot:hover:not(:disabled) { border-color: var(--blue-hover); background: var(--blue-soft); color: var(--text); }
+.review-slot:disabled { cursor: default; opacity: 0.6; }
+.review-plus { font-size: 18px; line-height: 1; color: var(--blue-hover); }
+.review-slot-text { display: flex; flex-direction: column; gap: 2px; font-size: 12px; line-height: 1.45; }
+.review-slot-text strong { font-size: 12.5px; color: var(--text); }
 .stage.over { border-color: var(--blue-hover); background: var(--blue-soft); }
 .stage-head { display: flex; align-items: center; gap: 8px; padding: 0 2px; min-height: var(--size-xs); }
 .stage-num { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; color: var(--stage-color); text-transform: uppercase; letter-spacing: 0.4px; }

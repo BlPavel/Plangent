@@ -69,7 +69,7 @@ import AppSelect from '@shared/ui/AppSelect.vue'
 import AppMenu, { type MenuItem } from '@shared/ui/AppMenu.vue'
 import { useChatStore, modelAndEffort } from '@features/agent-chat'
 import { TaskQueueKey, liveSessionMenu } from '../composables/useTaskQueue'
-import { pointsLabel, remarksLabel, MODE_OPTIONS, POLICY_OPTIONS, type SessionState } from '../utils/queue-status'
+import { isReviewStage, pointsLabel, remarksLabel, MODE_OPTIONS, POLICY_OPTIONS, type SessionState } from '../utils/queue-status'
 
 const props = defineProps<{
   session: OrchestratorQueueSession
@@ -85,7 +85,8 @@ const emit = defineEmits<{ select: []; open: []; dragStart: [id: string]; dragEn
 
 const queue = inject(TaskQueueKey)!
 const chatStore = useChatStore()
-const showSettings = ref(false)
+// A freshly added review has nothing else to configure, so its agent / model / skill are open from the start.
+const showSettings = ref(props.session.kind === 'review' && props.session.status !== 'complete')
 
 // The step's changes are the project's uncommitted changes: the link opens the «Код» tab with a way back to this task.
 const router = useRouter()
@@ -123,7 +124,7 @@ const firstStepText = computed(() => {
 const stepsTitle = computed(() => props.session.kind === 'review' ? reviewText.value : sessionSteps.value.map(s => `${s.id}. ${s.text}`).join('\n'))
 const policyShort = computed(() => props.session.permissionPolicy === 'ask' ? 'спрашивает всё' : 'только правки')
 
-const canDrag = computed(() => props.editable && props.session.status !== 'complete')
+const canDrag = computed(() => props.editable && props.session.status !== 'complete' && props.session.kind !== 'review')
 function onDragStart(e: DragEvent) {
   e.dataTransfer?.setData('text/plain', props.session.id)
   if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move'
@@ -143,10 +144,12 @@ const menuItems = computed<MenuItem[]>(() => {
   if (s.kind === 'review' && s.status === 'complete' && !queue.frozen.value && app.currentTask?.status !== 'done') {
     return [{ label: 'Начать заново', hint: 'Добавить повторное ревью в конец очереди', action: () => queue.sessionAction(s.id, 'restart') }]
   }
+  // The closing review stays last and alone: it can only be removed.
+  if (props.editable && s.kind === 'review') return [{ label: 'Убрать ревью из очереди', danger: true, action: () => queue.removeSession(s.id) }]
   if (props.editable) {
     const others = queue.stages.value
       .map((st, i) => ({ st, i }))
-      .filter(({ st }) => st.id !== props.stage.id && st.sessions.some(x => x.status !== 'complete'))
+      .filter(({ st }) => st.id !== props.stage.id && !isReviewStage(st) && st.sessions.some(x => x.status !== 'complete'))
     return [
       ...(others.length ? [{ heading: 'Выполнять параллельно с' }] : []),
       ...others.map(({ st, i }) => ({ label: `Этапом ${i + 1}`, hint: stageHint(st), action: () => queue.moveSession(s.id, { stageId: st.id }) })),

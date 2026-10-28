@@ -47,7 +47,7 @@
           <BaseSwitcher />
           <ChangesList
             :changes="store.shownChanges" :stats="store.shownStats" :selected="store.selectedPath" :empty-text="emptyText"
-            :stageable="stageable" :stage-disabled="git.blocked" @toggle-stage="toggleStage" @stage-many="stageMany" @open="openChange"
+            :stageable="stageable" :stage-disabled="git.blocked" @toggle-stage="toggleStage" @stage-many="stageMany" @discard="discardChange" @open="openChange"
           >
             <template #empty>
               <span>{{ emptyText }}</span>
@@ -192,6 +192,12 @@ watch(() => props.projectId, id => external.reset(id), { immediate: true })
 const pathsOf = (list: GitChange[]) => list.flatMap(c => [c.path, ...(c.originalPath ? [c.originalPath] : [])])
 async function stageMany(list: GitChange[], stage: boolean) { try { await git.run(stage ? 'stage' : 'unstage', { paths: pathsOf(list) }); await store.refresh() } catch { /* git error displayed in the branch bar */ } }
 const toggleStage = (change: GitChange) => stageMany([change], change.status === 'U' || ['.', ' ', '?'].includes(change.indexStatus))
+async function discardChange(change: GitChange) {
+  const isNew = change.status === '?' || change.status === 'A'
+  const message = isNew ? `Удалить новый файл ${change.path}? Это нельзя отменить.` : `Отменить все изменения в ${change.path}? Они будут потеряны безвозвратно.`
+  if (!(await app.confirm(message, { confirmLabel: isNew ? 'Удалить' : 'Отменить изменения', danger: true }))) return
+  try { await git.run('discard', { paths: pathsOf([change]) }); await store.refresh() } catch { /* git error displayed in the branch bar */ }
+}
 /** Ticks «к коммиту» only make sense for the folder against HEAD. */
 const stageable = computed(() => !!store.repository && store.effectiveBase === 'head' && !store.openedReviewId)
 watch(() => props.projectId, id => { void git.start(id) }, { immediate: true })

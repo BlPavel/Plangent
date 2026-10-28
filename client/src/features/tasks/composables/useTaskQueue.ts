@@ -3,6 +3,7 @@ import { api } from '@core/api'
 import { useAppStore } from '@core/stores/app'
 import type { OrchestratorQueueSession, PlanStep, QueueStage, TaskQueue } from '@core/models'
 import type { MenuItem } from '@shared/ui/AppMenu.vue'
+import { isReviewStage } from '../utils/queue-status'
 
 export type NewQueueSession = Pick<OrchestratorQueueSession, 'kind' | 'skillId' | 'points' | 'agentId' | 'queueMode' | 'permissionPolicy' | 'model' | 'reasoningEffort'>
 /** Where to put sessions: a new stage at the end, or an existing stage (runs in parallel with it). */
@@ -11,6 +12,8 @@ export type SessionAction = 'complete' | 'execute' | 'skip' | 'restart'
 
 const clone = (stages: QueueStage[]): QueueStage[] => stages.map(st => ({ ...st, sessions: st.sessions.map(s => ({ ...s })) }))
 const newStage = (sessions: OrchestratorQueueSession[]): QueueStage => ({ id: crypto.randomUUID(), pauseAfter: false, sessions })
+/** The closing review always runs last: a stage holding only a waiting review sinks to the end. */
+const pinReview = (stages: QueueStage[]) => [...stages.filter(st => !isReviewStage(st)), ...stages.filter(isReviewStage)]
 const draftSession = (s: NewQueueSession): OrchestratorQueueSession => ({ ...s, id: crypto.randomUUID(), status: 'queued' })
 
 /**
@@ -52,7 +55,7 @@ export function useTaskQueue(projectId: Ref<string | undefined>, taskId: Ref<str
   function edit(change: (stages: QueueStage[]) => void) {
     const next = clone(stages.value)
     change(next)
-    return setStages(next.filter(st => st.sessions.length))
+    return setStages(pinReview(next.filter(st => st.sessions.length)))
   }
 
   function take(list: QueueStage[], sessionId: string) {

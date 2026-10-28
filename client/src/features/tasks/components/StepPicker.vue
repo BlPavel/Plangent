@@ -84,7 +84,7 @@ import { useChatStore, modelAndEffort } from '@features/agent-chat'
 import AppButton from '@shared/ui/AppButton.vue'
 import AppSelect from '@shared/ui/AppSelect.vue'
 import { TaskQueueKey } from '../composables/useTaskQueue'
-import { MODE_OPTIONS, POLICY_OPTIONS, stageColor } from '../utils/queue-status'
+import { MODE_OPTIONS, POLICY_OPTIONS, isReviewStage, stageColor } from '../utils/queue-status'
 
 const props = defineProps<{ plan: Plan; projectId: string; taskId: string; taskDone: boolean; defaultAgentId?: string | null }>()
 const emit = defineEmits<{ planChanged: [plan: Plan] }>()
@@ -151,7 +151,7 @@ const targetOptions = computed(() => [
     value: st.id,
     label: `Параллельно с этапом ${i + 1}`,
     description: `Запустится одновременно с ${st.sessions.length > 1 ? 'шагами' : 'шагом'} этапа ${i + 1}`,
-    disabled: st.sessions.every(s => s.status === 'complete'),
+    disabled: st.sessions.every(s => s.status === 'complete') || isReviewStage(st),
   })),
 ])
 watch(() => queue.stages.value.map(st => st.id).join(), () => {

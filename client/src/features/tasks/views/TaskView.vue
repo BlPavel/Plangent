@@ -99,6 +99,7 @@
       <div v-if="!plan" class="exec-no-plan">Нет плана. Создайте план на вкладке «План».</div>
       <div v-else class="exec">
         <div class="exec-left">
+          <TaskGit v-if="pid && task" :key="task.id" :project-id="pid" :task="task" :frozen="queue.frozen.value" @updated="task = $event; appStore.currentTask = $event" />
           <StepPicker
             :plan="plan"
             :project-id="pid ?? ''"
@@ -116,7 +117,6 @@
             @open="selectedQueueId = $event"
             @start="startQueue"
           />
-          <TaskGit v-if="pid && task" :key="task.id" :project-id="pid" :task="task" :frozen="queue.frozen.value" @updated="task = $event; appStore.currentTask = $event" />
         </div>
         <aside class="exec-right">
           <StepDetailPanel :session="selectedSession" :stage-number="selectedStage + 1" :agents="agents" :steps="plan.steps" />

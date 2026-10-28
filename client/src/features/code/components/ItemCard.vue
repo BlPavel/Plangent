@@ -4,10 +4,12 @@
       <span class="it-dot" :title="label" />
       <span class="it-kind" :title="item.kind === 'question' ? 'Вопрос' : 'Замечание'">{{ item.kind === 'question' ? '?' : '!' }}</span>
       <span v-if="location" class="it-loc">{{ location }}</span>
-      <span v-if="item.author === 'agent'" class="it-flag">агент</span>
-      <span v-if="item.author === 'agent' && item.origin === 'task'" class="it-flag">ревью задачи{{ item.task_key ? ' ' + item.task_key : '' }}</span>
+      <span v-if="item.author === 'agent' || permissions.length" class="it-flags">
+        <span v-if="item.author === 'agent'" class="it-flag">агент</span>
+        <span v-if="item.author === 'agent' && item.origin === 'task'" class="it-flag">ревью задачи{{ item.task_key ? ' ' + item.task_key : '' }}</span>
+        <span v-if="permissions.length" class="it-flag" title="Агент ждёт вашего разрешения">разрешение</span>
+      </span>
       <span class="it-summary">{{ summary }}</span>
-      <span v-if="permissions.length" class="it-flag" title="Агент ждёт вашего разрешения">разрешение</span>
       <span class="it-status">{{ label }}</span>
     </button>
 
@@ -146,7 +148,7 @@ function submitText() {
 </script>
 
 <style scoped>
-.it { border: 1px solid var(--border-strong); border-left-width: 3px; border-radius: var(--radius-sm); background: var(--bg2); font-size: 12px; }
+.it { container-type: inline-size; border: 1px solid var(--border-strong); border-left-width: 3px; border-radius: var(--radius-sm); background: var(--bg2); font-size: 12px; }
 .it.draft { border-left-color: var(--text-faint); }
 .it.queued { border-left-color: var(--blue); border-left-style: dashed; }
 .it.agent { border-left-color: var(--blue); }
@@ -154,7 +156,8 @@ function submitText() {
 .it.waiting.done { border-left-color: var(--accent-hover); }
 .it.closed { border-left-color: var(--border-strong); opacity: 0.75; }
 .it.outdated { border-style: dashed; }
-.it-line { display: flex; align-items: center; gap: 6px; width: 100%; padding: 3px 8px; font: inherit; text-align: left; color: var(--text); background: none; border: none; cursor: pointer; }
+/* Narrow panel: the meta (place, flags, state) on the first line, the summary on its own line below it */
+.it-line { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; width: 100%; padding: 4px 8px; font: inherit; text-align: left; color: var(--text); background: none; border: none; cursor: pointer; }
 .it-dot { width: 7px; height: 7px; flex-shrink: 0; border-radius: 50%; background: currentColor; color: var(--text-faint); }
 .it.agent .it-dot, .it.queued .it-dot { color: var(--blue-hover); }
 .it.working .it-dot { animation: it-pulse 1.4s ease-in-out infinite; }
@@ -162,10 +165,17 @@ function submitText() {
 .it.waiting.done .it-dot { color: var(--accent-hover); }
 @keyframes it-pulse { 50% { opacity: 0.3; } }
 .it-kind { flex-shrink: 0; width: 12px; font-weight: 700; color: var(--text-muted); text-align: center; }
-.it-loc { flex-shrink: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: monospace; font-size: 11px; color: var(--text-muted); }
-.it-summary { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.it.open .it-summary { visibility: hidden; flex: 0; }
-.it-flag { flex-shrink: 0; padding: 0 6px; font-size: 10px; font-weight: 600; border-radius: var(--radius-pill); background: var(--blue); color: #fff; }
+.it-flags { display: flex; flex-wrap: wrap; gap: 4px; order: 1; flex: 1 0 100%; min-width: 0; }
+.it-loc { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: monospace; font-size: 11px; color: var(--text-muted); }
+.it-summary { order: 2; flex: 1 0 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); }
+.it.open .it-summary { display: none; }
+@container (min-width: 520px) {
+  .it-line { flex-wrap: nowrap; }
+  .it-loc { flex: 0 0 auto; max-width: 45%; }
+  .it-flags { order: 0; flex: 0 1 auto; flex-wrap: nowrap; }
+  .it-summary { order: 0; flex: 1 1 0; color: var(--text); }
+}
+.it-flag { flex: 0 1 auto; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 6px; font-size: 10px; font-weight: 600; border-radius: var(--radius-pill); background: var(--blue); color: #fff; }
 .it-status { flex-shrink: 0; margin-left: auto; font-size: 11px; color: var(--text-muted); }
 .it.waiting .it-status { color: var(--warning-text); font-weight: 600; }
 .it.waiting.done .it-status { color: var(--accent-hover); }

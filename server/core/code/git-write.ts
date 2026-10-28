@@ -133,6 +133,24 @@ export async function unstage(root: string, paths: string[], options: GitOperati
     return run(root, info?.head ? ['restore', '--staged', '--', ...list] : ['rm', '--cached', '-r', '--ignore-unmatch', '--', ...list], options);
   });
 }
+/** Throws away the local changes of the files: tracked ones go back to HEAD, new ones (untracked or only added) are deleted. */
+export async function discard(root: string, paths: string[], options: GitOperationOptions = {}) {
+  const list = files(root, paths);
+  return serializeGit(root, async () => {
+    await check(root, options, true);
+    await assertNoGitOperation(root);
+    const info = await repositoryInfo(root);
+    const known = info?.head ? new Set((await run(root, ['ls-tree', '-r', '--name-only', '-z', 'HEAD', '--', ...list], options)).split('\0').filter(Boolean)) : new Set<string>();
+    const tracked = list.filter(file => known.has(file)), added = list.filter(file => !known.has(file));
+    let output = '';
+    if (tracked.length) output += await run(root, ['restore', '--source=HEAD', '--staged', '--worktree', '--', ...tracked], options);
+    if (added.length) {
+      output += await run(root, ['rm', '--cached', '-r', '--ignore-unmatch', '-q', '--', ...added], options);
+      for (const file of added) await fs.rm(codePath(root, file), { recursive: true, force: true });
+    }
+    return output;
+  });
+}
 export async function fetchRepository(root: string, options: GitOperationOptions = {}) {
   return serializeGit(root, async () => { await check(root, options); return run(root, ['fetch', '--progress', '--prune', 'origin', '+refs/heads/*:refs/remotes/origin/*'], options); });
 }

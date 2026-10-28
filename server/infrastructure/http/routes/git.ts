@@ -7,7 +7,7 @@ import { commit } from '../../../core/code/git-write';
 import { getProject } from '../../../core/projects';
 import { CodeError } from '../../../core/code/files';
 import { branches, trackingInfo, recentCoauthors, originUrl, gitOperation } from '../../../core/code/git';
-import { stage, unstage, fetchRepository, pull, pullRebase, push, pushForce, switchBranch, createBranch, GitOperationError, type GitOperationOptions } from '../../../core/code/git-write';
+import { stage, unstage, discard,fetchRepository, pull, pullRebase, push, pushForce, switchBranch, createBranch, GitOperationError, type GitOperationOptions } from '../../../core/code/git-write';
 import { assertRepositoryIdle } from '../../../core/code/git-busy';
 import { localOrigin } from '../local-origin';
 import { broadcast } from '../../../core/shared/events';
@@ -72,7 +72,7 @@ gitRouter.post('/cancel', gitRouteGuard((req, res) => {
   if (!operation || operation.projectId !== req.params.projectId) throw new CodeError('Operation not found', 404);
   operation.controller.abort(); res.status(204).end();
 }));
-for (const [endpoint, action] of Object.entries({ stage, unstage })) {
+for (const [endpoint, action] of Object.entries({ stage, unstage, discard })) {
   gitRouter.post('/' + endpoint, gitRouteGuard((req, res) => gitRouteOperation(req, res, (root, options) => action(root, req.body?.paths, options))));
 }
 for (const [endpoint, action] of Object.entries({ fetch: fetchRepository, pull, push, 'pull-rebase': pullRebase, 'push-force': pushForce })) {

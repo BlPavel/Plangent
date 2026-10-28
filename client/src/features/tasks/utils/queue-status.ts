@@ -1,4 +1,4 @@
-import type { OrchestratorQueueSession, QueueStatus } from '@core/models'
+import type { OrchestratorQueueSession, QueueStage, QueueStatus } from '@core/models'
 
 interface ChatLike { status: string; reason: string }
 
@@ -40,6 +40,9 @@ export function sessionState(s: OrchestratorQueueSession, chat?: ChatLike): Sess
  */
 const STAGE_COLORS = ['#58a6ff', '#bc8cff', '#3fb950', '#f0883e', '#f778ba', '#39c5cf', '#d29922']
 export const stageColor = (index: number) => STAGE_COLORS[index % STAGE_COLORS.length]
+
+/** The closing review: a stage of only unfinished review sessions. It is pinned to the end of the queue. */
+export const isReviewStage = (stage: QueueStage) => stage.sessions.length > 0 && stage.sessions.every(s => s.kind === 'review' && s.status !== 'complete')
 
 export const MODE_OPTIONS = [
   { value: 'execute', label: 'Выполнить', description: 'Агент сразу делает шаги' },

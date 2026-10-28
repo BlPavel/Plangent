@@ -13,7 +13,7 @@
         </div>
         <div
           v-for="change in group.items" :key="change.path" class="cl-row" :class="{ selected: change.path === selected }" role="option"
-          :aria-selected="change.path === selected" :title="change.originalPath ? `${change.originalPath} → ${change.path}` : change.path" @click="emit('open', change)"
+          :aria-selected="change.path === selected" :title="change.originalPath ? `${change.originalPath} → ${change.path}` : change.path" @click="emit('open', change)" @contextmenu.prevent="openMenu($event, change)"
         >
           <input v-if="stageable" type="checkbox" class="cl-check" :checked="staged(change)" :disabled="!!stageDisabled" :title="stageDisabled || 'К коммиту'" :aria-label="'К коммиту: ' + change.path" @click.stop @change="emit('toggle-stage', change)" />
           <!-- eslint-disable-next-line vue/no-v-html -- bundled icon set, not user input -->
@@ -27,12 +27,15 @@
         </div>
       </template>
     </div>
+    <ContextMenu :items="menuItems" :at="menuAt" @close="menuAt = null" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { fileIconName, iconSvg } from '@shared/code-viewer'
+import ContextMenu from '@shared/ui/ContextMenu.vue'
+import type { MenuItem } from '@shared/ui/AppMenu.vue'
 import type { GitChange, LineStat } from '../types'
 
 /** Changed files; with `stageable` they split into tracked and new, each with its «к коммиту» checkboxes. */
@@ -40,7 +43,36 @@ const props = withDefaults(defineProps<{
   changes: GitChange[]; stats: Record<string, LineStat>; selected: string | null; emptyText?: string
   stageable?: boolean; stageDisabled?: string
 }>(), { emptyText: '', stageDisabled: '' })
-const emit = defineEmits<{ open: [change: GitChange]; 'toggle-stage': [change: GitChange]; 'stage-many': [changes: GitChange[], stage: boolean] }>()
+const emit = defineEmits<{
+  open: [change: GitChange]; 'toggle-stage': [change: GitChange]; 'stage-many': [changes: GitChange[], stage: boolean]
+  discard: [change: GitChange]
+}>()
+/** A file that is not in HEAD yet: there is nothing to restore, so «discard» deletes it. */
+const isNew = (change: GitChange) => change.status === '?' || change.status === 'A'
+
+const menuAt = ref<{ x: number; y: number } | null>(null)
+const menuChange = ref<GitChange | null>(null)
+function openMenu(event: MouseEvent, change: GitChange) {
+  menuChange.value = change; menuAt.value = { x: event.clientX, y: event.clientY }
+}
+const copy = (text: string) => { void navigator.clipboard.writeText(text).catch(() => {}) }
+/** Changing the folder is offered only where staging is (the folder against HEAD); copying works everywhere. */
+const menuItems = computed<MenuItem[]>(() => {
+  const change = menuChange.value
+  if (!change) return []
+  const blocked = props.stageDisabled || undefined
+  const items: MenuItem[] = [{ label: 'Открыть', action: () => emit('open', change) }]
+  if (props.stageable) {
+    const on = staged(change)
+    items.push({ label: on ? 'Убрать из коммита' : 'К коммиту', disabled: !!blocked, hint: blocked, action: () => emit('toggle-stage', change) })
+    items.push({ separator: true })
+    items.push({ label: isNew(change) ? 'Удалить файл' : 'Отменить изменения', danger: true, disabled: !!blocked, action: () => emit('discard', change) })
+  }
+  items.push({ separator: true })
+  items.push({ label: 'Копировать путь', action: () => copy(change.path) })
+  items.push({ label: 'Копировать имя файла', action: () => copy(nameOf(change.path)) })
+  return items
+})
 
 /** A conflicted file is not staged yet: ticking it (`git add`) marks the conflict resolved. */
 const staged = (change: GitChange) => change.status !== 'U' && !['.', ' ', '?'].includes(change.indexStatus)
