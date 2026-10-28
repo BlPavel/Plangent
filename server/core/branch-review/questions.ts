@@ -157,6 +157,8 @@ export function agentReply(session: AgentSession, questionId: string, input: { k
 /** Interrupts the agent; threads it has not answered return to the queue so they can be sent again. */
 export async function stop(projectId: string, reviewId: string) {
   ownReview(projectId, reviewId);
+  // An interrupted review is not a finished one: the end of the cancelled turn must not mark it done.
+  db().prepare("UPDATE branch_reviews SET analysis_status='stopped' WHERE id=? AND analysis_status='running'").run(reviewId);
   for (const t of db().prepare('SELECT session_id FROM mr_private_threads WHERE review_id=?').all(reviewId) as { session_id: string }[]) await cancelSession(t.session_id).catch(() => undefined);
   const { questions } = list(projectId, reviewId);
   db().transaction(() => {

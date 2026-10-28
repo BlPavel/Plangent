@@ -74,16 +74,21 @@
             <button v-if="detail.round_commits" type="button" class="files-filter" :class="{ on: screen.onlyChanged }" title="Только файлы, изменённые после вашего последнего ревью" @click="screen.onlyChanged = !screen.onlyChanged">новое</button>
           </div>
           <div v-for="file in visibleFiles" :key="file.path" class="file" :class="{ selected: path === file.path }">
+            <!-- The first line is the file and what is said about it, the second where it lives and how much changed. -->
             <button type="button" :title="file.path" @click="choose(file.path)">
-              <span class="file-name">{{ baseName(file.path) }}</span>
-              <span class="file-dir">{{ dirName(file.path) }}</span>
+              <span class="file-line">
+                <span class="file-name">{{ baseName(file.path) }}</span>
+                <span v-if="remarksIn(file.path)" class="file-count" title="Замечания: черновики и отправленные">{{ remarksIn(file.path) }}</span>
+                <span v-if="threadsIn(file.path)" class="file-count thread" title="Обсуждения в МР">{{ threadsIn(file.path) }}</span>
+                <span v-if="questionsIn(file.path)" class="file-count agent" title="Вопросы агенту">{{ questionsIn(file.path) }}</span>
+              </span>
+              <span class="file-line">
+                <span class="file-dir">{{ dirName(file.path) }}</span>
+                <span class="file-stat"><span v-if="file.added" class="add">+{{ file.added }}</span> <span v-if="file.deleted" class="del">−{{ file.deleted }}</span></span>
+                <span v-if="file.status !== 'M'" class="file-tag" :class="file.status === 'A' ? 'add' : file.status === 'D' ? 'del' : ''">{{ file.status }}</span>
+                <span v-if="file.changed_since" class="file-dot" title="Изменён после вашего последнего ревью" />
+              </span>
             </button>
-            <span v-if="remarksIn(file.path)" class="file-count" title="Замечания: черновики и отправленные">{{ remarksIn(file.path) }}</span>
-            <span v-if="threadsIn(file.path)" class="file-count thread" title="Обсуждения в МР">{{ threadsIn(file.path) }}</span>
-            <span v-if="questionsIn(file.path)" class="file-count agent" title="Вопросы агенту">{{ questionsIn(file.path) }}</span>
-            <span class="file-stat"><span v-if="file.added" class="add">+{{ file.added }}</span> <span v-if="file.deleted" class="del">−{{ file.deleted }}</span></span>
-            <span v-if="file.status !== 'M'" class="file-tag" :class="file.status === 'A' ? 'add' : file.status === 'D' ? 'del' : ''">{{ file.status }}</span>
-            <span v-if="file.changed_since" class="file-dot" title="Изменён после вашего последнего ревью" />
           </div>
         </nav>
         <div class="rt-resizer" role="separator" aria-orientation="vertical" aria-label="Ширина списка файлов" title="Потяните, чтобы изменить ширину; двойной клик — сбросить" tabindex="0" @pointerdown="startResize($event, 'files')" @dblclick="filesWidth = 260" @keydown="resizeKey($event, 'files')" />
@@ -125,12 +130,12 @@
         <aside class="side" aria-label="Ревью" :style="{ width: sideWidth + 'px' }">
           <div class="side-tabs" role="tablist">
             <button v-for="t in panels" :key="t.id" type="button" role="tab" :aria-selected="screen.panel === t.id" :class="{ on: screen.panel === t.id }" @click="screen.panel = t.id">
-              {{ t.label }}<span v-if="t.count" class="side-count">{{ t.count }}</span>
+              {{ t.label }}<span v-if="t.working" class="side-working" title="Агент проводит ревью" /><span v-if="t.count" class="side-count">{{ t.count }}</span>
             </button>
           </div>
           <OverviewPanel
             v-if="screen.panel === 'overview'" :screen-key="props.projectId" :scope="scope" :detail="detail" :info="info" :tasks-url="tasksUrl"
-            @open-instructions="emit('open-instructions')" @asked="screen.panel = 'agent'"
+            @open-instructions="emit('open-instructions')" @open-remarks="screen.panel = 'remarks'" @asked="screen.panel = 'agent'"
           />
           <RemarksPanel v-else-if="screen.panel === 'remarks'" :screen-key="props.projectId" :scope="scope" :review-id="detail.review.id" :mr="!!detail.review.mr_iid" @goto="gotoRemark" />
           <DiscussPanel
@@ -218,8 +223,8 @@ const approvalsTitle = computed(() => {
   const a = info.value?.approvals
   return !a ? 'GitLab не отдал аппрувы' : a.left ? 'Нужно ещё аппрувов: ' + a.left : a.required ? 'Аппрувов достаточно' : 'Аппрувы МР'
 })
-const panels = computed<{ id: ReviewPanel; label: string; count: number }[]>(() => [
-  { id: 'overview', label: 'Обзор', count: 0 },
+const panels = computed<{ id: ReviewPanel; label: string; count: number; working?: boolean }[]>(() => [
+  { id: 'overview', label: 'Обзор', count: 0, working: detail.value?.review.analysis_status === 'running' },
   { id: 'remarks', label: 'Замечания', count: screen.remarks.filter(r => r.status !== 'sent').length },
   { id: 'agent', label: 'Агент', count: screen.questions.length },
   ...(detail.value?.review.mr_iid ? [{ id: 'threads' as const, label: 'Треды', count: info.value?.threads.filter(t => !t.resolved).length ?? 0 }] : []),
@@ -405,12 +410,13 @@ code { font-size: 11.5px; }
 .files-head { display: flex; align-items: center; gap: 6px; padding: 8px 10px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); border-bottom: 1px solid var(--border); }
 .files-filter { margin-left: auto; padding: 0 6px; font: inherit; font-size: 10.5px; text-transform: none; letter-spacing: 0; color: var(--warning-text); background: none; border: 1px solid var(--warning-soft); border-radius: var(--radius-pill); cursor: pointer; }
 .files-filter.on { background: var(--warning-soft); }
-.file { display: flex; align-items: center; gap: 6px; padding: 3px 8px 3px 10px; }
+.file { padding: 3px 8px 3px 10px; }
 .file:hover { background: var(--bg-hover); }
 .file.selected { background: var(--blue-soft); }
-.file button { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 2px 0; font: inherit; text-align: left; color: var(--text); background: none; border: none; cursor: pointer; }
-.file-name { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.file-dir { font-size: 10.5px; color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file button { width: 100%; display: flex; flex-direction: column; gap: 1px; padding: 2px 0; font: inherit; text-align: left; color: var(--text); background: none; border: none; cursor: pointer; }
+.file-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.file-name { flex: 1; min-width: 0; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-dir { flex: 1; min-width: 0; font-size: 10.5px; color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .file-count { flex-shrink: 0; min-width: 16px; padding: 0 5px; font-size: 10px; font-weight: 600; text-align: center; border-radius: var(--radius-pill); background: rgba(56, 139, 253, 0.25); color: var(--blue-hover); }
 .file-count.thread { background: rgba(210, 153, 34, 0.28); color: var(--warning-text); }
 .file-count.agent { background: rgba(35, 134, 54, 0.28); color: var(--accent-hover); }
@@ -427,6 +433,8 @@ code { font-size: 11.5px; }
 .line-items:empty { display: none; }
 .side { flex-shrink: 0; display: flex; flex-direction: column; min-height: 0; border-left: 1px solid var(--border); font-size: 12px; }
 .side-tabs { display: flex; gap: 2px; padding: 0 6px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.side-working { display: inline-block; width: 7px; height: 7px; margin-left: 5px; border-radius: 50%; background: var(--warning-text); vertical-align: middle; animation: side-pulse 1.2s ease-in-out infinite; }
+@keyframes side-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 .side-count { margin-left: 4px; padding: 0 5px; font-size: 10px; font-weight: 600; border-radius: var(--radius-pill); background: var(--blue-soft); color: var(--blue-hover); }
 .side-threads { flex: 1; min-height: 0; overflow: auto; padding: 4px 10px 10px; }
 .side-empty { padding: 8px 2px; color: var(--text-muted); }

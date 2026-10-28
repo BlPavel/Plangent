@@ -18,6 +18,8 @@ export interface BranchReview {
   review: {
     id: string; project_id: string; branch: string; base: string; branch_name: string; base_name: string; head: string; merge_base: string
     mr_iid: number | null; context: string; task_id: string | null; skill_id: string | null; overview: string; overview_head: string; published_head: string
+    /** The agent's review: '' before it, running, done, stopped or failed. */
+    analysis_status: '' | 'running' | 'done' | 'stopped' | 'failed'; analysis_session: string; analysis_note: string
   }
   files: ReviewFile[]
   commits: ReviewCommit[]
@@ -59,6 +61,8 @@ export interface Remark {
   id: string; review_id: string; path: string; side: 'old' | 'new'; line: number; head: string
   body: string; author: 'developer' | 'agent'
   remote_id: number | null; status: 'draft' | 'sent' | 'uncertain'; error: string; created_at: string
+  /** The developer has changed the text (of an agent's draft too). */
+  edited: boolean
   /** Attached to a line of an older version of the branch. */
   outdated: boolean
 }

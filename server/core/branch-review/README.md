@@ -14,8 +14,10 @@ to a merge request). Opening an MR from the list fetches origin and reviews `ori
   marked sent. Each publication starts the next round (`published_head`).
 - `questions.ts` — private questions to the agent, batched like the code review threads.
 - `agent.ts` — the review agent: `get_review_brief` (protocol, range, MR, developer context, task,
-  review skill, threads, remarks), the overview and draft remarks of «Разобрать агентом», and the
-  round check, which is an ordinary question.
+  review skill, threads, remarks), the overview and draft remarks of «Начать ревью», and the
+  round check, which is an ordinary question. The review runs once (`analysis_status`: running →
+  done when the agent's turn ends, stopped, failed); «Новое ревью» (`restart`) closes the agents and
+  drops the overview and the agent's drafts the developer has not edited.
 
 One agent session per review head, read-only, in a detached worktree; it acts only through the
 Plangent tools. Review skills are library items of type `review-skill` (project → group → global),

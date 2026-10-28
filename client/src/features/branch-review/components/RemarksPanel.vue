@@ -23,7 +23,7 @@
         </div>
       </form>
       <div v-if="!screen.remarks.length && !composing" class="rp-empty">
-        Выделите строку в diff и напишите замечание или попросите агента разобрать МР на вкладке «Обзор». Всё копится черновиками{{ mr ? ' и уходит в GitLab только по «Опубликовать»' : '' }}.
+        Выделите строку в diff и напишите замечание или начните ревью агентом на вкладке «Обзор». Всё копится черновиками{{ mr ? ' и уходит в GitLab только по «Опубликовать»' : '' }}.
       </div>
       <template v-for="group in groups" :key="group.title">
         <div class="rp-group">{{ group.title }} <span class="rp-count">{{ group.items.length }}</span></div>

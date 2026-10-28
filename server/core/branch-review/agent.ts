@@ -1,12 +1,13 @@
 import { getDb } from '../../infrastructure/db/schema';
 import { broadcast } from '../shared/events';
 import { CodeError } from '../code/files';
-import { sendPrompt } from '../agent-sessions/acp-host';
+import { sendPrompt, sessionSignals } from '../agent-sessions/acp-host';
+import { getSession } from '../agent-sessions/sessions';
 import type { AgentSession } from '../agent-sessions/types';
 import { getTask } from '../tasks';
 import { getLatestPlan } from '../orchestration/plans';
 import { resolveReviewSkill } from '../library/review-skill';
-import { openIdleThread, repo, row, state } from './index';
+import { detail, finishThreads, openIdleThread, repo, row, state, threads } from './index';
 import { mrReviews } from './mr';
 import { remarks, sessionReview } from './remarks';
 import * as questions from './questions';
@@ -57,13 +58,50 @@ export async function setOverview(session: AgentSession, text: unknown) {
   return { saved: true };
 }
 
-/** Starts the agent on the whole review: an overview and draft remarks, following the chosen skill. */
+/** Starts the agent on the whole review: an overview and draft remarks, following the chosen skill. One review per start: again only after «Новое ревью». */
 export async function analyze(projectId: string, id: string, input: { note?: unknown }) {
-  row(projectId, id);
+  if (row(projectId, id).analysis_status) throw new CodeError('Ревью уже проведено: начните новое', 409);
   const thread = await openIdleThread(projectId, id, 'Агент работает: дождитесь конца ответа');
-  const note = typeof input.note === 'string' && input.note.trim() ? '\nПожелание разработчика: ' + input.note.trim().slice(0, 4000) : '';
-  await sendPrompt(thread.session_id, [{ type: 'text', text: 'Разбери МР: вызови get_review_brief, изучи изменения, запиши сводку через set_review_overview и черновики замечаний через add_review_remark.' + note }]);
+  const wish = typeof input.note === 'string' ? input.note.trim().slice(0, 4000) : '';
+  setAnalysis(id, 'running', thread.session_id, wish);
+  notify(projectId, id);
+  try {
+    await sendPrompt(thread.session_id, [{ type: 'text', text: 'Разбери МР: вызови get_review_brief, изучи изменения, запиши сводку через set_review_overview и черновики замечаний через add_review_remark.' + (wish ? '\nПожелание разработчика: ' + wish : '') }]);
+  } catch (error) {
+    setAnalysis(id, '', '', '');
+    notify(projectId, id);
+    throw error;
+  }
   return { thread };
+}
+const setAnalysis = (id: string, status: string, session: string, wish: string) =>
+  getDb().prepare("UPDATE branch_reviews SET analysis_status=?,analysis_session=?,analysis_note=?,updated_at=datetime('now') WHERE id=?").run(status, session, wish, id);
+const notify = (projectId: string, id: string) => broadcast({ type: 'branch_review_updated', projectId, reviewId: id });
+/** The review is over when the agent's turn ends; later turns of the same session answer questions. */
+function finishAnalysis(sessionId: string, status: 'done' | 'failed') {
+  const r = getDb().prepare("SELECT id,project_id FROM branch_reviews WHERE analysis_session=? AND analysis_status='running'").get(sessionId) as { id: string; project_id: string } | undefined;
+  if (!r) return;
+  getDb().prepare("UPDATE branch_reviews SET analysis_status=?,updated_at=datetime('now') WHERE id=?").run(status, r.id);
+  notify(r.project_id, r.id);
+}
+sessionSignals.on('turn_end', (sessionId: string) => finishAnalysis(sessionId, 'done'));
+sessionSignals.on('error-state', (sessionId: string) => finishAnalysis(sessionId, 'failed'));
+
+/**
+ * «Новое ревью»: the agents of the review are closed, so the next start gets a fresh one. The overview goes and so do
+ * the agent's drafts the developer has not touched; the developer's remarks, edited drafts and the questions stay.
+ */
+export async function restart(projectId: string, id: string) {
+  row(projectId, id);
+  const working = threads(projectId, id).some(t => { try { return ['starting', 'thinking'].includes(getSession(t.session_id).status); } catch { return false; } });
+  if (working) throw new CodeError('Агент ещё работает: дождитесь конца ответа', 409);
+  await finishThreads(projectId, id);
+  getDb().transaction(() => {
+    getDb().prepare("DELETE FROM branch_review_remarks WHERE review_id=? AND author='agent' AND status='draft' AND edited=0 AND remote_id IS NULL").run(id);
+    getDb().prepare("UPDATE branch_reviews SET overview='',overview_head='',analysis_status='',analysis_session='',analysis_note='',updated_at=datetime('now') WHERE id=?").run(id);
+  })();
+  notify(projectId, id);
+  return detail(projectId, id);
 }
 /** The next round: one general question asking the agent whether the published remarks were addressed. */
 export async function checkFixes(projectId: string, id: string) {

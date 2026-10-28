@@ -39,6 +39,7 @@ export const branchReviewApi = {
   markSent: (scope: string, id: string, ids: string[]) => api.post<Remarks>(review(scope, id) + '/remarks/mark-sent', { ids }),
 
   analyze: (scope: string, id: string, input: { note?: string }) => api.post<{ thread: ReviewThread }>(review(scope, id) + '/analyze', input),
+  restart: (scope: string, id: string) => api.post<BranchReview>(review(scope, id) + '/restart', {}),
   checkFixes: (scope: string, id: string) => api.post<BranchQuestions & { thread: ReviewThread }>(review(scope, id) + '/check-fixes', {}),
   questions: (scope: string, id: string) => api.get<BranchQuestions>(review(scope, id) + '/questions'),
   addQuestion: (scope: string, id: string, input: { path?: string; side?: 'old' | 'new'; line?: number; text: string }) => api.post<BranchQuestions>(review(scope, id) + '/questions', input),

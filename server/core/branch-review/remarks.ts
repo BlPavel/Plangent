@@ -24,6 +24,8 @@ export interface Remark {
   head: string;
   body: string; author: 'developer' | 'agent';
   remote_id: number | null; status: 'draft' | 'sent' | 'uncertain'; error: string; created_at: string;
+  /** 1 once the developer has changed the text. */
+  edited: number;
 }
 const db = () => getDb();
 const notify = (projectId: string, reviewId: string) => broadcast({ type: 'branch_review_updated', projectId, reviewId });
@@ -53,7 +55,7 @@ export function createRemarks(resolve: Resolve = resolveCodeHost) {
   }
   async function list(projectId: string, id: string) {
     const s = await state(repo(projectId), row(projectId, id));
-    return { remarks: all(id).map(r => ({ ...r, outdated: !!r.path && r.head !== s.headSha })) };
+    return { remarks: all(id).map(r => ({ ...r, edited: r.edited === 1, outdated: !!r.path && r.head !== s.headSha })) };
   }
   function draft(id: string, key: string): Remark {
     const r = db().prepare('SELECT * FROM branch_review_remarks WHERE id=? AND review_id=?').get(key, id) as Remark | undefined;
@@ -81,7 +83,7 @@ export function createRemarks(resolve: Resolve = resolveCodeHost) {
     return exclusive(id, async () => {
       const d = draft(id, key), text = input.body === undefined ? d.body : body(input.body);
       if (d.remote_id !== null && r.mr_iid) await (await resolve(projectId)).host.updateDraft(r.mr_iid, d.remote_id, { body: text });
-      db().prepare('UPDATE branch_review_remarks SET body=?,error=? WHERE id=?').run(text, '', key);
+      db().prepare('UPDATE branch_review_remarks SET body=?,error=?,edited=? WHERE id=?').run(text, '', text !== d.body || d.edited ? 1 : 0, key);
       notify(projectId, id);
       return list(projectId, id);
     });

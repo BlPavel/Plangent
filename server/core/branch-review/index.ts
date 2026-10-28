@@ -21,6 +21,10 @@ export interface ReviewRow {
   overview: string; overview_head: string;
   /** Head of the branch when the developer last published remarks: the next round starts there. */
   published_head: string;
+  /** The agent's review: '' before it, running, done, stopped (by the developer) or failed. */
+  analysis_status: string; analysis_session: string;
+  /** The developer's wish for the review, shown with the report. */
+  analysis_note: string;
 }
 interface Thread { id: string; review_id: string; head: string; path: string; side: string; line: number; session_id: string }
 const db = () => getDb();
@@ -83,7 +87,8 @@ export async function detail(projectId: string, id: string) {
     ? { commits: await rangeCount(s.root, r.published_head, s.headSha), files: new Set((await rangeFiles(s.root, r.published_head, s.headSha)).map(f => f.path)) } : null;
   return {
     review: { id, project_id: projectId, branch: r.branch, base: r.base, branch_name: s.head.name, base_name: s.base.name, head: s.headSha, merge_base: s.from,
-      mr_iid: r.mr_iid, context: r.context, task_id: r.task_id, skill_id: r.skill_id, overview: r.overview, overview_head: r.overview_head, published_head: r.published_head },
+      mr_iid: r.mr_iid, context: r.context, task_id: r.task_id, skill_id: r.skill_id, overview: r.overview, overview_head: r.overview_head, published_head: r.published_head,
+      analysis_status: r.analysis_status, analysis_session: r.analysis_session, analysis_note: r.analysis_note },
     files: files.map(f => ({ ...f, changed_since: !!round?.files.has(f.path) })),
     commits, commit_count: count,
     new_commits: descends ? await rangeCount(s.root, r.seen_head, s.headSha) : 0,

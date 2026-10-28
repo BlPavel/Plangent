@@ -66,6 +66,7 @@ branchReviewRouter.post('/:id/remarks/:rid/detach', guard(async (req, res) => re
 branchReviewRouter.post('/:id/remarks/:rid/recover', guard(async (req, res) => res.json(await remarks().recover(scope(req), req.params.id, req.params.rid, body(req).published))));
 
 branchReviewRouter.post('/:id/analyze', guard(async (req, res) => res.json(await agent.analyze(scope(req), req.params.id, body(req)))));
+branchReviewRouter.post('/:id/restart', guard(async (req, res) => res.json(await agent.restart(scope(req), req.params.id))));
 branchReviewRouter.post('/:id/check-fixes', guard(async (req, res) => res.json(await agent.checkFixes(scope(req), req.params.id))));
 branchReviewRouter.get('/:id/questions', guard((req, res) => res.json(questions.list(scope(req), req.params.id))));
 branchReviewRouter.post('/:id/questions', guard(async (req, res) => res.json(await questions.add(scope(req), req.params.id, body(req)))));

@@ -69,8 +69,12 @@ export function migrate(db: Database.Database): void {
   // A review opened from a merge request, the developer's context for the agent and the agent's overview.
   const reviewColumns = new Set((db.prepare('PRAGMA table_info(branch_reviews)').all() as { name: string }[]).map(c => c.name));
   for (const [name, type] of [['mr_iid', 'INTEGER'], ['mr_base', "TEXT NOT NULL DEFAULT ''"], ['mr_start', "TEXT NOT NULL DEFAULT ''"], ['mr_head', "TEXT NOT NULL DEFAULT ''"],
-    ['context', "TEXT NOT NULL DEFAULT ''"], ['task_id', 'TEXT'], ['skill_id', 'TEXT'], ['overview', "TEXT NOT NULL DEFAULT ''"], ['overview_head', "TEXT NOT NULL DEFAULT ''"], ['published_head', "TEXT NOT NULL DEFAULT ''"]])
+    ['context', "TEXT NOT NULL DEFAULT ''"], ['task_id', 'TEXT'], ['skill_id', 'TEXT'], ['overview', "TEXT NOT NULL DEFAULT ''"], ['overview_head', "TEXT NOT NULL DEFAULT ''"], ['published_head', "TEXT NOT NULL DEFAULT ''"],
+    ['analysis_status', "TEXT NOT NULL DEFAULT ''"], ['analysis_session', "TEXT NOT NULL DEFAULT ''"], ['analysis_note', "TEXT NOT NULL DEFAULT ''"]])
     if (!reviewColumns.has(name)) db.exec(`ALTER TABLE branch_reviews ADD COLUMN ${name} ${type}`);
+  // An agent's draft the developer has changed is theirs to keep when the review starts over.
+  const remarkColumns = new Set((db.prepare('PRAGMA table_info(branch_review_remarks)').all() as { name: string }[]).map(c => c.name));
+  if (!remarkColumns.has('edited')) db.exec('ALTER TABLE branch_review_remarks ADD COLUMN edited INTEGER NOT NULL DEFAULT 0');
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS agents (
