@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from 'express';
 import { localOrigin } from '../local-origin';
 import { CodeError } from '../../../core/code/files';
 import { planReviews } from '../../../core/plan-review';
+import { planReviewSkills } from '../../../core/library/plan-review-skill';
 
 export const planReviewRouter = Router({ mergeParams: true });
 planReviewRouter.use(localOrigin);
@@ -19,6 +20,7 @@ planReviewRouter.post('/', guard((req, res) => {
   // Session binding will be supplied by the reviewer launcher, not arbitrary HTTP input.
   res.status(201).json(planReviews().create(req.params.projectId, req.params.taskId));
 }));
+planReviewRouter.get('/skills', guard((req, res) => res.json(planReviewSkills(req.params.projectId))));
 planReviewRouter.get('/:id', guard((req, res) => res.json(planReviews().detail(req.params.projectId, req.params.taskId, req.params.id))));
 planReviewRouter.put('/:id/remarks/:rid/decision', guard((req, res) =>
   res.json(planReviews().decision(req.params.projectId, req.params.taskId, req.params.id, req.params.rid, body(req)))));

@@ -11,6 +11,9 @@
       <div class="setup-grid">
         <span class="setup-label">Агент</span>
         <AgentPicker :key="setupKey" v-model="choice" :default-agent-id="defaultAgentId" />
+        <span class="setup-label">Скилл</span>
+        <PlainSelect v-if="skills.length" v-model="skill" :options="skills.map(s => ({ value: s.id, label: s.title + ' · ' + origins[s.origin] }))" label="Скилл ревью плана" />
+        <span v-else class="muted">Нет скиллов проекта: только общие проверки из настроек</span>
         <span class="setup-label">Пожелание</span>
         <textarea v-model="wish" class="control wish" rows="4" placeholder="Необязательно: на что обратить внимание, что не проверять" spellcheck="false" />
       </div>
@@ -81,7 +84,7 @@ import PlainSelect from '@shared/ui/PlainSelect.vue'
 import MessageMarkdown from '@shared/ui/MessageMarkdown.vue'
 import { planReviewApi as api } from '../../plan-review/api'
 import { usePlanReview } from '../../plan-review/usePlanReview'
-import type { Launch, Remark } from '../../plan-review/types'
+import type { Launch, Remark, Skill } from '../../plan-review/types'
 import AgentPicker from './AgentPicker.vue'
 import RemarkCard from './RemarkCard.vue'
 const props = defineProps<{ projectId: string; taskId: string; defaultAgentId?: string | null; locked: boolean; readonly: boolean }>()
@@ -89,7 +92,8 @@ const emit = defineEmits<{ highlight: [ids: string[]]; counts: [counts: Record<s
 const state = usePlanReview(toRef(props, 'projectId'), toRef(props, 'taskId'))
 const detail = state.detail, agents = useAgentsStore(), chats = useChatStore()
 watch(state.counts, counts => emit('counts', counts), { immediate: true })
-const wish = ref('')
+const wish = ref(''), skill = ref(''), skills = ref<Skill[]>([])
+const origins = { direct: 'проект', group: 'группа', global: 'везде' }
 const choice = ref<Launch>({ agent_id: '' })
 const acceptedCount = computed(() => detail.value?.remarks.filter(r => r.status === 'accepted').length || 0)
 const countOf = (status: string) => detail.value?.remarks.filter(r => r.status === status).length || 0
@@ -194,11 +198,21 @@ function loadSetup() {
   const session = chats.sessions.find(s => s.id === state.reviews.value[0]?.session_id)
   choice.value = session ? { agent_id: session.agent_id, model: session.model, reasoning_effort: String(session.metadata.reasoningEffort || '') } : { agent_id: props.defaultAgentId || '' }
   setupKey.value++; setupReady.value = true
+  void loadSkills(props.projectId, props.taskId)
+}
+// Project, group and global skills; the previous round's one stays chosen, else the first (as the server does).
+async function loadSkills(p: string, t: string) {
+  try {
+    const value = await api.skills(p, t)
+    if (p !== props.projectId || t !== props.taskId) return
+    skills.value = value
+    skill.value = value.find(s => s.id === state.reviews.value[0]?.skill_id)?.id || value[0]?.id || ''
+  } catch { skills.value = []; skill.value = '' }
 }
 watch(() => [props.projectId, props.taskId, state.reviews.value[0]?.id], loadSetup, { immediate: true })
 async function launch() {
   if (props.locked || props.readonly || !choice.value.agent_id) return
-  if (await state.run(() => api.launch(props.projectId, props.taskId, { ...choice.value, wish: wish.value }))) { wish.value = ''; setupOpen.value = false }
+  if (await state.run(() => api.launch(props.projectId, props.taskId, { ...choice.value, ...(skill.value ? { skill_id: skill.value } : {}), wish: wish.value }))) { wish.value = ''; setupOpen.value = false }
 }
 // No dialog: the planner that wrote the plan continues if it is free, otherwise a new one starts with the default agent.
 async function send() {

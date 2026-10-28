@@ -127,10 +127,11 @@ const typeOptions = computed(() => [
   { value: 'command' as LibraryItemType, label: 'Команды' },
   { value: 'main' as LibraryItemType, label: 'Главный файл' },
   { value: 'review-skill' as LibraryItemType, label: 'Ревью МР' },
+  { value: 'plan-review-skill' as LibraryItemType, label: 'Ревью плана' },
 ].filter(t => t.value === '' || availableTypeValues.value.includes(t.value)))
 
 function typeLabel(t: LibraryItemType) {
-  return { 'commit-rules': 'правила коммитов', 'code-fixer-instruction': 'Агент доработки', skill: 'скилл', command: 'команда', main: 'main', 'plan-template': 'шаблон плана', 'instruction-guide': 'руководство по инструкциям', 'review-skill': 'скилл ревью', 'plan-review-instruction': 'ревью плана' }[t]
+  return { 'commit-rules': 'правила коммитов', 'code-fixer-instruction': 'Агент доработки', skill: 'скилл', command: 'команда', main: 'main', 'plan-template': 'шаблон плана', 'instruction-guide': 'руководство по инструкциям', 'review-skill': 'скилл ревью', 'plan-review-skill': 'скилл ревью плана', 'plan-review-instruction': 'ревью плана' }[t]
 }
 
 // Each mounted list owns its results: hidden project views can reload independently of settings.
@@ -291,7 +292,7 @@ async function save() {
 
   const slug = editItem.value
     ? form.value.slug
-    : isMain ? 'main' : form.value.type === 'plan-template' ? slugify(form.value.title || 'default_plan') : form.value.type === 'review-skill' ? 'review_' + Date.now().toString(36) : slugify(form.value.title)
+    : isMain ? 'main' : form.value.type === 'plan-template' ? slugify(form.value.title || 'default_plan') : (form.value.type === 'review-skill' || form.value.type === 'plan-review-skill') ? 'review_' + Date.now().toString(36) : slugify(form.value.title)
   const title = isMain ? (form.value.title.trim() || 'Главный файл') : form.value.title.trim()
 
   const payload = {

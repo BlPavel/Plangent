@@ -1,6 +1,6 @@
 <template>
   <div class="workspace" :class="{ split: panelOpen }">
-    <section class="list-pane" :class="{ 'skills-pane': view === 'items' || view === 'review' }">
+    <section class="list-pane" :class="{ 'skills-pane': view === 'items' || view === 'review' || view === 'plan-review' }">
       <div class="views">
         <button type="button" class="view" :class="{ active: view === 'items' }" @click="view = 'items'">Элементы</button>
         <button type="button" class="view" :class="{ active: view === 'guide' }" @click="view = 'guide'">Руководство для агента</button>
@@ -27,9 +27,16 @@
           </template>
         </SkillsManager>
       </template>
+      <template v-else-if="view === 'plan-review'">
+        <p class="hint">Скиллы ревью плана — ваши требования к плану в проекте (например, архитектурные). Общие проверки задаёт глобальная инструкция в настройках, она действует всегда; выбранный скилл добавляется к ней при запуске ревью.</p>
+        <SkillsManager class="skills" scope="project" :project-id="projectId" :allowed-types="['plan-review-skill']">
+          <template #actions>
+            <AppButton v-if="!panelOpen" variant="subtle" size="sm" title="Агент изучит код проекта, расспросит вас и предложит скилл ревью плана" @click="panelOpen = true">✦ Написать с агентом</AppButton>
+          </template>
+        </SkillsManager>
+      </template>
       <InstructionGuideEditor v-else-if="view === 'guide'" scope="project" :project-id="projectId" />
       <CodeFixerInstructionEditor v-else-if="view === 'fixer'" scope="project" :project-id="projectId" />
-      <CodeFixerInstructionEditor v-else-if="view === 'plan-review'" scope="project" type="plan-review-instruction" :project-id="projectId" />
       <ProjectGitPanel v-else-if="view === 'branches' || view === 'mr'" :project-id="projectId" :section="view" />
       <template v-else>
         <CommitSettings :project-id="projectId" />

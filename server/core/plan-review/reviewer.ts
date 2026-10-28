@@ -8,11 +8,12 @@ import type { AgentSession } from '../agent-sessions/types';
 import type { PlanRemark, PlanMessage } from './types';
 import { analysisToolContext } from '../orchestration/analysis-context';
 import { resolvePlanReviewInstruction } from '../library/plan-review-instruction';
+import { resolvePlanReviewSkill } from '../library/plan-review-skill';
 import { text } from './remarks';
 
 export const PROTOCOL = [
   'Review the saved plan against the analysis. You are read-only: never edit files or run mutating commands.',
-  'Call get_plan_review_brief first in every round. Follow the review instruction and the developer wish.',
+  'Call get_plan_review_brief first in every round. Follow the review instruction (general checks), the chosen skill (requirements of this project; null when there is none) and the developer wish.',
   'Create actionable cards with add_plan_remark: steps are existing pN ids, [] means the whole plan. kind is contradiction, order, coverage, extra, unclear or risk. Include evidence and an optional suggestion.',
   'Then call set_plan_review_overview with a concise overview and coverage rows: requirement, steps, status (covered/missing/partial), remark_id. Every missing/partial row must link to a card created in this round.',
   'Use history, rejection reasons and planner answers. Do not repeat rejected remarks without new evidence. The developer decides which cards to accept, reject or discuss with you; never change the plan yourself.',
@@ -31,7 +32,7 @@ export function brief(session: AgentSession) {
   const { task, project } = reviewTask(session.project_id, session.task_id!);
   return { protocol: PROTOCOL, task, plan: { version: detail.review.plan_version, content: detail.review.plan_content },
     analysis: analysisToolContext(task.id, project.repo_path, task.key),
-    instruction: resolvePlanReviewInstruction(project.id),
+    instruction: resolvePlanReviewInstruction(), skill: resolvePlanReviewSkill(project.id, detail.review.skill_id),
     wish: session.metadata.wish ?? '', ...detail,
     history: planReviews().list(project.id, task.id).filter(r => r.id !== detail.review.id)
       .map(r => planReviews().detail(project.id, task.id, r.id)) };
@@ -86,7 +87,8 @@ export async function launch(projectId: string, taskId: string, input: Record<st
       reasoningEffort: text(input.reasoning_effort ?? saved?.metadata.reasoningEffort ?? agent.reasoning_effort, false),
       briefing: PROTOCOL.join('\n') } });
   const service = planReviews();
-  const detail = service.create(projectId, taskId, { session_id: session.id });
+  const skill = resolvePlanReviewSkill(projectId, typeof input.skill_id === 'string' ? input.skill_id : previous?.skill_id);
+  const detail = service.create(projectId, taskId, { session_id: session.id, skill_id: skill?.id ?? null });
   updateSession(session.id, { metadata: { ...session.metadata, plan_review_id: detail.review.id } });
   try {
     await sendPrompt(session.id, [{ type: 'text', text: 'Call get_plan_review_brief. Review the plan, create cards with add_plan_remark, then save the overview and coverage with set_plan_review_overview.' }]);

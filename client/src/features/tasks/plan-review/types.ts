@@ -10,5 +10,6 @@ export interface Remark {
   messages: { id: string; author: 'developer' | 'reviewer' | 'planner'; text: string; sent: boolean }[]
 }
 export interface Detail { review: Review; remarks: Remark[] }
-export interface Launch { agent_id: string; model?: string; reasoning_effort?: string; wish?: string }
+export interface Skill { id: string; title: string; origin: 'direct' | 'group' | 'global' }
+export interface Launch { agent_id: string; model?: string; reasoning_effort?: string; skill_id?: string; wish?: string }
 

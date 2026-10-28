@@ -206,7 +206,7 @@ export interface Run {
   finished_at?: string;
 }
 
-export type LibraryItemType = 'skill' | 'command' | 'main' | 'plan-template' | 'instruction-guide' | 'code-fixer-instruction' | 'commit-rules' | 'review-skill' | 'plan-review-instruction';
+export type LibraryItemType = 'skill' | 'command' | 'main' | 'plan-template' | 'instruction-guide' | 'code-fixer-instruction' | 'commit-rules' | 'review-skill' | 'plan-review-skill' | 'plan-review-instruction';
 // global: everywhere. project: only the groups/projects listed in `targets` (a group covers its projects).
 export type LibraryScope = 'global' | 'project';
 
@@ -262,7 +262,7 @@ export interface LibraryProposal {
   session_id: string;
   status: LibraryProposalStatus;
   action: 'create' | 'update';
-  type: 'skill' | 'main' | 'command' | 'review-skill';
+  type: 'skill' | 'main' | 'command' | 'review-skill' | 'plan-review-skill';
   slug: string;
   title: string;
   description: string;
