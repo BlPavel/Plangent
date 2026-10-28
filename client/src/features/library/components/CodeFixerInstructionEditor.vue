@@ -52,11 +52,15 @@ import AppButton from '@shared/ui/AppButton.vue'
 import { useLibraryStore } from '../stores/library'
 
 /** One editor for every rule text with project / group / global levels and a built-in default. */
-const props = withDefaults(defineProps<{ scope: LibraryScope; projectId?: string; type?: 'code-fixer-instruction' | 'commit-rules' }>(), { type: 'code-fixer-instruction' })
+const props = withDefaults(defineProps<{ scope: LibraryScope; projectId?: string; type?: 'code-fixer-instruction' | 'commit-rules' | 'plan-review-instruction' }>(), { type: 'code-fixer-instruction' })
 const CONFIG = {
   'code-fixer-instruction': {
     title: 'Агент доработки', itemTitle: 'Агент доработки', slug: 'code_fixer_instruction',
     description: 'Ваши правила для агента, который исполняет замечания ревью кода: что ему можно трогать, чего избегать, как отчитываться. Как читать замечания и вопросы и как их закрывать, агент получает от Plangent вместе с самими пунктами — здесь это описывать не нужно. Git и запись вне папки проекта запрещены в любом случае. Действует ближайший уровень: проект, группа, глобальный; если нигде не задано — предустановленный текст.',
+  },
+  'plan-review-instruction': {
+    title: 'Ревью плана', itemTitle: 'Ревью плана', slug: 'plan_review_instruction',
+    description: 'Ваши правила для агента, который проверяет план задачи по материалам анализа: что искать, на что не обращать внимания. Как оформлять замечания, сводку и таблицу покрытия, агент получает от Plangent — здесь это описывать не нужно. Действует ближайший уровень: проект, группа, глобальный; если нигде не задано — предустановленный текст.',
   },
   'commit-rules': {
     title: 'Правила коммитов', itemTitle: 'Правила коммитов', slug: 'commit_rules',

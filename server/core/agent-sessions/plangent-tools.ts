@@ -11,6 +11,8 @@ export const plangentTools = {
   get_plan_review_brief: { description: 'Read review protocol, plan, analysis, skill, wish and decision history. Call first.', fields: {} },
   set_plan_review_overview: { description: 'Finish review: save overview and coverage; missing/partial rows link to cards.', fields: { overview: { type: 'string' }, coverage: { type: 'array', items: { type: 'object', required: ['requirement', 'steps', 'status'], properties: { requirement: { type: 'string' }, steps: { type: 'array', items: { type: 'string' } }, status: { type: 'string', enum: ['covered', 'missing', 'partial'] }, remark_id: { type: 'string' } } } } } },
   add_plan_remark: { description: 'Create a plan card. steps: existing pN ids, [] for the whole plan.', fields: { steps: { type: 'array', items: { type: 'string' } }, kind: { type: 'string', enum: ['contradiction', 'order', 'coverage', 'extra', 'unclear', 'risk'] }, text: { type: 'string' }, suggestion: { type: 'string' } } },
+  answer_plan_remark: { description: 'Answer the developer in a card they discuss with you. Explain with evidence from the plan and analysis; say whether you keep, change or withdraw the remark. Never change the plan.', fields: { id: { type: 'string' }, text: { type: 'string' } } },
+  revise_plan_remark: { description: 'Rewrite a card after the developer convinced you or agreed on a different version: give the full new text (and suggestion). The planner sees only the card, never the discussion, so the card must stand on its own. The previous version is kept for the developer. Use together with answer_plan_remark.', fields: { id: { type: 'string' }, text: { type: 'string' }, suggestion: { type: 'string' } } },
   get_plan_review_items: { description: 'Read assigned cards with threads and decisions. Call get_plan first.', fields: {} },
   reply_plan_remark: { description: 'Reply in an assigned card. Explain using current pN ids.', fields: { id: { type: 'string' }, kind: { type: 'string', enum: ['answer', 'options', 'questions', 'change', 'disagree'] }, text: { type: 'string' } } },
   get_finish_context: { description: 'Read changed files, diffs, commit rules, task context, options and user revision note. Call first.', fields: {} },
@@ -28,7 +30,7 @@ export const plangentTools = {
     fields: { proposal: { type: 'object', additionalProperties: false,
       required: ['action', 'type', 'slug', 'title', 'content', 'explanation'],
       properties: {
-        action: { type: 'string', enum: ['create', 'update'] }, type: { type: 'string', enum: ['skill', 'main', 'command', 'review-skill', 'plan-review-skill'] },
+        action: { type: 'string', enum: ['create', 'update'] }, type: { type: 'string', enum: ['skill', 'main', 'command', 'review-skill'] },
         slug: { type: 'string' }, title: { type: 'string' }, description: { type: 'string' }, frontmatter: { type: 'object' },
         content: { type: 'string' }, explanation: { type: 'string' }, item_id: { type: 'string' },
         scope: { type: 'string', enum: ['global', 'project'] }, targets: { type: 'array', items: { type: 'string' } },

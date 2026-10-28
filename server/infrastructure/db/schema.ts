@@ -37,7 +37,7 @@ export function migrate(db: Database.Database): void {
       text TEXT NOT NULL, suggestion TEXT NOT NULL DEFAULT '',
       status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','accepted','discussing','rejected','sent','applied','answered')),
       decision TEXT NOT NULL DEFAULT '', sent_status TEXT CHECK(sent_status IN ('accepted','discussing')),
-      planner_session_id TEXT, outdated INTEGER NOT NULL DEFAULT 0 CHECK(outdated IN (0,1)), applied_version INTEGER,
+      planner_session_id TEXT, outdated INTEGER NOT NULL DEFAULT 0 CHECK(outdated IN (0,1)), applied_version INTEGER, original TEXT CHECK(original IS NULL OR json_valid(original)),
       created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f','now'))
     );
     CREATE INDEX IF NOT EXISTS plan_review_remarks_review ON plan_review_remarks(review_id);
@@ -49,6 +49,8 @@ export function migrate(db: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS plan_review_messages_remark ON plan_review_messages(remark_id);
   `);
+  // The text a card had before it was rewritten after a discussion (null: never rewritten).
+  try { db.exec('ALTER TABLE plan_review_remarks ADD COLUMN original TEXT'); } catch { /* already exists */ }
 
   db.exec(`CREATE TABLE IF NOT EXISTS conflict_resolutions (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, operation_id TEXT NOT NULL, session_id TEXT NOT NULL,
       closed INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f','now')));

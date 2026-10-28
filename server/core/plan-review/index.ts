@@ -83,6 +83,18 @@ export function createPlanReviewService(db: Database.Database = getDb()) {
     notify(taskId, id);
     return detail(projectId, taskId, id);
   }
+  /** The card is rewritten (by the reviewer after a discussion, or by the developer): the first version stays in `original`. */
+  function revise(projectId: string, taskId: string, id: string, key: string, input: Record<string, unknown>) {
+    scoped(projectId, taskId, id);
+    const r = card(id, key);
+    if (r.status === 'sent' || r.status === 'applied') throw new CodeError('The card already went to the planner', 409);
+    const next = text(input.text), suggestion = text(input.suggestion, false);
+    if (next !== r.text || suggestion !== r.suggestion) {
+      store.saveRemark({ ...r, text: next, suggestion, original: r.original ?? { text: r.text, suggestion: r.suggestion } });
+      notify(taskId, id);
+    }
+    return detail(projectId, taskId, id);
+  }
   function addMessage(projectId: string, taskId: string, id: string, key: string, author: PlanMessage['author'], value: unknown) {
     scoped(projectId, taskId, id);
     const r = card(id, key);
@@ -107,6 +119,13 @@ export function createPlanReviewService(db: Database.Database = getDb()) {
     })();
     notify(taskId, id);
   }
+  /** The developer's comments in a card reached the reviewer. */
+  function delivered(projectId: string, taskId: string, id: string, keys: string[]) {
+    scoped(projectId, taskId, id);
+    for (const key of keys) db.prepare('UPDATE plan_review_messages SET sent=1 WHERE remark_id=? AND sent=0').run(key);
+    notify(taskId, id);
+    return detail(projectId, taskId, id);
+  }
   function onSaved(event: PlanSaved) {
     db.transaction(() => {
       for (const r of store.listReviews(event.taskId)) {
@@ -115,7 +134,7 @@ export function createPlanReviewService(db: Database.Database = getDb()) {
     })();
     if (store.listReviews(event.taskId).length) notify(event.taskId);
   }
-  return { list, create, detail, addRemark, setOverview, setStatus, decision, addMessage, sent, onSaved };
+  return { list, create, detail, addRemark, setOverview, setStatus, decision, addMessage, revise, sent, delivered, onSaved };
 }
 let service: ReturnType<typeof createPlanReviewService> | undefined;
 export const planReviews = () => service ??= createPlanReviewService();

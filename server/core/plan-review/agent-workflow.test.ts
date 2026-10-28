@@ -20,6 +20,7 @@ test('reviewer MCP and planner delivery preserve scoped cards, decisions, histor
   const { initQueues } = await import('../orchestration/queue');
   const { planReviews } = await import('./index');
   const { launch } = await import('./agent');
+  const { askReviewer } = await import('./reviewer');
   const { candidates, deliver } = await import('./planner-transport');
   const { mcpRouter, sessionMcpConfig, allowed } = await import('../../infrastructure/mcp/server');
   const { killProcessTree } = await import('../../infrastructure/terminal/process-tree');
@@ -55,7 +56,7 @@ test('reviewer MCP and planner delivery preserve scoped cards, decisions, histor
     await untilReady(reviewer);
     assert.equal(sessions.getSession(reviewer).policy, 'read-only');
     assert.throws(() => sessions.updateSession(reviewer, { policy: 'allow-all' }));
-    assert.deepEqual(allowed(sessions.getSession(reviewer)), ['get_plan_review_brief', 'set_plan_review_overview', 'add_plan_remark']);
+    assert.deepEqual(allowed(sessions.getSession(reviewer)), ['get_plan_review_brief', 'set_plan_review_overview', 'add_plan_remark', 'answer_plan_remark', 'revise_plan_remark']);
     sessions.updateSession(reviewer, { status: 'thinking' });
     assert.equal((await call(reviewer, 'submit_plan', { content: 'Forbidden' })).failed, true);
     const brief = JSON.parse((await call(reviewer, 'get_plan_review_brief')).data!);
@@ -68,6 +69,25 @@ test('reviewer MCP and planner delivery preserve scoped cards, decisions, histor
     service.decision(project.id, task.id, opened.review.id, a.id, { status: 'accepted', comment: 'Keep checks' });
     service.decision(project.id, task.id, opened.review.id, b.id, { status: 'discussing', comment: 'Why this order?' });
     service.decision(project.id, task.id, opened.review.id, rejected.id, { status: 'rejected', comment: 'Already covered' });
+    // Discussion is with the reviewer: it answers in the card, and nothing goes to a planner until every card is decided.
+    sessions.updateSession(reviewer, { status: 'thinking' });
+    assert.equal((await call(reviewer, 'answer_plan_remark', { id: a.id, text: 'Not discussed' })).failed, true);
+    assert.equal((await call(reviewer, 'answer_plan_remark', { id: b.id, text: 'Because p2 needs p1' })).failed, false);
+    // The developer's comment waits as a draft until the batch goes to the reviewer.
+    assert.equal(service.detail(project.id, task.id, opened.review.id).remarks.find(r => r.id === b.id)!.messages.find(m => m.author === 'developer')!.sent, false);
+    await askReviewer(project.id, task.id, opened.review.id);
+    assert.equal(service.detail(project.id, task.id, opened.review.id).remarks.find(r => r.id === b.id)!.messages.find(m => m.author === 'developer')!.sent, true);
+    await assert.rejects(askReviewer(project.id, task.id, opened.review.id), /Nothing to send/);
+    // After the discussion the reviewer rewrites the card; the first version stays for the developer, and only discussing cards can be rewritten.
+    assert.equal((await call(reviewer, 'revise_plan_remark', { id: a.id, text: 'Not discussed' })).failed, true);
+    assert.equal((await call(reviewer, 'revise_plan_remark', { id: b.id, text: 'Reorder only p2 and p3', suggestion: 'Move p3 before p2' })).failed, false);
+    const discussed = service.detail(project.id, task.id, opened.review.id).remarks.find(r => r.id === b.id)!;
+    assert.equal(discussed.status, 'discussing');
+    assert.equal(discussed.messages.at(-1)!.author, 'reviewer');
+    assert.equal(discussed.text, 'Reorder only p2 and p3');
+    assert.deepEqual(discussed.original, { text: 'Explain', suggestion: '' });
+    await assert.rejects(deliver(project.id, task.id, opened.review.id, { session_id: null }), /decision/);
+    service.decision(project.id, task.id, opened.review.id, b.id, { status: 'accepted', comment: 'Then fix the order' });
     assert.equal(candidates(project.id, task.id).default_session_id, null);
     const sent = await deliver(project.id, task.id, opened.review.id, { session_id: null });
     const planner = sent.session_id;
@@ -77,8 +97,13 @@ test('reviewer MCP and planner delivery preserve scoped cards, decisions, histor
     const items = JSON.parse((await call(planner, 'get_plan_review_items')).data!);
     assert.deepEqual(items.assigned.map((r: { id: string }) => r.id), [a.id, b.id]);
     assert.equal(items.remarks, undefined);
-    assert.equal(items.assigned[0].decision, 'Keep checks');
-    assert.equal(items.assigned[1].messages[0].text, 'Why this order?');
+    // The planner gets the cards alone: no discussion, the rewritten text, the developer's clarification.
+    assert.equal(items.assigned[0].developer_clarification, 'Keep checks');
+    assert.equal(items.assigned[1].text, 'Reorder only p2 and p3');
+    assert.equal(items.assigned[1].suggestion, 'Move p3 before p2');
+    assert.equal(items.assigned[1].developer_clarification, 'Then fix the order');
+    assert.equal(items.assigned[1].messages, undefined);
+    assert.equal(items.assigned[1].original, undefined);
     assert.equal((await call(planner, 'reply_plan_remark', { id: rejected.id, kind: 'answer', text: 'No' })).failed, true);
     assert.equal((await call(planner, 'reply_plan_remark', { id: b.id, kind: 'options', text: '1. Keep p1 first (recommended). 2. Swap.' })).failed, false);
     assert.equal(service.detail(project.id, task.id, opened.review.id).remarks.find(r => r.id === b.id)!.status, 'answered');
@@ -88,7 +113,7 @@ test('reviewer MCP and planner delivery preserve scoped cards, decisions, histor
     sessions.updateSession(planner, { status: 'ready' });
     assert.equal(candidates(project.id, task.id).default_session_id, planner);
     sessions.updateSession(planner, { status: 'thinking' });
-    service.decision(project.id, task.id, opened.review.id, b.id, { status: 'discussing', comment: 'Explain option 2' });
+    service.decision(project.id, task.id, opened.review.id, b.id, { status: 'accepted', comment: 'Explain option 2' });
     await assert.rejects(deliver(project.id, task.id, opened.review.id, { session_id: planner }), /responding/);
     sessions.updateSession(planner, { status: 'ready' });
     await host.closeSession(planner);
@@ -110,10 +135,10 @@ test('reviewer MCP and planner delivery preserve scoped cards, decisions, histor
     const bad = createAgent({ name: 'Unavailable' });
     const failing = service.create(project.id, task.id);
     const card = service.addRemark(project.id, task.id, failing.review.id, { steps: [], kind: 'risk', text: 'Retry' });
-    service.decision(project.id, task.id, failing.review.id, card.id, { status: 'discussing', comment: 'Question' });
+    service.decision(project.id, task.id, failing.review.id, card.id, { status: 'accepted', comment: 'Question' });
     await assert.rejects(deliver(project.id, task.id, failing.review.id, { session_id: null, agent_id: bad.id }));
     const untouched = service.detail(project.id, task.id, failing.review.id).remarks[0];
-    assert.equal(untouched.status, 'discussing');
+    assert.equal(untouched.status, 'accepted');
     assert.equal(untouched.messages[0].sent, false);
     const other = createTask({ project_id: project.id, key: 'OTHER' });
     await assert.rejects(deliver(project.id, other.id, failing.review.id, {}), /not found/i);

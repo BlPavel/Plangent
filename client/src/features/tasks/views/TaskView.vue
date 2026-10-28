@@ -8,7 +8,7 @@
         <StatusBadge :status="task?.status" />
       </div>
       <div class="actions">
-        <AppButton v-if="task && !editingTitle" type="button" variant="ghost" size="sm" title="Редактировать название задачи" @click="startTitleEdit">
+        <AppButton v-if="task && !editingTitle" type="button" variant="subtle" size="sm" title="Редактировать название задачи" @click="startTitleEdit">
           <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M10.8 2.7l2.5 2.5M3 13l.6-3L10.3 3.3a1 1 0 011.4 0l1 1a1 1 0 010 1.4L6 12.4 3 13z" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" /></svg>
           Редактировать
         </AppButton>

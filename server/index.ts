@@ -10,6 +10,7 @@ import { DATA_DIR, getDb } from './infrastructure/db/schema';
 import { configureSecretVault, DevFileVault, SecretVault } from './infrastructure/secrets';
 import { resetInterruptedDocsSyncs } from './core/docs-sources';
 import { syncAll } from './core/library/syncer';
+import { migratePlanReviewSkills } from './core/library/plan-review-instruction';
 
 process.on('uncaughtException', (err) => {
   console.error('[uncaughtException]', err.message);
@@ -29,6 +30,7 @@ export async function startServer(port = DEFAULT_PORT, vault?: SecretVault): Pro
   initQueues();
   initTaskFiles();
   configureSessionHost({ mcp: sessionMcpConfig, terminate: killProcessTree });
+  migratePlanReviewSkills();
 
   try {
     syncAll();

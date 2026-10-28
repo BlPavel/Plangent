@@ -116,16 +116,16 @@ test('outdated skill responses cannot replace the newly selected project', async
   } finally { app.unmount() }
 })
 
-test('combined review library shows only MR and plan skills', async () => {
+test('review library shows only MR skills', async () => {
   const Skills = await compiled
   global.fetch = async () => response([
     item('regular', 'global', 'skill'), item('mr-review', 'global', 'review-skill'),
-    item('plan-review', 'global', 'plan-review-skill'), item('main', 'global', 'main'),
+    item('plan-review', 'global', 'plan-review-instruction'), item('main', 'global', 'main'),
   ])
-  const app = createApp({ render: () => h(Skills, { scope: 'global', allowedTypes: ['review-skill', 'plan-review-skill'] }) })
+  const app = createApp({ render: () => h(Skills, { scope: 'global', allowedTypes: ['review-skill'] }) })
   app.use(createPinia()); app.mount('#app')
   try {
     await flush()
-    assert.deepEqual(titles('#app'), ['mr-review', 'plan-review'])
+    assert.deepEqual(titles('#app'), ['mr-review'])
   } finally { app.unmount() }
 })

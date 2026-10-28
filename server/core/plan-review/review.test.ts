@@ -64,7 +64,7 @@ test('accepted delivery applies only on changed plan save by recipient; discussi
   try {
     const a = f.add(), b = f.add(['p2']);
     f.service.decision('p','t',f.review.id,a.id,{ status: 'accepted' });
-    f.service.decision('p','t',f.review.id,b.id,{ status: 'discussing', comment: 'Why?' });
+    f.service.decision('p','t',f.review.id,b.id,{ status: 'accepted', comment: 'Why?' });
     f.service.sent('p','t',f.review.id,[a.id,b.id],'planner');
     assert.ok(f.detail().remarks.every(r => r.status === 'sent'));
     assert.ok(f.detail().remarks[1].messages.every(m => m.sent));
@@ -74,14 +74,14 @@ test('accepted delivery applies only on changed plan save by recipient; discussi
     assert.equal(f.detail().remarks[0].status, 'sent');
     f.service.addMessage('p','t',f.review.id,a.id,'planner','answer: I will fix it');
     assert.equal(f.detail().remarks[0].status, 'sent');
+    f.service.addMessage('p','t',f.review.id,b.id,'planner','disagree: Explanation');
+    assert.equal(f.detail().remarks[1].status, 'answered');
+    assert.equal(f.detail().remarks[1].messages.at(-1)!.text, 'disagree: Explanation');
     f.save();
     const applied = f.detail().remarks[0];
     assert.equal(applied.status, 'applied');
     assert.equal(applied.applied_version, 2);
-    assert.equal(f.detail().remarks[1].status, 'sent');
-    f.service.addMessage('p','t',f.review.id,b.id,'planner','Explanation');
     assert.equal(f.detail().remarks[1].status, 'answered');
-    assert.equal(f.detail().remarks[1].messages.at(-1)!.text, 'Explanation');
     f.service.decision('p','t',f.review.id,b.id,{ status: 'accepted', comment: 'Now fix' });
     assert.equal(f.detail().remarks[1].status, 'accepted');
   } finally { f.db.close(); }
@@ -192,5 +192,21 @@ test('a planner disagreement with an accepted card needs the developer; sent and
     f.service.decision('p','t',f.review.id,b.id,{ status: 'discussing', comment: 'Still wrong' });
     assert.equal(f.detail().remarks[1].status, 'discussing');
     assert.equal(f.detail().remarks[1].applied_version, null);
+  } finally { f.db.close(); }
+});
+test('a card can be rewritten before it goes to the planner; the first version is kept once', () => {
+  const f = fixture();
+  try {
+    const a = f.add();
+    f.service.revise('p','t',f.review.id,a.id,{ text: 'Second', suggestion: 'Do this' });
+    f.service.revise('p','t',f.review.id,a.id,{ text: 'Third' });
+    const card = f.detail().remarks[0];
+    assert.equal(card.text, 'Third'); assert.equal(card.suggestion, '');
+    assert.deepEqual(card.original, { text: a.text, suggestion: a.suggestion });
+    assert.throws(() => f.service.revise('p','t',f.review.id,a.id,{ text: ' ' }));
+    f.service.decision('p','t',f.review.id,a.id,{ status: 'accepted' });
+    assert.equal(f.detail().remarks[0].original!.text, a.text);
+    f.service.sent('p','t',f.review.id,[a.id],'planner');
+    assert.throws(() => f.service.revise('p','t',f.review.id,a.id,{ text: 'Late' }), /already went/);
   } finally { f.db.close(); }
 });

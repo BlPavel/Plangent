@@ -30,7 +30,6 @@
       <input v-model="form.title" :placeholder="form.type === 'command' ? 'code_review' : isReviewSkill ? 'Архитектура' : 'db_migrations'" @input="clearErr('title')" />
       <span v-if="form.type === 'command' && form.title.trim()" class="hint">Будет вызываться как <code>/{{ slugPreview }}</code></span>
       <span v-else-if="form.type === 'review-skill'" class="hint">Так скилл называется в выборе перед разбором МР.</span>
-      <span v-else-if="form.type === 'plan-review-skill'" class="hint">Так скилл называется в выборе перед ревью плана.</span>
       <span v-else class="hint">Только латиница, цифры и <code>_</code> (например <code>db_migrations</code>). Так будет называться файл на диске.</span>
       <span v-if="err.title" class="error">{{ err.title }}</span>
     </div>
@@ -71,9 +70,6 @@
     <!-- Content -->
     <div class="form-field" :class="{ invalid: err.content }">
       <label>{{ contentLabel }} <span class="req">*</span></label>
-      <div v-if="form.type === 'plan-template' || form.type === 'plan-review-skill'" class="template-toolbar">
-        <button type="button" class="btn btn-ghost btn-sm" @click="$emit('copySystemDefault')">Скопировать системный дефолт</button>
-      </div>
       <textarea v-model="form.content" class="content-editor" rows="14" :placeholder="contentPlaceholder" @input="clearErr('content')" />
       <span v-if="err.content" class="error">{{ err.content }}</span>
     </div>
@@ -110,9 +106,8 @@ const props = defineProps<{
   defaultPlanTemplate?: string
   lockedPlanProtocol?: string
 }>()
-defineEmits<{ copySystemDefault: [] }>()
 const { form } = props
-const isReviewSkill = computed(() => form.type === 'review-skill' || form.type === 'plan-review-skill')
+const isReviewSkill = computed(() => form.type === 'review-skill')
 
 const TYPES: { value: LibraryItemType; label: string }[] = [
   { value: 'skill', label: 'Скилл' },
@@ -120,7 +115,6 @@ const TYPES: { value: LibraryItemType; label: string }[] = [
   { value: 'main', label: 'Главный файл' },
   { value: 'plan-template', label: 'Шаблон плана' },
   { value: 'review-skill', label: 'Скилл ревью' },
-  { value: 'plan-review-skill', label: 'Ревью плана' },
 ]
 const availableTypes = computed(() => TYPES.filter(t => !props.allowedTypes || props.allowedTypes.includes(t.value)))
 
@@ -143,7 +137,7 @@ const typeHint = computed(() => ({
   main: 'Главные инструкции — всегда в контексте агента, у каждого агента раскладываются в свой главный файл. Может быть только один.',
   'plan-template': 'Структура плана для режима планирования. Протокол шагов добавляется ниже и не редактируется.',
   'review-skill': 'Что агенту важно в ревью МР этого проекта и что пропускать. Выбирается перед разбором во вкладке «Ревью»; формат сводки и замечаний задаёт Plangent.',
-  'plan-review-skill': 'Что проверять в плане: противоречия, порядок, покрытие анализа и проверяемость шагов. Формат сводки и замечаний задаёт Plangent. В папки агентов не синхронизируется.',
+  'plan-review-instruction': 'Что проверять в плане. Редактируется во вкладке «Ревью плана».',
 }[form.type]))
 
 function slugify(s: string): string {

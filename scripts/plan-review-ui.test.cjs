@@ -72,20 +72,19 @@ test('plan review UI decisions, delivery, live remapping, answers, another round
     calls.push({url, input, method:options.method});
     let result;
     if (url.endsWith('/plan-reviews')) result = reviews;
-    else if (url.endsWith('/skills')) result = [{id:'skill',title:'Plan skill',origin:'direct'}];
-    else if (url.endsWith('/planners')) result = {sessions:[{id:'planner',title:'Author planner',available:true}],default_session_id:'planner'};
     else if (url.endsWith('/decision')) {
       const id = url.split('/').at(-2), card = detail.remarks.find(r => r.id === id);
       card.status = input.status; card.decision = input.comment;
       if (input.comment) card.messages.push({id:'m'+calls.length,author:'developer',text:input.comment,sent:false});
       result = detail;
+    } else if (url.endsWith('/discuss')) {
+      for (const card of detail.remarks) for (const message of card.messages) message.sent = true;
+      result = detail;
     } else if (url.endsWith('/send')) {
-      assert.equal(input.session_id,'planner');
-      for (const card of detail.remarks) if (['accepted','discussing'].includes(card.status)) card.status = 'sent';
+      for (const card of detail.remarks) if (['accepted','discussing'].includes(card.status)) { card.status = 'sent'; card.planner_session_id = 'planner'; }
       result = detail;
     } else if (url.endsWith('/launch')) {
       assert.equal(input.agent_id,'agent'); assert.equal(input.model,'saved-model'); assert.equal(input.reasoning_effort,'high');
-      assert.equal(input.skill_id,'skill');
       const review = {...reviews[0],id:'r2',round:2,status:'open'};
       reviews = [review,...reviews]; detail = {review, remarks:[]}; result = detail;
     } else if (url.endsWith('/r1') || url.endsWith('/r2')) result = detail;
@@ -102,14 +101,26 @@ test('plan review UI decisions, delivery, live remapping, answers, another round
   await click('→ замечание 1'); assert.deepEqual(highlights.at(-1),['p1']);
   let cards = document.querySelectorAll('.remark');
   await click('Принять', cards[0]); await submit(cards[0],'After p2');
+  // Discussion is with the reviewer; rejecting needs no reason and no form.
   await click('Обсудить', cards[1]); await submit(cards[1],'Why this order?');
-  await click('Отклонить', cards[2]); await submit(cards[2],'Intentional scope');
+  await click('Отклонить', cards[2]);
+  const rejection = calls.filter(c => c.url.endsWith('/decision')).at(-1).input;
+  assert.equal(rejection.status, 'rejected'); assert.equal(rejection.comment, '');
   assert.equal(document.querySelectorAll('.remark')[2].querySelector('details').hasAttribute('open'), false);
-  assert.match(document.body.textContent,/Отправить планировщику \(2\)/);
-  await click('Отправить планировщику (2)'); await click('Отправить');
+  // The comment waits in its card until it is sent to the reviewer with the batch button.
+  assert.equal(calls.filter(c => c.url.endsWith('/discuss')).length, 0);
+  assert.match(document.body.textContent, /Ждёт отправки/);
+  await click('Отправить ревьюеру (1)');
+  assert.equal(calls.filter(c => c.url.endsWith('/discuss')).length, 1);
+  assert.doesNotMatch(document.body.textContent, /Ждёт отправки/);
+  // Nothing goes to the planner while a card is still being discussed.
+  assert.equal(button('Отправить планировщику (1)').disabled, true);
+  await click('Принять', document.querySelectorAll('.remark')[1]); await submit(document.querySelectorAll('.remark')[1],'Then fix the order');
+  assert.equal(button('Отправить планировщику (2)').disabled, false);
+  await click('Отправить планировщику (2)');
   assert.equal(calls.filter(c=>c.url.endsWith('/send')).length,1);
-  // A sent card is never a dead end: it can be reopened or discussed again.
-  assert.ok(button('Вернуть', document.querySelectorAll('.remark')[0])); assert.ok(button('Обсудить', document.querySelectorAll('.remark')[0]));
+  // A sent card is never a dead end: it can be reopened.
+  assert.ok(button('Вернуть', document.querySelectorAll('.remark')[0]));
   assert.equal([...document.querySelectorAll('.remark button')].some(b => b.textContent.trim() === 'Комментарий…'), false);
   assert.match(document.body.textContent, /Отправлено планировщику/);
   detail.remarks[0].steps = [{id:'p7',deleted:false}];
@@ -121,18 +132,19 @@ test('plan review UI decisions, delivery, live remapping, answers, another round
   await flush(); await flush();
   assert.match(document.body.textContent,/Planner answer/);
   assert.match(document.body.textContent,/Учтено в плане/);
-  assert.match(document.body.textContent,/к прежней редакции плана/);
+  assert.doesNotMatch(document.body.textContent,/к прежней редакции плана/);
+  assert.match(document.body.textContent,/Открыть чат планировщика/);
   assert.match(document.body.textContent,/Планировщик ответил/);
   assert.deepEqual(counts.at(-1),{p9:1});
   cards = document.querySelectorAll('.remark');
   const stepButton = [...cards[0].querySelectorAll('button')].find(b=>b.textContent.trim()==='p7');
   stepButton.click(); await flush(); assert.deepEqual(highlights.at(-1),['p7']);
   locked.value = true; await flush();
-  assert.equal(button('Ревью ещё раз').disabled,true);
+  assert.equal([...document.querySelectorAll('button')].some(b => b.textContent.trim() === 'Новый раунд'), false);
   assert.equal(button('Отправить планировщику (0)').disabled,true);
   assert.equal([...document.querySelectorAll('.remark button')].some(b=>b.textContent==='Принять'),false);
   locked.value = false; await flush();
-  await click('Ревью ещё раз'); await click('Запустить ревью');
+  await click('Новый раунд'); await click('Запустить новый раунд');
   assert.match(document.body.textContent,/Ревью выполняется/);
   assert.equal(calls.filter(c=>c.url.endsWith('/launch')).length,1);
   app.unmount();

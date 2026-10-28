@@ -2,23 +2,36 @@
   <aside class="review-panel">
     <header class="toolbar">
       <strong>Ревью плана</strong>
-      <AppButton v-if="!readonly" size="sm" :disabled="locked || state.busy.value || phase === 'running'" :title="locked ? 'План заморожен на время выполнения очереди' : phase === 'running' ? 'Ревьюер ещё работает' : 'Агент прочитает план и материалы анализа, ничего не меняя, и оставит замечания карточками'" @click="openLaunch">
-        {{ state.reviews.value.length ? 'Ревью ещё раз' : 'Ревью плана' }}
-      </AppButton>
+      <span class="spacer" />
+      <AppButton v-if="canLaunch && state.reviews.value.length" size="sm" variant="ghost" :class="{ on: setupOpen }" :disabled="phase === 'running'" :title="phase === 'running' ? 'Ревьюер ещё работает' : 'Настроить и запустить новый раунд ревью'" @click="setupOpen = !setupOpen">Новый раунд</AppButton>
       <AppButton size="sm" variant="ghost" icon title="Скрыть панель ревью" aria-label="Скрыть панель ревью" @click="$emit('close')">✕</AppButton>
     </header>
     <p v-if="locked" class="muted">План заморожен на время выполнения очереди.</p>
-    <p v-if="state.error.value" role="alert">{{ state.error.value }} <button type="button" @click="state.refresh">Повторить загрузку</button></p>
+    <section v-if="canLaunch && setupOpen" class="setup">
+      <div class="setup-grid">
+        <span class="setup-label">Агент</span>
+        <AgentPicker :key="setupKey" v-model="choice" :default-agent-id="defaultAgentId" />
+        <span class="setup-label">Пожелание</span>
+        <textarea v-model="wish" class="control wish" rows="4" placeholder="Необязательно: на что обратить внимание, что не проверять" spellcheck="false" />
+      </div>
+      <p v-if="unfinishedText" class="warn">{{ unfinishedText }}</p>
+      <div class="setup-actions">
+        <AppButton size="sm" variant="blue" :disabled="state.busy.value || phase === 'running' || !choice.agent_id" @click="launch">{{ state.reviews.value.length ? 'Запустить новый раунд' : 'Запустить ревью' }}</AppButton>
+      </div>
+    </section>
+    <div v-if="state.error.value" class="error-box" role="alert">
+      <span>{{ state.error.value }}</span>
+      <AppButton size="xs" variant="ghost" @click="state.refresh">Повторить загрузку</AppButton>
+    </div>
     <template v-if="detail">
       <label v-if="state.reviews.value.length > 1">Раунд
         <PlainSelect v-model="state.selected.value" :options="state.reviews.value.map((r, i) => ({ value: r.id, label: 'Раунд ' + r.round + (i === 0 ? ' · последний' : '') }))" label="Раунд ревью" />
       </label>
-      <p class="muted">{{ reviewerName }} · {{ phaseText }}</p>
+      <p class="phase" :class="'phase-' + phase" role="status"><span class="phase-dot" />{{ reviewerName }} · {{ phaseText }}</p>
       <p v-if="phase === 'stalled' || phase === 'failed'" role="status" class="warn">{{ stalledText }}</p>
       <p v-if="!isLatest" class="warn">Это не последний раунд: решения здесь уже не уходят планировщику. Вернитесь к последнему раунду.</p>
       <p v-if="summaryLine" class="counts">{{ summaryLine }}</p>
       <p v-if="nextStep" class="next" role="status">{{ nextStep }}</p>
-      <p v-if="staleCount" class="warn">К прежней редакции плана относятся замечания: {{ staleCount }}. План уже менялся после ревью. Проверьте, актуальны ли они, или запустите ревью ещё раз.</p>
       <h3>Сводка</h3>
       <MessageMarkdown v-if="detail.review.overview" :text="detail.review.overview" />
       <p v-else class="muted">Сводка появится после ответа ревьюера.</p>
@@ -37,46 +50,26 @@
       <p v-if="detail.review.coverage.length" class="muted">Таблица — справка: здесь ничего не нажимается. Решения принимаются в карточках ниже.</p>
       <header class="toolbar">
         <h3>Замечания ({{ detail.remarks.length }})</h3>
-        <AppButton v-if="!readonly" size="sm" :disabled="locked || state.busy.value || !readyCount || !isLatest" :title="readyCount ? 'Принятые уйдут на исправление плана, обсуждаемые — на ответ в карточке' : 'Сначала примите или обсудите хотя бы одну карточку'" @click="openSend">
-          Отправить планировщику ({{ readyCount }})
-        </AppButton>
+        <div class="toolbar-actions">
+          <AppButton v-if="!readonly && countOf('discussing')" size="sm" :variant="askCount ? 'blue' : 'ghost'" :disabled="locked || state.busy.value || !askCount || reviewerWorking || !isLatest" :title="askCount ? (reviewerWorking ? 'Ревьюер ещё отвечает: дождитесь конца хода' : 'Ваши сообщения в обсуждаемых карточках уйдут ревьюеру одной пачкой') : 'Нажмите «Обсудить» в карточке и напишите ревьюеру'" @click="ask">
+            Отправить ревьюеру{{ askCount ? ` (${askCount})` : '' }}
+          </AppButton>
+          <AppButton v-if="!readonly" size="sm" :variant="canSend ? 'blue' : 'ghost'" :disabled="locked || state.busy.value || !canSend || !isLatest" :title="sendHint" @click="send">
+            Отправить планировщику ({{ acceptedCount }})
+          </AppButton>
+        </div>
       </header>
+      <p v-if="activityText" class="activity" role="status"><span class="phase-dot" />{{ activityText }}</p>
+      <p v-else-if="reportChat" class="report-link" role="status">Планировщик вносил изменения. Отчёт о том, что и как исправлено, он пишет в своём чате, там же можно задать вопрос или попросить поправить.
+        <button type="button" class="link" @click="$emit('openPlanner', reportChat)">Открыть чат планировщика</button></p>
       <RemarkCard
         v-for="(remark, index) in detail.remarks" :key="remark.id" :ref="el => setCard(remark.id, el)"
-        :remark="remark" :number="index + 1" :readonly="readonly || locked" :busy="state.busy.value" :selected="focused === remark.id" :planner="plannerState(remark)"
-        @highlight="$emit('highlight', $event)" @open-planner="remark.planner_session_id && $emit('openPlanner', remark.planner_session_id)"
+        :remark="remark" :number="index + 1" :readonly="readonly || locked" :busy="state.busy.value" :selected="focused === remark.id" :planner="plannerState(remark)" :reviewer-working="reviewerWorking"
+        @highlight="$emit('highlight', $event)" @open-planner="remark.planner_session_id && $emit('openPlanner', remark.planner_session_id)" @edit="(text, suggestion) => state.run(() => api.edit(projectId, taskId, detail!.review.id, remark.id, text, suggestion))"
         @decision="(status, comment) => state.run(() => api.decision(projectId, taskId, detail!.review.id, remark.id, status, comment))"
       />
     </template>
     <p v-if="detail && !detail.remarks.length" class="muted">{{ phase === 'running' ? 'Замечаний пока нет: ревьюер ещё работает.' : 'Ревьюер не нашёл замечаний.' }}</p>
-    <div v-else-if="!detail" class="empty">
-      <p class="muted">Ревью проверит, что шаги не противоречат друг другу и материалам анализа, порядок исполним, а план покрывает требования.</p>
-      <p class="muted">Агент только читает. Решения по замечаниям принимаете вы, план меняет планировщик.</p>
-    </div>
-    <AppModal v-model="launchOpen" title="Ревью плана" confirm-label="Запустить ревью" @confirm="launch">
-      <p class="muted">Ревьюер только читает план и материалы анализа и оставляет замечания карточками. План он не меняет.</p>
-      <p v-if="unfinishedText" class="warn">{{ unfinishedText }}</p>
-      <AgentPicker v-if="launchOpen" v-model="choice" :default-agent-id="defaultAgentId" />
-      <label>Скилл ревью плана
-        <PlainSelect v-model="skill" :options="skills.length ? skills.map(s => ({ value: s.id, label: s.title + ' · ' + origins[s.origin] })) : [{ value: '', label: 'Встроенный' }]" label="Скилл ревью плана" />
-      </label>
-      <label>Пожелание (необязательно)<textarea v-model="wish" class="control" rows="3" placeholder="На что обратить внимание, что не проверять" /></label>
-      <p v-if="state.error.value" role="alert">{{ state.error.value }}</p>
-    </AppModal>
-    <AppModal v-model="sendOpen" title="Отправить планировщику" confirm-label="Отправить" @confirm="send">
-      <label>Планировщик
-        <PlainSelect v-model="planner" :options="plannerOptions" label="Планировщик" />
-      </label>
-      <AgentPicker v-if="sendOpen && !planner" v-model="plannerChoice" :default-agent-id="defaultAgentId" />
-      <p v-if="!planner && planners.sessions.length" class="muted">{{ planners.sessions.some(s => s.busy) ? 'Часть планировщиков сейчас отвечает: выберите нового или дождитесь их. ' : '' }}Новый планировщик начнёт с чистого чата: он получит план и карточки.</p>
-      <ul class="send-list">
-        <li>Принятых: {{ acceptedCount }}. Планировщик исправит по ним план.</li>
-        <li>На обсуждение: {{ discussionCount }}. Планировщик ответит в карточках, план по ним не меняет.</li>
-        <li v-if="notSentCount" class="muted">Не уйдёт: {{ notSentCount }} (без решения или отклонено).</li>
-      </ul>
-      <p class="muted">Пока планировщик работает, план лучше не править вручную: его правка может перекрыть вашу.</p>
-      <p v-if="state.error.value" role="alert">{{ state.error.value }}</p>
-    </AppModal>
   </aside>
 </template>
 <script setup lang="ts">
@@ -84,13 +77,11 @@ import { computed, onBeforeUnmount, ref, toRef, watch, type ComponentPublicInsta
 import { useAgentsStore } from '@features/agents'
 import { useChatStore } from '@features/agent-chat'
 import AppButton from '@shared/ui/AppButton.vue'
-import AppModal from '@shared/ui/AppModal.vue'
 import PlainSelect from '@shared/ui/PlainSelect.vue'
 import MessageMarkdown from '@shared/ui/MessageMarkdown.vue'
-import { errorText } from '@shared/utils/errorText'
 import { planReviewApi as api } from '../../plan-review/api'
 import { usePlanReview } from '../../plan-review/usePlanReview'
-import type { Launch, Skill, Planners, Remark } from '../../plan-review/types'
+import type { Launch, Remark } from '../../plan-review/types'
 import AgentPicker from './AgentPicker.vue'
 import RemarkCard from './RemarkCard.vue'
 const props = defineProps<{ projectId: string; taskId: string; defaultAgentId?: string | null; locked: boolean; readonly: boolean }>()
@@ -98,16 +89,31 @@ const emit = defineEmits<{ highlight: [ids: string[]]; counts: [counts: Record<s
 const state = usePlanReview(toRef(props, 'projectId'), toRef(props, 'taskId'))
 const detail = state.detail, agents = useAgentsStore(), chats = useChatStore()
 watch(state.counts, counts => emit('counts', counts), { immediate: true })
-const launchOpen = ref(false), sendOpen = ref(false), wish = ref(''), skill = ref(''), skills = ref<Skill[]>([])
-const choice = ref<Launch>({ agent_id: '' }), plannerChoice = ref<Launch>({ agent_id: '' })
-const planner = ref(''), planners = ref<Planners>({ sessions: [], default_session_id: null })
+const wish = ref('')
+const choice = ref<Launch>({ agent_id: '' })
 const acceptedCount = computed(() => detail.value?.remarks.filter(r => r.status === 'accepted').length || 0)
-const discussionCount = computed(() => detail.value?.remarks.filter(r => r.status === 'discussing').length || 0)
-const readyCount = computed(() => acceptedCount.value + discussionCount.value)
 const countOf = (status: string) => detail.value?.remarks.filter(r => r.status === status).length || 0
-// Cards that wait for the developer: no decision yet, or the planner has answered.
-watch(() => countOf('open') + countOf('answered'), n => emit('attention', props.readonly ? 0 : n), { immediate: true })
-const notSentCount = computed(() => countOf('open') + countOf('rejected'))
+// Cards that wait for the developer: no decision yet, being discussed with the reviewer, or the planner has answered.
+const undecided = computed(() => countOf('open') + countOf('discussing') + countOf('answered'))
+watch(undecided, n => emit('attention', props.readonly ? 0 : n), { immediate: true })
+// Comments under «Обсудить» pile up in their cards and leave for the reviewer in one batch, like replies in the code review.
+// What is happening right now, next to the buttons that started it: sending, the reviewer answering, the planner fixing the plan.
+const sending = ref('')
+const plannerWorking = computed(() => detail.value?.remarks.some(r => plannerState(r) === 'working') ?? false)
+const activityText = computed(() => sending.value
+  || (plannerWorking.value ? 'Планировщик исправляет план по принятым карточкам…' : '')
+  || (reviewerWorking.value && phase.value === 'done' ? 'Ревьюер отвечает в карточках…' : ''))
+// The planner's report is written in its chat; the panel points there once cards have gone to it.
+const reportChat = computed(() => detail.value?.remarks.filter(r => ['sent', 'applied', 'answered'].includes(r.status) && r.planner_session_id).at(-1)?.planner_session_id || '')
+const askCount = computed(() => detail.value?.remarks.filter(r => r.status === 'discussing' && r.messages.some(m => m.author === 'developer' && !m.sent)).length || 0)
+async function ask() {
+  if (props.locked || props.readonly || !askCount.value) return
+  sending.value = 'Отправляю сообщения ревьюеру…'
+  try { await state.run(() => api.discuss(props.projectId, props.taskId, detail.value!.review.id)) } finally { sending.value = '' }
+}
+// The planner gets the accepted cards once every card has a decision.
+const canSend = computed(() => !!acceptedCount.value && !undecided.value)
+const sendHint = computed(() => undecided.value ? `Сначала решите по всем карточкам: осталось ${undecided.value}` : acceptedCount.value ? 'Принятые карточки уйдут планировщику: он исправит план' : 'Принятых карточек нет')
 const isLatest = computed(() => !detail.value || detail.value.review.id === state.reviews.value[0]?.id)
 // The reviewer is live while its chat works. An «open» review whose chat has stopped will never be completed by itself.
 const reviewerChat = computed(() => chats.sessions.find(s => s.id === detail.value?.review.session_id))
@@ -121,6 +127,8 @@ const phase = computed(() => {
   const status = detail.value?.review.status
   return !status ? 'none' : status === 'failed' ? 'failed' : status === 'completed' ? 'done' : stalled.value && reviewerDown.value ? 'stalled' : 'running'
 })
+// Cards under discussion wait for the reviewer's chat to answer.
+const reviewerWorking = computed(() => ['starting', 'thinking', 'waiting'].includes(reviewerChat.value?.status || ''))
 const phaseText = computed(() => ({ none: '', running: 'Ревью выполняется…', stalled: 'Ревьюер остановился', failed: 'Ревью не удалось', done: 'Ревью завершено' })[phase.value])
 const stalledText = computed(() => {
   const why = reviewerChat.value?.status === 'error' ? 'Агент завершился с ошибкой' + (reviewerChat.value.reason ? ': ' + reviewerChat.value.reason : '') + '. ' : ''
@@ -128,9 +136,8 @@ const stalledText = computed(() => {
     ? why + 'Ревьюер не запустился. Проверьте агента в настройках и запустите ревью ещё раз.'
     : why + 'Ревьюер остановился, не сохранив итог (приложение закрывали или агент прервался). Готовые карточки можно разобрать, а ревью запустить ещё раз.'
 })
-const staleCount = computed(() => detail.value?.remarks.filter(r => r.outdated && ['open', 'accepted', 'discussing'].includes(r.status)).length || 0)
 const summaryLine = computed(() => {
-  const parts: [string, number][] = [['Без решения', countOf('open')], ['Принято', countOf('accepted')], ['Обсуждается', countOf('discussing')],
+  const parts: [string, number][] = [['Без решения', countOf('open')], ['Принято', countOf('accepted')], ['С ревьюером', countOf('discussing')],
     ['Отправлено', countOf('sent')], ['Планировщик ответил', countOf('answered')], ['Учтено в плане', countOf('applied')], ['Отклонено', countOf('rejected')]]
   return parts.filter(([, n]) => n).map(([label, n]) => label + ' ' + n).join(' · ')
 })
@@ -138,15 +145,17 @@ const summaryLine = computed(() => {
 const nextStep = computed(() => {
   if (!detail.value || !detail.value.remarks.length || props.readonly) return ''
   if (props.locked) return 'Очередь выполняется. Решения можно будет принимать, когда она закончится или будет остановлена.'
-  if (countOf('answered')) return 'Планировщик ответил. Прочитайте ответы и решите по карточкам: принять, продолжить обсуждение или отклонить.'
-  if (countOf('open')) return 'Разберите замечания: «Принять» — исправить план, «Обсудить» — спросить планировщика, «Отклонить» — не согласен.'
-  if (readyCount.value) return 'Решения приняты. Нажмите «Отправить планировщику», чтобы он исправил план и ответил на вопросы.'
+  if (countOf('answered')) return 'Планировщик ответил. Прочитайте ответы и решите по карточкам: принять, отклонить или обсудить с ревьюером.'
+  if (askCount.value) return 'Ваши сообщения ждут отправки. Нажмите «Отправить ревьюеру»: он ответит в карточках.'
+  if (countOf('discussing')) return 'Есть карточки в обсуждении с ревьюером. Когда он ответит, примите или отклоните их — тогда планировщику можно будет отправить принятые.'
+  if (countOf('open')) return 'Решите по каждой карточке: «Принять» — исправить план, «Обсудить» — спросить ревьюера, «Отклонить» — не согласен.'
+  if (acceptedCount.value) return 'По всем карточкам есть решения. Нажмите «Отправить планировщику»: он исправит план по принятым.'
   if (countOf('sent')) return 'Планировщик работает над отправленными карточками. Ответы и правки появятся здесь.'
   return 'Все замечания разобраны. Можно запускать очередь на вкладке «Выполнение» или проверить план ещё раз.'
 })
 const unfinishedText = computed(() => {
   if (!detail.value || !isLatest.value) return ''
-  const parts = [countOf('open') && 'без решения: ' + countOf('open'), readyCount.value && 'не отправлено планировщику: ' + readyCount.value].filter(Boolean)
+  const parts = [undecided.value && 'без решения: ' + undecided.value, acceptedCount.value && 'не отправлено планировщику: ' + acceptedCount.value].filter(Boolean)
   return parts.length ? 'В текущем раунде осталось ' + parts.join(', ') + '. Новый раунд откроется отдельно: ревьюер увидит ваши решения как историю, но планировщику они не уйдут.' : ''
 })
 function plannerState(remark: Remark) {
@@ -158,10 +167,6 @@ const reviewerName = computed(() => {
   const session = chats.sessions.find(s => s.id === detail.value?.review.session_id)
   return agents.agents.find(a => a.id === session?.agent_id)?.name || 'Ревьюер'
 })
-const plannerOptions = computed(() => [{ value: '', label: 'Новый планировщик' }, ...planners.value.sessions.map(s => ({
-  value: s.id, label: s.title + (s.available ? '' : s.busy ? ' · отвечает, подождите' : ' · недоступен'), disabled: !s.available,
-}))])
-const origins = { direct: 'проект', group: 'группа', global: 'глобально' }
 const coverageIcons = { covered: '✅', missing: '❌', partial: '⚠' }
 const coverageLabels = { covered: 'Покрыто', missing: 'Не покрыто', partial: 'Частично' }
 function focusStep(id: string) {
@@ -180,42 +185,28 @@ function focusCard(id: string) {
   const remark = detail.value?.remarks.find(r => r.id === id)
   if (remark) emit('highlight', remark.steps.filter(s => !s.deleted).map(s => s.id))
 }
-async function openLaunch() {
-  if (props.locked || props.readonly || state.busy.value) return
-  state.error.value = ''
-  const p = props.projectId, t = props.taskId
-  try {
-    const value = await api.skills(p, t)
-    if (p !== props.projectId || t !== props.taskId) return
-    skills.value = value
-    const previous = state.reviews.value[0]
-    const session = chats.sessions.find(s => s.id === previous?.session_id)
-    choice.value = session ? { agent_id: session.agent_id, model: session.model, reasoning_effort: String(session.metadata.reasoningEffort || '') } : { agent_id: props.defaultAgentId || '' }
-    skill.value = value.find(s => s.id === previous?.skill_id)?.id || value[0]?.id || ''
-    launchOpen.value = true
-  } catch (cause) { state.error.value = errorText(cause) }
+// The settings sit in the panel, open until the first review exists and then behind «Новый раунд».
+// They start from the previous round's agent. What to check comes from the review instruction (Settings, project «Инструкции»).
+const setupReady = ref(false), setupKey = ref(0), setupOpen = ref(true)
+const canLaunch = computed(() => !props.readonly && !props.locked && setupReady.value)
+watch(() => state.reviews.value.length, (n, old) => { if (!old && n) setupOpen.value = false }, { immediate: true })
+function loadSetup() {
+  const session = chats.sessions.find(s => s.id === state.reviews.value[0]?.session_id)
+  choice.value = session ? { agent_id: session.agent_id, model: session.model, reasoning_effort: String(session.metadata.reasoningEffort || '') } : { agent_id: props.defaultAgentId || '' }
+  setupKey.value++; setupReady.value = true
 }
+watch(() => [props.projectId, props.taskId, state.reviews.value[0]?.id], loadSetup, { immediate: true })
 async function launch() {
   if (props.locked || props.readonly || !choice.value.agent_id) return
-  if (await state.run(() => api.launch(props.projectId, props.taskId, { ...choice.value, ...(skill.value ? { skill_id: skill.value } : {}), wish: wish.value }))) launchOpen.value = false
+  if (await state.run(() => api.launch(props.projectId, props.taskId, { ...choice.value, wish: wish.value }))) { wish.value = ''; setupOpen.value = false }
 }
-async function openSend() {
-  if (!detail.value || props.locked || props.readonly || state.busy.value) return
-  const p = props.projectId, t = props.taskId, id = detail.value.review.id
-  try {
-    const value = await api.planners(p, t, id)
-    if (p !== props.projectId || t !== props.taskId || detail.value?.review.id !== id) return
-    planners.value = value; planner.value = value.default_session_id || ''; sendOpen.value = true
-    plannerChoice.value = { agent_id: props.defaultAgentId || '' }
-  } catch (cause) { state.error.value = errorText(cause) }
-}
+// No dialog: the planner that wrote the plan continues if it is free, otherwise a new one starts with the default agent.
 async function send() {
-  if (!detail.value || props.locked || props.readonly || !readyCount.value) return
-  if (!planner.value && !plannerChoice.value.agent_id) return
-  if (planner.value && !planners.value.sessions.find(s => s.id === planner.value)?.available) return
-  if (await state.run(() => api.send(props.projectId, props.taskId, detail.value!.review.id, { ...plannerChoice.value, session_id: planner.value || null }))) sendOpen.value = false
+  if (!detail.value || props.locked || props.readonly || state.busy.value || !canSend.value) return
+  sending.value = 'Отправляю карточки планировщику…'
+  try { await state.run(() => api.send(props.projectId, props.taskId, detail.value!.review.id, props.defaultAgentId ? { agent_id: props.defaultAgentId } : {})) } finally { sending.value = '' }
 }
-watch(() => [props.projectId, props.taskId], () => { launchOpen.value = false; sendOpen.value = false; focused.value = ''; emit('highlight', []) })
+watch(() => [props.projectId, props.taskId], () => { focused.value = ''; emit('highlight', []) })
 watch(state.selected, () => { focused.value = ''; emit('highlight', []) })
 </script>
 <style scoped>
@@ -226,8 +217,28 @@ h3, p { margin: 0; } h3 { font-size: 13px; }
 .warn { color: var(--warning-text); }
 .counts { color: var(--text-muted); font-size: 12px; }
 .next { padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg2); }
-.send-list { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
-.empty { display: flex; flex-direction: column; gap: 8px; }
+.spacer { flex: 1; }
+.error-box { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 12px; border: 1px solid var(--danger); border-radius: var(--radius-sm); background: var(--danger-soft); color: var(--danger-hover); }
+.activity { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: var(--radius-sm); font-weight: 600; background: rgba(210, 153, 34, 0.15); color: var(--warning-text); }
+.activity .phase-dot { animation: phase-pulse 1.2s ease-in-out infinite; }
+.report-link { padding: 8px 12px; border-radius: var(--radius-sm); background: var(--accent-soft); color: var(--accent-hover); }
+.report-link .link { margin-left: 4px; }
+.toolbar-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+.phase { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: var(--radius-sm); font-weight: 600; background: var(--bg3); color: var(--text-muted); }
+.phase-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+.phase-running { background: rgba(210, 153, 34, 0.15); color: var(--warning-text); }
+.phase-running .phase-dot { animation: phase-pulse 1.2s ease-in-out infinite; }
+.phase-done { background: var(--accent-soft); color: var(--accent-hover); }
+.phase-failed, .phase-stalled { background: var(--danger-soft); color: var(--danger-hover); }
+@keyframes phase-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+.toolbar .on { background: var(--bg-hover); }
+.setup { display: flex; flex-direction: column; gap: 10px; padding: 10px 12px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg2); flex-shrink: 0; }
+.setup-grid { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px 12px; }
+.setup-label:last-of-type { align-self: start; padding-top: 8px; }
+.wish { min-height: 80px; padding: 8px 10px; line-height: 1.45; resize: vertical; }
+.setup-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.4px; }
+.setup-controls { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.setup-actions { display: flex; justify-content: flex-end; }
 .table-wrap { overflow-x: auto; flex-shrink: 0; }
 table { border-collapse: collapse; width: 100%; font-size: 12px; }
 td, th { padding: 6px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; overflow-wrap: anywhere; }

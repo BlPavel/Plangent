@@ -67,8 +67,8 @@ function getContentPath(item: LibraryItem): string {
   if (item.type === 'review-skill') {
     return path.join(contentDir(item.type, item.slug, item), 'REVIEW_SKILL.md');
   }
-  if (item.type === 'plan-review-skill') {
-    return path.join(contentDir(item.type, item.slug, item), 'PLAN_REVIEW_SKILL.md');
+  if (item.type === 'plan-review-instruction') {
+    return path.join(contentDir(item.type, item.slug, item), 'PLAN_REVIEW_INSTRUCTION.md');
   }
   if (item.type === 'plan-template') {
     return path.join(contentDir(item.type, item.slug, item), 'PLAN_TEMPLATE.md');
@@ -97,4 +97,19 @@ export function buildSkillFileContent(item: LibraryItem, body: string): string {
   lines.push('');
   lines.push(body);
   return lines.join('\n');
+}
+
+/** Plan review used to be a library skill; its old files are read once by the migration to the instruction. */
+function legacyPlanReviewPath(item: LibraryItem): string {
+  return path.join(LIBRARY_DIR, 'plan-review-skills', item.detached_from ? `${item.slug}~${item.id}` : item.slug, 'PLAN_REVIEW_SKILL.md');
+}
+export function takeLegacyPlanReviewContent(item: LibraryItem): string {
+  const p = legacyPlanReviewPath(item);
+  const content = fs.existsSync(p) ? fs.readFileSync(p, 'utf-8') : '';
+  try {
+    fs.rmSync(path.dirname(p), { recursive: true, force: true });
+    const parent = path.dirname(path.dirname(p));
+    if (!fs.readdirSync(parent).length) fs.rmdirSync(parent);
+  } catch { /* ignore */ }
+  return content;
 }

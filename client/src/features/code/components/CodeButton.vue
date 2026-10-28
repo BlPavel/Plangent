@@ -1,5 +1,5 @@
 <template>
-  <AppButton variant="ghost" size="sm" :title="title" @click="open">
+  <AppButton variant="blue" size="sm" :title="title" @click="open">
     <span class="cb-icon">&lt;/&gt;</span> Код<span v-if="changed" class="tab-count" :class="{ warn: attention }">{{ changed }}</span>
   </AppButton>
 </template>

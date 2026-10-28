@@ -4,10 +4,10 @@ import { getDb } from '../../infrastructure/db/schema';
 import type { PlanReview, PlanRemark, PlanMessage } from './types';
 
 type ReviewRow = Omit<PlanReview, 'coverage'> & { coverage: string };
-type RemarkRow = Omit<PlanRemark, 'steps' | 'outdated'> & { steps: string; outdated: number };
+type RemarkRow = Omit<PlanRemark, 'steps' | 'outdated' | 'original'> & { steps: string; outdated: number; original: string | null };
 type MessageRow = Omit<PlanMessage, 'sent'> & { sent: number };
 const review = (r: ReviewRow): PlanReview => ({ ...r, coverage: JSON.parse(r.coverage) });
-const remark = (r: RemarkRow): PlanRemark => ({ ...r, steps: JSON.parse(r.steps), outdated: !!r.outdated });
+const remark = (r: RemarkRow): PlanRemark => ({ ...r, steps: JSON.parse(r.steps), outdated: !!r.outdated, original: r.original ? JSON.parse(r.original) : null });
 const message = (r: MessageRow): PlanMessage => ({ ...r, sent: !!r.sent });
 
 /** Persistence only. Scope validation and lifecycle rules belong to the service. */
@@ -37,8 +37,8 @@ export function createPlanReviewStore(db: Database.Database = getDb()) {
     return remarks(data.review_id).find(r => r.id === id)!;
   }
   function saveRemark(r: PlanRemark) {
-    db.prepare(`UPDATE plan_review_remarks SET steps=?,status=?,decision=?,sent_status=?,outdated=?,applied_version=?,planner_session_id=? WHERE id=?`)
-      .run(JSON.stringify(r.steps), r.status, r.decision, r.sent_status, Number(r.outdated), r.applied_version, r.planner_session_id, r.id);
+    db.prepare(`UPDATE plan_review_remarks SET steps=?,text=?,suggestion=?,original=?,status=?,decision=?,sent_status=?,outdated=?,applied_version=?,planner_session_id=? WHERE id=?`)
+      .run(JSON.stringify(r.steps), r.text, r.suggestion, r.original ? JSON.stringify(r.original) : null, r.status, r.decision, r.sent_status, Number(r.outdated), r.applied_version, r.planner_session_id, r.id);
   }
   function addMessage(remarkId: string, author: PlanMessage['author'], text: string, sent = false) {
     const id = randomUUID();

@@ -26,8 +26,10 @@ export async function deliver(projectId: string, taskId: string, reviewId: strin
   if (active.has(taskId)) throw new CodeError('Planner delivery in progress', 409);
   const service = planReviews();
   const detail = service.detail(projectId, taskId, reviewId);
-  const cards = detail.remarks.filter(r => r.status === 'accepted' || r.status === 'discussing');
-  if (!cards.length) throw new CodeError('No cards ready to send', 409);
+  // The planner gets the accepted cards, and only once every card has a decision.
+  if (detail.remarks.some(r => ['open', 'discussing', 'answered'].includes(r.status))) throw new CodeError('Every card needs a decision before sending', 409);
+  const cards = detail.remarks.filter(r => r.status === 'accepted');
+  if (!cards.length) throw new CodeError('No accepted cards to send', 409);
   const selection = candidates(projectId, taskId);
   if (input.session_id !== undefined && input.session_id !== null && (typeof input.session_id !== 'string' || !input.session_id.trim())) throw new CodeError('Invalid planner session');
   const selected = input.session_id === null ? null : input.session_id ?? selection.default_session_id;
@@ -55,7 +57,7 @@ export async function deliver(projectId: string, taskId: string, reviewId: strin
     watchPlanFile(task, latest.id, project.repo_path);
     updateSession(session.id, { metadata: { ...previousMetadata, plan_review_batch: { review_id: reviewId, ids: cards.map(r => r.id) } } });
     // Only MCP carries cards, thread history and decisions; chat text cannot replace structured replies.
-    await sendPrompt(session.id, [{ type: 'text', text: 'План мог измениться — сначала вызови get_plan. Затем get_plan_review_items. Исправляй план через submit_plan только по принятым замечаниям. На каждое обсуждаемое замечание ответь через reply_plan_remark: ответ, варианты, вопросы или несогласие с доводами. Ответы в общем чате не заменяют ответы в карточках.' }]);
+    await sendPrompt(session.id, [{ type: 'text', text: `Ревью плана: принятых замечаний — ${cards.length}. Возьми их через get_plan_review_items и исправь план по правилам оттуда.` }]);
     service.sent(projectId, taskId, reviewId, cards.map(r => r.id), session.id);
     return { ...service.detail(projectId, taskId, reviewId), session_id: session.id };
   } catch (error) {
@@ -72,8 +74,11 @@ function batch(session: AgentSession) {
 }
 export function items(session: AgentSession) {
   const detail = batch(session);
-  return { protocol: 'Call get_plan first. Fix accepted cards only, using submit_plan. Reply to every discussion with reply_plan_remark (answer/options/questions/change/disagree). Explain changes using current pN ids; keep every answer in its card. Never close cards yourself.',
-    review: detail.review, assigned: detail.assigned };
+  // The planner works from the card alone: the discussion with the reviewer stays out. The developer's clarification, if any, comes with it.
+  const cards = detail.assigned.map(r => ({ id: r.id, steps: r.steps.filter(s => !s.deleted).map(s => s.id), kind: r.kind, text: r.text, suggestion: r.suggestion,
+    ...(r.sent_status === 'accepted' && r.decision ? { developer_clarification: r.decision } : {}) }));
+  return { protocol: 'The plan may have changed since the review: call get_plan first. Each card is the single source of what to fix: its text and suggestion are final. A developer_clarification, when present, is the developer own instruction and wins over the text and suggestion where they differ. Fix the accepted cards, using submit_plan. Reply with reply_plan_remark (questions/options/disagree) only when you cannot or should not apply a card; answers in the general chat do not replace replies in cards. When the plan is saved, write a short report in the chat for the developer: for every accepted card what you changed and in which steps (current pN ids), and which cards you did not apply and why. Then stay available for questions. Explain changes using current pN ids; keep every answer in its card. Never close cards yourself.',
+    review: { id: detail.review.id, round: detail.review.round }, assigned: cards };
 }
 export function reply(session: AgentSession, input: Record<string, unknown>) {
   const detail = batch(session);

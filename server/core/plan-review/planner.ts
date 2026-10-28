@@ -3,7 +3,7 @@ import type { PlanRemark } from './types';
 
 /** Lifecycle helpers for the later planner transport. Call only after successful delivery. */
 export function markSent(remark: PlanRemark): PlanRemark {
-  if (remark.status !== 'accepted' && remark.status !== 'discussing') throw new CodeError('Remark is not ready to send', 409);
+  if (remark.status !== 'accepted') throw new CodeError('Remark is not ready to send', 409);
   return { ...remark, sent_status: remark.status, status: 'sent' };
 }
 export function markAnswered(remark: PlanRemark, text = ''): PlanRemark {

@@ -16,6 +16,8 @@ export interface PlanRemark {
   id: string; review_id: string; steps: StepRef[]; kind: RemarkKind; text: string; suggestion: string;
   status: RemarkStatus; decision: string; sent_status: 'accepted' | 'discussing' | null;
   planner_session_id: string | null; outdated: boolean; applied_version: number | null; created_at: string;
+  /** The card as the reviewer first wrote it, kept when text or suggestion are rewritten after a discussion. */
+  original: { text: string; suggestion: string } | null;
 }
 export interface PlanMessage {
   id: string; remark_id: string; author: 'developer' | 'reviewer' | 'planner';

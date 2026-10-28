@@ -45,7 +45,7 @@ function snapshot(item: LibraryItem): LibraryItem & { content: string } {
 }
 function validate(data: ProposalInput): void {
   if (!['create', 'update'].includes(data.action)) throw new Error('Invalid action');
-  if (!['skill', 'main', 'command', 'review-skill', 'plan-review-skill'].includes(data.type)) throw new Error('Invalid library type');
+  if (!['skill', 'main', 'command', 'review-skill'].includes(data.type)) throw new Error('Invalid library type');
   if (typeof data.slug !== 'string' || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(data.slug)) throw new Error('Invalid slug: use kebab-case');
   for (const key of ['title', 'content', 'explanation'] as const)
     if (typeof data[key] !== 'string' || !data[key].trim()) throw new Error('Invalid ' + key);

@@ -1,7 +1,6 @@
 import { analysisToolContext, selectedAnalysisContext } from './analysis-context';
 import { PLAN_PROTOCOL_LOCKED } from '../library/plan-template';
 import { REVIEW_SKILL_AUTHORING } from '../library/review-skill';
-import { PLAN_REVIEW_SKILL_AUTHORING } from '../library/plan-review-skill';
 /** Hidden librarian instructions; the authoring guide itself comes from get_library. */
 export function buildLibrarianPrompt(projectName: string): string {
   return [
@@ -13,7 +12,6 @@ export function buildLibrarianPrompt(projectName: string): string {
     'For a shared group item, propose a separate project copy; do not change the shared original.',
     'After submitting, briefly explain your choice and wait for feedback. The developer applies or rejects proposals.',
     REVIEW_SKILL_AUTHORING,
-    PLAN_REVIEW_SKILL_AUTHORING,
     '',
     "Developer's message:",
   ].join('\n');

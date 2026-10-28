@@ -6,11 +6,9 @@ export interface Review {
 export interface Remark {
   id: string; steps: { id: string; deleted: boolean }[]; kind: 'contradiction' | 'order' | 'coverage' | 'extra' | 'unclear' | 'risk';
   text: string; suggestion: string; status: 'open' | 'accepted' | 'discussing' | 'rejected' | 'sent' | 'applied' | 'answered';
-  decision: string; outdated: boolean; applied_version: number | null; planner_session_id?: string | null;
+  decision: string; original: { text: string; suggestion: string } | null; outdated: boolean; applied_version: number | null; planner_session_id?: string | null;
   messages: { id: string; author: 'developer' | 'reviewer' | 'planner'; text: string; sent: boolean }[]
 }
 export interface Detail { review: Review; remarks: Remark[] }
-export interface Skill { id: string; title: string; origin: 'direct' | 'group' | 'global' }
-export interface Planners { sessions: { id: string; title: string; available: boolean; busy: boolean }[]; default_session_id: string | null }
-export interface Launch { agent_id: string; model?: string; reasoning_effort?: string; skill_id?: string; wish?: string }
+export interface Launch { agent_id: string; model?: string; reasoning_effort?: string; wish?: string }
 

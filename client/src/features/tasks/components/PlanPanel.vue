@@ -1,5 +1,5 @@
 ﻿<template>
-  <div class="plan-tab" :class="{ 'with-review': plan && reviewOpen }">
+  <div class="plan-tab" :class="{ 'with-review': plan && reviewShown }">
     <div ref="planMain" class="plan-main">
       <!-- Planning with an agent: plan on the left, chat on the right, header always visible -->
       <template v-if="!readonly && planningOpen">
@@ -10,7 +10,6 @@
           </div>
           <span v-if="plan?.steps.length" class="planning-meta">{{ plan.steps.length }} {{ stepsWord(plan.steps.length) }}</span>
           <div class="planning-actions">
-            <AppButton v-if="plan" variant="ghost" size="sm" :class="{ on: reviewOpen }" title="Показать или скрыть ревью плана справа" @click="reviewOpen = !reviewOpen">Ревью плана{{ attention ? ` (${attention})` : '' }}</AppButton>
             <AppButton variant="ghost" size="sm" title="Вернуться к плану. Чаты сохранятся" @click="$emit('closePlanning')">Закрыть</AppButton>
             <AppButton
               variant="primary"
@@ -111,9 +110,9 @@
             </div>
           </div>
           <div v-if="!readonly" class="plan-header-actions">
-            <AppButton variant="ghost" size="sm" @click="$emit('openPlanning')">▸ Изменить план с агентом</AppButton>
-            <AppButton variant="ghost" size="sm" :class="{ on: reviewOpen }" title="Показать или скрыть ревью плана справа: агент проверит план, замечания разбираете вы" @click="reviewOpen = !reviewOpen">Ревью плана{{ attention ? ` (${attention})` : '' }}</AppButton>
-            <AppButton variant="ghost" size="sm" @click="$emit('togglePlanEdit')">Редактировать вручную</AppButton>
+            <AppButton variant="blue" size="sm" @click="$emit('openPlanning')">▸ Изменить план с агентом</AppButton>
+            <AppButton variant="ghost" size="sm" :class="{ on: reviewOpen }" title="Показать или скрыть ревью утверждённого плана справа: агент проверит план, замечания разбираете вы" @click="reviewOpen = !reviewOpen">Ревью плана{{ attention ? ` (${attention})` : '' }}</AppButton>
+            <AppButton variant="subtle" size="sm" @click="$emit('togglePlanEdit')">Редактировать вручную</AppButton>
           </div>
         </div>
         <div class="steps">
@@ -127,7 +126,7 @@
         </div>
       </div>
     </div>
-    <PlanReviewPanel v-if="plan" v-show="reviewOpen" ref="reviewPanel" :project-id="projectId" :task-id="taskId" :default-agent-id="defaultAgentId" :locked="queueFrozen" :readonly="!!readonly" @highlight="highlightSteps" @counts="remarkCounts = $event" @attention="attention = $event; $emit('reviewAttention', $event)" @close="reviewOpen = false" @open-planner="openPlannerChat" />
+    <PlanReviewPanel v-if="plan" v-show="reviewShown" ref="reviewPanel" :project-id="projectId" :task-id="taskId" :default-agent-id="defaultAgentId" :locked="queueFrozen" :readonly="!!readonly" @highlight="highlightSteps" @counts="remarkCounts = $event" @attention="attention = $event; $emit('reviewAttention', $event)" @close="reviewOpen = false" @open-planner="openPlannerChat" />
   </div>
 </template>
 <script setup lang="ts">
@@ -179,7 +178,9 @@ const emit = defineEmits<{
 const remarkCounts = ref<Record<string, number>>({})
 // The review panel is opened on demand; the number on its button is the cards that wait for the developer.
 const reviewOpen = ref(false), attention = ref(0)
-function focusStepCard(id: string) { reviewOpen.value = true; void nextTick(() => reviewPanel.value?.focusStep(id)) }
+// Review applies to the approved plan only: while the plan is being worked on with an agent, the panel stays hidden.
+const reviewShown = computed(() => reviewOpen.value && !(props.planningOpen && !props.readonly))
+function focusStepCard(id: string) { if (props.planningOpen) return; reviewOpen.value = true; void nextTick(() => reviewPanel.value?.focusStep(id)) }
 // A card sent to a planner links to that planner's chat, in the planning view.
 function openPlannerChat(id: string) { emit('openPlanning'); emit('selectPlanningChat', id) }
 const highlighted = ref<string[]>([])
