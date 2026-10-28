@@ -19,8 +19,8 @@
       </button>
       <span class="cb-hint">Ctrl+Enter</span>
       <button v-if="overrideNeeded" type="button" class="btn btn-danger-ghost btn-sm" :disabled="!!git.writeBlocked || checking" @click="commit(mode, true)">Всё равно</button>
-      <SplitButton variant="blue" :items="menu" :disabled="!canCommit" :menu-disabled="!canCommit" :title="disabledReason" @click="commit(mode, false)">
-        {{ committing ? 'Коммит…' : mode === 'staged' ? `Закоммитить ${stagedCount}` : 'Закоммитить всё' }}
+      <SplitButton variant="blue" size="xs" :items="menu" :disabled="!canCommit" :menu-disabled="!canCommit" :title="disabledReason" @click="commit(mode, false)">
+        {{ committing ? 'Коммит…' : mode === 'staged' ? `Коммит · ${stagedCount}` : 'Коммит' }}
       </SplitButton>
     </div>
     <div v-if="code.head" class="cb-last" :title="code.repository?.message ?? ''">
