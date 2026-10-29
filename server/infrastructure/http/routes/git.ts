@@ -1,3 +1,4 @@
+import { rootForViewing } from '../../../core/workspaces/viewing';
 ﻿import { generateMessage } from '../../../core/code/generate-message';
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { randomUUID } from 'node:crypto';
@@ -26,7 +27,7 @@ export const gitRouteGuard = (handler: (req: Request, res: Response) => unknown)
 export function gitRoot(req: Request): string {
   const project = getProject(req.params.projectId);
   if (!project || project.kind !== 'project') throw new CodeError('Project not found', 404);
-  return project.repo_path;
+  return rootForViewing(project.id, req.query.workspace);
 }
 export async function gitRouteOperation(req: Request, res: Response, action: (root: string, options: GitOperationOptions) => Promise<unknown>) {
   const root = gitRoot(req), projectId = req.params.projectId;
@@ -37,7 +38,7 @@ export async function gitRouteOperation(req: Request, res: Response, action: (ro
   res.once('close', cancel);
   broadcast({ type: 'git:progress', project_id: projectId, operationId: id, state: 'started' });
   try {
-    const output = await action(root, { signal: controller.signal, assertIdle: () => assertRepositoryIdle(projectId),
+    const output = await action(root, { signal: controller.signal, assertIdle: () => assertRepositoryIdle(projectId, undefined, root),
       onOutput: output => broadcast({ type: 'git:progress', project_id: projectId, operationId: id, output }) });
     res.json({ operationId: id, output });
     broadcast({ type: 'code:changed', projectId });
@@ -48,7 +49,7 @@ export async function gitRouteOperation(req: Request, res: Response, action: (ro
 }
 gitRouter.get('/repository', gitRouteGuard(async (req, res) => {
   const root = gitRoot(req); let busyReason = '';
-  try { assertRepositoryIdle(req.params.projectId); } catch (error) { busyReason = (error as Error).message; }
+  try { assertRepositoryIdle(req.params.projectId, undefined, root); } catch (error) { busyReason = (error as Error).message; }
   const info = await trackingInfo(root);
   res.json(info ? { ...info, busyReason, operation: await gitOperation(root) } : null);
 }));
@@ -90,4 +91,7 @@ gitRouter.post('/commit-message', gitRouteGuard((req, res) => {
 gitRouter.post('/commit', gitRouteGuard((req, res) => gitRouteOperation(req, res, (root, options) =>
   commit(root, req.body, () => effectiveGitSettings(req.params.projectId).values, options, req.body?.overrideForbidden === true))));
 
-gitRouter.post('/generate-message', gitRouteGuard(async (req, res) => res.json(await generateMessage(req.params.projectId, req.body ?? {}))));
+gitRouter.post('/generate-message', gitRouteGuard(async (req, res) => {
+  gitRoot(req);
+  res.json(await generateMessage(req.params.projectId, { ...req.body, workspace: req.query.workspace as string | undefined }));
+}));

@@ -42,6 +42,12 @@
       </section>
 
       <section v-if="isProject" class="block">
+        <h3>Рабочее место для задач и поручений</h3>
+        <!-- Saves by itself, like the other git settings. -->
+        <ProjectGitPanel :project-id="project.id" section="workspace" />
+      </section>
+
+      <section v-if="isProject" class="block">
         <h3>Хостинг кода</h3>
         <p class="git-origin">Фактический origin: <code>{{ actualOrigin || 'не задан' }}</code></p>
         <p v-if="gitError" role="alert" class="git-error">{{ gitError }}</p>

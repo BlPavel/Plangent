@@ -1,3 +1,4 @@
+import { getWorkspace } from '../../../core/workspaces/store';
 import { Router } from 'express';
 import { finishes, getFinish, activeFinish, taskFinishState } from '../../../core/finish';
 import { CodeError } from '../../../core/code/files';
@@ -11,8 +12,16 @@ const owned = (projectId: string, id: string) => {
   if (run.project_id !== projectId) throw new CodeError('Finish not found', 404);
   return run;
 };
-finishRouter.get('/', gitRouteGuard((req, res) => res.json(activeFinish(req.params.projectId))));
-finishRouter.post('/', gitRouteGuard(async (req, res) => res.status(201).json(await finishes().start(req.params.projectId, req.body))));
+finishRouter.get('/', gitRouteGuard((req, res) => res.json(activeFinish(req.params.projectId, req.query.workspace as string | undefined))));
+finishRouter.post('/', gitRouteGuard(async (req, res) => {
+  let input = req.body;
+  if (req.query.workspace !== undefined) {
+    const workspace = getWorkspace(String(req.query.workspace));
+    if (input?.task_id && input.task_id !== workspace.task_id) throw new CodeError('Workspace belongs to another task', 409);
+    input = { ...input, task_id: workspace.task_id };
+  }
+  res.status(201).json(await finishes().start(req.params.projectId, input));
+}));
 finishRouter.get('/task/:taskId', gitRouteGuard((req, res) => {
   const state = taskFinishState(req.params.taskId);
   if (state && state.project_id !== req.params.projectId) throw new CodeError('Task not found', 404);

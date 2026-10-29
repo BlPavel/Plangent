@@ -35,7 +35,9 @@
         :key="selected"
         :session-id="selected"
         :initial-content="initial?.id === selected ? initial.content : undefined"
+        can-errand
         @session="selected = $event"
+        @errand="makeErrand"
       />
       <NewChatPanel
         v-else
@@ -56,6 +58,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { api } from '@core/api'
 import { useAgentsStore } from '@features/agents'
 import { useAppStore } from '@core/stores/app'
@@ -76,6 +79,7 @@ const selected = computed({
   get: () => drafts.selectedByProject[props.projectId] ?? '',
   set: (id: string) => { drafts.selectedByProject[props.projectId] = id },
 })
+const router = useRouter()
 const error = ref(''), creating = ref(false), renameId = ref(''), title = ref('')
 const initial = ref<{ id: string; content: ContentBlock[] } | null>(null)
 
@@ -85,6 +89,16 @@ const agentName = (id: string) => agents.agents.find(a => a.id === id)?.name ?? 
 watch(() => props.projectId, () => { void store.connect() }, { immediate: true })
 // The first message is handed to ChatView once; never resend it when the chat is reopened.
 watch(selected, id => { if (initial.value && initial.value.id !== id) initial.value = null })
+
+/** «Сделать поручением»: the conversation goes to a new errand (own branch and workspace) run by the same agent. */
+async function makeErrand(text: string) {
+  const agentId = store.sessions.find(s => s.id === selected.value)?.agent_id
+  try {
+    const { task } = await api.post<{ task: { id: string } }>(`/projects/${props.projectId}/errands`, { text, agent_id: agentId })
+    app.toast('Поручение запущено', 'success')
+    void router.push(`/task/${task.id}?project=${props.projectId}`)
+  } catch (e) { app.toast(String(e), 'error') }
+}
 
 async function create({ content, ...options }: NewChatRequest) {
   creating.value = true

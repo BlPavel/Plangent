@@ -6,7 +6,7 @@ export interface AgentSession {
   task_id: string | null;
   run_id: string | null;
   step_ids: string[];
-  role: 'task-reviewer' | 'plan-reviewer' | 'chat' | 'analyst' | 'planner' | 'executor' | 'librarian' | 'code-fixer' | 'committer' | 'conflict-resolver';
+  role: 'errand' | 'task-chat' | 'task-reviewer' | 'plan-reviewer' | 'chat' | 'analyst' | 'planner' | 'executor' | 'librarian' | 'code-fixer' | 'committer' | 'conflict-resolver';
   agent_id: string;
   model: string;
   acp_session_id: string | null;

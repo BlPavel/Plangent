@@ -1,3 +1,4 @@
+import { rootForWorkspace } from '../workspaces/roots';
 import { getProject } from '../projects';
 import { repositoryInfo } from '../code/git';
 import { CodeError } from '../code/files';
@@ -114,4 +115,4 @@ export function createExternalThreads(dependencies: Dependencies = defaults) {
   };
 }
 let service: ReturnType<typeof createExternalThreads> | undefined;
-export const externalThreads = () => service ??= createExternalThreads();
+export const externalThreads = (workspaceId?: string) => workspaceId ? createExternalThreads({ ...defaults, branch: async projectId => (await repositoryInfo(rootForWorkspace(projectId, workspaceId)))?.branch ?? null }) : service ??= createExternalThreads();

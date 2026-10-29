@@ -1,3 +1,5 @@
+import { recoverWorkspaces } from './core/workspaces/recovery';
+import { initWorkEvents } from './core/work/events';
 import { initSessions } from './core/agent-sessions/sessions';
 import { initTaskFiles } from './core/orchestration/task-files-startup';
 import { initQueues } from './core/orchestration/queue';
@@ -29,6 +31,8 @@ export async function startServer(port = DEFAULT_PORT, vault?: SecretVault): Pro
   initSessions();
   initQueues();
   initTaskFiles();
+  await recoverWorkspaces();
+  initWorkEvents();
   configureSessionHost({ mcp: sessionMcpConfig, terminate: killProcessTree });
   migratePlanReviewInstructionLevels();
 

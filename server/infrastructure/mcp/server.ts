@@ -47,6 +47,8 @@ export function allowed(session: AgentSession): PlangentTool[] {
   if (session.role === 'task-reviewer') return ['get_task_review_brief', 'add_task_remark', 'submit_task_review', 'request_help', 'report_progress'];
   if (session.metadata.branch_review) return ['get_review_brief', 'get_branch_questions', 'reply_branch_question', 'set_review_overview', 'add_review_remark'];
   if (session.role === 'plan-reviewer') return ['get_plan_review_brief', 'set_plan_review_overview', 'add_plan_remark', 'answer_plan_remark', 'revise_plan_remark'];
+  if (session.role === 'errand') return ['complete_step', 'request_help', 'report_progress', 'get_review', 'start_review_item', 'reply_review_item'];
+  if (session.role === 'task-chat') return ['request_help', 'report_progress', 'get_review', 'start_review_item', 'reply_review_item'];
   if (session.role === 'executor') return session.policy === 'read-only' ? ['request_help', 'report_progress'] : ['complete_step', 'request_help', 'report_progress'];
   if (session.role === 'analyst') return ['get_analysis', 'save_section'];
   if (session.role === 'code-fixer') return ['get_review', 'start_review_item', 'reply_review_item'];
@@ -119,9 +121,9 @@ mcpRouter.post('/', async (req, res) => {
     }
     if (name === 'get_review' || name === 'start_review_item' || name === 'reply_review_item') {
       try {
-        const result = name === 'get_review' ? await reviews().getAgentReview(session)
-          : name === 'start_review_item' ? reviews().focusItem(session, String(args.id))
-          : await reviews().replyItem(session, String(args.id ?? ''), args);
+        const result = name === 'get_review' ? await reviews(session.metadata.workspace_id as string | undefined, ['task-chat', 'errand'].includes(session.role) ? session.task_id ?? undefined : undefined).getAgentReview(session)
+          : name === 'start_review_item' ? reviews(session.metadata.workspace_id as string | undefined, ['task-chat', 'errand'].includes(session.role) ? session.task_id ?? undefined : undefined).focusItem(session, String(args.id))
+          : await reviews(session.metadata.workspace_id as string | undefined, ['task-chat', 'errand'].includes(session.role) ? session.task_id ?? undefined : undefined).replyItem(session, String(args.id ?? ''), args);
         // The review panel shows permission requests in the card the agent focused on.
         if (name === 'start_review_item') addEvent(id, 'review_focus', { item_id: String(args.id) });
         if (name === 'reply_review_item') addEvent(id, name, { item_id: String(args.id), kind: args.kind, text: args.text });

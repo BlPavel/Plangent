@@ -1,9 +1,10 @@
 import type { Router } from 'vue-router'
 import { announceChanges } from '@features/code'
-import { onServerEvent } from '@core/api/events'
+import { api } from '@core/api'
+import { onServerEvent, type WorkEvent } from '@core/api/events'
 import { platform } from '@core/platform'
 import { useAppStore } from '@core/stores/app'
-import type { OrchestratorEvent } from '@core/models'
+import type { OrchestratorEvent, Task } from '@core/models'
 import { remarksLabel } from '../utils/queue-status'
 
 /** Route that opens a task (in its project) and, optionally, one of its agent chats. */
@@ -27,6 +28,20 @@ export function startQueueNotifications(router: Router) {
   const announce = (event: { taskId: string; taskKey?: string; projectId?: string }) => {
     if (focused() && event.projectId && event.taskKey) void announceChanges(router, event.projectId, { id: event.taskId, key: event.taskKey })
   }
+  // «Готово к проверке» (a finished errand turn) and «исправления готовы» (the agent answered the remarks): open the Проверка tab.
+  // The queue of a plan task announces itself above, so only errands and fixes are raised here.
+  onServerEvent<WorkEvent>(event => {
+    if (!['work:ready_for_check', 'work:fixes_ready'].includes(event.type) || !event.taskId || !event.projectId) return
+    const { taskId, projectId } = event
+    void api.get<Task>(`/projects/${projectId}/tasks/${taskId}`).then(task => {
+      const fixes = event.type === 'work:fixes_ready'
+      if (!fixes && task.kind !== 'errand') return
+      const name = task.kind === 'errand' ? '⚡ ' + (task.title || 'Поручение') : task.key
+      const body = fixes ? 'исправления готовы' : 'готово к проверке'
+      if (focused()) app.toast(`${name}: ${body}`, 'success')
+      platform.notify?.(name, body, taskTarget(taskId, projectId) + '&tab=check')
+    }).catch(() => { /* the task is gone: nothing to announce */ })
+  })
   onServerEvent<OrchestratorEvent>(event => {
     if (!event.taskKey) return
     const key = event.taskKey

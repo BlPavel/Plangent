@@ -11,8 +11,8 @@ export function getFinish(id: string): FinishRun {
   if (!row) throw new CodeError('Finish workflow not found', 404);
   return parse(row);
 }
-export function activeFinish(projectId: string): FinishRun | null {
-  const row = getDb().prepare("SELECT * FROM finish_runs WHERE project_id=? AND status NOT IN ('complete','cancelled') ORDER BY created_at DESC LIMIT 1").get(projectId);
+export function activeFinish(projectId: string, workspaceId?: string | null): FinishRun | null {
+  const row = getDb().prepare("SELECT * FROM finish_runs WHERE project_id=? AND coalesce(workspace_id,'')=? AND status NOT IN ('complete','cancelled') ORDER BY created_at DESC LIMIT 1").get(projectId, workspaceId ?? '');
   return row ? parse(row) : null;
 }
 export function taskFinishState(taskId: string) {
@@ -22,8 +22,8 @@ export function taskFinishState(taskId: string) {
   return { id: run.id, project_id: run.project_id, stage: run.stage, status: run.status, error: run.error };
 }
 export function insertFinish(run: FinishRun): FinishRun {
-  getDb().prepare('INSERT INTO finish_runs(id,project_id,task_id,scenario,options,base_head,branch,snapshot_tree,stage,status,commits,session_id,note,error,output,pushed,mr_url,mr_draft) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-    .run(run.id, run.project_id, run.task_id, run.scenario, JSON.stringify(run.options), run.base_head, run.branch, run.snapshot_tree, run.stage, run.status, JSON.stringify(run.commits), run.session_id, run.note, run.error, run.output, +run.pushed, run.mr_url, run.mr_draft ? JSON.stringify(run.mr_draft) : null);
+  getDb().prepare('INSERT INTO finish_runs(id,project_id,task_id,scenario,options,base_head,branch,snapshot_tree,stage,status,commits,session_id,note,error,output,pushed,mr_url,mr_draft,workspace_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+    .run(run.id, run.project_id, run.task_id, run.scenario, JSON.stringify(run.options), run.base_head, run.branch, run.snapshot_tree, run.stage, run.status, JSON.stringify(run.commits), run.session_id, run.note, run.error, run.output, +run.pushed, run.mr_url, run.mr_draft ? JSON.stringify(run.mr_draft) : null, run.workspace_id ?? null);
   return getFinish(run.id);
 }
 export function updateFinish(id: string, patch: Partial<FinishRun>): FinishRun {

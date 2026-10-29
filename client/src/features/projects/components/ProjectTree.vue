@@ -20,7 +20,7 @@
           </button>
           <span class="row-icon">🗂</span>
           <span class="row-name">{{ node.group.name }}</span>
-          <span v-if="blockedCount(node.group, node.members)" class="row-blocked" :title="blockedTitle(node.group, node.members)">{{ blockedCount(node.group, node.members) }}</span>
+          <span v-if="badgeCount(node.group, node.members)" class="row-blocked" :title="badgeTitle(node.group, node.members)">{{ badgeCount(node.group, node.members) }}</span>
         </div>
         <template v-if="!isCollapsed(node.group.id) || query">
           <ProjectRow v-for="p in node.members" :key="p.id" :project="p" nested />
@@ -57,11 +57,14 @@ import { computed, defineComponent, h, onMounted, onUnmounted, ref, watch } from
 import type { Project, ProjectKind } from '@core/models'
 import AppMenu, { type MenuItem } from '@shared/ui/AppMenu.vue'
 import { useProjectsStore } from '../stores/projects'
+import { useWorkAttentionStore } from '../stores/attention'
 
 interface Blocked { taskKey: string; reason: string }
 const props = defineProps<{ currentId: string | null; blocked: (projectId: string) => Blocked[] }>()
 const emit = defineEmits<{ select: [project: Project]; create: [kind: ProjectKind]; regroup: [project: Project, groupId: string | null] }>()
 const projectsStore = useProjectsStore()
+const attention = useWorkAttentionStore()
+onMounted(() => void attention.load())
 
 // Collapsed groups and what the list shows survive restarts.
 const STORE_KEY = 'plangent.sidebar'
@@ -109,6 +112,13 @@ function blockedOf(group: Project, members: Project[]) {
   return [group, ...members].flatMap(p => props.blocked(p.id))
 }
 const blockedCount = (group: Project, members: Project[]) => blockedOf(group, members).length
+// Works waiting for the developer (any project); stuck queues are a part of them, so they are not added on top.
+const attentionOf = (group: Project, members: Project[]) => [group, ...members].reduce((n, p) => n + attention.countFor(p.id), 0)
+const badgeCount = (group: Project, members: Project[]) => Math.max(attentionOf(group, members), blockedCount(group, members))
+const badgeTitle = (group: Project, members: Project[]) => [
+  attentionOf(group, members) ? 'Работ ждут вашего действия: ' + attentionOf(group, members) : '',
+  blockedTitle(group, members),
+].filter(Boolean).join('\n')
 const blockedTitle = (group: Project, members: Project[]) => blockedOf(group, members).map(b => `${b.taskKey}: ${b.reason}`).join('\n')
 
 const ProjectRow = defineComponent({
@@ -117,6 +127,8 @@ const ProjectRow = defineComponent({
     return () => {
       const p = rowProps.project
       const blocked = props.blocked(p.id)
+      const waiting = Math.max(attention.countFor(p.id), blocked.length)
+      const waitingTitle = [attention.countFor(p.id) ? 'Работ ждут вашего действия: ' + attention.countFor(p.id) : '', ...blocked.map(b => `${b.taskKey}: ${b.reason}`)].filter(Boolean).join('\n')
       const menu: MenuItem[] = [
         { heading: 'Переместить в группу' },
         ...projectsStore.groups.filter(g => g.id !== p.group_id).map(g => ({ label: `🗂 ${g.name}`, action: () => emit('regroup', p, g.id) })),
@@ -126,7 +138,7 @@ const ProjectRow = defineComponent({
       return h('div', { class: ['row', 'project-row', 'app-no-drag', { active: isActive(p), nested: rowProps.nested }], onClick: () => emit('select', p) }, [
         h('span', { class: 'row-icon' }, '📁'),
         h('span', { class: 'row-name' }, p.name),
-        blocked.length ? h('span', { class: 'row-blocked', title: blocked.map(b => `${b.taskKey}: ${b.reason}`).join('\n') }, String(blocked.length)) : null,
+        waiting ? h('span', { class: 'row-blocked', title: waitingTitle }, String(waiting)) : null,
         h('span', { class: 'row-menu', onClick: (e: Event) => e.stopPropagation() }, [h(AppMenu, { items: menu, size: 'xs', title: 'Ещё', align: 'left' })]),
       ])
     }

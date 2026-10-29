@@ -20,6 +20,8 @@ import { codeReviewsRouter } from './routes/code-reviews';
 import { attachCodeSubscriptions } from './code-subscriptions';
 import { projectsRouter } from './routes/projects';
 import { tasksRouter } from './routes/tasks';
+import { workspacesRouter } from './routes/workspaces';
+import { workRouter, workAttentionRouter } from './routes/work';
 import { plansRouter } from './routes/plans';
 import { analysisRouter } from './routes/analysis';
 import { runsRouter } from './routes/runs';
@@ -87,6 +89,9 @@ export function createApp() {
   app.use('/api/projects/:projectId/mr-review', mrReviewRouter);
   app.use('/api/projects/:projectId/branch-review', branchReviewRouter);
   app.use('/api/projects/:projectId/tasks/:taskId/plan-reviews', planReviewRouter);
+  app.use('/api/work', workAttentionRouter);
+  app.use('/api/projects/:projectId/workspaces', workspacesRouter);
+  app.use('/api/projects/:projectId', workRouter);
   app.use('/api/projects', projectsRouter);
   app.use('/api/projects/:projectId/tasks', tasksRouter);
   app.use('/api/projects/:projectId/tasks/:taskId/plans', plansRouter);

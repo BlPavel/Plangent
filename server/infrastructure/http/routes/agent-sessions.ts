@@ -6,6 +6,7 @@ import { editQueued } from '../../../core/agent-sessions/prompt-queue';
 import { getProject } from '../../../core/projects';
 import { getAgent } from '../../../core/agents';
 import { getTask } from '../../../core/tasks';
+import { rootForWorkspace } from '../../../core/workspaces/roots';
 import { getRun, finishRun } from '../../../core/runs';
 import { broadcast } from '../../../core/shared/events';
 
@@ -18,10 +19,12 @@ agentSessionsRouter.post('/', async (req, res) => {
     if (!['chat', 'librarian', 'code-fixer'].includes(role)) return res.status(400).json({ error: 'Invalid session role' });
     if (role === 'code-fixer' && getProject(project_id)?.kind !== 'project') return res.status(400).json({ error: 'Choose a project for the code fixer' });
     if (role === 'librarian' && getProject(project_id)?.kind === 'source') return res.status(400).json({ error: 'Choose a project or group for the librarian' });
+    const workspaceId = req.body.workspace_id ?? req.body.workspace;
+    if (workspaceId !== undefined) rootForWorkspace(project_id, workspaceId);
     const policy = role === 'librarian' ? 'read-only' : ['ask', 'allow-edits', 'allow-all', 'read-only'].includes(req.body.policy) ? req.body.policy : 'ask';
     if (!getProject(project_id) || !getAgent(agent_id)) return res.status(400).json({ error: 'Проект или агент не найден' });
     // No pick (the agent's options were not loaded yet) → the default from the agent's settings.
-    const session = createSession({ project_id, agent_id, model: model || getAgent(agent_id)!.model, role, policy, metadata: { ...(typeof mode === 'string' && mode ? { preferredMode: mode } : {}), ...(config && typeof config === 'object' ? { preferredConfig: Object.fromEntries(Object.entries(config).map(([k, v]) => [k, String(v)])) } : {}) } });
+    const session = createSession({ project_id, agent_id, model: model || getAgent(agent_id)!.model, role, policy, metadata: { ...(workspaceId ? { workspace_id: workspaceId } : {}), ...(typeof mode === 'string' && mode ? { preferredMode: mode } : {}), ...(config && typeof config === 'object' ? { preferredConfig: Object.fromEntries(Object.entries(config).map(([k, v]) => [k, String(v)])) } : {}) } });
     res.status(201).json(session);
     void startSession(session.id).catch(() => {});
   } catch (e) { res.status(400).json({ error: String(e) }); }

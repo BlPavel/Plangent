@@ -1,3 +1,4 @@
+import { rootForTask } from '../workspaces/roots';
 import { repositoryInfo } from '../code/git';
 import { getTask } from './index';
 import { getProject } from '../projects';
@@ -10,7 +11,7 @@ export async function captureTaskBaseCommit(taskId: string, reset = false) {
   if (!task) throw new Error('Задача не найдена');
   if (task.base_commit && !reset) return task;
   const project = getProject(task.project_id);
-  const info = project ? await repositoryInfo(project.repo_path) : null;
+  const info = project ? await repositoryInfo(rootForTask(taskId)) : null;
   if (!info?.head) {
     if (reset) throw new Error('Нет текущего коммита репозитория');
     return task;

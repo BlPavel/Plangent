@@ -4,7 +4,7 @@ import { groupMembers, listProjects } from './index';
 export interface ReferenceEntry { key: string; name: string; path: string; description: string; kind: 'project' | 'source' }
 
 /** Increment when existing sessions need to receive revised workspace instructions. */
-export const WORKSPACE_BRIEFING_VERSION = 3;
+export const WORKSPACE_BRIEFING_VERSION = 4;
 
 const entry = (p: Project): ReferenceEntry => ({ key: p.key ?? '', name: p.name, path: p.repo_path, description: p.description, kind: p.kind === 'source' ? 'source' : 'project' });
 
@@ -32,10 +32,11 @@ export function readOnlyRoots(): string[] {
  * The hidden note sent with a session's first message. Only keys, paths and one-line descriptions: the
  * folders themselves are read on demand so they do not fill the context.
  */
-export function workspaceBriefing(project: Project): string {
+export function workspaceBriefing(project: Project, workRoot = project.repo_path): string {
   const lines: string[] = [];
   if (project.kind !== 'group') {
-    lines.push(`[Plangent] Active ${project.kind === 'source' ? 'reference source' : 'project'}: "${project.name}" (@${project.key}). Working directory: ${project.repo_path}`);
+    lines.push(`[Plangent] Active ${project.kind === 'source' ? 'reference source' : 'project'}: "${project.name}" (@${project.key}). Working directory: ${workRoot}`);
+    if (workRoot !== project.repo_path) lines.push('Work only in this workspace. Plangent manages branches, commits and push through the completion workflow. Task plans and analysis remain in the main project folder under .plangent/<task-key>.');
     if (project.description) lines.push(`Project description: ${project.description}`);
     lines.push('When the developer says "this project", "this application" or "here", they mean this active workspace unless they explicitly name another target. Base answers and session titles on the developer\'s request in this workspace.');
   }

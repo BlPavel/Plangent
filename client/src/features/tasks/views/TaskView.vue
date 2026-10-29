@@ -1,30 +1,9 @@
 ﻿<template>
   <div class="task-view">
-    <div class="task-header app-drag">
-      <AppButton variant="subtle" size="sm" @click="goBack">← Назад</AppButton>
-      <div class="task-title-block">
-        <code class="task-key">{{ task?.key }}</code>
-        <span class="task-name">{{ task?.title }}</span>
-        <StatusBadge :status="task?.status" />
-      </div>
-      <div class="actions">
-        <AppButton v-if="task && !editingTitle" type="button" variant="subtle" size="sm" title="Редактировать название задачи" @click="startTitleEdit">
-          <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M10.8 2.7l2.5 2.5M3 13l.6-3L10.3 3.3a1 1 0 011.4 0l1 1a1 1 0 010 1.4L6 12.4 3 13z" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" /></svg>
-          Редактировать
-        </AppButton>
-        <CodeButton v-if="pid && task" :project-id="pid" :task="{ id: task.id, key: task.key }" />
-        <AppButton
-          v-if="task?.status !== 'done'"
-          variant="primary"
-          size="sm"
-          @click="markDoneTask"
-        >✓ Завершить</AppButton>
-        <AppButton v-else variant="ghost" size="sm" @click="reopenTask">↺ Вернуть в работу</AppButton>
-        <AppButton variant="danger-ghost" size="sm" @click="deleteCurrentTask">
-          <IconTrash /> Удалить
-        </AppButton>
-      </div>
-    </div>
+    <WorkHeader v-if="task" :task="task" :state="entry?.state ?? null" :branch="workspace?.branch ?? task.branch_name" :menu="menuItems" :viewing="viewingBusy" @back="goBack" @view="viewBranch">
+      <template #actions><CodeButton v-if="pid && !workspace && task.kind !== 'errand'" :project-id="pid" :task="{ id: task.id, key: task.key }" /></template>
+    </WorkHeader>
+    <WorkStages v-if="task" :task="task" :state="entry?.state ?? null" :has-plan="!!plan" @select="activeTab = $event as Tab" />
 
     <AppModal :model-value="editingTitle" title="Редактирование задачи" :confirm-label="savingTitle ? 'Сохранение…' : 'Сохранить'" @update:model-value="cancelTitleEdit" @confirm="saveTitle">
       <div ref="titleForm" class="task-edit-fields" @keydown.enter.prevent="saveTitle" @keydown.esc.prevent="cancelTitleEdit">
@@ -33,20 +12,19 @@
       </div>
     </AppModal>
 
-    <!-- Tab bar -->
+    <StartExecutionDialog v-if="showStart && task" v-model="showStart" :task="task" :ordinary="canChooseBranch" :group="appStore.currentProject?.kind === 'group'" :busy="startingWork" :error="startError || queue.lastError.value" :workspace="workspace" @start="startQueue" />
+    <!-- Tab bar: five tabs for a task, three for an errand -->
     <div class="task-tab-bar">
-      <button class="tab-btn" :class="{ active: activeTab === 'analysis' }" @click="activeTab = 'analysis'">Анализ</button>
-      <button class="tab-btn" :class="{ active: activeTab === 'plan' }" @click="activeTab = 'plan'">
-        План
-        <span v-if="planAttention" class="tab-count warn" title="Карточки ревью плана, которые ждут вашего решения или ответа планировщика">{{ planAttention }}</span>
-      </button>
-      <button v-if="!taskDone" class="tab-btn" :class="{ active: activeTab === 'exec' }" @click="activeTab = 'exec'">
-        Выполнение
-        <span v-if="attentionCount" class="tab-count warn" title="Шаги, которым нужен ваш ответ">{{ attentionCount }}</span>
-        <span v-else-if="queue.frozen.value" class="tab-live" title="Очередь выполняется" />
+      <button v-for="t in tabs" :key="t.id" class="tab-btn" :class="{ active: activeTab === t.id }" @click="activeTab = t.id">
+        {{ t.label }}
+        <span v-if="t.count" class="tab-count warn" :title="t.countTitle">{{ t.count }}</span>
+        <span v-else-if="t.live" class="tab-live" title="Очередь выполняется" />
       </button>
     </div>
 
+    <div v-if="activeTab === 'chat' && task" class="tab-body"><WorkChat :key="task.id" :task="task" :default-agent-id="defaultAgentId" show-rounds @open-check="activeTab = 'check'" /></div>
+    <div v-if="activeTab === 'check' && task" class="tab-body"><WorkCheck :key="task.id" :task="task" :default-agent-id="defaultAgentId" @checked="activeTab = 'finish'" /></div>
+    <div v-if="activeTab === 'finish' && task" class="tab-body"><WorkFinish :key="task.id" :task="task" :workspace="workspace" @closed="onClosed" /></div>
     <div v-show="activeTab === 'analysis'" class="tab-body">
       <AnalysisPanel
         :project-id="pid ?? ''" :task-id="tid ?? ''" :default-agent-id="defaultAgentId"
@@ -95,11 +73,11 @@
     </div>
 
     <!-- Tab: Выполнение — plan steps and the queue on the left, the selected step's agent on the right -->
-    <div v-if="!taskDone" v-show="activeTab === 'exec'" class="tab-body">
+    <div v-if="!taskDone && task?.kind !== 'errand'" v-show="activeTab === 'exec'" class="tab-body">
       <div v-if="!plan" class="exec-no-plan">Нет плана. Создайте план на вкладке «План».</div>
       <div v-else class="exec">
         <div class="exec-left">
-          <TaskGit v-if="pid && task" :key="task.id" :project-id="pid" :task="task" :frozen="queue.frozen.value" @updated="task = $event; appStore.currentTask = $event" />
+          <TaskGit v-if="pid && task && legacyBranch" :key="task.id" :project-id="pid" :task="task" :frozen="queue.frozen.value" @updated="task = $event; appStore.currentTask = $event" />
           <StepPicker
             :plan="plan"
             :project-id="pid ?? ''"
@@ -115,7 +93,7 @@
             :task-done="task?.status === 'done'"
             @select="selectedQueueId = selectedQueueId === $event ? null : $event"
             @open="selectedQueueId = $event"
-            @start="startQueue"
+            @start="showStart = true"
           />
         </div>
         <aside class="exec-right">
@@ -143,14 +121,21 @@ import { DocumentLinksKey } from '@shared/composables/documentLinks'
 import { AnalysisNavigationKey } from '../composables/analysisNavigation'
 import PlanPanel from '../components/PlanPanel.vue'
 import StepPicker from '../components/StepPicker.vue'
+import StartExecutionDialog from '../components/StartExecutionDialog.vue'
 import TaskGit from '../components/TaskGit.vue'
+import WorkChat from '../components/WorkChat.vue'
+import WorkCheck from '../components/WorkCheck.vue'
+import WorkFinish from '../components/WorkFinish.vue'
+import WorkHeader from '../components/WorkHeader.vue'
+import WorkStages from '../components/WorkStages.vue'
+import { useWorkStore } from '../stores/work'
+import { useWorkActions } from '../composables/useWorkActions'
+import { workspacesApi } from '../api'
 import ExecutionQueue from '../components/ExecutionQueue.vue'
 import StepDetailPanel from '../components/StepDetailPanel.vue'
-import StatusBadge from '@shared/ui/StatusBadge.vue'
-import AppButton from '@shared/ui/AppButton.vue'
 import AppModal from '@shared/ui/AppModal.vue'
+import { type MenuItem } from '@shared/ui/AppMenu.vue'
 import FormField from '@shared/ui/FormField.vue'
-import IconTrash from '@shared/ui/IconTrash.vue'
 import { CodeButton } from '@features/code'
 import { useChatStore, type NewChatRequest, type ContentBlock } from '@features/agent-chat'
 import { useTaskQueue, TaskQueueKey } from '../composables/useTaskQueue'
@@ -207,7 +192,16 @@ const agents = computed(() => agentsStore.agents)
 const editingPlan = ref(false)
 const planContent = ref('')
 
-const activeTab = ref<'analysis' | 'plan' | 'exec'>('plan')
+type Tab = 'chat' | 'analysis' | 'plan' | 'exec' | 'check' | 'finish'
+const activeTab = ref<Tab>('plan')
+const showStart = ref(false), startingWork = ref(false), startError = ref('')
+const work = useWorkStore(), actions = useWorkActions()
+const entry = computed(() => work.entries.find(e => e.task.id === task.value?.id) ?? null)
+const workspace = computed(() => entry.value?.workspace ?? null)
+// A task gets its own workspace on the first start. Started tasks and group work go on in the main folder.
+const isOrdinary = computed(() => appStore.currentProject?.kind === 'project')
+const canChooseBranch = computed(() => isOrdinary.value && !task.value?.base_commit && (!workspace.value || workspace.value.status === 'failed'))
+const legacyBranch = computed(() => !workspace.value && task.value?.kind !== 'errand' && !canChooseBranch.value)
 
 // Planning view: the plan next to the task's planning chats.
 const planningOpen = ref(false)
@@ -223,6 +217,7 @@ const planningLaunch = useAgentChatLaunch(pid, tid, 'plan')
 const { error: planningError, launching: planningLaunching } = planningLaunch
 const analysisLaunch = useAgentChatLaunch(pid, tid, 'analysis')
 const taskDone = computed(() => task.value?.status === 'done')
+watch(() => task.value?.id, () => { if (task.value?.kind === 'errand') activeTab.value = 'chat' }, { immediate: true })
 const analysisSections = ref<AnalysisSection[]>([])
 const analysisHighlights = ref<string[]>([])
 const agentRevision = ref(0)
@@ -315,10 +310,84 @@ const chat = (id?: string) => id ? chatStore.sessions.find(c => c.id === id) : u
 const planAttention = ref(0)
 const attentionCount = computed(() => queue.sessions.value.filter(s => sessionState(s, chat(s.sessionId)).attention).length)
 
-async function startQueue() {
+interface TabItem { id: Tab; label: string; count?: number; countTitle?: string; live?: boolean }
+const tabs = computed<TabItem[]>(() => {
+  if (!task.value) return []
+  const check: TabItem = { id: 'check', label: 'Проверка', count: entry.value?.state.counts.remarks, countTitle: 'Замечания, по которым нужно решение' }
+  const finish: TabItem = { id: 'finish', label: 'Завершение' }
+  if (task.value.kind === 'errand') return [{ id: 'chat', label: 'Чат' }, check, finish]
+  return [
+    { id: 'analysis', label: 'Анализ' },
+    { id: 'plan', label: 'План', count: planAttention.value, countTitle: 'Карточки ревью плана, которые ждут вашего решения или ответа планировщика' },
+    ...(taskDone.value ? [] : [{ id: 'exec' as const, label: 'Выполнение', count: attentionCount.value, countTitle: 'Шаги, которым нужен ваш ответ', live: queue.frozen.value }]),
+    check, finish,
+  ]
+})
+function applyRouteTab() {
+  const wanted = route.query.tab
+  if (typeof wanted === 'string' && tabs.value.some(t => t.id === wanted)) activeTab.value = wanted as Tab
+}
+watch(() => route.query.tab, applyRouteTab)
+
+const viewingBusy = ref(false)
+async function viewBranch() {
+  const w = workspace.value
+  if (!w || viewingBusy.value) return
+  viewingBusy.value = true
+  try { if (await actions.view(w.project_id, w)) appStore.toast('Терминал и «Код» проекта теперь показывают ветку ' + w.branch, 'success') }
+  finally { viewingBusy.value = false }
+}
+const menuItems = computed<MenuItem[]>(() => {
+  const t = task.value
+  if (!t) return []
+  return [
+    { label: 'Переименовать', action: () => void startTitleEdit() },
+    ...(t.kind === 'errand' && !t.closed_at ? [
+      { label: 'Добавить план', hint: 'Поручение станет задачей, ветка сохранится', action: () => void addPlanToErrand() },
+      { separator: true as const },
+      { heading: 'Отменить поручение' },
+      { label: 'Выбросить изменения', danger: true, action: () => void cancelErrand('discard') },
+      { label: 'Оставить, посмотрю позже', action: () => void cancelErrand('keep') },
+    ] : []),
+    ...(t.status !== 'done' && t.kind !== 'errand' && !workspace.value ? [{ label: 'Отметить выполненной', hint: 'Без Завершения', action: () => void markDoneTask() }] : []),
+    ...(t.status === 'done' ? [{ label: 'Вернуть в работу', action: () => void reopenTask() }] : []),
+    { separator: true },
+    { label: 'Удалить', danger: true, action: () => void deleteCurrentTask() },
+  ]
+})
+async function addPlanToErrand() {
+  if (!task.value) return
+  const updated = await actions.addPlan(task.value)
+  if (!updated) return
+  task.value = updated; appStore.currentTask = updated
+  activeTab.value = 'analysis'
+  void work.load(pid.value ? [pid.value] : [])
+  appStore.toast('Добавлены вкладки «Анализ» и «План»', 'success')
+}
+async function cancelErrand(mode: 'keep' | 'discard') {
+  if (!task.value) return
+  if (!await actions.cancel(task.value, mode)) return
+  await work.load(pid.value ? [pid.value] : [])
+  appStore.toast('Поручение отменено', 'success')
+  goBack()
+}
+async function onClosed(closed: Task) {
+  task.value = closed; appStore.currentTask = closed
+  await work.load(pid.value ? [pid.value] : [])
+  goBack()
+}
+
+async function startQueue(options: { base_branch?: string; branch_name?: string; auto_review?: boolean }) {
+  if (startingWork.value || !task.value) return
+  startingWork.value = true; startError.value = ''
   // The first launch is the moment to ask for (browser) notification permission: it is a click.
   platform.requestNotifications?.()
-  await queue.start()
+  try {
+    // «Повторить» after a failed preparation: the place is rebuilt on the same branch before the queue starts.
+    if (workspace.value?.status === 'failed') await workspacesApi.recreate(task.value.project_id, workspace.value.id, true)
+    if (await queue.start(options)) showStart.value = false
+  } catch (cause) { startError.value = cause instanceof Error ? cause.message : String(cause) }
+  finally { startingWork.value = false; if (pid.value) void work.load([pid.value]) }
 }
 
 // A notification (or link) may point at one of the task's chats: open the step it belongs to.
@@ -327,6 +396,10 @@ let routeChatPending = false
 function openChatFromRoute() {
   routeChatPending = false
   const chatId = route.query.session
+  // An errand opens on its chat unless a link asked for a tab (a notification opens «Проверка»).
+  if (task.value?.kind === 'errand') { if (!route.query.tab) activeTab.value = 'chat'; return }
+  const direct = chatStore.sessions.find(s => s.id === chatId && s.task_id === tid.value)
+  if (direct && ['task-chat', 'task-reviewer'].includes(direct.role)) { activeTab.value = 'check'; return }
   if (taskDone.value) { if (typeof chatId === 'string') activeTab.value = 'plan'; return }
   if (typeof chatId !== 'string') return
   if (analysisChats.value.some(c => c.id === chatId)) { selectedAnalysisChat.value = chatId; activeTab.value = 'analysis'; return }
@@ -376,6 +449,7 @@ async function handleEvent(event: OrchestratorEvent) {
       }
       break
     case 'queue_finished':
+      activeTab.value = 'check'
       await loadPlan()
       break
     case 'task_updated':
@@ -400,15 +474,19 @@ async function loadPlan() {
 
 onMounted(async () => {
   stopEvents = onServerEvent<OrchestratorEvent>(e => { void handleEvent(e) })
+  void work.load(appStore.currentProject ? [appStore.currentProject.id] : [])
   await loadTask()
   restorePlanning()
   await Promise.all([loadPlan(), loadAnalysis(), agentsStore.load(), queue.load()])
-  if (!plan.value) activeTab.value = 'analysis'
+  if (task.value?.kind === 'errand') activeTab.value = 'chat'
+  else if (queue.queue.value?.status === 'finished') activeTab.value = 'check'
+  else if (!plan.value) activeTab.value = 'analysis'
   // Open where the work is: a running queue, or a step that waits for the developer.
-  if (!taskDone.value && queue.sessions.value.length && (queue.frozen.value || attentionCount.value)) activeTab.value = 'exec'
+  if (task.value?.kind !== 'errand' && !taskDone.value && queue.sessions.value.length && (queue.frozen.value || attentionCount.value)) activeTab.value = 'exec'
   const first = queue.sessions.value.find(s => sessionState(s, chat(s.sessionId)).attention)
     ?? queue.sessions.value.find(s => sessionState(s).live)
   if (first) selectedQueueId.value = first.id
+  applyRouteTab()
   openChatFromRoute()
 })
 
@@ -486,24 +564,17 @@ async function markDoneTask() {
 }
 
 async function reopenTask() {
-  if (!pid.value || !tid.value) return
-  try {
-    await api.post(`/projects/${pid.value}/tasks/${tid.value}/reopen`, {})
-    appStore.toast('Задача снова в работе', 'success')
-    await loadTask()
-  } catch (e: unknown) { appStore.toast(String(e), 'error') }
+  if (!task.value) return
+  if (await actions.reopen(task.value)) { appStore.toast('Работа снова открыта', 'success'); await loadTask() }
 }
 
 async function deleteCurrentTask() {
-  if (!pid.value || !tid.value) return
-  if (!(await appStore.confirm(`Удалить задачу «${task.value?.key}»? Действие необратимо — план, запуски и сессии будут удалены.`))) return
-  const id = tid.value
-  try {
-    await api.delete(`/projects/${pid.value}/tasks/${id}`)
-    sessionStore.clear(id)
-    appStore.toast('Задача удалена', 'success')
-    router.push('/')
-  } catch (e: unknown) { appStore.toast(String(e), 'error') }
+  if (!task.value) return
+  const id = task.value.id
+  if (!await actions.remove(task.value)) return
+  sessionStore.clear(id)
+  appStore.toast('Удалено', 'success')
+  router.push('/')
 }
 
 // ——— Plan editing ———

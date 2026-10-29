@@ -11,6 +11,7 @@ export interface FinishOptions {
 /** The merge request text of a full cycle: written by the agent with the commits, confirmed (and editable) by the user before anything is pushed. */
 export interface FinishMrDraft { title: string; description: string }
 export interface FinishRun {
+  workspace_id?: string | null;
   id: string; project_id: string; task_id: string | null; scenario: Exclude<FinishScenario, 'nothing'>;
   options: FinishOptions; base_head: string; branch: string; snapshot_tree: string;
   stage: FinishStage; status: FinishStatus; commits: FinishCommit[];

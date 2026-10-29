@@ -1,5 +1,6 @@
 import { getProject, effectiveGitSettings, gitAgent } from '../projects';
 import { getTask } from '../tasks';
+import { rootForTask, rootForWorkspace } from '../workspaces/roots';
 import { stagedDiff } from './git';
 import { resolveCommitRules } from '../library/commit-rules';
 import { cleanCommitMessage, validateCommitMessage } from './commit-message';
@@ -14,7 +15,7 @@ export function parseGeneratedMessage(text: string, includeDescription: boolean,
     throw new CodeError('Агент предложил запрещённый текст');
   return result;
 }
-export async function generateMessage(projectId: string, input: { taskId?: string; includeDescription?: boolean }, request = oneShot) {
+export async function generateMessage(projectId: string, input: { taskId?: string; workspace?: string; includeDescription?: boolean }, request = oneShot) {
   const project = getProject(projectId);
   if (!project || project.kind !== 'project') throw new CodeError('Project not found', 404);
   const task = input.taskId ? getTask(input.taskId) : null;
@@ -22,7 +23,8 @@ export async function generateMessage(projectId: string, input: { taskId?: strin
   if (input.includeDescription !== undefined && typeof input.includeDescription !== 'boolean') throw new CodeError('Invalid description flag');
   const settings = effectiveGitSettings(projectId).values;
   const description = input.includeDescription ?? settings.include_description;
-  const diff = await stagedDiff(project.repo_path);
+  const root = input.workspace !== undefined ? rootForWorkspace(projectId, input.workspace) : task ? rootForTask(task.id) : project.repo_path;
+  const diff = await stagedDiff(root);
   if (!diff.trim()) throw new CodeError('Нет изменений к коммиту');
   const prompt = [
     'Предложи сообщение коммита. Верни только заголовок одной строкой' + (description ? ', затем пустую строку и описание.' : '. Не пиши описание.'),

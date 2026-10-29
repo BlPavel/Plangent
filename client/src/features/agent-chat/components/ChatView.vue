@@ -6,6 +6,7 @@
         <span v-if="agentName" class="chat-agent">{{ agentName }}</span>
       </div>
       <span class="status-badge" :class="statusTone(snap.session.status)">{{ statusLabel(snap.session.status) }}</span>
+      <AppButton v-if="canErrand && hasConversation" size="sm" variant="subtle" title="Передать разговор агенту отдельной работой в своей ветке" @click="makeErrand">⚡ Сделать поручением</AppButton>
       <slot name="actions" />
     </header>
 
@@ -140,8 +141,8 @@ import { agentSelects, type AgentOptionsSource, type AgentSelect } from '../util
 import { useChatStore, statusLabel, statusTone, type ChatEvent, type ChatSession } from '../stores/sessions'
 
 // `cards`: event types the host feature renders itself through the `card` slot (e.g. library proposals).
-const props = defineProps<{ sessionId: string; initialContent?: ContentBlock[]; draftText?: string; cards?: string[]; /** Messages are written elsewhere (e.g. a batch of review questions): no input field. */ noComposer?: boolean }>()
-const emit = defineEmits<{ session: [id: string] }>()
+const props = defineProps<{ sessionId: string; initialContent?: ContentBlock[]; draftText?: string; cards?: string[]; /** Shows «Сделать поручением»: the host turns the conversation into an errand. */ canErrand?: boolean; /** Messages are written elsewhere (e.g. a batch of review questions): no input field. */ noComposer?: boolean }>()
+const emit = defineEmits<{ session: [id: string]; errand: [text: string] }>()
 defineExpose({ setText: (text: string) => composer.value?.setText(text) })
 const store = useChatStore()
 const agents = useAgentsStore()
@@ -193,6 +194,15 @@ const rows = computed(() => {
   }
   return list
 })
+const hasConversation = computed(() => rows.value.some(r => r.type === 'user' && r.payload.text))
+// The whole conversation becomes the errand's first message; the oldest part is dropped if it is too long for one.
+function makeErrand() {
+  const lines = rows.value.filter(r => ['user', 'assistant'].includes(r.type) && r.payload.text && !r.live)
+    .map(r => (r.type === 'user' ? 'Пользователь: ' : 'Агент: ') + String(r.payload.text).trim())
+  let text = lines.join('\n\n')
+  if (text.length > 90000) text = '…' + text.slice(-90000)
+  emit('errand', 'Продолжи как поручение. Разговор с агентом до этого:\n\n' + text)
+}
 const showTyping = computed(() => (busy.value || pending.value.length > 0) && !rows.value[rows.value.length - 1]?.live && !snap.value?.permissions.length)
 
 function withMentions(text: string) {

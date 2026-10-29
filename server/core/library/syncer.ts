@@ -5,6 +5,7 @@ import { Agent, LayoutProfile, LayoutSlot, LibraryItem, Project } from '../../mo
 import { libraryItemsFor, listLibraryItems } from './index';
 import { listAgents } from '../agents';
 import { groupMembers, listProjects } from '../projects';
+import { listWorkspaces } from '../workspaces/store';
 import { readItemContent, readOverrideContent, buildSkillFileContent } from './library-manager';
 
 const NON_SYNC_TYPES = new Set<LibraryItem['type']>(['plan-template', 'instruction-guide', 'code-fixer-instruction', 'commit-rules', 'review-skill', 'plan-review-skill', 'plan-review-instruction']);
@@ -125,7 +126,7 @@ function removeMainSection(mainFile: string, slug: string): void {
 
 function applyGitExclude(project: Project): void {
   const gitDir = path.join(project.repo_path, '.git');
-  if (!fs.existsSync(gitDir)) return;
+  if (!fs.existsSync(gitDir) || !fs.statSync(gitDir).isDirectory()) return;
 
   const excludeFile = path.join(gitDir, 'info', 'exclude');
   fs.mkdirSync(path.dirname(excludeFile), { recursive: true });
@@ -216,6 +217,24 @@ interface SyncTarget {
   mainSlug?: string;
 }
 
+function workspaceProjects(projects: (Project | null)[]): (Project | null)[] {
+  return projects.flatMap(project => project?.kind === 'project'
+    ? [project, ...listWorkspaces(project.id).filter(w => fs.existsSync(path.join(w.path, '.git'))).map(w => ({ ...project, repo_path: w.path }))]
+    : [project]);
+}
+
+/** Populate ignored library files in a new worktree. */
+export function syncWorkspaceLibrary(project: Project, root: string): void {
+  const target = { ...project, repo_path: root };
+  for (const item of libraryItemsFor(project)) {
+    if (!item.enabled || item.scope === 'global') continue;
+    for (const agent of listAgents(true)) for (const t of targetsForItem(item, agent, target)) {
+      if (t.isMain && t.mainSlug) upsertMainSection(t.path, t.mainSlug, t.content);
+      else safeWrite(t.path, t.content);
+    }
+  }
+}
+
 function targetsForItem(item: LibraryItem, agent: Agent, project: Project | null): SyncTarget[] {
   if (NON_SYNC_TYPES.has(item.type)) return [];
 
@@ -262,7 +281,7 @@ export function syncItem(item: LibraryItem): void {
   if (!item.enabled) { unsyncItem(item); return; }
 
   const agents = listAgents(true);
-  const projects = itemProjects(item);
+  const projects = workspaceProjects(itemProjects(item));
 
   for (const agent of agents) {
     for (const project of projects) {
@@ -285,7 +304,7 @@ export function syncItem(item: LibraryItem): void {
 export function unsyncItem(item: LibraryItem, only?: Project[]): void {
   if (NON_SYNC_TYPES.has(item.type)) return;
   const agents = listAgents(true);
-  const projects = only ?? itemProjects(item);
+  const projects = workspaceProjects(only ?? itemProjects(item));
 
   for (const agent of agents) {
     for (const project of projects) {
@@ -324,7 +343,7 @@ export function syncAll(): void {
   const expectedMainSections = new Map<string, Set<string>>(); // mainFilePath → Set<slug>
 
   for (const item of items) {
-    const scopedProjects = itemProjects(item);
+    const scopedProjects = workspaceProjects(itemProjects(item));
 
     for (const agent of agents) {
       for (const project of scopedProjects) {

@@ -86,10 +86,17 @@ test('ACP supplies reference sources only on explicit mention, with no discovery
 
     // Task agents also omit sources by default and resolve manually referenced task descriptions.
     const task = createTask({ project_id: project.id, key: 'MANUAL-REF', description: 'Сравни с @mtsip' });
+    const { insertWorkspace, updateWorkspace } = await import('../workspaces/store');
+    const taskRoot = path.join(root, 'task-workspace');
+    fs.mkdirSync(taskRoot);
+    const taskWorkspace = insertWorkspace({ project_id: project.id, task_id: task.id, branch: 'task-branch', base_branch: 'main', path: taskRoot });
+    updateWorkspace(taskWorkspace.id, { status: 'ready' });
     taskIds.push(task.id);
     const executor = sessions.createSession({ project_id: project.id, task_id: task.id, agent_id: agent.id, role: 'executor', policy: 'ask' });
     activeSessions.push(executor.id);
     const execution = await ask('Начинай', executor.id);
+    assert.equal(execution.cwd, taskRoot);
+    assert.ok(execution.prompt[0].text.includes('Working directory: ' + taskRoot));
     assert.ok(execution.prompt.some(block => block.text.includes(mtsipPath)));
     assert.ok(!JSON.stringify(execution.prompt).includes(hiddenPath));
 

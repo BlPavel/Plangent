@@ -6,6 +6,9 @@ import { execSync } from 'child_process';
 import { killProcessTree } from './process-tree';
 
 export interface PtySession {
+  cwd?: string;
+  workspaceId?: string | null;
+  projectId?: string;
   id: string;
   pty: IPty;
   sockets: Set<WebSocket>;
@@ -63,6 +66,7 @@ export function createPtySession(id: string, cmd: string, args: string[], cwd: s
 
   const session: PtySession = {
     id,
+    cwd,
     pty: ptyProcess,
     sockets: new Set(),
     buffer: '',

@@ -3,8 +3,8 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { invalidateFileCache } from '../projects/files';
 
-export interface CodeChangeEvent { type: 'code:changed'; projectId: string }
-interface Subscription { projectId: string; notify: (event: CodeChangeEvent) => void }
+export interface CodeChangeEvent { type: 'code:changed'; projectId: string; workspaceId?: string }
+interface Subscription { workspaceId?: string; projectId: string; notify: (event: CodeChangeEvent) => void }
 interface Entry { watchers: fs.FSWatcher[]; subscriptions: Set<Subscription>; timer?: NodeJS.Timeout }
 const entries = new Map<string, Entry>();
 const excluded = new Set(['node_modules', 'dist', 'build', 'out', 'coverage', '.next', '.nuxt', '.venv', 'venv', '__pycache__', 'target']);
@@ -17,7 +17,7 @@ export function relevantChange(file: string): boolean {
 }
 
 /** One native recursive watcher per root on Windows/macOS, only Git metadata on Linux. */
-export function subscribeCode(root: string, projectId: string, notify: Subscription['notify']): () => void {
+export function subscribeCode(root: string, projectId: string, notify: Subscription['notify'], workspaceId?: string): () => void {
   root = fs.realpathSync(root);
   let entry = entries.get(root);
   if (!entry) {
@@ -27,7 +27,7 @@ export function subscribeCode(root: string, projectId: string, notify: Subscript
       if (current.timer) clearTimeout(current.timer);
       current.timer = setTimeout(() => {
         invalidateFileCache(root);
-        for (const sub of current.subscriptions) sub.notify({ type: 'code:changed', projectId: sub.projectId });
+        for (const sub of current.subscriptions) sub.notify({ type: 'code:changed', projectId: sub.projectId, ...(sub.workspaceId ? { workspaceId: sub.workspaceId } : {}) });
       }, 500);
     };
     const add = (directory: string, recursive: boolean, filter: (file: string) => boolean) => {
@@ -56,7 +56,7 @@ export function subscribeCode(root: string, projectId: string, notify: Subscript
     }
     entries.set(root, entry);
   }
-  const subscription = { projectId, notify };
+  const subscription = { projectId, notify, workspaceId };
   entry.subscriptions.add(subscription);
   let stopped = false;
   return () => {

@@ -1,3 +1,5 @@
+import { rootForWorkspace, rootForTask } from '../workspaces/roots';
+import { activeWorkspace } from '../workspaces/store';
 import { randomUUID } from 'node:crypto';
 import { getDb } from '../../infrastructure/db/schema';
 import { getProject, effectiveGitSettings, gitAgent } from '../projects';
@@ -51,7 +53,7 @@ export function createFinishService(dependencies: {
   const rootFor = (run: FinishRun) => {
     const project = getProject(run.project_id);
     if (!project || project.kind !== 'project') throw new CodeError('Project not found', 404);
-    return project.repo_path;
+    return run.workspace_id ? rootForWorkspace(run.project_id, run.workspace_id) : project.repo_path;
   };
   function notify(run: FinishRun, title: string, message?: string) {
     broadcast({ type: 'finish:notification', projectId: run.project_id, taskId: run.task_id, runId: run.id, title, message: message || run.error || title });
@@ -63,13 +65,13 @@ export function createFinishService(dependencies: {
       broadcast({ type: 'git:progress', project_id: run.project_id, operationId: runId, output: chunk });
     };
   }
-  const optionsFor = (run: FinishRun) => ({ signal: controllers.get(run.id)?.signal, assertIdle: () => assertRepositoryIdle(run.project_id, run.id), onOutput: output(run.id) });
+  const optionsFor = (run: FinishRun) => ({ signal: controllers.get(run.id)?.signal, assertIdle: () => assertRepositoryIdle(run.project_id, run.id, rootFor(run)), onOutput: output(run.id) });
   async function locked<T>(id: string, action: (run: FinishRun, root: string) => Promise<T>): Promise<T> {
     const initial = getFinish(id), root = rootFor(initial);
     return serializeGit(root, async () => {
       const run = getFinish(id);
       if (final(run)) throw new CodeError('Завершение уже закрыто', 409);
-      assertRepositoryIdle(run.project_id, run.id);
+      assertRepositoryIdle(run.project_id, run.id, rootFor(run));
       const controller = new AbortController(); controllers.set(id, controller);
       try { return await action(run, root); }
       catch (error) {
@@ -98,7 +100,7 @@ export function createFinishService(dependencies: {
     const session = run.session_id ? getSession(run.session_id) : createSession({
       project_id: run.project_id, task_id: run.task_id, agent_id: agent.agentId, model: agent.model,
       role: 'committer', policy: 'read-only', title: 'Завершение работ',
-      metadata: { finish_id: run.id, ...(agent.effort ? { reasoningEffort: agent.effort } : {}), briefing: 'Ты предлагаешь состав коммитов. В начале вызови get_finish_context, затем set_commits с полным списком (заголовки и описания пиши строго по commit_rules из контекста), '
+      metadata: { finish_id: run.id, workspace_id: run.workspace_id ?? null, ...(agent.effort ? { reasoningEffort: agent.effort } : {}), briefing: 'Ты предлагаешь состав коммитов. В начале вызови get_finish_context, затем set_commits с полным списком (заголовки и описания пиши строго по commit_rules из контекста), '
         + (full ? 'затем set_merge_request с заголовком (одна строка) и описанием МР по шаблону из контекста (mr.template; он подставит остальное: целевую ветку, ревьюеров, исполнителей), ' : '') + 'затем finish_commits. '
         + (single ? 'Все изменения — ровно один коммит. ' : 'Сколько коммитов сделать, решай сам: по одному на логически отдельное изменение, мелочи не дроби. ')
         + 'При ошибке исправь список. Файлы и git через shell не изменяй. Коммиты выполняет сервер Plangent; push выполняет пользователь после подтверждения. Не добавляй атрибуцию агента.' },
@@ -159,24 +161,27 @@ export function createFinishService(dependencies: {
     };
     // Validate explicit flags and human coauthors before touching Git.
     assembleCommitMessage({ title: 'validate', ...params });
-    return serializeGit(project.repo_path, async () => {
-      assertRepositoryIdle(projectId);
-      await assertNoGitOperation(project.repo_path);
-      if (activeFinish(projectId)) throw new CodeError('В проекте уже идёт завершение', 409);
-      const info = await repositoryInfo(project.repo_path);
+    const workspace = input.task_id ? activeWorkspace(input.task_id) : null;
+    const root = input.task_id ? rootForTask(input.task_id) : project.repo_path;
+    if (workspace) { rootForWorkspace(projectId, workspace.id); params.branchName = undefined; }
+    return serializeGit(root, async () => {
+      assertRepositoryIdle(projectId, undefined, root);
+      await assertNoGitOperation(root);
+      if (activeFinish(projectId, workspace?.id)) throw new CodeError('В проекте уже идёт завершение', 409);
+      const info = await repositoryInfo(root);
       if (!info?.head || !info.branch) throw new CodeError('Нужна локальная ветка с исходным коммитом');
-      if ((await changedFiles(project.repo_path)).some(c => c.status === 'U')) throw new CodeError('Разрешите конфликты во внешнем клиенте');
-      const tree = await snapshot(project.repo_path);
-      if (!tree || !(await treeChanges(project.repo_path, info.head, tree)).changes.length) throw new CodeError('Нет изменений для завершения');
+      if ((await changedFiles(root)).some(c => c.status === 'U')) throw new CodeError('Разрешите конфликты во внешнем клиенте');
+      const tree = await snapshot(root);
+      if (!tree || !(await treeChanges(root, info.head, tree)).changes.length) throw new CodeError('Нет изменений для завершения');
       const target = params.targetBranch?.replace(/^origin\//, '');
-      if (info.branch === target && !params.branchName) throw new CodeError('Создайте рабочую ветку: укажите branchName');
+      if (!workspace && info.branch === target && !params.branchName) throw new CodeError('Создайте рабочую ветку: укажите branchName');
       const now = new Date().toISOString();
-      let run = insertFinish({ id: randomUUID(), project_id: projectId, task_id: input.task_id ?? null, scenario, options: params,
+      let run = insertFinish({ id: randomUUID(), project_id: projectId, task_id: input.task_id ?? null, workspace_id: workspace?.id ?? null, scenario, options: params,
         base_head: info.head, branch: info.branch, snapshot_tree: tree, stage: 'branch', status: 'running', commits: [],
         session_id: null, note: '', error: '', output: '', pushed: false, mr_url: null, mr_draft: null, created_at: now, updated_at: now });
       try {
         if (params.branchName) {
-          await createBranch(project.repo_path, params.branchName, info.branch, optionsFor(run));
+          await createBranch(root, params.branchName, info.branch, optionsFor(run));
           run = updateFinish(run.id, { branch: params.branchName });
         }
         run = updateFinish(run.id, transition(run, 'branch_ready'));
@@ -277,7 +282,7 @@ export function createFinishService(dependencies: {
       }
       if (run.stage === 'push') {
         const info = await repositoryInfo(root), target = run.options.targetBranch?.replace(/^origin\//, '');
-        if (!info?.branch || info.branch === target) throw new CodeError('Push в целевую ветку запрещён');
+        if (!info?.branch || (!run.workspace_id && info.branch === target)) throw new CodeError('Push в целевую ветку запрещён');
         await push(root, optionsFor(run));
         run = updateFinish(id, { ...transition(run, 'push_done'), pushed: true });
         if (run.stage === 'mr') return publishMr(run);

@@ -40,8 +40,11 @@ export function useTaskQueue(projectId: Ref<string | undefined>, taskId: Ref<str
     try { queue.value = await api.get<TaskQueue>(base.value) } catch (e) { app.toast(String(e), 'error') }
   }
 
+  /** The last failed command, for dialogs that show it next to their own form. */
+  const lastError = ref('')
   async function run<T>(job: () => Promise<T>): Promise<T | undefined> {
-    try { return await job() } catch (e) { app.toast(e instanceof Error ? e.message : String(e), 'error'); await load() }
+    lastError.value = ''
+    try { return await job() } catch (e) { lastError.value = e instanceof Error ? e.message : String(e); app.toast(lastError.value, 'error'); await load() }
   }
 
   // Optimistic: the new layout shows at once, the server's answer replaces it.
@@ -132,8 +135,9 @@ export function useTaskQueue(projectId: Ref<string | undefined>, taskId: Ref<str
   async function command(path: string, body?: unknown) {
     const next = await run(() => api.post<TaskQueue>(`${base.value}/${path}`, body ?? {}))
     if (next) queue.value = next
+    return next
   }
-  const start = () => command('start')
+  const start = (options: { base_branch?: string; branch_name?: string; auto_review?: boolean } = {}) => command('start', options)
   const stop = () => command('stop')
   const pauseAfterStage = (on: boolean) => command('pause', { on })
   const resume = () => command('resume')
@@ -145,7 +149,7 @@ export function useTaskQueue(projectId: Ref<string | undefined>, taskId: Ref<str
   }
 
   return {
-    queue, stages, sessions, history, allSessions, frozen, assigned, load, applyEvent,
+    queue, stages, sessions, history, allSessions, frozen, assigned, lastError, load, applyEvent,
     addSessions, addFromPlan, removeSession, removeStage, updateSession, updateStage, moveSession, mergeStages, splitSession, clearFinished, clearAll,
     start, stop, pauseAfterStage, resume, clearHistory, sessionAction,
   }

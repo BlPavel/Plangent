@@ -52,7 +52,7 @@ function toolStrings(value: unknown): string[] {
   return [];
 }
 /** Where the session may write: `writable[0]` is its working folder (relative paths resolve against it); `files` narrows writes to these files. */
-export interface FolderScope { writable: string[]; readOnly?: string[]; files?: string[] }
+export interface FolderScope { writable: string[]; readOnly?: string[]; files?: string[]; restrictWrites?: boolean }
 const samePath = (a: string, b: string) => process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b;
 
 /**
@@ -95,6 +95,12 @@ export function permissionDecision(policy: PermissionPolicy, request: RequestPer
   const writes = ['edit', 'delete', 'move'].includes(tool.kind ?? '') || (tool.content ?? []).some(c => c.type === 'diff');
   if (writes && scope?.writable.length) {
     const files = touchedPaths(tool).map(file => path.resolve(scope.writable[0], file));
+    if (scope.restrictWrites) {
+      if (!files.length) return 'deny';
+      try {
+        if (files.some(file => !scope.writable.some(root => isInside(root, file) && isInside(physicalPath(root), physicalPath(file))))) return 'deny';
+      } catch { return 'deny'; }
+    }
     if (files.some(file => scope.readOnly?.some(root => isInside(root, file)))) return 'deny';
     if (files.some(file => !scope.writable.some(root => isInside(root, file)))) return 'ask';
   }

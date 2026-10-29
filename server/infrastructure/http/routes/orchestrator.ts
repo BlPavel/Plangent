@@ -1,4 +1,6 @@
 import { Router, Request, Response } from 'express';
+import { prepareWork, withWorkStart } from '../../../core/work/start';
+import { randomUUID } from 'node:crypto';
 import { listSessions, updateSession } from '../../../core/agent-sessions/sessions';
 import { closeSession } from '../../../core/agent-sessions/acp-host';
 import { finishRun, getRun } from '../../../core/runs';
@@ -55,18 +57,29 @@ orchestratorRouter.put('/queue', (req: Request, res: Response) => {
 });
 
 // POST /projects/:projectId/tasks/:taskId/queue/start — (re)launch from the first unfinished stage
-orchestratorRouter.post('/queue/start', (req: Request, res: Response) => {
+orchestratorRouter.post('/queue/start', async (req: Request, res: Response) => {
   const queue = taskQueue(req, res);
   if (!queue) return;
   if (getTask(req.params.taskId)?.status === 'done') return res.status(409).json({ error: 'Завершённая задача доступна только для чтения' });
   if (isFrozen(queue)) return res.status(409).json({ error: 'Очередь уже выполняется' });
   if (!queue.stages.length) return res.status(400).json({ error: 'Очередь пуста' });
-  const orch = new Orchestrator(queue);
-  orch.start().catch(e => {
-    console.error('[orchestrator] start error:', e);
-    orch.fail(String(e));
-  });
-  res.status(202).json(queue);
+  try {
+    await withWorkStart(queue.taskId, async () => {
+      const options = req.body ?? {};
+      if (options.auto_review !== undefined && typeof options.auto_review !== 'boolean') throw new Error('Invalid auto_review');
+      for (const field of ['base_branch', 'branch_name']) if (options[field] !== undefined && typeof options[field] !== 'string') throw new Error('Invalid ' + field);
+      await prepareWork(queue.taskId, options);
+      if (options.auto_review !== undefined) updateTask(queue.taskId, { auto_review: options.auto_review });
+      const task = getTask(queue.taskId)!;
+      if (task.auto_review && !queue.stages.some(stage => stage.sessions.some(s => s.kind === 'review' && s.status !== 'complete'))) {
+        const agentId = queue.stages.flatMap(stage => stage.sessions).at(-1)!.agentId;
+        queue.stages.push({ id: randomUUID(), pauseAfter: false, sessions: [{ id: randomUUID(), kind: 'review', agentId, queueMode: 'execute', permissionPolicy: 'ask', status: 'queued' }] });
+      }
+      const orch = new Orchestrator(queue);
+      try { await orch.start(); } catch (error) { await orch.fail(String(error)); throw error; }
+    });
+    res.status(202).json(queue);
+  } catch (error) { res.status(400).json({ error: String(error instanceof Error ? error.message : error) }); }
 });
 
 // POST /projects/:projectId/tasks/:taskId/queue/clear-history — forget earlier runs

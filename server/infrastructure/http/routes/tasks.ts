@@ -8,7 +8,6 @@ import { moveTask } from '../../../core/orchestration/task-move';
 import { getOrchestrator } from '../../../core/orchestration/orchestrator';
 import { listSessions } from '../../../core/agent-sessions/sessions';
 import { closeSession } from '../../../core/agent-sessions/acp-host';
-import { deletePlanFile } from '../../../core/orchestration/plan-file';
 
 export const tasksRouter = Router({ mergeParams: true });
 
@@ -50,18 +49,19 @@ tasksRouter.get('/:taskId', (req: Request, res: Response) => {
 
 tasksRouter.post('/', (req: Request, res: Response) => {
   const { projectId } = req.params;
-  const { key, title, description, jira_url, branch_name } = req.body;
-  if (!key) return res.status(400).json({ error: 'key required' });
+  const { key, title, description, jira_url, branch_name, kind, auto_review, closed_at, close_reason, origin_task_id, external_key } = req.body;
   const project = getProject(projectId);
   if (!project || project.kind === 'source') return res.status(404).json({ error: 'Project not found' });
-  const t = createTask({ project_id: projectId, key, title, description, jira_url, branch_name });
-  res.status(201).json(t);
+  try {
+    const t = createTask({ project_id: projectId, key, title, description, jira_url, branch_name, kind, auto_review, closed_at, close_reason, origin_task_id, external_key });
+    res.status(201).json(t);
+  } catch (error) { res.status(400).json({ error: error instanceof Error ? error.message : String(error) }); }
 });
 
 tasksRouter.patch('/:taskId', (req: Request, res: Response) => {
   if (getTask(req.params.taskId)?.project_id !== req.params.projectId) return res.status(404).json({ error: 'Not found' });
   let t;
-  try { const { title, jira_url, branch_name, status, finish_scenario, target_branch, external_key, base_branch } = req.body; t = updateTask(req.params.taskId, { title, jira_url, branch_name, status, finish_scenario, target_branch, external_key, base_branch }); }
+  try { const { title, jira_url, branch_name, status, finish_scenario, target_branch, external_key, base_branch, kind, auto_review, closed_at, close_reason, origin_task_id } = req.body; t = updateTask(req.params.taskId, { title, jira_url, branch_name, status, finish_scenario, target_branch, external_key, base_branch, kind, auto_review, closed_at, close_reason, origin_task_id }); }
   catch (e) { return res.status(400).json({ error: e instanceof Error ? e.message : String(e) }); }
   if (!t) return res.status(404).json({ error: 'Not found' });
   res.json(t);
@@ -69,8 +69,7 @@ tasksRouter.patch('/:taskId', (req: Request, res: Response) => {
 
 tasksRouter.delete('/:taskId', async (req: Request, res: Response) => {
   const task = getTask(req.params.taskId);
-  if (!task) return res.status(404).json({ error: 'Not found' });
-  const project = getProject(task.project_id);
+  if (!task || task.project_id !== req.params.projectId) return res.status(404).json({ error: 'Not found' });
 
   // Stop the orchestrator if a queue is running for this task.
   await getOrchestrator(task.id)?.stop('Задача удалена');
@@ -78,9 +77,8 @@ tasksRouter.delete('/:taskId', async (req: Request, res: Response) => {
   // Kill any live agent sessions tied to this task's runs.
   for (const chat of listSessions(task.project_id).filter(s => s.task_id === task.id)) await closeSession(chat.id);
 
-  // Remove the on-disk plan file (DB rows cascade via FK ON DELETE CASCADE).
-  if (project) { try { deletePlanFile(task, project.repo_path); } catch { /* ignore */ } }
+  try { await deleteTask(task.id, { discard: req.query.discard === '1' }); }
+  catch (error) { return res.status((error as { status?: number }).status ?? 400).json({ error: error instanceof Error ? error.message : String(error), blockers: (error as { blockers?: unknown }).blockers }); }
 
-  deleteTask(task.id);
   res.status(204).end();
 });

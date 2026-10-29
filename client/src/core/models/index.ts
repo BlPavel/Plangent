@@ -41,6 +41,7 @@ export type ProjectKind = 'project' | 'group' | 'source'
 
 export interface ProjectGitSettings {
   commit_pattern?: string; forbidden_patterns?: string[];
+  workspace_copy_files?: string[]; workspace_setup_command?: string; auto_review?: boolean;
   include_description?: boolean; finish_scenario?: 'nothing' | 'commits' | 'push' | 'full';
   branch_prefixes?: string[]; base_branch?: string;
   mr_description_prompt?: string; mr_remove_branch?: boolean; mr_squash?: boolean; mr_reviewers?: string[]; mr_assignees?: string[];
@@ -76,6 +77,11 @@ export interface Project {
 }
 
 export interface Task {
+  kind: 'task' | 'errand';
+  auto_review: boolean;
+  closed_at: string | null;
+  close_reason: 'done' | 'cancelled' | null;
+  origin_task_id: string | null;
   base_commit?: string | null;
   external_key?: string | null;
   base_branch?: string | null;
@@ -269,3 +275,6 @@ export type OrchestratorEvent = QueueEventBase & (
   // idMap: old → new step ids when the planner's plan was renumbered in order.
   | { type: 'plan_updated'; content?: string; steps: PlanStep[]; idMap?: Record<string, string> }
 )
+
+export * from './workspace'
+export * from './work'

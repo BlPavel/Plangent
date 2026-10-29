@@ -1,3 +1,4 @@
+import { rootForTask } from '../workspaces/roots';
 import { OrchestratorQueueSession, TaskQueue } from '../../models';
 import { getTask } from '../tasks';
 import { getProject } from '../projects';
@@ -14,7 +15,6 @@ import { getPlanFilePath } from './task-files';
 import { materializePlanFile, watchPlanFile, stopWatchPlanFile } from './plan-file';
 import { archiveFinished, isActive, repeatReview, saveQueue } from './queue';
 import { broadcast } from '../../core/shared/events';
-import path from 'path';
 import { launchTaskReview, taskReviewCount } from './task-review';
 
 // Per-task orchestrator of a running (or paused) queue
@@ -197,7 +197,7 @@ export class Orchestrator {
     if (!plan) {
       plan = createPlan({ task_id: taskId, content: '' });
     }
-    const planRelPath = path.relative(project.repo_path, getPlanFilePath(project.repo_path, task.key));
+    const planRelPath = getPlanFilePath(project.repo_path, task.key);
     materializePlanFile(task, plan, project.repo_path);
     watchPlanFile(task, plan.id, project.repo_path);
 
@@ -205,7 +205,7 @@ export class Orchestrator {
     const points = session.points ?? [];
     const purpose = session.queueMode === 'review_first' ? 'preflight' : 'execute';
     const prompt = buildPrompt({
-      taskId: task.id, repoPath: project.repo_path,
+      taskId: task.id, repoPath: rootForTask(task.id), analysisRepoPath: project.repo_path,
       projectName: project.name,
       taskKey: task.key,
       taskTitle: task.title ?? undefined,
@@ -292,9 +292,9 @@ export class Orchestrator {
     if (!task || !project) throw new Error('Missing task or project');
 
     const plan = getLatestPlan(this.queue.taskId);
-    const planRelPath = path.relative(project.repo_path, getPlanFilePath(project.repo_path, task.key));
+    const planRelPath = getPlanFilePath(project.repo_path, task.key);
     const prompt = buildPrompt({
-      taskId: task.id, repoPath: project.repo_path,
+      taskId: task.id, repoPath: rootForTask(task.id), analysisRepoPath: project.repo_path,
       projectName: project.name,
       taskKey: task.key,
       taskTitle: task.title ?? undefined,

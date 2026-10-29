@@ -30,6 +30,7 @@ export interface RunContext {
   points?: string[];
   taskId?: string;
   repoPath?: string;
+  analysisRepoPath?: string;
   purpose?: 'analysis' | 'plan' | 'execute' | 'preflight';
   runHistory: Array<{
     agent: string;
@@ -64,7 +65,7 @@ export function planningToolContext(ctx: RunContext): Record<string, unknown> {
   return {
     task: { key: ctx.taskKey, title: ctx.taskTitle ?? '', description: ctx.taskDescription ?? '' },
     project: ctx.projectName,
-    ...(ctx.taskId && ctx.repoPath ? { analysis: analysisToolContext(ctx.taskId, ctx.repoPath, ctx.taskKey) } : {}),
+    ...(ctx.taskId && ctx.repoPath ? { analysis: analysisToolContext(ctx.taskId, ctx.analysisRepoPath ?? ctx.repoPath, ctx.taskKey) } : {}),
     currentPlan: ctx.planContent || null,
     template: ctx.planTemplate?.trim() || null,
     format: PLAN_PROTOCOL_LOCKED.trim(),
@@ -181,7 +182,7 @@ export function buildPrompt(ctx: RunContext): string {
   }
 
   const materials = ctx.taskId && ctx.repoPath
-    ? selectedAnalysisContext(ctx.taskId, ctx.repoPath, ctx.taskKey, ctx.planContent ?? '', ctx.points) : '';
+    ? selectedAnalysisContext(ctx.taskId, ctx.analysisRepoPath ?? ctx.repoPath, ctx.taskKey, ctx.planContent ?? '', ctx.points) : '';
   if (materials) lines.push('## Материалы анализа', materials, '');
 
   if (ctx.runHistory.length > 0) {

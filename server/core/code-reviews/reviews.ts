@@ -1,3 +1,4 @@
+import { updateSession } from '../agent-sessions/sessions';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -29,7 +30,7 @@ export function createReviewService(db: Database.Database = getDb(), dependencie
   cancelSession?: (id: string) => Promise<void>;
   startSession?: (id: string) => Promise<unknown>;
   sendPrompt?: (id: string, content: { type: 'text'; text: string }[]) => Promise<void>;
-} = {}) {
+} = {}, workspaceId?: string, taskId?: string) {
   const store = createReviewStore(db);
   const repository = dependencies.repository ?? repositoryInfo;
   const branches = dependencies.branches ?? localBranches;
@@ -45,7 +46,12 @@ export function createReviewService(db: Database.Database = getDb(), dependencie
   function project(projectId: string) {
     const row = db.prepare("SELECT id,repo_path,kind FROM projects WHERE id=?").get(projectId) as
       { id: string; repo_path: string; kind: string } | undefined;
-    if (!row || row.kind !== 'project') throw new CodeError('Project not found', 404);
+    if (!row || (row.kind !== 'project' && !(row.kind === 'group' && taskId && db.prepare('SELECT 1 FROM tasks WHERE id=? AND project_id=?').get(taskId, projectId)))) throw new CodeError('Project not found', 404);
+    if (workspaceId) {
+      const workspace = db.prepare("SELECT path FROM workspaces WHERE id=? AND project_id=? AND status='ready'").get(workspaceId, projectId) as { path: string } | undefined;
+      if (!workspace) throw new CodeError('Workspace not found', 404);
+      return { ...row, repo_path: workspace.path };
+    }
     return row;
   }
   function reviewFor(projectId: string, id: string) {
@@ -144,8 +150,10 @@ export function createReviewService(db: Database.Database = getDb(), dependencie
       const data = validateDraft(root, info, input);
       checkOrigin(projectId, origin, originId);
       if (data.comparison_ref !== undefined && (typeof data.comparison_ref !== 'string' || !data.comparison_ref.startsWith('origin/'))) throw new CodeError('Invalid remote comparison');
-      const comparison_base = data.comparison_ref && data.side === 'old' ? await remoteMergeBase(root, data.comparison_ref, info?.head ?? 'HEAD') : null;
-      const code_snippet = await snippet(root, info, data);
+      const taskBase = origin === 'task' && data.side === 'old'
+        ? (db.prepare('SELECT base_commit FROM tasks WHERE id=?').get(originId) as { base_commit: string | null } | undefined)?.base_commit : null;
+      const comparison_base = data.comparison_ref && data.side === 'old' ? await remoteMergeBase(root, data.comparison_ref, info?.head ?? 'HEAD') : taskBase ?? null;
+      const code_snippet = await snippet(root, info, comparison_base ? { ...data, comparison_base } : data);
       await ensureSame(root, info);
       return db.transaction(() => {
         const review = openCurrent(projectId, info) ?? createCurrent(projectId, info, origin, originId);
@@ -244,7 +252,7 @@ export function createReviewService(db: Database.Database = getDb(), dependencie
     return { ...row, metadata: JSON.parse(row.metadata), step_ids: JSON.parse(row.step_ids) };
   }
   function boundReview(session: AgentSession) {
-    if (session.role !== 'code-fixer') throw new CodeError('Code fixer role required', 403);
+    if (!['code-fixer', 'task-chat', 'errand'].includes(session.role)) throw new CodeError('Code fixer role required', 403);
     const row = db.prepare('SELECT review_id FROM code_review_round WHERE session_id=? ORDER BY n DESC LIMIT 1')
       .get(session.id) as { review_id: string } | undefined;
     if (!row) throw new CodeError('Chat is not bound to a review', 403);
@@ -277,10 +285,16 @@ export function createReviewService(db: Database.Database = getDb(), dependencie
       editable(review, info);
       if (activeSessions(reviewId).length) throw new CodeError('Agent is working', 409);
       let session = sessionFor(sessionId);
-      if (session.role !== 'code-fixer' || session.project_id !== projectId)
+      if (!['code-fixer', 'task-chat', 'errand'].includes(session.role) || session.project_id !== projectId)
         throw new CodeError('Choose a code fixer chat in this project', 403);
-      if (db.prepare('SELECT 1 FROM code_review_round WHERE session_id=? AND review_id<>?').get(sessionId, reviewId))
+      if (['task-chat', 'errand'].includes(session.role) && (!session.task_id || !itemIds?.length
+        || itemIds.some(id => store.getItem(id)?.origin_id !== session.task_id)))
+        throw new CodeError('Chat belongs to another task', 403);
+      if (session.role === 'code-fixer' && db.prepare('SELECT 1 FROM code_review_round WHERE session_id=? AND review_id<>?').get(sessionId, reviewId))
         throw new CodeError('Chat belongs to another review', 409);
+      if ((session.metadata.workspace_id ?? null) !== (workspaceId ?? null)) {
+        throw new CodeError('Choose a fixer chat for this workspace', 409);
+      }
       if (session.status === 'starting') {
         await (dependencies.startSession ?? (await import('../agent-sessions/acp-host')).startSession)(sessionId);
         session = sessionFor(sessionId);
@@ -293,10 +307,12 @@ export function createReviewService(db: Database.Database = getDb(), dependencie
       }, itemIds);
       // Name a new chat after the review instead of the round announcement.
       db.prepare("UPDATE agent_sessions SET title=? WHERE id=? AND title='Новый чат'").run(`Доработка · ревью #${review.number}`, sessionId);
+      if (['task-chat', 'errand'].includes(session.role)) updateSession(sessionId, { metadata: { ...session.metadata, work_fix_pending: true } });
       try {
         await (dependencies.sendPrompt ?? (await import('../agent-sessions/acp-host')).sendPrompt)(
           sessionId, [{ type: 'text', text: note.trim() ? `${sent.text}\n\nКомментарий разработчика: ${note.trim().slice(0, 4000)}` : sent.text }]);
       } catch (error) {
+        if (['task-chat', 'errand'].includes(session.role)) updateSession(sessionId, { metadata: { ...session.metadata, work_fix_pending: false } });
         db.transaction(() => {
           // Restore each item and put its replies back in the queue.
           store.unsendRound(sent.round.id);
@@ -416,7 +432,7 @@ export function createReviewService(db: Database.Database = getDb(), dependencie
       editable(reviewFor(projectId, reviewId), info);
       const item = itemFor(reviewId, itemId);
       if (!['accept', 'answered', 'reject', 'reopen'].includes(resolution)) throw new CodeError('Invalid resolution');
-      if (item.status === 'draft' || item.status === 'sent') throw new CodeError('Wait for the agent\'s reply first', 409);
+      if ((item.status === 'draft' && !(item.author === 'agent' && resolution === 'reject')) || item.status === 'sent') throw new CodeError('Wait for the agent\'s reply first', 409);
       if (resolution !== 'reopen' && store.listMessages(reviewId, itemId).some(m => m.author === 'developer' && !m.sent))
         throw new CodeError('Send or remove your queued reply first', 409);
       const updated = store.updateItem(itemId, resolution === 'reopen' ? { closed: false }
@@ -674,6 +690,22 @@ export function createReviewService(db: Database.Database = getDb(), dependencie
       })();
     });
   }
+  async function startAgentRound(projectId: string, taskId: string, sessionId: string) {
+    return exclusive(projectId, async () => {
+      const { root, info } = await context(projectId);
+      checkOrigin(projectId, 'task', taskId);
+      const existing = openCurrent(projectId, info);
+      if (existing && activeSessions(existing.id).length) throw new CodeError('Ревью уже выполняется', 409);
+      const tree = await snapshot(root);
+      await ensureSame(root, info);
+      const round = db.transaction(() => {
+        const review = existing ?? createCurrent(projectId, info, 'task', taskId);
+        return store.createRound({ review_id: review.id, session_id: sessionId, snapshot_tree: tree ?? '' });
+      })();
+      notify(round.review_id);
+      return round;
+    });
+  }
   async function addAgentDraft(projectId: string, taskId: string, input: Draft) {
     // Attach to current worktree lines, including committed changes.
     let data = { ...input, side: 'new' as const, comparison_ref: undefined, comparison_base: undefined };
@@ -691,9 +723,9 @@ export function createReviewService(db: Database.Database = getDb(), dependencie
     }
     return addDraft(projectId, data, 'task', taskId, 'agent');
   }
-  return { addAgentDraft, addDraft, updateDraft, removeItem, makeGeneral, finish, markViewed, openFile, current,
+  return { startAgentRound, addAgentDraft, addDraft, updateDraft, removeItem, makeGeneral, finish, markViewed, openFile, current,
     history, detail, reviewDiff, remoteComparison, baseChanges, removeReview, markViewedCurrent, sendRound, stop, getAgentReview, focusItem, replyItem, addMessage, removeMessage, closeItem, attention };
 }
 
 let service: ReturnType<typeof createReviewService> | undefined;
-export const reviews = () => service ??= createReviewService();
+export const reviews = (workspaceId?: string, taskId?: string) => workspaceId || taskId ? createReviewService(getDb(), {}, workspaceId, taskId) : service ??= createReviewService();

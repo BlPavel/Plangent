@@ -5,7 +5,7 @@ import { gitApi } from '../api'
 import type { GitTracking, GitBranch, GitPreferences, Coauthor } from '../git-types'
 
 export const useGitStore = defineStore('code-git', () => {
-  const projectId = ref(''), repository = ref<GitTracking | null>(null), branches = ref<GitBranch[]>([])
+  const projectId = ref(''), workspaceId = ref<string | undefined>(), repository = ref<GitTracking | null>(null), branches = ref<GitBranch[]>([])
   const settings = ref<GitPreferences | null>(null), coauthors = ref<Coauthor[]>([])
   /** lastAction lets each panel show the result of its own operation (commit — in the commit panel, the rest — in the header). */
   const operationId = ref(''), output = ref(''), error = ref(''), lastAction = ref('')
@@ -27,19 +27,20 @@ export const useGitStore = defineStore('code-git', () => {
   let generation = 0
 
   async function refresh() {
-    const p = projectId.value, token = ++generation
+    const p = projectId.value, w = workspaceId.value, token = ++generation
     if (!p) return
     try {
       const [info, refs, prefs, authors] = await Promise.all([
-        gitApi.repository(p), gitApi.branches(p), gitApi.settings(p), gitApi.coauthors(p),
+        gitApi.repository(p, w), gitApi.branches(p, w), gitApi.settings(p, w), gitApi.coauthors(p, w),
       ])
-      if (token !== generation || p !== projectId.value) return
+      if (token !== generation || p !== projectId.value || w !== workspaceId.value) return
       repository.value = info; branches.value = refs; settings.value = prefs; coauthors.value = authors
     } catch (cause) { if (p === projectId.value && token === generation) error.value = String(cause) }
   }
-  async function start(p: string) {
+  /** The store follows one (project, workspace) pair, so «Проверка» of a work and «Код» of the project do not overwrite each other. */
+  async function start(p: string, workspace?: string) {
     stop()
-    projectId.value = p; repository.value = null; branches.value = []; settings.value = null
+    projectId.value = p; workspaceId.value = workspace; repository.value = null; branches.value = []; settings.value = null
     coauthors.value = []; error.value = ''; output.value = ''; operationId.value = ''; lastAction.value = ''
     unsubscribe = onServerEvent<{
       type: string; projectId?: string; project_id?: string; operationId?: string; output?: string
@@ -55,18 +56,19 @@ export const useGitStore = defineStore('code-git', () => {
   }
   async function refreshBranches() {
     const p = projectId.value
-    const refs = await gitApi.refreshBranches(p)
-    if (p === projectId.value) branches.value = refs
+    const w = workspaceId.value
+    const refs = await gitApi.refreshBranches(p, w)
+    if (p === projectId.value && w === workspaceId.value) branches.value = refs
     return refs
   }
-  function stop() { unsubscribe?.(); unsubscribe = undefined; clearTimeout(timer); generation++; projectId.value = '' }
+  function stop() { unsubscribe?.(); unsubscribe = undefined; clearTimeout(timer); generation++; projectId.value = ''; workspaceId.value = undefined }
   async function run(action: string, input: object = {}) {
     const reason = ['stage', 'unstage', 'fetch'].includes(action) ? blocked.value : writeBlocked.value
     if (reason) throw new Error(reason)
     const p = projectId.value, current = crypto.randomUUID()
     operationId.value = current; lastAction.value = action; output.value = ''; error.value = ''
     try {
-      const result = await gitApi.operation(p, action, { ...input, operationId: current })
+      const result = await gitApi.operation(p, action, { ...input, operationId: current }, workspaceId.value)
       if (p === projectId.value && current === operationId.value) output.value ||= result.output
       return result
     } catch (cause) {
@@ -80,9 +82,9 @@ export const useGitStore = defineStore('code-git', () => {
     }
   }
   async function cancel() {
-    if (operationId.value) await gitApi.operation(projectId.value, 'cancel', { operationId: operationId.value })
+    if (operationId.value) await gitApi.operation(projectId.value, 'cancel', { operationId: operationId.value }, workspaceId.value)
   }
   /** Hides the result of the finished operation. */
   function dismiss() { if (!operationId.value) { error.value = ''; output.value = ''; lastAction.value = '' } }
-  return { projectId, repository, branches, settings, coauthors, operationId, output, error, lastAction, blocked, operationBlock, writeBlocked, baseRef, start, stop, refresh, refreshBranches, run, cancel, dismiss }
+  return { projectId, workspaceId, repository, branches, settings, coauthors, operationId, output, error, lastAction, blocked, operationBlock, writeBlocked, baseRef, start, stop, refresh, refreshBranches, run, cancel, dismiss }
 })

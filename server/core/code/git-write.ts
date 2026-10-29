@@ -34,7 +34,7 @@ export function redactGitOutput(text: string): string {
 const run = runGit;
 /** Commands that run the repository's hooks. `--literal-pathspecs` is exported to hooks as GIT_LITERAL_PATHSPECS and breaks their own globs (`git add ./apps/**\/*.scss`). */
 const HOOK_COMMANDS = new Set(['commit', 'push', 'switch', 'checkout', 'merge', 'pull', 'rebase', 'clone']);
-export function runGit(root: string, args: string[], options: GitOperationOptions = {}, input?: string): Promise<string> {
+function runGitRaw(root: string, args: string[], options: GitOperationOptions = {}, input?: string): Promise<string> {
   options.signal?.throwIfAborted();
   return new Promise((resolve, reject) => {
     let output = '', cancelled = false, timedOut = false, terminating = false, killError: Error | undefined;
@@ -249,3 +249,19 @@ export async function commit(root: string, input: CommitMessageInput, getSetting
 
 /** Overwrites the remote branch only if nobody pushed to it since our last fetch. */
 export const pushForce = (root: string, options: GitOperationOptions = {}) => push(root, options, true);
+
+/** Fetch and push share refs across worktrees, so serialize them by the common Git directory. */
+const networkQueues = new Map<string, Promise<unknown>>();
+export async function serializeNetworkGit<T>(root: string, operation: () => Promise<T>): Promise<T> {
+  const common = (await runGitRaw(root, ['rev-parse', '--git-common-dir'])).trim();
+  const canonical = await fs.realpath(path.resolve(root, common));
+  const key = process.platform === 'win32' ? canonical.toLowerCase() : canonical;
+  const previous = networkQueues.get(key) ?? Promise.resolve();
+  const next = previous.catch(() => {}).then(operation);
+  networkQueues.set(key, next);
+  try { return await next; } finally { if (networkQueues.get(key) === next) networkQueues.delete(key); }
+}
+export function runGit(root: string, args: string[], options: GitOperationOptions = {}, input?: string): Promise<string> {
+  const operation = () => runGitRaw(root, args, options, input);
+  return ['fetch', 'push', 'pull'].includes(args[0]) ? serializeNetworkGit(root, operation) : operation();
+}

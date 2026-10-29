@@ -1,10 +1,13 @@
+import { viewedWorkspaceId } from '../../../core/workspaces/viewing';
+import { childProcesses } from '../../terminal/process-tree';
+import { rootForWorkspace } from '../../../core/workspaces/roots';
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { getProject } from '../../../core/projects';
 import { createPtySession, getPtySession, killPtySession } from '../../terminal/pty-manager';
-const terminals = new Map<string, { id: string; projectId: string; title: string; shell: string; cwd: string }>();
+const terminals = new Map<string, { id: string; projectId: string; title: string; shell: string; cwd: string; workspaceId: string | null }>();
 export const terminalsRouter = Router();
 // First existing candidate wins: an executable on PATH or an absolute path.
 function findExecutable(...candidates: string[]) {
@@ -34,20 +37,23 @@ function detectShells(): Shell[] {
 }
 const shells = detectShells();
 terminalsRouter.get('/shells', (_req, res) => res.json(shells.map(({ id, label }) => ({ id, label }))));
-terminalsRouter.get('/', (req, res) => res.json([...terminals.values()].filter(t => !req.query.projectId || t.projectId === req.query.projectId)
+terminalsRouter.get('/', (req, res) => res.json([...terminals.values()].filter(t => (!req.query.projectId || t.projectId === req.query.projectId) && (req.query.workspace === undefined || (t.workspaceId ?? '') === req.query.workspace))
   .map(t => ({ ...t, exitCode: getPtySession(t.id)?.exitCode, status: getPtySession(t.id)?.exitCode === undefined ? 'running' : 'exited' }))));
 terminalsRouter.post('/', (req, res) => {
   try {
     const project = getProject(req.body.projectId);
     if (!project) throw new Error('Проект не найден');
+    const workspaceId = req.body.workspaceId === undefined && req.body.workspace === undefined ? viewedWorkspaceId(project.id) : req.body.workspaceId ?? req.body.workspace ?? null;
+    const cwd = rootForWorkspace(project.id, workspaceId);
     const shell = shells.find(s => s.id === req.body.shell) ?? shells[0];
     const id = `shell-${randomUUID()}`;
-    const session = createPtySession(id, shell.command, shell.args, project.repo_path);
+    const session = createPtySession(id, shell.command, shell.args, cwd);
+    session.cwd = cwd; session.workspaceId = workspaceId; session.projectId = project.id;
     session.retain = true;
     // Name after the shell ("pwsh", "pwsh 2", …), reusing the lowest free number.
     const taken = new Set([...terminals.values()].filter(t => t.projectId === project.id).map(t => t.title));
     let n = 1; while (taken.has(n === 1 ? shell.name : `${shell.name} ${n}`)) n++;
-    const terminal = { id, projectId: project.id, title: n === 1 ? shell.name : `${shell.name} ${n}`, shell: shell.id, cwd: project.repo_path };
+    const terminal = { id, projectId: project.id, title: n === 1 ? shell.name : `${shell.name} ${n}`, shell: shell.id, cwd, workspaceId };
     terminals.set(id, terminal); res.status(201).json(terminal);
   } catch (e) { res.status(400).json({ error: String(e) }); }
 });
@@ -64,7 +70,8 @@ terminalsRouter.post('/:id/:action', async (req, res) => {
     if (req.params.action === 'restart') {
       await killPtySession(terminal.id);
       const shell = shells.find(s => s.id === terminal.shell)!;
-      createPtySession(terminal.id, shell.command, shell.args, terminal.cwd).retain = true;
+      const session = createPtySession(terminal.id, shell.command, shell.args, terminal.cwd);
+      Object.assign(session, { retain: true, workspaceId: terminal.workspaceId, projectId: terminal.projectId });
     } else if (req.params.action === 'clear') {
       const session = getPtySession(terminal.id);
       if (session) session.buffer = '';
@@ -74,3 +81,11 @@ terminalsRouter.post('/:id/:action', async (req, res) => {
 });
 terminalsRouter.delete('/:id', async (req, res) => { await killPtySession(req.params.id); terminals.delete(req.params.id); res.status(204).end(); });
 export async function shutdownTerminals() { await Promise.all([...terminals.keys()].map(killPtySession)); }
+
+export async function viewingTerminalWarnings(projectId: string, workspaceId: string | null) {
+  return (await Promise.all([...terminals.values()].filter(t => t.projectId === projectId && t.workspaceId !== workspaceId).map(async terminal => {
+    const session = getPtySession(terminal.id);
+    const processes = session && session.exitCode === undefined ? await childProcesses(session.pty.pid) : [];
+    return { ...terminal, processes };
+  }))).filter(t => t.processes.length);
+}

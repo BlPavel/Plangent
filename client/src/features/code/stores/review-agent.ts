@@ -25,7 +25,7 @@ export const useReviewAgentStore = defineStore('code-review-agent', () => {
   const sessionId = computed(() => {
     if (starting.value) return starting.value
     const rounds = [...code.rounds].reverse()
-    return rounds.find(r => r.session_id && chats.sessions.some(s => s.id === r.session_id))?.session_id ?? null
+    return rounds.find(r => r.session_id && chats.sessions.some(s => s.id === r.session_id && s.role === 'code-fixer'))?.session_id ?? null
   })
   const session = computed<ChatSession | null>(() => chats.sessions.find(s => s.id === sessionId.value) ?? null)
   const snapshot = computed(() => (sessionId.value ? chats.snapshots[sessionId.value] ?? null : null))

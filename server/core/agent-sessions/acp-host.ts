@@ -11,7 +11,8 @@ import { getAgent } from '../agents';
 import { getProject } from '../projects';
 import { getTask } from '../tasks';
 import { listAnalysisSections } from '../orchestration/analysis';
-import { readOnlyRoots, workspaceBriefing, writableRoots, mentionedReferences, WORKSPACE_BRIEFING_VERSION } from '../projects/workspace';
+import { readOnlyRoots, workspaceBriefing, mentionedReferences, WORKSPACE_BRIEFING_VERSION } from '../projects/workspace';
+import { rootForSession, writableRootsForSession, assertTaskWorkspaceReady } from '../workspaces/roots';
 import { broadcast } from '../shared/events';
 import { addEvent, getSession, history, updateSession, updateAgentTitle } from './sessions';
 import { getAcpOptions, saveAcpOptions, type AcpOptions } from '../agents/acp-options';
@@ -169,12 +170,13 @@ async function permission(id: string, request: ACP.RequestPermissionRequest): Pr
   if (state.cancelled || state.stopping) return { outcome: { outcome: 'cancelled' } };
   const project = getProject(session.project_id);
   // Codex asks with little more than the toolCallId; what the call is was sent in the earlier tool_call update.
+  const sessionRoot = await rootForSession(session);
   const announced = history(id).filter(e => e.type === 'tool_call' && e.payload.toolCallId === request.toolCall.toolCallId).pop()?.payload;
   const toolCall = { ...(announced as Partial<ACP.ToolCallUpdate> | undefined), ...Object.fromEntries(Object.entries(request.toolCall).filter(([, v]) => v != null)) } as ACP.ToolCallUpdate;
   const conflictFiles = session.role === 'conflict-resolver' && project
-    ? ((session.metadata.conflict_paths as string[] | undefined) ?? []).map(file => path.resolve(project.repo_path, file)) : undefined;
+    ? ((session.metadata.conflict_paths as string[] | undefined) ?? []).map(file => path.resolve(sessionRoot, file)) : undefined;
   const decision = permissionDecision(session.policy, { ...request, toolCall }, project?.config.dangerous_commands,
-    project ? { writable: session.role === 'code-fixer' || session.role === 'conflict-resolver' ? [project.repo_path] : writableRoots(project), readOnly: readOnlyRoots(),
+    project ? { writable: await writableRootsForSession(session), readOnly: readOnlyRoots(), restrictWrites: sessionRoot !== project.repo_path,
       ...(conflictFiles ? { files: conflictFiles } : {}) } : undefined, session.role);
   const option = request.options.find(o => o.kind === (decision === 'allow' ? 'allow_once' : 'reject_once'));
   if (decision !== 'ask' && option) {
@@ -211,6 +213,8 @@ async function boot(id: string): Promise<LiveSession> {
   const agent = getAgent(session.agent_id);
   const project = getProject(session.project_id);
   if (!agent || !project) throw new Error('Агент или проект не найден');
+  if (session.task_id && !session.metadata.mr_private) assertTaskWorkspaceReady(session.task_id);
+  const sessionRoot = await rootForSession(session);
   const sdk = await loadSdk();
   updateSession(id, { status: 'starting', reason: '' });
   const env = agentEnv(process.env, agent.env, project.config.extra_env);
@@ -254,8 +258,7 @@ async function boot(id: string): Promise<LiveSession> {
     }
     let response: ACP.NewSessionResponse | ACP.LoadSessionResponse;
     // A group works in its service folder; its projects live elsewhere and join the session's scope.
-    const extra = writableRoots(project).slice(1);
-    const sessionRoot = session.metadata.mr_private ? (await import('../mr-review/private')).reviewWorkspace(id) : project.repo_path;
+    const extra = (await writableRootsForSession(session)).slice(1);
     const where = { cwd: sessionRoot, mcpServers, ...agentSessionSettings(agent),
       ...(extra.length && initialized.agentCapabilities?.sessionCapabilities?.additionalDirectories ? { additionalDirectories: extra } : {}) };
     if (session.acp_session_id) {
@@ -379,7 +382,7 @@ export async function sendPrompt(id: string, content: ACP.ContentBlock[]): Promi
   // agent lost the conversation) but never shown as something the developer wrote.
   // Reference sources enter any session only through an explicit developer @mention.
   const project = getProject(session.project_id);
-  const workspace = project ? workspaceBriefing(project) : '';
+  const workspace = project ? workspaceBriefing(project, await rootForSession(session)) : '';
   const task = session.task_id ? getTask(session.task_id) : null;
   const authoredSections = task ? listAnalysisSections(task.id).filter(section => section.author === 'developer') : [];
   const referenceRequest = [text, task?.title, task?.description,

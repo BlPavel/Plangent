@@ -35,7 +35,7 @@ import GitSettingsFields from './GitSettingsFields.vue'
 import GitAgentFields from './GitAgentFields.vue'
 
 /** One git topic of a project or group, shown as a sub-tab of «Инструкции»: branches or merge requests. Saves as you edit. */
-const props = defineProps<{ projectId: string; section: 'branches' | 'mr' | 'agent' }>()
+const props = defineProps<{ projectId: string; section: 'branches' | 'mr' | 'agent' | 'workspace' }>()
 const app = useAppStore(), projects = useProjectsStore()
 const project = computed(() => projects.byId(props.projectId))
 

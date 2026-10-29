@@ -6,7 +6,7 @@ async function response(method: string, path: string, body?: unknown, signal?: A
   const result = await fetch(BASE + path, opts)
   if (!result.ok) {
     const data = await result.json().catch(() => null)
-    throw Object.assign(new Error(data?.error || result.statusText), { code: data?.code, output: data?.output })
+    throw Object.assign(new Error(data?.error || result.statusText), { code: data?.code, output: data?.output, status: result.status, blockers: data?.blockers, warnings: data?.warnings })
   }
   return result
 }
@@ -54,4 +54,17 @@ export const api = {
   put: <T>(path: string, body?: unknown) => request<T>('PUT', path, body),
   delete: <T>(path: string) => request<T>('DELETE', path),
   stream,
+}
+
+/** Append workspace without changing the existing query or callers' cancellation signals. */
+export function workspaceApi(workspaceId?: string) {
+  const scoped = (path: string) => workspaceId === undefined ? path : path + (path.includes('?') ? '&' : '?') + 'workspace=' + encodeURIComponent(workspaceId)
+  return {
+    get: <T>(path: string, signal?: AbortSignal) => api.get<T>(scoped(path), signal),
+    post: <T>(path: string, body?: unknown) => api.post<T>(scoped(path), body),
+    patch: <T>(path: string, body?: unknown) => api.patch<T>(scoped(path), body),
+    put: <T>(path: string, body?: unknown) => api.put<T>(scoped(path), body),
+    delete: <T>(path: string) => api.delete<T>(scoped(path)),
+    stream: <T>(path: string, signal?: AbortSignal) => api.stream<T>(scoped(path), signal),
+  }
 }

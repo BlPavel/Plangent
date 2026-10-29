@@ -179,6 +179,8 @@ import { operationTitle } from '../utils/operation'
 
 const props = defineProps<{
   projectId: string
+  /** Workspace the screen shows (the one being viewed); null — the main place. */
+  workspaceId?: string | null
   /** The task the screen was opened from: shows the «← Задача-N» crumb and files the review under it. */
   task?: { id: string; key: string } | null
   /** Agent preselected when sending a round: the task's agent, else the project's. */
@@ -200,7 +202,7 @@ async function discardChange(change: GitChange) {
 }
 /** Ticks «к коммиту» only make sense for the folder against HEAD. */
 const stageable = computed(() => !!store.repository && store.effectiveBase === 'head' && !store.openedReviewId)
-watch(() => props.projectId, id => { void git.start(id) }, { immediate: true })
+watch(() => props.projectId, id => { void git.start(id, props.workspaceId ?? undefined) }, { immediate: true })
 const store = useCodeStore()
 const app = useAppStore()
 const viewer = ref<InstanceType<typeof FileViewer>>()

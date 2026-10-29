@@ -1,5 +1,9 @@
 ﻿export interface GitSettings {
   commit_pattern: string;
+  workspace_copy_files: string[];
+  workspace_setup_command: string;
+  /** Agent review runs by itself when a task's queue or an errand's turn ends; off unless turned on. */
+  auto_review: boolean;
   forbidden_patterns: string[];
   include_description: boolean;
   finish_scenario: 'nothing' | 'commits' | 'push' | 'full';
@@ -25,6 +29,7 @@
 }
 
 export const defaultGitSettings: GitSettings = {
+  workspace_copy_files: [], workspace_setup_command: '', auto_review: false,
   commit_pattern: '',
   forbidden_patterns: ['^Co-Authored-By:.*(Claude|anthropic)', 'noreply@anthropic\\.com', 'Generated with \\[?Claude Code', '🤖 Generated with'],
   include_description: false, finish_scenario: 'nothing', branch_prefixes: ['feature', 'fix', 'hotfix'],
@@ -50,9 +55,12 @@ export function validateGitSettings(value: unknown): Partial<GitSettings> {
   const settings = Object.fromEntries(Object.entries(value).filter(([key]) => !LEGACY_KEYS.includes(key)));
   for (const [key, item] of Object.entries(settings)) {
     if (!Object.hasOwn(defaultGitSettings, key)) throw new Error('Unknown git setting: ' + key);
-    if (['forbidden_patterns', 'branch_prefixes', 'mr_reviewers', 'mr_assignees'].includes(key)) {
+    if (['forbidden_patterns', 'branch_prefixes', 'mr_reviewers', 'mr_assignees', 'workspace_copy_files'].includes(key)) {
       if (!Array.isArray(item) || item.length > 100 || item.some(p => typeof p !== 'string' || p.length > 1000)) throw new Error('Invalid forbidden patterns');
       if (key === 'forbidden_patterns') for (const pattern of item) new RegExp(pattern, 'im');
+      if (key === 'workspace_copy_files') for (const pattern of item) {
+        if (!pattern || pattern.startsWith('/') || /[\\:]/.test(pattern) || pattern.split('/').some((p: string) => p === '..' || p === '.git')) throw new Error('Invalid workspace copy pattern');
+      }
     } else if (typeof item !== typeof defaultGitSettings[key as keyof GitSettings]) throw new Error('Invalid git setting: ' + key);
     if (key === 'commit_pattern' && item) new RegExp(item as string, 'm');
     if (key === 'finish_scenario' && !['nothing', 'commits', 'push', 'full'].includes(item as string)) throw new Error('Invalid finish scenario');

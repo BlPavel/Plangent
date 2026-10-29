@@ -1,3 +1,4 @@
+import { rootForViewing } from '../../../core/workspaces/viewing';
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { once } from 'node:events';
 import path from 'node:path';
@@ -12,7 +13,7 @@ codeRouter.use(localOrigin);
 const root = (req: Request) => {
   const project = getProject(req.params.projectId);
   if (!project || project.kind === 'group') throw new CodeError('Project not found', 404);
-  return project.repo_path;
+  return rootForViewing(project.id, req.query.workspace);
 };
 const value = (req: Request, key: string, fallback = ''): string => {
   const value = req.query[key];

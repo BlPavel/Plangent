@@ -1,5 +1,6 @@
 import { SourceType, SyncStatus, DocsSelection, SyncStats } from './integrations';
 export * from './integrations';
+export * from './workspace';
 export interface LayoutSlot {
   dir: string;
   global: string;
@@ -45,6 +46,8 @@ export interface ProjectConfig {
 export type ProjectKind = 'project' | 'group' | 'source';
 
 export interface ProjectGitSettings {
+  workspace_copy_files?: string[];
+  workspace_setup_command?: string;
   commit_pattern?: string; forbidden_patterns?: string[];
   include_description?: boolean; finish_scenario?: 'nothing' | 'commits' | 'push' | 'full';
   branch_prefixes?: string[]; base_branch?: string;
@@ -76,6 +79,11 @@ export interface Project {
 }
 
 export interface Task {
+  kind: 'task' | 'errand';
+  auto_review: boolean;
+  closed_at: string | null;
+  close_reason: 'done' | 'cancelled' | null;
+  origin_task_id: string | null;
   base_commit?: string | null;
   external_key?: string | null;
   base_branch?: string | null;
@@ -278,3 +286,5 @@ export interface LibraryProposal {
   created_at: string;
   updated_at: string;
 }
+
+export * from './work';

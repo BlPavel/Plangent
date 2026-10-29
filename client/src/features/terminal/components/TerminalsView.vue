@@ -95,7 +95,7 @@ import TerminalPane from './TerminalPane.vue'
 type Terminal = { id: string; title: string; exitCode?: number }
 type Menu = { x: number; y: number } & ({ kind: 'shells' } | { kind: 'tab'; id: string })
 
-const props = defineProps<{ projectId: string; visible: boolean }>()
+const props = defineProps<{ projectId: string; visible: boolean; /** Workspace whose folder new terminals open in and whose terminals are listed; null — the main place. */ workspaceId?: string | null }>()
 const app = useAppStore()
 const terminals = ref<Terminal[]>([])
 const shells = ref<{ id: string; label: string }[]>([])
@@ -111,14 +111,14 @@ function fail(e: unknown) { app.toast(String(e), 'error') }
 async function load() {
   try {
     const id = props.projectId
-    const rows = await api.get<Terminal[]>(`/terminals?projectId=${id}`)
+    const rows = await api.get<Terminal[]>(`/terminals?projectId=${id}&workspace=${encodeURIComponent(props.workspaceId ?? '')}`)
     if (props.projectId !== id) return
     terminals.value = rows
     loaded.value = true
     if (!rows.some(t => t.id === selected.value)) selected.value = rows[0]?.id ?? ''
   } catch (e) { fail(e) }
 }
-watch(() => props.projectId, () => { selected.value = ''; loaded.value = false; void load() }, { immediate: true })
+watch(() => [props.projectId, props.workspaceId], () => { selected.value = ''; loaded.value = false; void load() }, { immediate: true })
 
 // Open a terminal when entering an empty tab, after the project's sessions are loaded.
 // Closing the last terminal keeps the tab empty until the user returns to it.
@@ -135,7 +135,7 @@ async function create(shell?: string) {
   if (creating.value) return
   creating.value = true
   try {
-    const t = await api.post<Terminal>('/terminals', { projectId: props.projectId, shell })
+    const t = await api.post<Terminal>('/terminals', { projectId: props.projectId, shell, workspaceId: props.workspaceId ?? null })
     terminals.value.push(t)
     selected.value = t.id
   } catch (e) { fail(e) } finally { creating.value = false }

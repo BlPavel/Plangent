@@ -1,3 +1,5 @@
+import { rootForWorkspace } from '../workspaces/roots';
+import { getWorkspace } from '../workspaces/store';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -40,13 +42,13 @@ const db = () => getDb();
 const stepOf = (operation: GitOperationState) => operation.commit?.sha ?? operation.kind;
 const changed = (projectId: string) => broadcast({ type: 'conflicts:changed', projectId });
 
-function root(projectId: string): string {
+function root(projectId: string, workspaceId?: string): string {
   const project = getProject(projectId);
   if (!project || project.kind !== 'project') throw new CodeError('Project not found', 404);
-  return project.repo_path;
+  return rootForWorkspace(projectId, workspaceId);
 }
-function openResolution(projectId: string): ResolutionRow | undefined {
-  return db().prepare('SELECT * FROM conflict_resolutions WHERE project_id=? AND closed=0 ORDER BY rowid DESC LIMIT 1').get(projectId) as ResolutionRow | undefined;
+function openResolution(projectId: string, workspaceId?: string): ResolutionRow | undefined {
+  return db().prepare("SELECT r.* FROM conflict_resolutions r JOIN agent_sessions s ON s.id=r.session_id WHERE r.project_id=? AND r.closed=0 AND coalesce(json_extract(s.metadata,'$.workspace_id'),'')=? ORDER BY r.rowid DESC LIMIT 1").get(projectId, workspaceId ?? '') as ResolutionRow | undefined;
 }
 /** The operation ended (continued or aborted) or another one began: the agent of the old one is not needed any more. */
 async function close(resolution: ResolutionRow) {
@@ -54,17 +56,17 @@ async function close(resolution: ResolutionRow) {
   await closeSession(resolution.session_id).catch(() => undefined);
   try { updateSession(resolution.session_id, { status: 'complete', reason: '' }); } catch { /* the chat was deleted */ }
 }
-async function current(projectId: string) {
-  const repo = root(projectId);
+async function current(projectId: string, workspaceId?: string) {
+  const repo = root(projectId, workspaceId);
   const operation = await gitOperation(repo);
-  let resolution = openResolution(projectId);
+  let resolution = openResolution(projectId, workspaceId);
   if (resolution && resolution.operation_id !== operation?.id) { await close(resolution); resolution = undefined; changed(projectId); }
   return { repo, operation, resolution };
 }
 
 /** What the Код tab shows: the operation, its conflicted files with the agent's notes for this stop, and the agent's state. */
-export async function conflictState(projectId: string) {
-  const { repo, operation, resolution } = await current(projectId);
+export async function conflictState(projectId: string, workspaceId?: string) {
+  const { repo, operation, resolution } = await current(projectId, workspaceId);
   if (!operation) return { operation: null, files: [], session: null };
   const step = stepOf(operation);
   const conflicts = await conflictedFiles(repo);
@@ -84,8 +86,8 @@ export async function conflictState(projectId: string) {
  * «Разрешить с агентом», «Отправить ответы» and «Попросить переделать»: one turn of the agent over the current conflicts.
  * `answers` — the developer's replies to the agent's questions, by file.
  */
-export async function resolveConflicts(projectId: string, input: { note?: unknown; answers?: unknown } = {}) {
-  const { repo, operation, resolution: open } = await current(projectId);
+export async function resolveConflicts(projectId: string, input: { note?: unknown; answers?: unknown } = {}, workspaceId?: string) {
+  const { repo, operation, resolution: open } = await current(projectId, workspaceId);
   if (!operation) throw new CodeError('Нет незавершённого merge или rebase', 409);
   const step = stepOf(operation);
   let resolution = open;
@@ -111,12 +113,12 @@ export async function resolveConflicts(projectId: string, input: { note?: unknow
     const agent = conflictAgent(projectId);
     if (!getAgent(agent.agentId)) throw new CodeError('Агент для конфликтов не найден: выберите другого в настройках', 409);
     const id = randomUUID();
-    const session = createSession({ project_id: projectId, agent_id: agent.agentId, model: agent.model, role: 'conflict-resolver', policy: 'allow-edits',
+    const session = createSession({ project_id: projectId, task_id: workspaceId ? getWorkspace(workspaceId).task_id : undefined, agent_id: agent.agentId, model: agent.model, role: 'conflict-resolver', policy: 'allow-edits',
       title: 'Конфликты · ' + operation.kind + (operation.branch ? ' · ' + operation.branch : ''),
-      metadata: { conflict_resolution: id, ...(agent.effort ? { reasoningEffort: agent.effort } : {}),
+      metadata: { workspace_id: workspaceId ?? null, conflict_resolution: id, ...(agent.effort ? { reasoningEffort: agent.effort } : {}),
         briefing: 'Ты разрешаешь конфликты merge/rebase в рабочей копии разработчика. Сначала вызови get_conflicts: там правила, стороны и список файлов. По каждому файлу сообщай только через report_conflict_file, не в чат.' } });
     db().prepare('INSERT INTO conflict_resolutions(id,project_id,operation_id,session_id) VALUES (?,?,?,?)').run(id, projectId, operation.id, session.id);
-    resolution = openResolution(projectId)!;
+    resolution = openResolution(projectId, workspaceId)!;
   }
   // The agent may edit exactly these files; Plangent checks every edit against the list.
   const session = getSession(resolution.session_id);
@@ -131,11 +133,11 @@ export async function resolveConflicts(projectId: string, input: { note?: unknow
     throw error;
   }
   changed(projectId);
-  return conflictState(projectId);
+  return conflictState(projectId, workspaceId);
 }
 
-export async function stopConflicts(projectId: string) {
-  const resolution = openResolution(projectId);
+export async function stopConflicts(projectId: string, workspaceId?: string) {
+  const resolution = openResolution(projectId, workspaceId);
   if (resolution) await cancelSession(resolution.session_id);
   return { stopped: !!resolution };
 }
@@ -145,7 +147,7 @@ async function sessionContext(session: AgentSession) {
   if (session.role !== 'conflict-resolver') throw new CodeError('Conflict resolver role required', 403);
   const resolution = db().prepare('SELECT * FROM conflict_resolutions WHERE id=? AND session_id=? AND closed=0').get(session.metadata.conflict_resolution, session.id) as ResolutionRow | undefined;
   if (!resolution || resolution.project_id !== session.project_id) throw new CodeError('Операция уже завершена', 409);
-  const repo = root(session.project_id), operation = await gitOperation(repo);
+  const repo = root(session.project_id, session.metadata.workspace_id as string | undefined), operation = await gitOperation(repo);
   if (!operation || operation.id !== resolution.operation_id) throw new CodeError('Операция уже завершена или сменилась', 409);
   return { repo, operation, resolution, step: stepOf(operation) };
 }

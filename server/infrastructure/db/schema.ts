@@ -212,6 +212,14 @@ export function migrate(db: Database.Database): void {
     if (!columns.some(column => column.name === name)) db.exec('ALTER TABLE tasks ADD COLUMN ' + name + ' TEXT');
   }
 
+  const workColumns = new Set((db.prepare('PRAGMA table_info(tasks)').all() as { name: string }[]).map(c => c.name));
+  for (const [name, definition] of Object.entries({
+    kind: "TEXT NOT NULL DEFAULT 'task' CHECK(kind IN ('task','errand'))",
+    auto_review: "INTEGER NOT NULL DEFAULT 0 CHECK(auto_review IN (0,1))",
+    closed_at: 'TEXT', close_reason: "TEXT CHECK(close_reason IN ('done','cancelled'))",
+    origin_task_id: 'TEXT REFERENCES tasks(id) ON DELETE SET NULL',
+  })) if (!workColumns.has(name)) db.exec('ALTER TABLE tasks ADD COLUMN ' + name + ' ' + definition);
+
   // Add columns that may be missing on existing DBs (idempotent)
   const planColumns = db.prepare('PRAGMA table_info(plans)').all() as { name: string }[];
   if (!planColumns.some(column => column.name === 'session_id')) db.exec('ALTER TABLE plans ADD COLUMN session_id TEXT');
@@ -229,6 +237,7 @@ export function migrate(db: Database.Database): void {
   seedDefaultAgents(db);
   migrateData(db);
   migrateWorkspaces(db);
+  migrateTaskWorkspaces(db);
   migrateIntegrations(db);
   if (!(db.prepare('PRAGMA table_info(integration_connections)').all() as { name: string }[]).some(c => c.name === 'code_host'))
     db.exec('ALTER TABLE integration_connections ADD COLUMN code_host TEXT');
@@ -278,6 +287,32 @@ function migrateData(db: Database.Database): void {
  * Groups and reference sources are rows of `projects` too (`kind`), so tasks, chats, plans and queues work
  * for a group unchanged. Library items and sources are shared through target rows instead of one project_id.
  */
+function migrateTaskWorkspaces(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS workspaces (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      branch TEXT NOT NULL, base_branch TEXT NOT NULL, path TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('preparing','ready','failed','removed')),
+      error TEXT NOT NULL DEFAULT '', setup_log TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f','now')), removed_at TEXT
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS workspace_active_branch ON workspaces(project_id,branch) WHERE status <> 'removed';
+    CREATE UNIQUE INDEX IF NOT EXISTS workspace_active_task ON workspaces(task_id) WHERE status <> 'removed';
+    CREATE TRIGGER IF NOT EXISTS workspace_project_insert BEFORE INSERT ON workspaces BEGIN
+      SELECT RAISE(ABORT,'Workspace requires a task of an ordinary project')
+      WHERE NOT EXISTS (SELECT 1 FROM projects p JOIN tasks t ON t.project_id=p.id
+        WHERE p.id=NEW.project_id AND p.kind='project' AND t.id=NEW.task_id);
+    END;
+    CREATE TRIGGER IF NOT EXISTS workspace_project_update BEFORE UPDATE OF project_id,task_id ON workspaces BEGIN
+      SELECT RAISE(ABORT,'Workspace requires a task of an ordinary project')
+      WHERE NOT EXISTS (SELECT 1 FROM projects p JOIN tasks t ON t.project_id=p.id
+        WHERE p.id=NEW.project_id AND p.kind='project' AND t.id=NEW.task_id);
+    END;
+  `);
+}
+
 function migrateWorkspaces(db: Database.Database): void {
   try { db.exec(`ALTER TABLE projects ADD COLUMN kind TEXT NOT NULL DEFAULT 'project'`); } catch { /* exists */ }
   try { db.exec(`ALTER TABLE projects ADD COLUMN key TEXT`); } catch { /* exists */ }
@@ -621,6 +656,9 @@ function migrateFinish(db: Database.Database): void {
       CREATE INDEX finish_task ON finish_runs(task_id, created_at);
     `);
   }
+  if (!(db.prepare('PRAGMA table_info(finish_runs)').all() as { name: string }[]).some(column => column.name === 'workspace_id'))
+    db.exec('ALTER TABLE finish_runs ADD COLUMN workspace_id TEXT REFERENCES workspaces(id)');
+  db.exec("DROP INDEX IF EXISTS finish_one_active; CREATE UNIQUE INDEX finish_one_active ON finish_runs(project_id, coalesce(workspace_id, '')) WHERE status NOT IN ('complete','cancelled')");
   // The MR title and description the user confirms together with the commits.
   if (!(db.prepare('PRAGMA table_info(finish_runs)').all() as { name: string }[]).some(column => column.name === 'mr_draft')) db.exec('ALTER TABLE finish_runs ADD COLUMN mr_draft TEXT');
   db.exec(`

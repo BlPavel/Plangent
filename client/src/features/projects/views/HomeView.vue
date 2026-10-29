@@ -25,6 +25,8 @@
         </div>
       </div>
 
+      <ViewingBar v-if="!isGroup" :workspace="viewing.workspace" :project-id="currentProject.id" @terminal="activeTab = 'terminal'" />
+
       <!-- Tab bar -->
       <div class="tab-bar">
         <button
@@ -39,62 +41,14 @@
 
       <div v-show="activeTab === 'agents'" class="tab-content"><AgentChats :project-id="currentProject.id" :default-agent-id="projectsStore.agentFor(currentProject)" /></div>
       <div v-if="isGroup" v-show="activeTab === 'projects'" class="tab-content"><GroupProjects :group="currentProject" /></div>
-      <div v-show="activeTab === 'terminal'" class="tab-content"><TerminalsView :project-id="currentProject.id" :visible="activeTab === 'terminal'" /></div>
+      <div v-show="activeTab === 'terminal'" class="tab-content"><TerminalsView :project-id="currentProject.id" :workspace-id="viewing.workspace?.id ?? null" :visible="activeTab === 'terminal'" /></div>
       <div v-show="activeTab === 'tasks'" class="tab-content tasks-tab">
-        <div class="task-actions">
-          <AppButton variant="primary" @click="openCreateTask">+ Задача</AppButton>
-          <template v-if="isGroup">
-            <FormField v-model="taskFilter.project" type="select" class="task-filter">
-              <option value="">Все проекты</option>
-              <option value="group">Только задачи группы</option>
-              <option v-for="m in members" :key="m.id" :value="m.id">📁 {{ m.name }}</option>
-            </FormField>
-            <FormField v-model="taskFilter.status" type="select" class="task-filter">
-              <option value="">Любой статус</option>
-              <option value="active">Активные</option>
-              <option value="done">Выполненные</option>
-            </FormField>
-            <input v-model="taskFilter.text" class="task-search" placeholder="Ключ или название…" />
-          </template>
-        </div>
-        <div class="task-list">
-          <div v-if="!tasks.length" class="empty-state small">
-            Нет задач. Создайте первую.
-          </div>
-          <div v-else-if="!shownTasks.length" class="empty-state small">
-            Под фильтр ничего не подходит.
-          </div>
-          <div
-            v-for="t in shownTasks"
-            :key="t.id"
-            class="task-card"
-            @click="openTask(t)"
-          >
-            <code class="task-key">{{ t.key }}</code>
-            <span class="task-title">{{ t.title || '—' }}</span>
-            <span v-if="isGroup" class="task-owner" :class="{ own: t.project_id === currentProject.id }">
-              {{ t.project_id === currentProject.id ? 'группа' : ownerName(t) }}
-            </span>
-            <StatusBadge :status="t.status" />
-            <button v-if="t.status !== 'done'" class="task-act task-done" title="Завершить задачу" @click.stop="markDoneTaskCard(t)">
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3.2 3.2L13 5" /></svg>
-            </button>
-            <button v-else class="task-act task-reopen" title="Вернуть в работу" @click.stop="reopenTaskCard(t)">
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 8a5.5 5.5 0 1 0 1.6-3.9" /><path d="M2.5 2.5v3h3" /></svg>
-            </button>
-            <span v-if="moveTargets(t).length" class="task-menu" @click.stop>
-              <AppMenu :items="moveMenu(t)" size="xs" title="Переместить" />
-            </span>
-            <button class="task-act task-del" title="Удалить задачу" @click.stop="deleteTaskCard(t)">
-              <IconTrash />
-            </button>
-          </div>
-        </div>
+        <WorkList :project="currentProject" :members="members" :agents="agentsStore.agents" :default-agent-id="projectsStore.agentFor(currentProject)" :owner-name="ownerName" :move-menu="moveMenu" @open="openWork" @changed="loadTasks" />
       </div>
 
       <!-- Tab: Инструкции -->
       <!-- Mounted only while open: the screen watches the project folder. -->
-      <div v-if="activeTab === 'code' && !isGroup" class="tab-content"><CodeTab :project-id="currentProject.id" :task="codeTask" :default-agent-id="projectsStore.agentFor(currentProject)" @back="backToTask" /></div>
+      <div v-if="activeTab === 'code' && !isGroup" class="tab-content"><CodeTab :key="viewing.workspace?.id ?? 'main'" :project-id="currentProject.id" :workspace-id="viewing.workspace?.id ?? null" :task="codeTask" :default-agent-id="projectsStore.agentFor(currentProject)" @back="backToTask" /></div>
       <div v-if="activeTab === 'review'" class="tab-content"><BranchReviewTab :key="currentProject.id" :project-id="currentProject.id" :members="isGroup ? projectsStore.members(currentProject.id) : undefined" @open-instructions="openReviewSkills" /></div>
       <div v-if="activeTab === 'settings'" class="tab-content"><ProjectSettingsTab :key="currentProject.id" :project="currentProject" /></div>
       <div v-show="activeTab === 'instructions'" class="tab-content instructions-tab">
@@ -102,19 +56,6 @@
       </div>
 
     </div>
-
-    <!-- Create task modal -->
-    <AppModal v-model="showTaskModal" title="Новая задача" confirm-label="Создать" @confirm="createTask">
-      <FormField v-model="taskForm.key" label="Ключ задачи" placeholder="PROJ-123" />
-      <FormField v-model="taskForm.title" label="Название" placeholder="Добавить авторизацию" />
-      <FormField
-        v-if="isGroup && members.length" v-model="taskForm.owner" label="Где" type="select"
-        hint="Задача группы: агент работает сразу со всеми проектами группы."
-      >
-        <option value="">🗂 Вся группа</option>
-        <option v-for="m in members" :key="m.id" :value="m.id">📁 {{ m.name }}</option>
-      </FormField>
-    </AppModal>
 
     <ProjectFormModal
       v-if="currentProject?.kind === 'source'"
@@ -144,23 +85,25 @@ import { useProjectsStore } from '../stores/projects'
 import { useAgentsStore } from '@features/agents'
 import { api } from '@core/api'
 import type { Task } from '@core/models'
-import AppModal from '@shared/ui/AppModal.vue'
-import AppMenu, { type MenuItem } from '@shared/ui/AppMenu.vue'
-import FormField from '@shared/ui/FormField.vue'
-import StatusBadge from '@shared/ui/StatusBadge.vue'
+import { type MenuItem } from '@shared/ui/AppMenu.vue'
 import AppButton from '@shared/ui/AppButton.vue'
-import IconTrash from '@shared/ui/IconTrash.vue'
 import { InstructionsWorkspace } from '@features/library'
 import ProjectFormModal from '../components/ProjectFormModal.vue'
+import ViewingBar from '../components/ViewingBar.vue'
+import { useViewingStore } from '../stores/viewing'
 import ProjectSettingsTab from '../components/ProjectSettingsTab.vue'
 import GroupProjects from '../components/GroupProjects.vue'
 import SourceView from '../components/SourceView.vue'
+import { WorkList, useWorkStore } from '@features/tasks'
+import { onServerEvent } from '@core/api/events'
+import { onUnmounted } from 'vue'
 
 const router = useRouter()
 const route = useRoute()
 const appStore = useAppStore()
 const projectsStore = useProjectsStore()
 const agentsStore = useAgentsStore()
+const viewing = useViewingStore()
 
 const currentProject = computed(() => appStore.currentProject)
 const isGroup = computed(() => currentProject.value?.kind === 'group')
@@ -213,30 +156,19 @@ function openReviewSkills() {
   activeTab.value = 'instructions'
 }
 
-const showTaskModal = ref(false)
 const showProjectModal = ref(false)
-const taskForm = ref({ key: '', title: '', owner: '' })
 
-// Group page: its own tasks and its projects' tasks, filtered.
-const taskFilter = ref({ project: '', status: 'active', text: '' })
-const shownTasks = computed(() => {
-  if (!isGroup.value) return tasks.value
-  const { project, status, text } = taskFilter.value
-  const q = text.trim().toLowerCase()
-  return tasks.value.filter(t =>
-    (!project || (project === 'group' ? t.project_id === currentProject.value!.id : t.project_id === project)) &&
-    (!status || (status === 'done') === (t.status === 'done')) &&
-    (!q || t.key.toLowerCase().includes(q) || (t.title ?? '').toLowerCase().includes(q)))
-})
-const ownerName = (t: Task) => projectsStore.byId(t.project_id)?.name ?? '—'
+const ownerName = (projectId: string) => projectsStore.byId(projectId)?.name ?? '—'
 
 onMounted(() => agentsStore.load())
+const stopWorkEvents = onServerEvent(event => { if (event.type === 'task_updated') void loadTasks() })
+onUnmounted(stopWorkEvents)
 
 watch(() => currentProject.value?.id, () => { loadTasks() }, { immediate: true })
+watch(() => (isGroup.value ? null : currentProject.value?.id), id => { void viewing.load(id) }, { immediate: true })
 watch(() => currentProject.value?.id, id => {
   // «Настройки» opened from a group's project list asks for its tab together with the project switch.
   activeTab.value = route.query.tab === 'settings' ? 'settings' : 'agents'
-  taskFilter.value = { project: '', status: 'active', text: '' }
   Object.assign(lastTab, { projectId: id ?? null, tab: activeTab.value })
 })
 
@@ -244,26 +176,6 @@ async function loadTasks() {
   const p = currentProject.value
   if (!p || p.kind === 'source') { tasks.value = []; return }
   tasks.value = await api.get<Task[]>(`/projects/${p.id}/tasks${p.kind === 'group' ? '?members=1' : ''}`)
-}
-
-function openCreateTask() {
-  taskForm.value = { key: '', title: '', owner: '' }
-  showTaskModal.value = true
-}
-
-async function createTask() {
-  if (!currentProject.value || !taskForm.value.key) return
-  const ownerId = taskForm.value.owner || currentProject.value.id
-  if (tasks.value.some(t => t.key === taskForm.value.key && t.project_id === ownerId)) {
-    appStore.toast(`Ключ «${taskForm.value.key}» уже занят`, 'error')
-    return
-  }
-  try {
-    const t = await api.post<Task>(`/projects/${ownerId}/tasks`, { key: taskForm.value.key, title: taskForm.value.title })
-    tasks.value.unshift(t)
-    appStore.toast('Задача создана', 'success')
-    showTaskModal.value = false
-  } catch (e: unknown) { appStore.toast(String(e), 'error') }
 }
 
 async function deleteProject() {
@@ -288,11 +200,11 @@ async function deleteProject() {
 }
 
 // The task page works in the task's own project, also when opened from its group.
-function openTask(t: Task) {
+function openWork(t: Task, tab: string) {
   const owner = projectsStore.byId(t.project_id)
   if (owner && owner.id !== currentProject.value?.id) appStore.currentProject = owner
   appStore.currentTask = t
-  router.push(`/task/${t.id}`)
+  router.push({ path: `/task/${t.id}`, query: { tab } })
 }
 
 /** Where a task can move: a group's task into one of its projects, a project's task up into its group. */
@@ -314,40 +226,9 @@ async function moveTask(t: Task, targetId: string) {
     const moved = await api.post<Task>(`/projects/${t.project_id}/tasks/${t.id}/move`, { project_id: targetId })
     if (isGroup.value) tasks.value = tasks.value.map(x => x.id === t.id ? moved : x)
     else tasks.value = tasks.value.filter(x => x.id !== t.id)
+    void useWorkStore().load()
     appStore.toast(`«${t.key}» перенесена в «${projectsStore.byId(targetId)?.name}»`, 'success')
   } catch (e: unknown) { appStore.toast(String(e), 'error') }
-}
-
-async function markDoneTaskCard(t: Task) {
-  if (!(await appStore.confirm(`Отметить задачу «${t.key}» выполненной? Плановый файл будет удалён.`, { confirmLabel: 'Отметить выполненной', danger: false }))) return
-  try {
-    const updated = await api.post<Task>(`/projects/${t.project_id}/tasks/${t.id}/done`, {})
-    tasks.value = tasks.value.map(x => x.id === t.id ? updated : x)
-    appStore.toast('Задача завершена', 'success')
-  } catch (e: unknown) {
-    appStore.toast(String(e), 'error')
-  }
-}
-
-async function reopenTaskCard(t: Task) {
-  try {
-    const updated = await api.post<Task>(`/projects/${t.project_id}/tasks/${t.id}/reopen`, {})
-    tasks.value = tasks.value.map(x => x.id === t.id ? updated : x)
-    appStore.toast(`«${t.key}» снова в работе`, 'success')
-  } catch (e: unknown) {
-    appStore.toast(String(e), 'error')
-  }
-}
-
-async function deleteTaskCard(t: Task) {
-  if (!(await appStore.confirm(`Удалить задачу «${t.key}»? Действие необратимо.`))) return
-  try {
-    await api.delete(`/projects/${t.project_id}/tasks/${t.id}`)
-    tasks.value = tasks.value.filter(x => x.id !== t.id)
-    appStore.toast('Задача удалена', 'success')
-  } catch (e: unknown) {
-    appStore.toast(String(e), 'error')
-  }
 }
 
 </script>

@@ -43,10 +43,11 @@
           <span class="fp-branch-name">⎇ {{ branch || 'вне ветки' }}</span>
           <span v-if="!published" class="fp-tag" title="Ветки ещё нет в origin">локальная</span>
           <span class="fp-spacer" />
-          <button v-if="!sameBranch" type="button" class="fp-link" @click="newBranch = !newBranch">{{ newBranch ? 'Оставить текущую' : 'Новая ветка' }}</button>
+          <button v-if="!sameBranch && !workspaceId" type="button" class="fp-link" @click="newBranch = !newBranch">{{ newBranch ? 'Оставить текущую' : 'Новая ветка' }}</button>
         </div>
-        <BranchNameInput v-if="newBranch || sameBranch" v-model="branchName" :prefixes="prefixes" placeholder="ABC-1-short-name" label="Имя новой ветки" />
-        <small v-if="sameBranch">Вы на целевой ветке: коммиты лягут в новую рабочую ветку.</small>
+        <BranchNameInput v-if="needsBranchName" v-model="branchName" :prefixes="prefixes" placeholder="ABC-1-short-name" label="Имя новой ветки" />
+        <small v-if="sameBranch && workspaceId">Ветка работы совпадает с целевой веткой МР: выберите другую цель.</small>
+        <small v-else-if="sameBranch">Вы на целевой ветке: коммиты лягут в новую рабочую ветку.</small>
         <small v-else-if="newBranch">Ветка создастся от текущей, коммиты лягут в неё.</small>
         <small v-if="options.scenario !== 'commits' && (!published || newBranch || sameBranch)">При push ветка будет опубликована в origin.</small>
       </div>
@@ -136,7 +137,7 @@ import { scenarios, stages, statuses, type FinishOptions, type FinishCommit, typ
 import type { Task } from '@core/models'
 
 /** «Завершение работ» in the right column of «Код»: defaults come from the project's git settings, the agent from the settings too. */
-const props = defineProps<{ projectId: string; task?: { id: string; key: string } | null; blocked?: string; branch?: string | null }>()
+const props = defineProps<{ projectId: string; task?: { id: string; key: string } | null; blocked?: string; branch?: string | null; workspaceId?: string }>()
 const emit = defineEmits<{ attention: [] }>()
 const copy = <T,>(value: T): T => JSON.parse(JSON.stringify(value))
 const message = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause)).replace(/^Error:\s*/, '')
@@ -146,7 +147,8 @@ const scenarioOptions = (['commits', 'push', 'full'] as const).map(value => ({ v
 const options = ref<FinishOptions>({ scenario: 'commits', commitMode: 'split', includeDescription: false, includeCoauthors: false, coauthors: [], targetBranch: '' })
 const newBranch = ref(false), branchName = ref('')
 const prefixes = computed(() => git.settings?.branch_prefixes ?? [])
-const published = computed(() => !!git.repository?.upstream)
+/** A workspace has its own branch: it is published when origin has a branch of that name. */
+const published = computed(() => props.workspaceId ? !!props.branch && git.branches.some(b => b.remote && b.name === 'origin/' + props.branch) : !!git.repository?.upstream)
 /** Only origin branches can be MR targets; the host API expects their unprefixed names. */
 const targets = computed(() => {
   const names = [...new Set(git.branches.filter(b => b.remote).map(b => b.name.replace(/^origin\//, '')))].filter(name => name !== 'HEAD')
@@ -160,9 +162,10 @@ const mrDefaults = computed(() => {
   const parts = [s.mr_reviewers.length ? 'ревьюеры: ' + s.mr_reviewers.length : 'без ревьюеров', s.mr_assignees?.length ? 'исполнители: ' + s.mr_assignees.length : '', s.mr_squash ? 'squash' : '', s.mr_remove_branch ? 'удалить ветку после слияния' : ''].filter(Boolean)
   return 'Из настроек проекта: ' + parts.join(', ') + '. Заголовок и описание напишет агент.'
 })
-const needsBranchName = computed(() => newBranch.value || sameBranch.value)
+const needsBranchName = computed(() => !props.workspaceId && (newBranch.value || sameBranch.value))
 const startHint = computed(() => props.blocked || (!git.settings?.agent ? 'Выберите агента для коммитов и МР в настройках'
   : options.value.scenario === 'full' && !options.value.targetBranch ? 'Выберите целевую ветку МР'
+  : props.workspaceId && sameBranch.value ? 'Ветка работы совпадает с целевой'
   : needsBranchName.value && (!branchName.value.trim() || branchName.value.endsWith('/')) ? 'Введите имя новой ветки' : ''))
 const canStart = computed(() => !store.busy && !startHint.value)
 
@@ -223,7 +226,7 @@ watch(() => [props.projectId, props.task?.id], async () => {
     applyDefaults()
     let id: string | undefined
     if (props.task) { const state = await api.get<{ id: string } | null>('/projects/' + p + '/finish/task/' + encodeURIComponent(props.task.id)); id = state?.id }
-    if (mine === generation) await store.load(props.projectId, id)
+    if (mine === generation) await store.load(props.projectId, id, props.workspaceId)
   } catch (cause) { if (mine === generation) localError.value = message(cause) }
 }, { immediate: true })
 async function refreshBranches() {
@@ -247,7 +250,7 @@ watch(() => store.run?.commits, (commits, previous) => { if (clean(draft.value) 
 watch(() => store.run?.id, async id => {
   draft.value = copy(store.run?.commits ?? [])
   if (!id) return
-  try { const value = await finishApi.context(props.projectId, id); if (store.run?.id === id) context.value = value } catch (cause) { localError.value = message(cause) }
+  try { const value = await finishApi.context(props.projectId, id, props.workspaceId); if (store.run?.id === id) context.value = value } catch (cause) { localError.value = message(cause) }
 }, { immediate: true })
 // A run that needs the user brings its tab forward.
 watch(() => store.run?.status, status => { if (status === 'waiting' || status === 'error') emit('attention') }, { immediate: true })

@@ -4,3 +4,8 @@ export { useBlockedQueuesStore } from './stores/blockedQueues'
 export { TerminalPane } from '@features/terminal'
 export { useTaskSessionStore } from './stores/taskSession'
 export { useTerminalStore } from './stores/terminal'
+
+export { workApi, workspacesApi } from './api'
+export { default as WorkList } from './components/WorkList.vue'
+export { useWorkStore } from './stores/work'
+export { useWorkActions } from './composables/useWorkActions'

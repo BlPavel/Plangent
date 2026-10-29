@@ -41,13 +41,18 @@ import BranchSelect from '@shared/ui/BranchSelect.vue'
 import PlainSelect from '@shared/ui/PlainSelect.vue'
 import { finishScenarioLabels } from '@shared/utils/finish-scenarios'
 type Member = { value: string; login: string; name: string }
-const props = defineProps<{ modelValue: ProjectGitSettings; inherited: ProjectGitSettings; sources?: Record<string, string>; section: 'branches' | 'mr'; branches?: string[]; members?: Member[]; membersNote?: string }>()
+const props = defineProps<{ modelValue: ProjectGitSettings; inherited: ProjectGitSettings; sources?: Record<string, string>; section: 'branches' | 'mr' | 'workspace'; branches?: string[]; members?: Member[]; membersNote?: string }>()
 const emit = defineEmits<{ 'update:modelValue': [value: ProjectGitSettings] }>()
 const scenarios = finishScenarioLabels
 const DEFAULT_PREFIXES = ['feature', 'fix', 'hotfix']
 type Key = keyof ProjectGitSettings
 type Field = { key: Key; label: string; kind?: 'tags' | 'boolean' | 'branch'; placeholder?: string; hint?: string; defaults?: string[] }
-const sections: Record<'branches' | 'mr', Field[]> = {
+const sections: Record<'branches' | 'mr' | 'workspace', Field[]> = {
+ workspace: [
+  { key: 'workspace_copy_files', label: 'Файлы для копирования', kind: 'tags', placeholder: '.env', hint: 'Путь или маска от корня проекта, например .env. Копируется из основной папки в каждое новое рабочее место: в git этих файлов нет.' },
+  { key: 'workspace_setup_command', label: 'Команда подготовки', placeholder: 'npm install', hint: 'Plangent запускает её в новом рабочем месте после копирования; агент этим не занимается. Пусто — ничего не запускать. Действует на рабочие места, созданные после сохранения.' },
+  { key: 'auto_review', label: 'Ревью агентом: автоматически', kind: 'boolean', hint: 'Выключено по умолчанию. Можно переключить для отдельной работы; ручной запуск ревью доступен всегда.' },
+ ],
  branches: [
   { key: 'branch_prefixes', label: 'Префиксы веток', kind: 'tags', placeholder: 'feature', defaults: DEFAULT_PREFIXES, hint: 'Доступны при создании ветки: feature/ABC-1. Enter — добавить, первый подставляется по умолчанию.' },
   { key: 'base_branch', label: 'Базовая ветка', kind: 'branch', placeholder: 'main', hint: 'Ветки задач создаются от неё, и в неё по умолчанию направляется МР.' },

@@ -223,6 +223,6 @@ test('code fixer rounds, MCP isolation, developer decisions and instruction inhe
     ws.emit('close');
     server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve()));
     getDb().close(); process.chdir(cwd);
-    fs.rmSync(root, { recursive: true, force: true });
+    await fs.promises.rm(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
   }
 });

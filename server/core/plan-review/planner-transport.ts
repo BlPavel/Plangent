@@ -1,3 +1,5 @@
+import { rootForTask } from '../workspaces/roots';
+import { getPlanFilePath } from '../orchestration/task-files';
 import { CodeError } from '../code/files';
 import { getAgent } from '../agents';
 import { getLatestPlan } from '../orchestration/plans';
@@ -46,7 +48,7 @@ export async function deliver(projectId: string, taskId: string, reviewId: strin
     session = createPlannerSession({ project_id: projectId, task_id: taskId, agent_id: agent.id,
       model: text(input.model ?? agent.model, false), title: task.key + ' · Planning',
       metadata: { reasoningEffort: text(input.reasoning_effort ?? agent.reasoning_effort, false),
-        briefing: buildPrompt({ projectName: project.name, taskKey: task.key, taskId, repoPath: project.repo_path,
+        briefing: buildPrompt({ projectName: project.name, taskKey: task.key, taskId, repoPath: rootForTask(taskId), analysisRepoPath: project.repo_path, planFilePath: getPlanFilePath(project.repo_path, task.key),
           purpose: 'plan', runHistory: [] }) } });
   }
   const previousMetadata = session.metadata;

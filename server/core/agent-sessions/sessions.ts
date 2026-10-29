@@ -27,7 +27,7 @@ export function initSessions(): void {
       file TEXT NOT NULL, line INTEGER NOT NULL, severity TEXT NOT NULL, message TEXT NOT NULL
     );
     -- A code fixer and a conflict resolver are driven by their panels, not by a reply in a chat: after a restart they are simply idle.
-    UPDATE agent_sessions SET status=CASE WHEN role IN ('code-fixer','conflict-resolver') THEN 'ready' ELSE 'waiting' END,
+    UPDATE agent_sessions SET status=CASE WHEN role='task-reviewer' THEN 'error' WHEN role IN ('code-fixer','conflict-resolver') THEN 'ready' ELSE 'waiting' END,
       reason='Приложение перезапущено. Продолжите сессию.'
       WHERE status IN ('starting', 'thinking', 'waiting');
   `);
@@ -54,7 +54,9 @@ export function createSession(data: Pick<AgentSession, 'project_id' | 'agent_id'
     data.run_id ?? null, JSON.stringify(data.step_ids ?? []), data.role, data.agent_id, data.model ?? '', data.title ?? 'Новый чат', data.policy);
   const metadata = { ...data.metadata, ...(data.title !== undefined ? { titleSource: 'custom' } : {}) };
   if (Object.keys(metadata).length) getDb().prepare('UPDATE agent_sessions SET metadata=? WHERE id=?').run(JSON.stringify(metadata), id);
-  return getSession(id);
+  const session = getSession(id);
+  broadcast({ type: 'agent_session', session });
+  return session;
 }
 export function updateSession(id: string, data: Partial<AgentSession>): AgentSession {
   if (data.policy && data.policy !== 'read-only' && (['librarian', 'committer', 'plan-reviewer', 'task-reviewer'].includes(getSession(id).role) || getSession(id).metadata.mr_private)) throw new Error('Librarian sessions are read-only');
@@ -95,13 +97,14 @@ export function history(id: string): SessionEvent[] {
 }
 export function deleteSession(id: string): void {
   const db = getDb();
+  const session = db.prepare('SELECT task_id,project_id FROM agent_sessions WHERE id=?').get(id) as Pick<AgentSession, 'task_id' | 'project_id'> | undefined;
   db.transaction(() => {
     // Sessions predate code reviews; support installations/tests without the review tables.
     if (db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='code_review_round'").get())
       db.prepare('UPDATE code_review_round SET session_id=NULL WHERE session_id=?').run(id);
     db.prepare('DELETE FROM agent_sessions WHERE id=?').run(id);
   })();
-  broadcast({ type: 'agent_session_deleted', sessionId: id });
+  broadcast({ type: 'agent_session_deleted', sessionId: id, taskId: session?.task_id, projectId: session?.project_id });
 }
 export interface ReviewFinding { id: string; session_id: string; file: string; line: number; severity: 'low' | 'medium' | 'high' | 'critical'; message: string }
 export function findings(sessionId: string): ReviewFinding[] {
