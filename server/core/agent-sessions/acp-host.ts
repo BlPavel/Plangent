@@ -20,6 +20,8 @@ import { enqueue, queuedPrompts, editQueued } from './prompt-queue';
 import { permissionDecision } from './permissions';
 import { agentEnv } from './env';
 import { agentSessionSettings } from './session-settings';
+import { isBypassMode, selectSessionMode } from './session-modes';
+import { APP_VERSION } from '../shared/app-version';
 import { agentPresets, presetForAgentId } from '../agents/presets';
 import { resolveAdapter } from '../agents/adapter-install';
 import type { AgentSession, PermissionPolicy } from './types';
@@ -100,7 +102,7 @@ function probeAgent(agentId: string): Promise<AcpOptions> {
     try {
       return await Promise.race([
         (async () => {
-          const init = await connection.agent.request('initialize', { protocolVersion: sdk.PROTOCOL_VERSION, clientInfo: { name: 'Plangent', version: '0.6.0' }, clientCapabilities: {} });
+          const init = await connection.agent.request('initialize', { protocolVersion: sdk.PROTOCOL_VERSION, clientInfo: { name: 'Plangent', version: APP_VERSION }, clientCapabilities: {} });
           return saveAcpOptions(agentId, await connection.agent.request('session/new', { cwd: os.tmpdir(), mcpServers: [], ...agentSessionSettings(agent) }), launchKey(agent), init);
         })(),
         new Promise<never>((_, reject) => { child.on('error', reject); timer = setTimeout(() => reject(new Error('Агент не ответил за 90 секунд')), 90_000); }),
@@ -159,11 +161,23 @@ function rememberMode(id: string, modeId: string): void {
   const session = getSession(id);
   const modes = session.metadata.modes as ACP.SessionModeState | undefined;
   const configOptions = (session.metadata.configOptions as ACP.SessionConfigOption[] | undefined)
-    ?.map(o => o.category === 'mode' ? { ...o, currentValue: modeId } as ACP.SessionConfigOption : o);
+    ?.map(o => o.category === 'mode' || o.id === 'mode' ? { ...o, currentValue: modeId } as ACP.SessionConfigOption : o);
   updateSession(id, { metadata: { ...session.metadata, ...(modes ? { modes: { ...modes, currentModeId: modeId } } : {}), ...(configOptions ? { configOptions } : {}) } });
 }
-/** Modes that skip permission prompts would bypass Plangent's own policy, so they are never offered. */
-export const isBypassMode = (modeId: string) => /bypass|full.?access|yolo|dangerous/i.test(modeId);
+export { isBypassMode } from './session-modes';
+function availableModeIds(source: { modes?: ACP.SessionModeState | null; configOptions?: ACP.SessionConfigOption[] | null }): string[] {
+  const configured = offered(source.configOptions, option => option.category === 'mode' || option.id === 'mode');
+  return configured.length ? configured : (source.modes?.availableModes ?? []).map(mode => mode.id);
+}
+async function applyMode(id: string, state: LiveSession, modeId: string): Promise<void> {
+  const session = getSession(id);
+  const option = (session.metadata.configOptions as ACP.SessionConfigOption[] | undefined)?.find(o => o.category === 'mode' || o.id === 'mode');
+  if (option) {
+    const result = await state.connection.agent.request('session/set_config_option', { sessionId: session.acp_session_id!, configId: option.id, value: modeId });
+    if (result?.configOptions) updateSession(id, { metadata: { ...getSession(id).metadata, configOptions: result.configOptions } });
+  } else await state.connection.agent.request('session/set_mode', { sessionId: session.acp_session_id!, modeId });
+  rememberMode(id, modeId);
+}
 async function permission(id: string, request: ACP.RequestPermissionRequest): Promise<ACP.RequestPermissionResponse> {
   const session = getSession(id);
   const state = live.get(id)!;
@@ -249,7 +263,7 @@ async function boot(id: string): Promise<LiveSession> {
   const timeout = setTimeout(() => { failed('Адаптер не ответил за 90 секунд'); void terminate(child.pid); }, 90_000);
   try {
     const initialized = await connection.agent.request('initialize', { protocolVersion: sdk.PROTOCOL_VERSION,
-      clientInfo: { name: 'Plangent', version: '0.6.0' }, clientCapabilities: {} });
+      clientInfo: { name: 'Plangent', version: APP_VERSION }, clientCapabilities: {} });
     updateSession(id, { metadata: { ...session.metadata, ...initialized } });
     state.resumable = !!initialized.agentCapabilities?.loadSession;
     const mcpServers = mcpConfig(session, !!initialized.agentCapabilities?.mcpCapabilities?.http);
@@ -282,19 +296,16 @@ async function boot(id: string): Promise<LiveSession> {
     state.loading = false;
     updateSession(id, { acp_session_id: 'sessionId' in response ? String(response.sessionId) : session.acp_session_id,
       metadata: { ...getSession(id).metadata, ...response }, status: 'ready' });
-    const modes = response.modes?.availableModes ?? [];
+    const modes = availableModeIds(getSession(id).metadata);
     // 'discuss' is chosen before the agent's own mode list is known; map it onto its plan/read-only mode.
     const preferred = getSession(id).metadata.preferredMode as string | undefined;
     // Planner and librarian write through MCP; the agent's plan mode can interrupt that workflow.
     const discuss = (session.policy === 'read-only' && session.role !== 'planner' && session.role !== 'librarian' && session.role !== 'committer') || preferred === 'discuss';
-    const safeMode = (preferred && !isBypassMode(preferred) ? modes.find(m => m.id === preferred) : undefined)
-      ?? (discuss ? modes.find(m => /^plan$|read.?only/i.test(m.id)) : undefined)
-      ?? modes.find(m => m.id === 'default') ?? modes.find(m => m.id === 'read-only');
+    const safeMode = selectSessionMode(modes, session.policy, preferred, discuss);
     if (safeMode) {
-      await connection.agent.request('session/set_mode', { sessionId: getSession(id).acp_session_id!, modeId: safeMode.id });
-      rememberMode(id, safeMode.id);
+      await applyMode(id, state, safeMode);
     }
-    else if (modes.some(m => /bypass|full.access|auto/i.test(m.id)) && modes.length) {
+    else if (modes.some(mode => /bypass|full.access|auto/i.test(mode)) && modes.length) {
       throw new Error('Адаптер не предлагает режим с запросами разрешений');
     }
     // A default saved before the agent changed its lineup must not break the start: skip unknown values.
@@ -354,9 +365,7 @@ export async function setMode(id: string, modeId: string): Promise<void> {
   updateSession(id, { metadata: { ...session.metadata, preferredMode: modeId } });
   const state = live.get(id);
   if (state && !state.loading && !starting.has(id) && session.acp_session_id) {
-    const option = (session.metadata.configOptions as ACP.SessionConfigOption[] | undefined)?.find(o => o.category === 'mode');
-    if (option) await state.connection.agent.request('session/set_config_option', { sessionId: session.acp_session_id, configId: option.id, value: modeId });
-    else await state.connection.agent.request('session/set_mode', { sessionId: session.acp_session_id, modeId });
+    await applyMode(id, state, modeId);
   }
   rememberMode(id, modeId); // otherwise applied when the session next starts
 }
@@ -364,10 +373,10 @@ export async function enableExecution(id: string, policy: PermissionPolicy = 'al
   const state = await startSession(id);
   if (state.busy) throw new Error('Дождитесь окончания обсуждения');
   const session = getSession(id);
-  const modes = (session.metadata.modes as ACP.SessionModeState | undefined)?.availableModes ?? [];
-  const mode = modes.find(m => m.id === 'default') ?? modes.find(m => m.id === 'read-only');
-  if (mode) await state.connection.agent.request('session/set_mode', { sessionId: session.acp_session_id!, modeId: mode.id });
-  updateSession(id, { policy, status: 'ready', reason: '' });
+  const modes = availableModeIds(session.metadata);
+  const mode = selectSessionMode(modes, policy);
+  if (mode) await applyMode(id, state, mode);
+  updateSession(id, { policy, status: 'ready', reason: '', metadata: { ...getSession(id).metadata, preferredMode: mode } });
 }
 export async function sendPrompt(id: string, content: ACP.ContentBlock[]): Promise<void> {
   const state = await startSession(id);

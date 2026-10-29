@@ -3,6 +3,7 @@ import os from 'os';
 import { getAgent } from './index';
 import { killProcessTree } from '../../infrastructure/terminal/process-tree';
 import type { Agent } from '../../models';
+import { APP_VERSION } from '../shared/app-version';
 
 // Subscription limits read straight from the agent CLI's own account endpoints. These are account
 // reads (what `/usage` and `/status` show), not model calls, so polling costs no tokens or quota.
@@ -100,7 +101,7 @@ function windowLabel(minutes?: number | null) {
 async function codexLimits(agent: Agent): Promise<LimitWindow[]> {
   const result = await rpc<{ rateLimits?: CodexSnapshot; rateLimitsByLimitId?: Record<string, CodexSnapshot> }>(agent, agent.command || 'codex', ['app-server'],
     msg => {
-      if (!msg) return [{ id: 1, method: 'initialize', params: { clientInfo: { name: 'plangent', version: '0.6.0' }, capabilities: null } }];
+      if (!msg) return [{ id: 1, method: 'initialize', params: { clientInfo: { name: 'plangent', version: APP_VERSION }, capabilities: null } }];
       return msg.id === 1 ? [{ method: 'initialized' }, { id: 2, method: 'account/rateLimits/read' }] : [];
     },
     msg => {

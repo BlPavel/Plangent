@@ -1,16 +1,17 @@
 # Finish workflow
 HTTP: /api/projects/:projectId/finish (local origin only).
 POST / starts with scenario commits|push|full, optional task_id, targetBranch, branchName,
-includeDescription (inherited by default), includeCoauthors (false by default), human coauthors.
+autoContinue (false by default; the launch form enables it), includeDescription (inherited by default), includeCoauthors (false by default), human coauthors.
 nothing returns null without storing a run. full requires targetBranch and a resolvable code-host connection.
 Branch creation is explicit via branchName; the original HEAD remains the reset base.
 
 Stages: branch → commits → confirmation → push → mr → done (commits stops after confirmation; mr is a short stage after the push, only for full).
 MR (full only): the agent writes the title and description together with the commits (set_merge_request, stored as mr_draft;
 finish_commits needs it). The user sees and edits them on the confirmation screen (PUT /:id/merge-request); nothing is pushed or created
-before accept. Accept pushes, then creates the MR from the confirmed text through task-mr create (push check, existing-MR reuse, task mr_link);
+before accept, unless autoContinue was selected. Accept pushes, then creates the MR from the confirmed text through task-mr create (push check, existing-MR reuse, task mr_link);
 target branch, reviewers, assignees, labels, remove-branch and squash come from the project MR defaults. mr_url is stored and sent in
 finish:notification. Error at stage mr (the MR could not be created): POST /:id/accept retries with the same text.
+With autoContinue=true, finish_commits validates the commits and MR draft and continues directly to completion or push/MR under the repository lock, without a waiting state. Errors retain the same retry and recovery actions.
 Only the user can accept, revise, edit or roll back through HTTP. Rollback requires confirmed=true.
 PUT /:id/commits accepts the complete edited list, including file moves, splits and merges.
 POST /:id/revise continues the original committer session, including retry after an adapter error. POST /:id/accept pushes without force.

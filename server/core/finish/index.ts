@@ -103,12 +103,13 @@ export function createFinishService(dependencies: {
       metadata: { finish_id: run.id, workspace_id: run.workspace_id ?? null, ...(agent.effort ? { reasoningEffort: agent.effort } : {}), briefing: 'Ты предлагаешь состав коммитов. В начале вызови get_finish_context, затем set_commits с полным списком (заголовки и описания пиши строго по commit_rules из контекста), '
         + (full ? 'затем set_merge_request с заголовком (одна строка) и описанием МР по шаблону из контекста (mr.template; он подставит остальное: целевую ветку, ревьюеров, исполнителей), ' : '') + 'затем finish_commits. '
         + (single ? 'Все изменения — ровно один коммит. ' : 'Сколько коммитов сделать, решай сам: по одному на логически отдельное изменение, мелочи не дроби. ')
-        + 'При ошибке исправь список. Файлы и git через shell не изменяй. Коммиты выполняет сервер Plangent; push выполняет пользователь после подтверждения. Не добавляй атрибуцию агента.' },
+        + 'При ошибке исправь список. Файлы и git через shell не изменяй. Коммиты выполняет сервер Plangent; push и МР выполняет Plangent согласно выбранному режиму завершения. Не добавляй атрибуцию агента.' },
     });
     if (session.role !== 'committer' || session.policy !== 'read-only') throw new CodeError('Invalid committer session');
     updateFinish(run.id, { session_id: session.id });
     await prompt(session.id, [{ type: 'text', text: run.note ? 'Переделай' + (full ? ' коммиты и МР' : ' коммиты') + ': ' + run.note
-      : single ? 'Оформи все изменения одним коммитом' + (full ? ', напиши МР' : '') + ' и передай на подтверждение.' : 'Разбей изменения на осмысленные коммиты' + (full ? ', напиши МР' : '') + ' и передай на подтверждение.' }]);
+      : (single ? 'Оформи все изменения одним коммитом' : 'Разбей изменения на осмысленные коммиты') + (full ? ', напиши МР' : '')
+        + (run.options.autoContinue ? ' и вызови finish_commits: Plangent автоматически выполнит выбранный сценарий до конца.' : ' и передай на подтверждение.') }]);
   }
   /** The text the user confirms with the commits: only the full cycle has one. */
   function validateMr(title: unknown, description: unknown): FinishMrDraft {
@@ -148,6 +149,7 @@ export function createFinishService(dependencies: {
     gitAgent(projectId);
     if (input.commitMode !== undefined && !['single', 'split'].includes(input.commitMode)) throw new CodeError('Invalid commit mode');
     if (input.scenario === 'full' && (typeof input.targetBranch !== 'string' || !input.targetBranch.trim())) throw new CodeError('Выберите целевую ветку');
+    if (input.autoContinue !== undefined && typeof input.autoContinue !== 'boolean') throw new CodeError('Invalid autoContinue');
     const scenario = input.scenario;
     if (scenario === 'full') await resolveHost(projectId).catch(error => { throw new CodeError('«Полный цикл» недоступен без подключения к хостингу: ' + (error instanceof Error ? error.message : failure(error))); });
     for (const key of ['targetBranch', 'branchName', 'task_id'] as const) {
@@ -157,7 +159,7 @@ export function createFinishService(dependencies: {
       scenario, task_id: input.task_id, branchName: input.branchName,
       includeDescription: input.includeDescription ?? defaults.include_description,
       includeCoauthors: input.includeCoauthors ?? false, coauthors: input.coauthors,
-      targetBranch: input.targetBranch || defaults.base_branch, commitMode: input.commitMode ?? 'split',
+      targetBranch: input.targetBranch || defaults.base_branch, commitMode: input.commitMode ?? 'split', autoContinue: input.autoContinue ?? false,
     };
     // Validate explicit flags and human coauthors before touching Git.
     assembleCommitMessage({ title: 'validate', ...params });
@@ -251,7 +253,12 @@ export function createFinishService(dependencies: {
       await unchanged(run, root);
       const changes = (await treeChanges(root, run.base_head, run.snapshot_tree)).changes;
       validateCommitFiles(run.commits, changes.map(c => c.path));
-      const next = updateFinish(id, { ...transition(run, 'commits_ready'), error: '' });
+      const ready = { ...run, ...transition(run, 'commits_ready') };
+      if (run.options.autoContinue) {
+        const accepted = updateFinish(id, { ...transition(ready, 'accept'), error: '' });
+        return completeAccepted(accepted, root);
+      }
+      const next = updateFinish(id, { stage: ready.stage, status: ready.status, error: '' });
       notify(next, 'Коммиты ждут подтверждения'); return next;
     });
   }
@@ -280,6 +287,12 @@ export function createFinishService(dependencies: {
         await unchanged(run, root);
         run = updateFinish(id, { ...transition(run, 'accept'), error: '' });
       }
+      return completeAccepted(run, root);
+    });
+  }
+  /** Shared continuation for manual acceptance and automatic runs, under the repository lock. */
+  async function completeAccepted(run: FinishRun, root: string) {
+      const id = run.id;
       if (run.stage === 'push') {
         const info = await repositoryInfo(root), target = run.options.targetBranch?.replace(/^origin\//, '');
         if (!info?.branch || (!run.workspace_id && info.branch === target)) throw new CodeError('Push в целевую ветку запрещён');
@@ -289,7 +302,6 @@ export function createFinishService(dependencies: {
       }
       if (run.session_id) { await close(run.session_id).catch(() => {}); updateSession(run.session_id, { status: 'complete' }); }
       notify(run, 'Завершение выполнено'); return run;
-    });
   }
   async function rollback(id: string) {
     const initial = getFinish(id);

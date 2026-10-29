@@ -217,6 +217,7 @@ test('task branches use the shared picker, bind the current branch, save created
 function finishPanel(store, git) {
   git.refreshBranches = async () => git.branches
   return component('client/src/features/finish/components/FinishPanel.vue', {
+    '@shared/ui/AppButton.vue': { default: component('client/src/shared/ui/AppButton.vue', {}) },
     '@core/api': { api: { get: async () => null } },
     '@core/stores/app': { useAppStore: () => ({ confirm: async () => true }) },
     '@features/code': { CommitDiff: { render: () => null }, CoauthorsField: { render: () => null }, GitAgentNote: { render: () => null }, useGitStore: () => git },
@@ -232,7 +233,7 @@ const gitSettings = { finish_scenario: 'full', base_branch: 'main', include_desc
 test('finish form takes its defaults from the git settings and starts with the chosen commit mode and a new branch', async () => {
   const started = []
   const store = reactive({ run: null, busy: false, error: '', load: async () => {}, start: async options => { started.push(JSON.parse(JSON.stringify(options))) } })
-  const git = reactive({ settings: gitSettings, repository: { upstream: null }, coauthors: [], branches: [{ name: 'main', ref: 'refs/heads/main' }, { name: 'origin/main', ref: 'refs/remotes/origin/main' }] })
+  const git = reactive({ settings: gitSettings, repository: { branch: 'main', head: 'base', upstream: null }, coauthors: [], branches: [{ name: 'main', ref: 'refs/heads/main' }, { name: 'origin/main', ref: 'refs/remotes/origin/main' }] })
   const screen = mount(finishPanel(store, git), { projectId: 'p', task: { id: 't', key: 'ABC-1' }, branch: 'main' })
   try {
     await settle()
@@ -241,13 +242,17 @@ test('finish form takes its defaults from the git settings and starts with the c
     assert.match(screen.root.textContent, /опубликована в origin/)
     assert.equal(screen.root.querySelector('[aria-label="Имя новой ветки"]').value, 'feature/ABC-1', 'on the target branch a new branch is required')
     toggle(screen.root.querySelector('input[value="single"]'), true); await nextTick()
-    assert.equal(button(screen.root, 'Начать').disabled, false)
+    assert.equal(button(screen.root, 'Начать завершение').disabled, false)
     screen.root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await settle()
     assert.equal(started.length, 1)
+    assert.equal(started[0].autoContinue, true)
     assert.equal(started[0].commitMode, 'single')
     assert.equal(started[0].targetBranch, 'main')
     assert.equal(started[0].branchName, 'feature/ABC-1')
     assert.equal(started[0].includeDescription, true)
+    toggle(screen.root.querySelector('.fp-choice input[type="checkbox"]'), false); await nextTick()
+    screen.root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await settle()
+    assert.equal(started[1].autoContinue, false)
   } finally { screen.close() }
 })
 

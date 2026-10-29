@@ -124,6 +124,36 @@ test('finish commits → manual merge → confirmation → bare remote; recovery
     await assert.rejects(noHost.start(project.id, { scenario: 'full', targetBranch: 'main' }), /хостингу.*нет подключения/);
     assert.equal(git(remote, 'rev-parse', 'refs/heads/feature/full'), git(root, 'rev-parse', 'HEAD'));
 
+    await assert.rejects(service.start(project.id, { scenario: 'commits', autoContinue: 'false' as never }), /Invalid autoContinue/);
+    for (const scenario of ['commits', 'push', 'full'] as const) {
+      await fs.writeFile(path.join(root, 'a.txt'), 'automatic ' + scenario + '\n');
+      const beforeMrs: number = created.length;
+      const automatic = (await service.start(project.id, { scenario, targetBranch: 'main', autoContinue: true }))!;
+      assert.equal(automatic.options.autoContinue, true);
+      await service.setCommits(automatic.id, [{ files: ['a.txt'], title: 'TASK automatic ' + scenario }], true);
+      if (scenario === 'full') {
+        await assert.rejects(service.finishCommits(automatic.id), /set_merge_request/);
+        assert.equal(created.length, beforeMrs);
+        await service.setMergeRequest(automatic.id, 'TASK automatic MR', 'Automatic description');
+      }
+      const result = await service.finishCommits(automatic.id);
+      assert.equal(result.stage, 'done');
+      assert.equal(result.status, 'complete');
+      assert.equal(result.pushed, scenario !== 'commits');
+      assert.equal(created.length, beforeMrs + (scenario === 'full' ? 1 : 0));
+      if (scenario !== 'commits') assert.equal(git(remote, 'rev-parse', 'refs/heads/feature/full'), git(root, 'rev-parse', 'HEAD'));
+      assertRepositoryIdle(project.id);
+    }
+    await fs.writeFile(path.join(root, 'a.txt'), 'automatic push retry\n');
+    const retry = (await service.start(project.id, { scenario: 'push', autoContinue: true }))!;
+    await service.setCommits(retry.id, [{ files: ['a.txt'], title: 'TASK retry automatic push' }], true);
+    git(root, 'remote', 'set-url', 'origin', path.join(folder, 'missing.git'));
+    await assert.rejects(service.finishCommits(retry.id));
+    assert.equal(getFinish(retry.id).stage, 'push');
+    assert.equal(getFinish(retry.id).status, 'error');
+    git(root, 'remote', 'set-url', 'origin', remote);
+    assert.equal((await service.accept(retry.id)).status, 'complete');
+
     const app = express(); app.use(express.json()); app.use('/api/projects/:projectId/finish', finishRouter);
     http = app.listen(0, '127.0.0.1'); await once(http, 'listening');
     const port = (http.address() as { port: number }).port;

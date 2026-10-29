@@ -3,21 +3,37 @@ import { Readable, Writable } from 'node:stream';
 let cancelled = false;
 let mcpServers = [];
 let workspaceCwd = '';
+let currentMode = 'read-only';
+function reportedModes() {
+  if (!process.argv.includes('--codex-modes')) return {};
+  const options = ['read-only', 'workspace-write', 'danger-full-access'].map(value => ({ value, name: value }));
+  return {
+    ...(!process.argv.includes('--config-only') ? { modes: { currentModeId: currentMode, availableModes: options.map(o => ({ id: o.value, name: o.name })) } } : {}),
+    configOptions: [{ id: 'mode', category: 'mode', type: 'select', name: 'Mode', currentValue: currentMode, options }],
+  };
+}
 agent({ name: 'mock' })
   .onRequest('initialize', () => ({ protocolVersion: PROTOCOL_VERSION, agentCapabilities: { loadSession: true, mcpCapabilities: { http: true } } }))
-  .onRequest('session/new', ctx => { workspaceCwd = ctx.params.cwd; mcpServers = ctx.params.mcpServers; return { sessionId: 'mock-session', modes: { currentModeId: 'default', availableModes: [{ id: 'default', name: 'Default' }] } }; })
+  .onRequest('session/new', ctx => { workspaceCwd = ctx.params.cwd; mcpServers = ctx.params.mcpServers; return { sessionId: 'mock-session', modes: { currentModeId: 'default', availableModes: [{ id: 'default', name: 'Default' }] }, ...reportedModes(), ...(process.argv.includes('--config-only') ? { modes: undefined } : {}) }; })
   .onRequest('session/load', async ctx => {
     workspaceCwd = ctx.params.cwd;
     if (process.argv.includes('--session-titles')) await ctx.client.notify('session/update', {
       sessionId: ctx.params.sessionId, update: { sessionUpdate: 'session_info_update', title: 'Restored chat title' },
     });
-    return {};
+    return reportedModes();
   })
-  .onRequest('session/set_mode', () => ({}))
+  .onRequest('session/set_mode', ctx => { currentMode = ctx.params.modeId; return {}; })
+  .onRequest('session/set_config_option', ctx => { currentMode = ctx.params.value; return { configOptions: reportedModes().configOptions ?? [] }; })
   .onNotification('session/cancel', () => { cancelled = true; })
   .onRequest('session/prompt', async ctx => {
     cancelled = false;
     const text = ctx.params.prompt.map(p => p.text ?? '').join('');
+    if (process.argv.includes('--inspect-mode')) {
+      await ctx.client.notify('session/update', { sessionId: 'mock-session', update: {
+        sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: currentMode },
+      } });
+      return { stopReason: 'end_turn' };
+    }
     if (process.argv.includes('--hold-task-review') && text.includes('get_task_review_brief')) {
       while (!cancelled) await new Promise(resolve => setTimeout(resolve, 20));
       return { stopReason: 'cancelled' };

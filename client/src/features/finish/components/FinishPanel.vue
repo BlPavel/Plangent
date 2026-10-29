@@ -9,7 +9,7 @@
 
       <header class="fp-heading">
         <h2>Завершение работы</h2>
-        <p>Выберите, как оформить изменения. Перед продолжением вы сможете проверить коммиты.</p>
+        <p>Выберите, как оформить изменения. Выберите автоматическое завершение или проверку коммитов перед продолжением.</p>
       </header>
 
       <fieldset class="fp-field fp-scenarios">
@@ -67,11 +67,16 @@
         </section>
       </div>
 
+      <label class="fp-choice">
+        <input v-model="options.autoContinue" type="checkbox" />
+        <span><span class="fp-choice-label">Завершить автоматически</span><small>Выполнить выбранный сценарий целиком без подтверждения коммитов и МР.</small></span>
+      </label>
+
       <div class="fp-footer">
         <div class="fp-launch">
           <div class="fp-launch-copy">
             <span class="fp-label">{{ FINISH_SCENARIOS[options.scenario].label }}</span>
-            <p>{{ options.scenario === 'commits' ? 'Коммиты останутся локально после вашего подтверждения.' : options.scenario === 'push' ? 'После подтверждения коммиты отправятся в origin.' : 'После подтверждения — push и МР в целевую ветку.' }}</p>
+            <p>{{ options.autoContinue ? (options.scenario === 'commits' ? 'Коммиты будут созданы локально.' : options.scenario === 'push' ? 'После создания коммитов — push в origin.' : 'После создания коммитов — push и МР в целевую ветку.') : options.scenario === 'commits' ? 'Коммиты останутся локально после вашего подтверждения.' : options.scenario === 'push' ? 'После подтверждения коммиты отправятся в origin.' : 'После подтверждения — push и МР в целевую ветку.' }}</p>
           </div>
           <AppButton type="submit" variant="blue" :disabled="!canStart" :title="startHint">{{ store.busy ? 'Запуск…' : 'Начать завершение' }}</AppButton>
         </div>
@@ -163,7 +168,7 @@ const message = (cause: unknown) => (cause instanceof Error ? cause.message : St
 const app = useAppStore(), store = useFinishStore(), git = useGitStore()
 const localError = ref(''), branchesError = ref(''), refreshingBranches = ref(false)
 const scenarioOptions = (['commits', 'push', 'full'] as const).map(value => ({ value, ...FINISH_SCENARIOS[value] }))
-const options = ref<FinishOptions>({ scenario: 'commits', commitMode: 'split', includeDescription: false, includeCoauthors: false, coauthors: [], targetBranch: '' })
+const options = ref<FinishOptions>({ scenario: 'commits', autoContinue: true, commitMode: 'split', includeDescription: false, includeCoauthors: false, coauthors: [], targetBranch: '' })
 const newBranch = ref(false), branchName = ref('')
 const prefixes = computed(() => git.settings?.branch_prefixes ?? [])
 /** A workspace has its own branch: it is published when origin has a branch of that name. */
@@ -195,7 +200,7 @@ const canStart = computed(() => !store.busy && !startHint.value)
 const draft = ref<FinishCommit[]>([]), note = ref(''), selected = ref<{ index: number; path: string } | null>(null), context = ref<FinishContext>()
 const dropTarget = ref<number | null>(null)
 const finished = computed(() => !!store.run && ['complete', 'cancelled'].includes(store.run.status))
-const stageList = computed(() => store.run ? ['branch', 'commits', 'confirmation', ...(store.run.scenario === 'commits' ? [] : ['push']), ...(store.run.scenario === 'full' ? ['mr'] : []), 'done'] : [])
+const stageList = computed(() => store.run ? ['branch', 'commits', ...(store.run.options.autoContinue ? [] : ['confirmation']), ...(store.run.scenario === 'commits' ? [] : ['push']), ...(store.run.scenario === 'full' ? ['mr'] : []), 'done'] : [])
 function stepState(index: number) {
   const run = store.run!, current = stageList.value.indexOf(run.stage)
   if (run.status === 'complete' || index < current) return 'done'

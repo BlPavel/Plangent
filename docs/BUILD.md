@@ -5,7 +5,7 @@
 
 ## Требования
 
-- Node.js 20+ (нативные модули `better-sqlite3` и `node-pty` собираются под
+- Node.js 22+ (ACP-адаптер Claude требует Node.js 22; нативные модули `better-sqlite3` и `node-pty` собираются под
   конкретную версию Node/Electron ABI, см. ниже).
 - На macOS для сборки нативных модулей нужны Xcode Command Line Tools
   (`xcode-select --install`).

@@ -21,8 +21,8 @@ export const plangentTools = {
       files: { type: 'array', minItems: 1, items: { type: 'string' } }, title: { type: 'string' }, body: { type: 'string' },
     } } },
   } },
-  finish_commits: { description: 'Hand completed commits to the user for confirmation. Never push yourself.', fields: {} },
-  set_merge_request: { description: 'Full cycle only: write the merge request. Give the title (one line) and the description following the template from the context. The user confirms it with the commits; Plangent sets target branch, reviewers, assignees, labels and options and creates the MR after the push.', fields: { title: { type: 'string' }, description: { type: 'string' } } },
+  finish_commits: { description: 'Finish preparing commits. Plangent either asks the user to review them or automatically completes the selected scenario, according to options.autoContinue. Never push yourself.', fields: {} },
+  set_merge_request: { description: 'Full cycle only: write the merge request. Give the title (one line) and the description following the template from the context. It is reviewed with the commits unless automatic completion is enabled; Plangent sets target branch, reviewers, assignees, labels and options and creates the MR after the push.', fields: { title: { type: 'string' }, description: { type: 'string' } } },
   get_library: { description: 'Get the project library catalog, instruction authoring guide and available levels. Call first.', fields: {} },
   get_library_item: { description: 'Read an available library item, including content.', fields: { id: { type: 'string' } } },
   propose_library_change: {

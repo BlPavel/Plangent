@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'plangent-acp-spike-'));
-const adapters = { claude: '@agentclientprotocol/claude-agent-acp@0.81.2', codex: '@agentclientprotocol/codex-acp@1.13.1' };
+const adapters = { claude: '@agentclientprotocol/claude-agent-acp@0.99.0', codex: '@agentclientprotocol/codex-acp@2.5.0' };
 const results = {};
 for (const [name, pkg] of Object.entries(adapters)) {
   const child = spawn('npx', ['--yes', pkg], { cwd, windowsHide: true, stdio: 'pipe' });

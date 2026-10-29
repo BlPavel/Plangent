@@ -1,7 +1,7 @@
 export type Scenario = 'nothing' | 'commits' | 'push' | 'full'
 export interface FinishCommit { files: string[]; title: string; body?: string; sha?: string }
 export type CommitMode = 'single' | 'split'
-export interface FinishOptions { scenario: Scenario; task_id?: string; includeDescription: boolean; includeCoauthors: boolean; coauthors: { name: string; email: string }[]; targetBranch: string; branchName?: string; commitMode: CommitMode }
+export interface FinishOptions { scenario: Scenario; task_id?: string; includeDescription: boolean; includeCoauthors: boolean; coauthors: { name: string; email: string }[]; targetBranch: string; branchName?: string; commitMode: CommitMode; autoContinue?: boolean }
 export interface MrDraft { title: string; description: string }
 export interface FinishRun { workspace_id?: string | null; id: string; project_id: string; task_id: string | null; scenario: Scenario; base_head: string; branch: string; options: FinishOptions; stage: string; status: string; commits: FinishCommit[]; session_id: string | null; error: string; output: string; pushed: boolean; mr_url: string | null; mr_draft: MrDraft | null }
 export interface FinishContext { diffs: Record<string, string>; changes: { path: string; originalPath?: string; status: string }[] }

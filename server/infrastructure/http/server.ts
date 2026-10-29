@@ -34,6 +34,7 @@ import { settingsRouter } from './routes/settings';
 import { orchestratorRouter, queuesRouter } from './routes/orchestrator';
 import { attachSocket } from '../terminal/pty-manager';
 import { addEventsClient } from '../../core/shared/events';
+import { APP_VERSION } from '../../core/shared/app-version';
 
 // Walk up from this file's location to find the app root. The directory depth
 // differs between dev (tsx), compiled output, and packaged Electron asar.
@@ -53,16 +54,6 @@ function findAppRoot(): string {
 
 const APP_ROOT = findAppRoot();
 const CLIENT_DIST = path.join(APP_ROOT, 'client', 'dist');
-
-function readAppVersion(): string {
-  const pkgPath = path.join(APP_ROOT, 'package.json');
-  if (fs.existsSync(pkgPath)) {
-    return JSON.parse(fs.readFileSync(pkgPath, 'utf8')).version;
-  }
-  return '0.0.0';
-}
-
-const APP_VERSION = readAppVersion();
 
 export function createApp() {
   const app = express();

@@ -7,6 +7,8 @@ export interface FinishOptions {
   coauthors?: { name: string; email: string }[]; targetBranch?: string; branchName?: string;
   /** single — everything in one commit; split — the agent decides how many commits. */
   commitMode?: 'single' | 'split';
+  /** Continue the selected scenario without pausing for review. */
+  autoContinue?: boolean;
 }
 /** The merge request text of a full cycle: written by the agent with the commits, confirmed (and editable) by the user before anything is pushed. */
 export interface FinishMrDraft { title: string; description: string }

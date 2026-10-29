@@ -1,6 +1,9 @@
 {
   "name": "plangent",
-  "version": "0.8.0",
+  "version": "0.8.1",
+  "engines": {
+    "node": ">=22"
+  },
   "description": "AI agent orchestrator — plan-driven development",
   "main": "electron/dist/main.js",
   "scripts": {
@@ -23,7 +26,7 @@
     "test:task-mr-ui": "node --test scripts/task-mr.test.cjs"
   },
   "dependencies": {
-    "@agentclientprotocol/sdk": "^1.8.0",
+    "@agentclientprotocol/sdk": "^2.1.0",
     "@modelcontextprotocol/sdk": "^1.32.1",
     "better-sqlite3": "^12.0.0",
     "cors": "^2.8.5",
