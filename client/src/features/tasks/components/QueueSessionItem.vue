@@ -34,6 +34,9 @@
         <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2.5 4.5h6M11.5 4.5h2M2.5 11.5h2M7.5 11.5h6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" /><circle cx="10" cy="4.5" r="1.5" stroke="currentColor" stroke-width="1.4" /><circle cx="6" cy="11.5" r="1.5" stroke="currentColor" stroke-width="1.4" /></svg>
       </AppButton>
       <AppMenu v-if="menuItems.length" :items="menuItems" />
+      <AppButton class="session-open" variant="subtle" size="sm" icon :aria-label="'Открыть агента ' + agentName + ': ' + pointsText" title="Открыть агента" @click.stop="$emit('select')">
+        <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 3.5L10.5 8 6 12.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
+      </AppButton>
     </div>
 
     <div v-if="state.detail && session.status !== 'complete'" class="session-detail" :class="{ ask: state.attention }">
@@ -142,7 +145,10 @@ function patch(p: Partial<OrchestratorQueueSession>) { void queue.updateSession(
 const menuItems = computed<MenuItem[]>(() => {
   const s = props.session
   if (s.kind === 'review' && s.status === 'complete' && !queue.frozen.value && app.currentTask?.status !== 'done') {
-    return [{ label: 'Начать заново', hint: 'Добавить повторное ревью в конец очереди', action: () => queue.sessionAction(s.id, 'restart') }]
+    return [
+      { label: 'Начать заново', hint: 'Добавить повторное ревью в конец очереди', action: () => queue.sessionAction(s.id, 'restart') },
+      ...(props.editable ? [{ label: 'Убрать ревью из очереди', danger: true, action: () => queue.removeSession(s.id) }] : []),
+    ]
   }
   // The closing review stays last and alone: it can only be removed.
   if (props.editable && s.kind === 'review') return [{ label: 'Убрать ревью из очереди', danger: true, action: () => queue.removeSession(s.id) }]
@@ -180,9 +186,11 @@ const menuItems = computed<MenuItem[]>(() => {
 .session.attention.selected { background: var(--warning-soft); }
 .session.done { background: transparent; }
 .session.done .agent, .session.done .session-step { color: var(--text-muted); }
-.session.draggable { cursor: grab; }
+.session.draggable { cursor: pointer; }
+.session-open { flex-shrink: 0; }
+.session:focus-within { border-color: var(--blue-hover); }
 
-.session-main { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.session-main { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
 .grip { display: flex; color: var(--text-faint); margin: 0 -4px 0 -4px; cursor: grab; }
 .grip svg { width: 14px; height: 14px; }
 .session:hover .grip { color: var(--text-muted); }
@@ -194,8 +202,8 @@ const menuItems = computed<MenuItem[]>(() => {
 .live .dot { animation: pulse 1.4s ease-in-out infinite; }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 
-.session-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.session-title { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 12.5px; }
+.session-text { flex: 1; flex-basis: 140px; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.session-title { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; font-size: 12.5px; }
 .agent { font-weight: 600; white-space: nowrap; }
 .points { font-family: 'Cascadia Code', 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tag { font-size: 10.5px; color: var(--text-muted); border: 1px solid var(--border-strong); border-radius: var(--radius-pill); padding: 0 6px; white-space: nowrap; }

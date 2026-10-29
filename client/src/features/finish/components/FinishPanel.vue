@@ -7,58 +7,76 @@
         Прошлое завершение: {{ statuses[store.run.status] || store.run.status }}<template v-if="store.run.mr_url"> · <a :href="store.run.mr_url" target="_blank" rel="noopener">МР</a></template>
       </p>
 
-      <fieldset class="fp-field">
-        <legend>Что сделать</legend>
-        <label v-for="option in scenarioOptions" :key="option.value" class="fp-choice">
-          <input v-model="options.scenario" type="radio" :value="option.value" />
-          <span><span class="fp-choice-label">{{ option.label }}</span><small>{{ option.hint }}</small></span>
-        </label>
-      </fieldset>
+      <header class="fp-heading">
+        <h2>Завершение работы</h2>
+        <p>Выберите, как оформить изменения. Перед продолжением вы сможете проверить коммиты.</p>
+      </header>
 
-      <label v-if="options.scenario === 'full'" class="fp-field">
-        <span class="fp-label">Целевая ветка МР</span>
-        <BranchSelect v-model="options.targetBranch" :options="targets.map(name => ({ value: name, label: 'origin/' + name }))" small placeholder="Выберите ветку" label="Целевая ветка МР" />
-        <button type="button" class="fp-link" :disabled="refreshingBranches" @click="refreshBranches">{{ refreshingBranches ? 'Обновление из origin…' : 'Обновить ветки из origin' }}</button>
-        <small v-if="branchesError" role="alert">{{ branchesError }}</small>
-        <small>{{ mrDefaults }}</small>
-      </label>
-
-      <fieldset class="fp-field">
-        <legend>Коммиты</legend>
-        <label class="fp-choice">
-          <input v-model="options.commitMode" type="radio" value="split" />
-          <span><span class="fp-choice-label">Агент решит, сколько коммитов</span><small>По одному на логически отдельное изменение.</small></span>
-        </label>
-        <label class="fp-choice">
-          <input v-model="options.commitMode" type="radio" value="single" />
-          <span><span class="fp-choice-label">Всё одним коммитом</span></span>
-        </label>
-        <label class="fp-check"><input v-model="options.includeDescription" type="checkbox" /> Описание в коммитах</label>
-        <CoauthorsField v-model="options.coauthors" :known="git.coauthors" />
-      </fieldset>
-
-      <div class="fp-field">
-        <span class="fp-label">Рабочая ветка</span>
-        <div class="fp-branch">
-          <span class="fp-branch-name">⎇ {{ branch || 'вне ветки' }}</span>
-          <span v-if="!published" class="fp-tag" title="Ветки ещё нет в origin">локальная</span>
-          <span class="fp-spacer" />
-          <button v-if="!sameBranch && !workspaceId" type="button" class="fp-link" @click="newBranch = !newBranch">{{ newBranch ? 'Оставить текущую' : 'Новая ветка' }}</button>
+      <fieldset class="fp-field fp-scenarios">
+        <legend>Сценарий завершения</legend>
+        <div class="fp-scenario-grid">
+          <label v-for="option in scenarioOptions" :key="option.value" class="fp-scenario" :class="{ active: options.scenario === option.value }">
+            <span class="fp-scenario-top">
+              <span class="fp-scenario-icon" aria-hidden="true">{{ option.value === 'commits' ? '⎇' : option.value === 'push' ? '↑' : '⇄' }}</span>
+              <input v-model="options.scenario" name="finish-scenario" type="radio" :value="option.value" />
+            </span>
+            <span class="fp-choice-label">{{ option.label }}</span>
+            <small>{{ option.hint }}</small>
+          </label>
         </div>
-        <BranchNameInput v-if="needsBranchName" v-model="branchName" :prefixes="prefixes" placeholder="ABC-1-short-name" label="Имя новой ветки" />
-        <small v-if="sameBranch && workspaceId">Ветка работы совпадает с целевой веткой МР: выберите другую цель.</small>
-        <small v-else-if="sameBranch">Вы на целевой ветке: коммиты лягут в новую рабочую ветку.</small>
-        <small v-else-if="newBranch">Ветка создастся от текущей, коммиты лягут в неё.</small>
-        <small v-if="options.scenario !== 'commits' && (!published || newBranch || sameBranch)">При push ветка будет опубликована в origin.</small>
+      </fieldset>
+
+      <div class="fp-settings">
+        <section class="fp-field fp-card" aria-label="Оформление коммитов">
+          <h3 class="fp-label">Оформление коммитов</h3>
+          <label class="fp-choice">
+            <input v-model="options.commitMode" name="finish-commit-mode" type="radio" value="split" />
+            <span><span class="fp-choice-label">Разделить по смыслу</span><small>Агент определит количество коммитов.</small></span>
+          </label>
+          <label class="fp-choice">
+            <input v-model="options.commitMode" name="finish-commit-mode" type="radio" value="single" />
+            <span><span class="fp-choice-label">Всё одним коммитом</span><small>Объединить все изменения.</small></span>
+          </label>
+          <div class="fp-extras">
+            <label class="fp-check"><input v-model="options.includeDescription" type="checkbox" /> Описание в коммитах</label>
+            <CoauthorsField v-model="options.coauthors" :known="git.coauthors" />
+          </div>
+        </section>
+
+        <section class="fp-field fp-card">
+          <h3 class="fp-label">Ветки</h3>
+          <span class="fp-caption">Рабочая ветка</span>
+          <div class="fp-branch">
+            <span class="fp-branch-name" :title="branch || branchPlaceholder">⎇ {{ branch || branchPlaceholder }}</span>
+            <span v-if="branch && !published" class="fp-tag" title="Ветки ещё нет в origin">локальная</span>
+          </div>
+          <AppButton v-if="!sameBranch && !workspaceId" type="button" size="sm" class="fp-branch-action" :aria-expanded="newBranch" @click="newBranch = !newBranch">{{ newBranch ? 'Оставить текущую' : 'Новая ветка' }}</AppButton>
+          <BranchNameInput v-if="needsBranchName" v-model="branchName" :prefixes="prefixes" placeholder="ABC-1-short-name" label="Имя новой ветки" />
+          <small v-if="sameBranch && workspaceId" class="fp-warn">Ветка работы совпадает с целевой веткой МР: выберите другую цель.</small>
+          <small v-else-if="sameBranch">Вы на целевой ветке: коммиты лягут в новую рабочую ветку.</small>
+          <small v-else-if="newBranch">Ветка создастся от текущей, коммиты лягут в неё.</small>
+          <small v-if="options.scenario !== 'commits' && (!published || newBranch || sameBranch)">При push ветка будет опубликована в origin.</small>
+
+          <div v-if="options.scenario === 'full'" class="fp-field fp-target">
+            <span class="fp-caption">Целевая ветка МР</span>
+            <BranchSelect v-model="options.targetBranch" :options="targets.map(name => ({ value: name, label: 'origin/' + name }))" small placeholder="Выберите ветку" label="Целевая ветка МР" />
+            <AppButton type="button" size="sm" class="fp-branch-action" :disabled="refreshingBranches" @click="refreshBranches">{{ refreshingBranches ? 'Обновление из origin…' : 'Обновить ветки из origin' }}</AppButton>
+            <small v-if="branchesError" role="alert" class="fp-warn">{{ branchesError }}</small>
+            <small>{{ mrDefaults }}</small>
+          </div>
+        </section>
       </div>
 
       <div class="fp-footer">
-        <GitAgentNote />
-        <div class="fp-actions">
-          <span v-if="blocked" class="status-badge progress">{{ blocked }}</span>
-          <span class="fp-spacer" />
-          <button class="btn btn-blue btn-sm" :disabled="!canStart" :title="startHint">{{ store.busy ? 'Запуск…' : 'Начать' }}</button>
+        <div class="fp-launch">
+          <div class="fp-launch-copy">
+            <span class="fp-label">{{ FINISH_SCENARIOS[options.scenario].label }}</span>
+            <p>{{ options.scenario === 'commits' ? 'Коммиты останутся локально после вашего подтверждения.' : options.scenario === 'push' ? 'После подтверждения коммиты отправятся в origin.' : 'После подтверждения — push и МР в целевую ветку.' }}</p>
+          </div>
+          <AppButton type="submit" variant="blue" :disabled="!canStart" :title="startHint">{{ store.busy ? 'Запуск…' : 'Начать завершение' }}</AppButton>
         </div>
+        <p v-if="startHint" class="fp-hint fp-warn" role="status">{{ startHint }}</p>
+        <GitAgentNote />
       </div>
     </form>
 
@@ -128,6 +146,7 @@ import { computed, ref, watch, onBeforeUnmount } from 'vue'
 import { api } from '@core/api'
 import { useAppStore } from '@core/stores/app'
 import { CommitDiff, CoauthorsField, GitAgentNote, useGitStore } from '@features/code'
+import AppButton from '@shared/ui/AppButton.vue'
 import BranchNameInput from '@shared/ui/BranchNameInput.vue'
 import BranchSelect from '@shared/ui/BranchSelect.vue'
 import { FINISH_SCENARIOS } from '@shared/utils/finish-scenarios'
@@ -163,7 +182,11 @@ const mrDefaults = computed(() => {
   return 'Из настроек проекта: ' + parts.join(', ') + '. Заголовок и описание напишет агент.'
 })
 const needsBranchName = computed(() => !props.workspaceId && (newBranch.value || sameBranch.value))
-const startHint = computed(() => props.blocked || (!git.settings?.agent ? 'Выберите агента для коммитов и МР в настройках'
+const branchPlaceholder = computed(() => git.repository ? 'Ветка не выбрана' : git.error ? 'Ветка недоступна' : 'Загрузка ветки…')
+const startHint = computed(() => props.blocked || (!git.repository ? (git.error || 'Загрузка данных Git…')
+  : !git.repository.branch ? 'Git находится вне ветки. Выберите рабочую ветку на вкладке «Код».'
+  : !git.repository.head ? 'Для завершения нужен исходный коммит в рабочей ветке.'
+  : !git.settings?.agent ? 'Выберите агента для коммитов и МР в настройках'
   : options.value.scenario === 'full' && !options.value.targetBranch ? 'Выберите целевую ветку МР'
   : props.workspaceId && sameBranch.value ? 'Ветка работы совпадает с целевой'
   : needsBranchName.value && (!branchName.value.trim() || branchName.value.endsWith('/')) ? 'Введите имя новой ветки' : ''))
@@ -284,9 +307,9 @@ async function rollback() { if (await app.confirm('Откатить коммит
 </script>
 
 <style scoped>
-.finish { display: flex; flex-direction: column; gap: 14px; padding: 14px; font-size: 12.5px; }
+.finish { container-type: inline-size; display: flex; flex-direction: column; gap: 14px; padding: 14px; font-size: 12.5px; }
 .fp-alert { padding: 6px 10px; border-radius: var(--radius-sm); color: var(--danger-hover); background: var(--danger-soft); overflow-wrap: anywhere; white-space: pre-wrap; }
-.fp-form { display: flex; flex-direction: column; gap: 18px; }
+.fp-form { display: flex; flex-direction: column; gap: 16px; }
 .fp-last { font-size: 12px; color: var(--text-muted); }
 .fp-last a, .fp-mr a { color: var(--blue-hover); overflow-wrap: anywhere; }
 .fp-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; margin: 0; padding: 0; border: none; }
@@ -337,4 +360,41 @@ textarea.control { height: auto; padding: 6px 10px; resize: vertical; line-heigh
 .fp-note { display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
 .fp-log summary { cursor: pointer; color: var(--text-muted); }
 .fp-log pre { margin-top: 6px; padding: 6px 8px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 200px; overflow: auto; font-size: 11.5px; background: var(--bg2); border-radius: var(--radius-sm); }
+
+.fp-heading h2 { margin: 0 0 6px; font-size: 20px; font-weight: 600; letter-spacing: -.3px; }
+.fp-heading p { color: var(--text-muted); line-height: 1.6; }
+.fp-scenarios legend { margin-bottom: 10px; }
+.fp-scenario-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.fp-scenario { position: relative; display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 12px 34px 12px 12px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg2); cursor: pointer; transition: border-color .15s, background .15s; }
+.fp-scenario:hover { border-color: var(--border-strong); background: var(--bg3); }
+.fp-scenario.active { border-color: var(--blue); background: var(--blue-soft); }
+.fp-scenario:has(input:focus-visible) { outline: 2px solid var(--blue-hover); outline-offset: 3px; }
+.fp-scenario-top { position: absolute; right: 12px; top: 15px; display: flex; align-items: center; }
+.fp-scenario-icon { display: none; }
+.fp-scenario.active .fp-scenario-icon { color: var(--blue-hover); background: var(--blue-soft); }
+.fp-scenario input { accent-color: var(--blue); }
+.fp-scenario .fp-choice-label { font-size: 14px; font-weight: 600; }
+.fp-form small { font-size: 12px; line-height: 1.5; color: var(--text-muted); }
+.fp-settings { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: stretch; }
+.fp-card { padding: 14px; gap: 8px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg2); }
+.fp-card .fp-label { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+.fp-card .fp-choice { padding: 4px 0; }
+.fp-choice > span { min-width: 0; gap: 4px; }
+.fp-extras { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding-top: 10px; margin-top: 2px; border-top: 1px solid var(--border); }
+.fp-caption { font-size: 11.5px; color: var(--text-muted); }
+.fp-branch { padding: 9px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); }
+.fp-branch-name { flex: 1; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.fp-branch-action { align-self: flex-start; max-width: 100%; }
+.fp-target { margin-top: 4px; padding-top: 16px; border-top: 1px solid var(--border); gap: 10px; }
+.fp-footer { padding: 12px 16px; gap: 6px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg2); text-align: center; }
+.fp-launch { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.fp-launch-copy { min-width: 0; }
+.fp-launch-copy p { margin-top: 4px; font-size: 12px; color: var(--text-muted); }
+.fp-launch > .btn { flex-shrink: 0; }
+.fp-form .fp-warn { color: var(--warning-text); }
+@container (max-width: 620px) {
+  .fp-scenario-grid, .fp-settings { grid-template-columns: 1fr; }
+  .fp-scenario { padding: 10px 34px 10px 12px; }
+  .fp-heading h2 { font-size: 18px; }
+}
 </style>

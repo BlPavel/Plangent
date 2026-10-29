@@ -137,7 +137,7 @@ export function useTaskQueue(projectId: Ref<string | undefined>, taskId: Ref<str
     if (next) queue.value = next
     return next
   }
-  const start = (options: { base_branch?: string; branch_name?: string; auto_review?: boolean } = {}) => command('start', options)
+  const start = (options: { base_branch?: string; branch_name?: string; auto_review?: boolean; place?: 'new' | 'existing'; branch?: string } = {}) => command('start', options)
   const stop = () => command('stop')
   const pauseAfterStage = (on: boolean) => command('pause', { on })
   const resume = () => command('resume')

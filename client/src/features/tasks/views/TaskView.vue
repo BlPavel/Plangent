@@ -1,24 +1,16 @@
 ﻿<template>
   <div class="task-view">
     <WorkHeader v-if="task" :task="task" :state="entry?.state ?? null" :branch="workspace?.branch ?? task.branch_name" :main-folder="inMainFolder" :menu="menuItems" @back="goBack" />
-    <WorkStages v-if="task" :task="task" :state="entry?.state ?? null" :has-plan="!!plan" @select="activeTab = $event as Tab" />
+    <WorkStages v-if="task" :task="task" :state="entry?.state ?? null" :has-plan="!!plan" :active="activeTab" :tabs="tabs" @select="activeTab = $event as Tab" />
 
-    <AppModal :model-value="editingTitle" :title="task?.kind === 'errand' ? 'Поручение' : 'Задача'" :confirm-label="savingTitle ? 'Сохранение…' : 'Сохранить'" @update:model-value="cancelTitleEdit" @confirm="saveTitle">
+    <AppModal :model-value="editingTitle" :title="task?.kind === 'errand' ? 'Редактировать поручение' : 'Редактировать задачу'" :confirm-label="savingTitle ? 'Сохранение…' : 'Сохранить'" @update:model-value="cancelTitleEdit" @confirm="saveTitle">
       <div ref="titleForm" class="task-edit-fields" @keydown.enter.prevent="saveTitle" @keydown.esc.prevent="cancelTitleEdit">
         <FormField v-model="numberDraft" label="Номер задачи" placeholder="PROJ-123" :disabled="savingTitle" />
         <FormField v-model="titleDraft" label="Описание" placeholder="Что нужно сделать" :disabled="savingTitle" />
       </div>
     </AppModal>
 
-    <StartExecutionDialog v-if="showStart && task" v-model="showStart" :task="task" :ordinary="canChooseBranch" :group="appStore.currentProject?.kind === 'group'" :busy="startingWork" :error="startError || queue.lastError.value" :workspace="workspace" @start="startQueue" />
-    <!-- Tab bar: five tabs for a task, three for an errand -->
-    <div class="task-tab-bar">
-      <button v-for="t in tabs" :key="t.id" class="tab-btn" :class="{ active: activeTab === t.id }" @click="activeTab = t.id">
-        {{ t.label }}
-        <span v-if="t.count" class="tab-count warn" :title="t.countTitle">{{ t.count }}</span>
-        <span v-else-if="t.live" class="tab-live" title="Очередь выполняется" />
-      </button>
-    </div>
+    <StartExecutionDialog v-if="showStart && task" v-model="showStart" v-model:place="executionPlace" :task="task" :ordinary="canChooseBranch" :group="appStore.currentProject?.kind === 'group'" :busy="startingWork" :error="startError || queue.lastError.value" :workspace="workspace" @start="startQueue" />
 
     <div v-if="activeTab === 'chat' && task" class="tab-body"><WorkChat :key="task.id" :task="task" :workspace="workspace" :default-agent-id="defaultAgentId" show-rounds @open-check="activeTab = 'check'" /></div>
     <div v-if="activeTab === 'check' && task" class="tab-body">
@@ -84,12 +76,11 @@
       />
     </div>
 
-    <!-- Tab: Выполнение — plan steps and the queue on the left, the selected step's agent on the right -->
+    <!-- Execution: plan on the left; queue or selected agent on the right. -->
     <div v-if="!taskDone && task?.kind !== 'errand'" v-show="activeTab === 'exec'" class="tab-body">
       <div v-if="!plan" class="exec-no-plan">Нет плана. Создайте план на вкладке «План».</div>
-      <div v-else class="exec">
-        <div class="exec-left">
-          <TaskGit v-if="pid && task && legacyBranch" :key="task.id" :project-id="pid" :task="task" :frozen="queue.frozen.value" @updated="task = $event; appStore.currentTask = $event" />
+      <ExecutionWorkspace v-else :agent-open="!!selectedSession" @back="returnToQueue">
+        <template #plan>
           <StepPicker
             :plan="plan"
             :project-id="pid ?? ''"
@@ -98,20 +89,24 @@
             :default-agent-id="defaultAgentId"
             @plan-changed="plan = $event"
           />
+        </template>
+        <template #queue>
+          <ExecutionBranch v-if="task && isOrdinary && !legacyBranch" :key="task.id" v-model="executionPlace" :task="task" :workspace="workspace" :configurable="canChooseBranch && workspace?.status !== 'failed' && !queue.frozen.value" />
+          <TaskGit v-if="pid && task && legacyBranch" :key="task.id" :project-id="pid" :task="task" :frozen="queue.frozen.value" @updated="task = $event; appStore.currentTask = $event" />
           <ExecutionQueue
             :agents="agents"
             :steps="plan.steps"
             :selected-id="selectedQueueId"
             :task-done="task?.status === 'done'"
-            @select="selectedQueueId = selectedQueueId === $event ? null : $event"
+            @select="selectedQueueId = $event"
             @open="selectedQueueId = $event"
             @start="showStart = true"
           />
-        </div>
-        <aside class="exec-right">
+        </template>
+        <template #agent>
           <StepDetailPanel :session="selectedSession" :stage-number="selectedStage + 1" :agents="agents" :steps="plan.steps" />
-        </aside>
-      </div>
+        </template>
+      </ExecutionWorkspace>
     </div>
   </div>
 </template>
@@ -134,6 +129,9 @@ import { AnalysisNavigationKey } from '../composables/analysisNavigation'
 import PlanPanel from '../components/PlanPanel.vue'
 import StepPicker from '../components/StepPicker.vue'
 import StartExecutionDialog from '../components/StartExecutionDialog.vue'
+import ExecutionBranch from '../components/ExecutionBranch.vue'
+import type { WorkPlace } from '../components/WhereToWork.vue'
+import { slug } from '@shared/utils/slug'
 import TaskGit from '../components/TaskGit.vue'
 import WorkChat from '../components/WorkChat.vue'
 import WorkCheck from '../components/WorkCheck.vue'
@@ -143,6 +141,7 @@ import WorkStages from '../components/WorkStages.vue'
 import { useWorkStore } from '../stores/work'
 import { useWorkActions } from '../composables/useWorkActions'
 import { workApi, workspacesApi } from '../api'
+import ExecutionWorkspace from '../components/ExecutionWorkspace.vue'
 import ExecutionQueue from '../components/ExecutionQueue.vue'
 import AppButton from '@shared/ui/AppButton.vue'
 import StepDetailPanel from '../components/StepDetailPanel.vue'
@@ -211,6 +210,12 @@ const planContent = ref('')
 type Tab = 'chat' | 'analysis' | 'plan' | 'exec' | 'check' | 'finish'
 const activeTab = ref<Tab>('plan')
 const showStart = ref(false), startingWork = ref(false), startError = ref('')
+const executionPlace = ref<WorkPlace>({ place: 'new', branch_name: '', base_branch: '', branch: '' })
+watch(() => task.value?.id, () => {
+  const current = task.value
+  if (!current) return
+  executionPlace.value = { place: 'new', branch_name: current.branch_name || slug(current.external_key || current.title || current.key), base_branch: current.base_branch || '', branch: '' }
+}, { immediate: true })
 const work = useWorkStore(), actions = useWorkActions()
 const entry = computed(() => work.entries.find(e => e.task.id === task.value?.id) ?? null)
 const workspace = computed(() => entry.value?.workspace ?? null)
@@ -333,6 +338,15 @@ const queue = useTaskQueue(pid, tid)
 provide(TaskQueueKey, queue)
 const selectedQueueId = ref<string | null>(null)
 const selectedSession = computed(() => queue.allSessions.value.find(s => s.id === selectedQueueId.value))
+async function returnToQueue() {
+  selectedQueueId.value = null
+  if (route.query.session) {
+    const query = { ...route.query }
+    delete query.session
+    await router.replace({ query })
+  }
+}
+watch(selectedSession, session => { if (!session) selectedQueueId.value = null })
 const selectedStage = computed(() => queue.stages.value.findIndex(st => st.sessions.some(s => s.id === selectedQueueId.value)))
 const chat = (id?: string) => id ? chatStore.sessions.find(c => c.id === id) : undefined
 const planAttention = ref(0)
@@ -343,7 +357,7 @@ const tabs = computed<TabItem[]>(() => {
   if (!task.value) return []
   const check: TabItem = { id: 'check', label: 'Проверка', count: entry.value?.state.counts.remarks, countTitle: 'Замечания, по которым нужно решение' }
   const finish: TabItem = { id: 'finish', label: 'Завершение' }
-  if (task.value.kind === 'errand') return [{ id: 'chat', label: 'Чат' }, check, finish]
+  if (task.value.kind === 'errand') return [{ id: 'chat', label: 'Выполнение' }, check, finish]
   return [
     { id: 'analysis', label: 'Анализ' },
     { id: 'plan', label: 'План', count: planAttention.value, countTitle: 'Карточки ревью плана, которые ждут вашего решения или ответа планировщика' },
@@ -361,7 +375,7 @@ const menuItems = computed<MenuItem[]>(() => {
   const t = task.value
   if (!t) return []
   return [
-    { label: 'Номер и описание…', action: () => void startTitleEdit() },
+    { label: 'Редактировать', hint: 'Номер задачи и описание', action: () => void startTitleEdit() },
     ...(!t.closed_at && t.status !== 'done' ? [{ label: 'Закрыть работу', hint: 'Без пуша и МР; можно открыть снова', action: () => void closeWork() }] : []),
     ...(t.kind === 'errand' && !t.closed_at ? [
       { label: 'Добавить план', hint: 'Поручение станет задачей, ветка сохранится', action: () => void addPlanToErrand() },
@@ -373,7 +387,7 @@ const menuItems = computed<MenuItem[]>(() => {
     ...(t.status !== 'done' && t.kind !== 'errand' && !workspace.value ? [{ label: 'Отметить выполненной', hint: 'Без Завершения', action: () => void markDoneTask() }] : []),
     ...(t.status === 'done' ? [{ label: 'Вернуть в работу', action: () => void reopenTask() }] : []),
     { separator: true },
-    { label: 'Удалить', danger: true, action: () => void deleteCurrentTask() },
+    { label: 'Удалить', hint: 'Удалить работу без возможности восстановления', danger: true, action: () => void deleteCurrentTask() },
   ]
 })
 async function addPlanToErrand() {
@@ -404,7 +418,7 @@ async function onClosed(closed: Task) {
   goBack()
 }
 
-async function startQueue(options: { base_branch?: string; branch_name?: string; auto_review?: boolean }) {
+async function startQueue(options: { base_branch?: string; branch_name?: string; auto_review?: boolean; place?: 'new' | 'existing'; branch?: string }) {
   if (startingWork.value || !task.value) return
   startingWork.value = true; startError.value = ''
   // The first launch is the moment to ask for (browser) notification permission: it is a click.
@@ -510,9 +524,6 @@ onMounted(async () => {
   else if (!plan.value) activeTab.value = 'analysis'
   // Open where the work is: a running queue, or a step that waits for the developer.
   if (task.value?.kind !== 'errand' && !taskDone.value && queue.sessions.value.length && (queue.frozen.value || attentionCount.value)) activeTab.value = 'exec'
-  const first = queue.sessions.value.find(s => sessionState(s, chat(s.sessionId)).attention)
-    ?? queue.sessions.value.find(s => sessionState(s).live)
-  if (first) selectedQueueId.value = first.id
   applyRouteTab()
   openChatFromRoute()
 })
@@ -652,36 +663,6 @@ async function savePlan() {
 .task-key { font-size: 13px; color: var(--text-muted); font-family: 'Cascadia Code', 'JetBrains Mono', monospace; }
 .task-name { font-size: 16px; font-weight: 700; letter-spacing: -0.01em; }
 
-/* Tab bar */
-.task-tab-bar {
-  display: flex;
-  gap: 2px;
-  padding: 0 var(--sp-5);
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-}
-.tab-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  background: none;
-  border: none;
-  border-bottom: 2px solid transparent;
-  color: var(--text-muted);
-  padding: 11px 14px;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 500;
-  transition: color 0.12s, border-color 0.12s;
-  margin-bottom: -1px;
-}
-.tab-btn:hover { color: var(--text); }
-.tab-btn.active { color: var(--text); border-bottom-color: var(--blue); }
-.tab-count { min-width: 18px; height: 18px; padding: 0 5px; border-radius: var(--radius-pill); font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
-.tab-count.warn { background: var(--warning); color: #0d1117; }
-.tab-live { width: 7px; height: 7px; border-radius: 50%; background: var(--blue-hover); animation: pulse 1.4s ease-in-out infinite; }
-@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
-
 /* Tab bodies */
 .tab-body {
   flex: 1;
@@ -693,8 +674,4 @@ async function savePlan() {
 
 .exec-no-plan { font-size: 13px; color: var(--text-muted); padding: 16px 20px; }
 .check-note { font-size: 12px; color: var(--blue-hover); white-space: nowrap; }
-.exec { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(360px, 45%) minmax(0, 1fr); }
-.exec-left { min-height: 0; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 20px; border-right: 1px solid var(--border); }
-.exec-right { min-height: 0; min-width: 0; display: flex; flex-direction: column; }
 </style>
-

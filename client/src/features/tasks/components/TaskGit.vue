@@ -17,7 +17,7 @@
           <button type="button" class="btn btn-ghost btn-sm" :disabled="busy || frozen || !!git.writeBlocked" :title="frozen ? 'Остановите очередь, чтобы сменить ветку' : git.writeBlocked || 'Переключиться на ветку задачи'" @click="switchToTask">Переключиться</button>
         </template>
         <div class="tg-picker">
-          <button type="button" class="btn btn-ghost btn-sm" :disabled="busy || frozen || !!git.writeBlocked || !git.repository" :title="frozen ? 'Остановите очередь, чтобы сменить ветку' : git.writeBlocked || 'Переключить ветку или создать новую; она станет веткой задачи'" @click="picker = !picker">Сменить</button>
+          <AppButton type="button" size="xs" :disabled="busy || frozen || !!git.writeBlocked || !git.repository" :title="frozen ? 'Остановите очередь, чтобы сменить ветку' : git.writeBlocked || 'Переключить ветку или создать новую; она станет веткой задачи'" @click="picker = !picker">Сменить</AppButton>
           <BranchPicker v-if="picker" :task="task" :on-select-branch="saveBranch" @close="picker = false" />
         </div>
       </template>
@@ -47,6 +47,7 @@ import { BranchPicker, useGitStore } from '@features/code'
 import { errorText } from '@shared/utils/errorText'
 import { useAppStore } from '@core/stores/app'
 import type { Task } from '@core/models'
+import AppButton from '@shared/ui/AppButton.vue'
 
 const props = defineProps<{ projectId: string; task: Task; frozen?: boolean }>()
 const emit = defineEmits<{ updated: [task: Task] }>()
@@ -91,16 +92,16 @@ async function resetBaseCommit() {
 }
 </script>
 <style scoped>
-.task-git { display: flex; flex-direction: column; gap: 8px; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg2); font-size: 12px; }
-.tg-line { display: flex; align-items: center; gap: 8px; min-height: var(--size-sm); flex-wrap: wrap; }
+.task-git { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg2); font-size: 12px; }
+.tg-line { display: flex; align-items: center; gap: 8px; min-height: var(--size-xs); flex-wrap: wrap; }
 .tg-toggle { display: inline-flex; align-items: center; gap: 4px; padding: 0; background: none; border: none; color: var(--text-muted); font-family: inherit; cursor: pointer; }
 .tg-toggle:hover { color: var(--text); }
 .tg-toggle svg { width: 14px; height: 14px; transition: transform 0.15s; }
 .tg-toggle svg.open { transform: rotate(90deg); }
-.tg-branch { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tg-branch { font-weight: 600; min-width: 0; max-width: min(45%, 320px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tg-branch.none { font-weight: 400; color: var(--text-muted); }
 .tg-details { display: flex; flex-direction: column; gap: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
-.tg-base { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.tg-base { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
 .spacer { flex: 1; }
 .section-label { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; }
 .tg-picker { position: relative; }

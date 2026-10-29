@@ -67,7 +67,7 @@ orchestratorRouter.post('/queue/start', async (req: Request, res: Response) => {
     await withWorkStart(queue.taskId, async () => {
       const options = req.body ?? {};
       if (options.auto_review !== undefined && typeof options.auto_review !== 'boolean') throw new Error('Invalid auto_review');
-      for (const field of ['base_branch', 'branch_name']) if (options[field] !== undefined && typeof options[field] !== 'string') throw new Error('Invalid ' + field);
+      for (const field of ['base_branch', 'branch_name', 'branch', 'place']) if (options[field] !== undefined && typeof options[field] !== 'string') throw new Error('Invalid ' + field);
       await prepareWork(queue.taskId, options);
       if (options.auto_review !== undefined) updateTask(queue.taskId, { auto_review: options.auto_review });
       const task = getTask(queue.taskId)!;

@@ -6,7 +6,7 @@
         <span class="picker-selected">Выбрано: {{ selected.length }}</span>
         <span class="spacer" />
         <AppButton v-if="selectedUndone.length" variant="subtle" size="xs" @click="setDone(true)">Отметить выполненным</AppButton>
-        <AppButton v-if="selectedDone.length" variant="subtle" size="xs" @click="setDone(false)">Вернуть в работу</AppButton>
+        <AppButton v-if="selectedDone.length" variant="blue" size="xs" @click="setDone(false)">Вернуть в работу</AppButton>
         <AppButton variant="subtle" size="xs" @click="clear">Снять выбор</AppButton>
       </template>
       <template v-else>
@@ -22,6 +22,13 @@
         class="step"
         :class="{ done: s.done, selected: isSelected(s), queued: !s.done && stageOf(s) > 0 }"
         :style="!s.done && stageOf(s) ? { '--stage-color': stageColor(stageOf(s) - 1) } : undefined"
+        role="checkbox"
+        :aria-checked="isSelected(s)"
+        :aria-label="[s.id, s.text].filter(Boolean).join(' ')"
+        :aria-disabled="!s.id || taskDone"
+        :tabindex="s.id && !taskDone ? 0 : -1"
+        @keydown.space.prevent="toggle(s)"
+        @keydown.enter.prevent="toggle(s)"
         @click="toggle(s)"
       >
         <span class="step-select" :class="{ on: isSelected(s) }">
@@ -201,14 +208,15 @@ async function setDone(done: boolean) {
 </script>
 
 <style scoped>
-.picker { display: flex; flex-direction: column; gap: 8px; }
-.picker-head { display: flex; align-items: center; gap: 8px; min-height: var(--size-xs); }
+.picker { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+.picker-head { flex-shrink: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: var(--size-xs); }
 .section-label { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
 .picker-progress { font-size: 12px; color: var(--text-faint); }
 .spacer { flex: 1; }
 
-.steps { display: flex; flex-direction: column; gap: 2px; }
+.steps { flex: 1; min-height: 80px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; padding: 2px; }
 .step { display: flex; align-items: center; gap: 10px; font-size: 13px; padding: 6px 8px; border-radius: var(--radius-sm); border: 1px solid transparent; cursor: pointer; transition: background 0.12s, border-color 0.12s; }
+.step:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
 .step:hover { background: var(--bg3); }
 /* Already in the queue: the stage's colour as a bar and a faint tint */
 .step.queued { box-shadow: inset 3px 0 0 var(--stage-color); background: color-mix(in srgb, var(--stage-color) 7%, transparent); }
@@ -227,10 +235,10 @@ async function setDone(done: boolean) {
 
 .picker-selected { font-size: 12px; color: var(--blue-hover); font-weight: 600; }
 
-.builder { display: flex; flex-direction: column; gap: 10px; padding: 10px 12px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg2); }
-.builder-head { display: flex; align-items: center; gap: 8px; min-height: var(--size-xs); }
+.builder { flex-shrink: 0; display: flex; flex-direction: column; gap: 10px; padding: 10px 12px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg2); }
+.builder-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: var(--size-xs); }
 .builder-title { font-size: 12.5px; font-weight: 600; }
-.builder-status { font-size: 12px; color: var(--text-faint); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.builder-status { font-size: 12px; color: var(--text-faint); min-width: 0; flex-basis: 100%; order: 1; line-height: 1.5; }
 .builder-grid { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px 12px; }
 .builder-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.4px; }
 .builder-controls { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }

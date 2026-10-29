@@ -70,6 +70,7 @@
             <span v-if="stage.sessions.length > 1" class="stage-parallel" title="Шаги этого этапа выполняются одновременно">∥ параллельно · {{ stage.sessions.length }}</span>
             <span v-if="frozen && i === queue.queue.value?.stageIndex" class="stage-current">{{ status === 'paused' ? 'на паузе' : 'сейчас' }}</span>
             <span class="spacer" />
+            <AppButton v-if="editable && isReviewStage(stage)" size="xs" variant="danger-ghost" title="Убрать финальное ревью из очереди" @click="queue.removeStage(stage.id)">Убрать ревью</AppButton>
             <button
               v-if="editable && i < stages.length - 1"
               type="button"

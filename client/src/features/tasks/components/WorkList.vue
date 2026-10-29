@@ -52,15 +52,22 @@
               <template v-else>
                 <AppButton v-if="e.state.action === 'errand'" variant="subtle" size="sm" @click.stop="startFollowUp(e.task)">Поручение по этой</AppButton>
                 <AppButton v-else variant="subtle" size="sm" @click.stop="reopen(e.task)">Открыть снова</AppButton>
-                <button type="button" class="work-del" title="Удалить" @click.stop="remove(e.task)"><IconTrash /></button>
               </template>
-              <span v-if="moveMenu && moveMenu(e.task).length > 1" class="work-menu" @click.stop><AppMenu :items="moveMenu(e.task)" size="xs" title="Переместить" /></span>
+              <span class="work-menu" @click.stop><AppMenu :items="rowMenu(e.task)" size="sm" title="Действия с работой" /></span>
             </div>
           </div>
         </template>
       </section>
     </div>
 
+    <AppModal :model-value="!!editing" :title="editing?.kind === 'errand' ? 'Редактировать поручение' : 'Редактировать задачу'" :confirm-label="saving ? 'Сохранение…' : 'Сохранить'" @update:model-value="closeEditor" @confirm="saveEdit">
+      <form ref="editForm" class="work-edit" @submit.prevent="saveEdit" @keydown.esc.stop="closeEditor">
+        <FormField v-model="numberDraft" label="Номер задачи" placeholder="PROJ-123" maxlength="100" :disabled="saving" />
+        <FormField v-model="titleDraft" label="Описание" placeholder="Что нужно сделать" maxlength="300" :disabled="saving" />
+        <p v-if="editError" class="work-error" role="alert">{{ editError }}</p>
+        <button type="submit" hidden />
+      </form>
+    </AppModal>
     <AppModal :model-value="!!followUp" title="Поручение по этой работе" confirm-label="Поручить" @update:model-value="followUp = null" @confirm="submitFollowUp">
       <FormField v-model="followText" label="Что нужно сделать" placeholder="Что поправить после влития МР?" />
     </AppModal>
@@ -68,15 +75,15 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import type { Agent, Project, Task, WorkEntry } from '@core/models'
 import { useAppStore } from '@core/stores/app'
+import { api } from '@core/api'
 import AppButton from '@shared/ui/AppButton.vue'
 import AppModal from '@shared/ui/AppModal.vue'
 import AppMenu, { type MenuItem } from '@shared/ui/AppMenu.vue'
 import FormField from '@shared/ui/FormField.vue'
-import IconTrash from '@shared/ui/IconTrash.vue'
 import NewWork from './NewWork.vue'
 import { useWorkStore } from '../stores/work'
 import { useWorkActions } from '../composables/useWorkActions'
@@ -124,6 +131,39 @@ function onCreated(task: Task, tab: string) {
 
 async function reopen(task: Task) { if (await actions.reopen(task)) { await work.load(); emit('changed') } }
 async function remove(task: Task) { if (await actions.remove(task)) { await work.load(); emit('changed') } }
+function rowMenu(task: Task): MenuItem[] {
+  const moves = props.moveMenu?.(task) ?? []
+  return [
+    { label: 'Редактировать', hint: 'Номер задачи и описание', action: () => void edit(task) },
+    ...(moves.some(item => item.action) ? [{ separator: true }, ...moves] : []),
+    { separator: true },
+    { label: 'Удалить', hint: 'Без возможности восстановления', danger: true, action: () => void remove(task) },
+  ]
+}
+const editing = ref<Task | null>(null), saving = ref(false), editError = ref('')
+const numberDraft = ref(''), titleDraft = ref(''), editForm = ref<HTMLFormElement>()
+async function edit(task: Task) {
+  editing.value = task; numberDraft.value = task.external_key ?? ''; titleDraft.value = task.title ?? ''; editError.value = ''
+  await nextTick()
+  const input = editForm.value?.querySelector<HTMLInputElement>('input')
+  input?.focus(); input?.select()
+}
+function closeEditor() { if (!saving.value) editing.value = null }
+async function saveEdit() {
+  const task = editing.value
+  if (!task || saving.value) return
+  const title = titleDraft.value.trim(), number = numberDraft.value.trim()
+  if (!title && !number) { editError.value = 'Укажите номер задачи или описание'; return }
+  saving.value = true; editError.value = ''
+  try {
+    const updated = await api.patch<Task>(`/projects/${task.project_id}/tasks/${task.id}`, { title, external_key: number || null })
+    if (app.currentTask?.id === updated.id) app.currentTask = updated
+    editing.value = null
+    await work.load(); emit('changed')
+    app.toast('Сохранено', 'success')
+  } catch (cause) { editError.value = cause instanceof Error ? cause.message : String(cause) }
+  finally { saving.value = false }
+}
 const followUp = ref<Task | null>(null), followText = ref('')
 function startFollowUp(task: Task) { followUp.value = task; followText.value = '' }
 async function submitFollowUp() {
@@ -185,9 +225,6 @@ async function submitFollowUp() {
 .work-actions { display: flex; align-items: center; justify-content: flex-end; gap: 4px; min-width: 130px; }
 .work-owner-tag { flex-shrink: 0; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 1px 8px; border-radius: var(--radius-pill); background: var(--bg3); border: 1px solid var(--border); font-size: 11px; color: var(--text-muted); }
 .work-owner-tag.own { color: var(--blue-hover); border-color: var(--blue-soft); }
-.work-del { background: none; border: none; padding: 4px; color: var(--danger-hover); cursor: pointer; opacity: 0.6; }
-.work-del:hover { opacity: 1; }
-.work-del :deep(svg) { width: 16px; height: 16px; }
-.work-menu { opacity: 0; transition: opacity 0.12s; }
-.work-row:hover .work-menu, .work-menu:has(.menu.open) { opacity: 1; }
+.work-menu { display: inline-flex; }
+.work-edit { display: flex; flex-direction: column; gap: 12px; }
 </style>

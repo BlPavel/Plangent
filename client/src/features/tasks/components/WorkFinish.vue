@@ -2,12 +2,12 @@
   <div class="work-finish">
     <div class="finish-body">
       <p v-if="closed" class="finish-note">Работа закрыта{{ task.close_reason === 'cancelled' ? ' (отменена)' : '' }}. Завершение доступно только для чтения.</p>
-      <FinishPanel :key="task.id" :project-id="task.project_id" :task="{ id: task.id, key: task.key }" :workspace-id="workspace?.id" :branch="workspace?.branch ?? task.branch_name" :blocked="closed ? 'Работа закрыта' : git.writeBlocked" />
+      <FinishPanel :key="task.id" :project-id="task.project_id" :task="{ id: task.id, key: task.key }" :workspace-id="workspace?.id" :branch="git.repository?.branch" :blocked="closed ? 'Работа закрыта' : git.writeBlocked" />
+      <footer class="finish-footer">
+        <span class="finish-hint">Закрытие уберёт рабочее место{{ workspace ? ' ' + workspace.branch : '' }}; несохранённое молча не пропадёт.</span>
+        <AppButton :disabled="closing || closed" @click="closeWork">{{ closing ? 'Закрываем…' : 'Закрыть работу' }}</AppButton>
+      </footer>
     </div>
-    <footer class="finish-footer">
-      <span class="finish-hint">Закрытие уберёт рабочее место{{ workspace ? ' ' + workspace.branch : '' }}; несохранённое молча не пропадёт.</span>
-      <AppButton variant="primary" :disabled="closing || closed" @click="closeWork">{{ closing ? 'Закрываем…' : 'Закрыть работу' }}</AppButton>
-    </footer>
   </div>
 </template>
 <script setup lang="ts">
@@ -39,8 +39,12 @@ async function closeWork() {
 </script>
 <style scoped>
 .work-finish { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-.finish-body { flex: 1; min-height: 0; overflow: auto; max-width: 900px; width: 100%; margin: 0 auto; }
+.finish-body { flex: 1; min-height: 0; overflow: auto; max-width: 960px; width: 100%; margin: 0 auto; padding: 8px 16px; }
 .finish-note { padding: 12px 16px; color: var(--text-muted); font-size: 12.5px; }
-.finish-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px var(--sp-5); border-top: 1px solid var(--border); }
+.finish-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 14px; padding: 12px 0; border-top: 1px solid var(--border); }
 .finish-hint { font-size: 12px; color: var(--text-muted); }
+@media (max-width: 640px) {
+  .finish-body { padding: 8px 0; }
+  .finish-footer { flex-wrap: wrap; }
+}
 </style>

@@ -67,7 +67,7 @@
 <script lang="ts">
 type HomeTab = 'agents' | 'projects' | 'tasks' | 'code' | 'review' | 'instructions' | 'settings'
 // Module-level so it survives HomeView being unmounted while a task is open.
-const lastTab: { projectId: string | null; tab: HomeTab } = { projectId: null, tab: 'agents' }
+const lastTab: { projectId: string | null; tab: HomeTab } = { projectId: null, tab: 'tasks' }
 </script>
 
 <script setup lang="ts">
@@ -104,14 +104,14 @@ const group = computed(() => projectsStore.byId(currentProject.value?.group_id))
 const members = computed(() => isGroup.value ? projectsStore.members(currentProject.value!.id) : [])
 const tasks = ref<Task[]>([])
 
-// A freshly opened project starts on «Агенты»; coming back from a task restores the tab you left.
-const activeTab = ref<HomeTab>(lastTab.projectId && lastTab.projectId === appStore.currentProject?.id ? lastTab.tab : 'agents')
+// A freshly opened project starts on «Задачи»; coming back from a task restores the tab you left.
+const activeTab = ref<HomeTab>(lastTab.projectId && lastTab.projectId === appStore.currentProject?.id ? lastTab.tab : 'tasks')
 watch(activeTab, tab => { if (currentProject.value) Object.assign(lastTab, { projectId: currentProject.value.id, tab }) }, { immediate: true })
 type TabItem = { id: HomeTab; label: string; disabled: boolean; count?: number; countTitle?: string }
 const tabs = computed<TabItem[]>(() => [
-  ...(isGroup.value ? [{ id: 'projects' as const, label: `Проекты · ${members.value.length}`, disabled: false }] : []),
-  { id: 'agents' as const, label: 'Агенты', disabled: false },
   { id: 'tasks' as const, label: 'Задачи', disabled: false },
+  ...(isGroup.value ? [{ id: 'projects' as const, label: `Проекты · ${members.value.length}`, disabled: false }] : []),
+  { id: 'agents' as const, label: 'Чат', disabled: false },
   ...(isGroup.value ? [] : [{ id: 'code' as const, label: 'Код', disabled: false, count: codeAttentionCount.value, countTitle: 'Пункты, по которым нужно ваше решение' }]),
   { id: 'review' as const, label: 'Ревью', disabled: false },
   { id: 'instructions' as const, label: 'Инструкции', disabled: false },
@@ -165,7 +165,7 @@ watch(() => (isGroup.value ? null : currentProject.value?.id), async id => {
 }, { immediate: true })
 watch(() => currentProject.value?.id, id => {
   // «Настройки» opened from a group's project list asks for its tab together with the project switch.
-  activeTab.value = route.query.tab === 'settings' ? 'settings' : 'agents'
+  activeTab.value = route.query.tab === 'settings' ? 'settings' : 'tasks'
   Object.assign(lastTab, { projectId: id ?? null, tab: activeTab.value })
 })
 

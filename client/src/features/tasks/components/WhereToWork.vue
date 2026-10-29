@@ -1,40 +1,43 @@
 <template>
   <span v-if="!ordinary" class="where-fixed" title="Работа групп идёт в основных папках их проектов">📁 основные папки проектов</span>
   <span v-else ref="root" class="where" :class="{ open }">
-    <button type="button" class="where-trigger" :class="{ invalid }" :title="invalid ? 'Укажите ветку' : 'Где работает агент'" @click="open = !open">
-      ⎇ {{ label }}
+    <button type="button" class="where-trigger" :class="{ invalid }" :aria-expanded="open" aria-haspopup="dialog" :title="invalid ? 'Выберите ветку выполнения' : label" @click="open = !open">
+      <svg class="where-branch-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M6 6v8m8-8v2a3 3 0 01-3 3H6" stroke="currentColor" stroke-width="1.5" /><circle cx="6" cy="4" r="2" stroke="currentColor" stroke-width="1.5" /><circle cx="6" cy="16" r="2" stroke="currentColor" stroke-width="1.5" /><circle cx="14" cy="4" r="2" stroke="currentColor" stroke-width="1.5" /></svg>
+      <span class="where-trigger-text"><span>Ветка выполнения</span><strong>{{ label }}</strong></span>
       <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
     </button>
-    <div v-if="open" class="where-pop" role="dialog" aria-label="Где работать" @keydown.esc.stop.prevent="open = false">
-      <div class="where-kinds" role="group">
-        <button type="button" :class="{ on: modelValue.place === 'new' }" @click="set({ place: 'new' })">Новая ветка</button>
-        <button type="button" :class="{ on: modelValue.place === 'existing' }" @click="set({ place: 'existing' })">Существующая</button>
+    <div v-if="open || inline" class="where-pop" :class="{ inline }" :role="inline ? 'group' : 'dialog'" aria-label="Где работать" @keydown.esc.stop.prevent="open = false">
+      <div class="where-kinds" role="group" aria-label="Способ выбора ветки">
+        <button type="button" :class="{ on: modelValue.place === 'new' }" :aria-pressed="modelValue.place === 'new'" @click="set({ place: 'new' })"><strong>Создать новую</strong><span>От базовой ветки проекта</span></button>
+        <button type="button" :class="{ on: modelValue.place === 'existing' }" :aria-pressed="modelValue.place === 'existing'" @click="set({ place: 'existing' })"><strong>Использовать существующую</strong><span>Выбрать из веток проекта</span></button>
       </div>
       <template v-if="modelValue.place === 'new'">
-        <p class="where-note">Своё рабочее место: другие агенты и основная папка проекта не мешают.</p>
-        <label class="where-field"><span>Ветка</span>
+        <label class="where-field"><span>Имя новой ветки</span>
           <BranchNameInput :model-value="modelValue.branch_name" :prefixes="prefixes" placeholder="Имя новой ветки" label="Имя новой ветки" @update:model-value="set({ branch_name: $event })" @enter="open = false" />
         </label>
-        <label class="where-field"><span>от</span>
+        <label class="where-field"><span>Создать от ветки</span>
           <BranchSelect :model-value="modelValue.base_branch" :options="baseOptions" small placeholder="Из настроек проекта" label="Базовая ветка" @update:model-value="set({ base_branch: $event })" />
         </label>
+        <p class="where-note">Для задачи будет создана отдельная рабочая папка на новой ветке.</p>
       </template>
       <template v-else>
-        <input ref="searchInput" v-model="search" class="control control-sm" placeholder="Поиск ветки (локальная или origin/*)" aria-label="Поиск ветки" />
+        <label class="where-field"><span>Найти ветку проекта</span><input ref="searchInput" v-model="search" class="control control-sm" placeholder="Введите название ветки…" aria-label="Поиск ветки" /></label>
+        <div v-if="modelValue.branch" class="where-selection"><span>Выбрана ветка</span><code>{{ modelValue.branch }}</code></div>
         <div class="where-list">
           <template v-for="group in groups" :key="group.title">
             <div v-if="group.items.length" class="where-group">{{ group.title }}</div>
             <button
               v-for="b in group.items" :key="b.ref" type="button" class="where-item" :class="{ on: plain(b.name) === modelValue.branch }"
-              :disabled="!!busy(b.name)" :title="busy(b.name) ? 'Занята: ' + busy(b.name) : plain(b.name) === current ? 'Открыта в основной папке: агент будет работать там' : 'Своё рабочее место на этой ветке'"
+              :aria-pressed="plain(b.name) === modelValue.branch" :disabled="!!busy(b.name)" :title="busy(b.name) ? 'Занята: ' + busy(b.name) : plain(b.name) === current ? 'Открыта в основной папке: агент будет работать там' : 'Своё рабочее место на этой ветке'"
               @click="set({ branch: plain(b.name) }); open = false"
-            >{{ b.name }}<span v-if="busy(b.name)" class="where-tag">занята</span><span v-else-if="plain(b.name) === current" class="where-tag main">основная папка</span></button>
+            ><span class="where-item-check" aria-hidden="true">{{ plain(b.name) === modelValue.branch ? '✓' : '⎇' }}</span><span class="where-item-name">{{ b.name }}</span><span v-if="busy(b.name)" class="where-tag">занята</span><span v-else-if="plain(b.name) === current" class="where-tag main">основная папка</span></button>
           </template>
           <div v-if="!filtered.length" class="where-empty">Ветки не найдены</div>
         </div>
         <p v-if="modelValue.branch && modelValue.branch === current" class="where-note warn">
           Ветка открыта в основной папке — агент будет работать там. Одновременно в ней может идти только одна работа.<template v-if="dirty"> Там есть незакоммиченные изменения: агент будет работать поверх них.</template>
         </p>
+        <p v-else-if="modelValue.branch" class="where-note">Агент будет работать в отдельной рабочей папке на выбранной ветке.</p>
       </template>
       <div v-if="error" class="where-error">{{ error }}</div>
     </div>
@@ -47,7 +50,7 @@ import BranchSelect from '@shared/ui/BranchSelect.vue'
 import { gitApi, codeApi, type GitBranch } from '@features/code'
 
 export interface WorkPlace { place: 'new' | 'existing'; branch_name: string; base_branch: string; branch: string }
-const props = defineProps<{ modelValue: WorkPlace; projectId: string; ordinary: boolean; /** branch → the work that already has it */ taken: Record<string, string> }>()
+const props = defineProps<{ modelValue: WorkPlace; projectId: string; ordinary: boolean; inline?: boolean; /** branch → the work that already has it */ taken: Record<string, string> }>()
 const emit = defineEmits<{ 'update:modelValue': [WorkPlace] }>()
 const root = ref<HTMLElement>(), searchInput = ref<HTMLInputElement>()
 const open = ref(false), search = ref(''), error = ref('')
@@ -87,7 +90,7 @@ watch(open, async value => {
   if (!value || props.modelValue.place !== 'existing') return
   await nextTick(); searchInput.value?.focus()
 })
-watch(() => props.modelValue.place, async place => { if (open.value && place === 'existing') { await nextTick(); searchInput.value?.focus() } })
+watch(() => props.modelValue.place, async place => { if ((open.value || props.inline) && place === 'existing') { await nextTick(); searchInput.value?.focus() } })
 // Refreshed from origin when the list is opened: a colleague may have pushed a branch since.
 watch(open, async value => {
   if (!value || !props.ordinary) return
@@ -100,21 +103,37 @@ defineExpose({ invalid, openPicker: () => { open.value = true } })
 </script>
 <style scoped>
 .where { position: relative; display: inline-flex; }
+.where:has(.where-pop.inline) { display: block; }
+.where:has(.where-pop.inline) > .where-trigger { display: none; }
+.where-pop.inline { position: static; width: 100%; box-shadow: none; padding: 0; border: 0; background: transparent; }
 .where-fixed { font-size: 12px; color: var(--text-muted); padding: 0 6px; white-space: nowrap; }
-.where-trigger { display: inline-flex; align-items: center; gap: 6px; max-width: 320px; height: var(--size-sm); padding: 0 8px 0 10px; font-family: 'Cascadia Code', 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-muted); background: transparent; border: 1px solid transparent; border-radius: var(--radius-btn); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.where-trigger { display: inline-flex; align-items: center; gap: 10px; max-width: min(380px, 100%); padding: 8px 10px; font: inherit; font-size: 12px; color: var(--text); background: var(--bg3); border: 1px solid var(--border-strong); border-radius: var(--radius-btn); cursor: pointer; text-align: left; }
+.where-trigger-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.where-trigger-text > span { color: var(--text-muted); font-size: 11px; }
+.where-trigger-text strong { font-family: 'Cascadia Code', 'JetBrains Mono', monospace; font-size: 12px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .where-trigger:hover, .where.open .where-trigger { color: var(--text); background: var(--bg3); border-color: var(--border-strong); }
 .where-trigger.invalid { color: var(--warning-text); }
 .where-trigger svg { width: 12px; height: 12px; flex-shrink: 0; }
-.where-pop { position: absolute; z-index: 30; top: calc(100% + 6px); right: 0; width: 380px; padding: 10px; display: flex; flex-direction: column; gap: 8px; background: var(--bg2); border: 1px solid var(--border-strong); border-radius: var(--radius); box-shadow: var(--shadow-md); font-size: 12px; }
-.where-kinds { display: inline-flex; align-self: flex-start; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
-.where-kinds button { padding: 4px 12px; font: inherit; color: var(--text-muted); background: none; border: none; cursor: pointer; }
-.where-kinds button.on { background: var(--bg3); color: var(--text); }
-.where-note { margin: 0; font-size: 11.5px; line-height: 1.4; color: var(--text-faint); }
+.where-trigger .where-branch-icon { width: 18px; height: 18px; color: var(--blue-hover); }
+.where-pop { position: absolute; z-index: 30; top: calc(100% + 6px); right: 0; width: min(440px, calc(100vw - 40px)); max-height: min(560px, 70vh); overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 14px; background: var(--bg2); border: 1px solid var(--border-strong); border-radius: var(--radius-lg); box-shadow: var(--shadow-md); font-size: 12px; }
+.where-pop.inline { max-height: none; overflow: visible; }
+.where-kinds { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.where-kinds button { display: flex; flex-direction: column; gap: 5px; padding: 12px; font: inherit; text-align: left; color: var(--text-muted); background: var(--bg); border: 1px solid var(--border-strong); border-radius: var(--radius); cursor: pointer; }
+.where-kinds button strong { font-size: 12px; font-weight: 600; color: var(--text); }
+.where-kinds button span { font-size: 11px; line-height: 1.45; }
+.where-kinds button.on { background: var(--blue-soft); border-color: var(--blue-hover); box-shadow: inset 0 0 0 1px var(--blue-hover); }
+.where-kinds button:hover { border-color: var(--blue-hover); }
+.where button:focus-visible { outline: 2px solid var(--blue-hover); outline-offset: 2px; }
+.where-note { margin: 0; font-size: 12px; line-height: 1.55; color: var(--text-muted); }
 .where-note.warn { color: var(--warning-text); }
-.where-field { display: flex; flex-direction: column; gap: 4px; color: var(--text-muted); }
-.where-list { max-height: 240px; overflow: auto; display: flex; flex-direction: column; gap: 1px; }
+.where-field { display: flex; flex-direction: column; gap: 7px; color: var(--text); font-size: 12px; }
+.where-selection { display: flex; flex-wrap: wrap; gap: 6px 10px; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--blue-soft); color: var(--text-muted); }
+.where-selection code { color: var(--text); overflow-wrap: anywhere; }
+.where-list { max-height: 240px; overflow: auto; display: flex; flex-direction: column; gap: 2px; padding: 4px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); }
 .where-group { padding: 4px 6px 2px; font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-faint); }
-.where-item { display: flex; align-items: center; gap: 6px; padding: 4px 8px; font: inherit; text-align: left; color: var(--text); background: none; border: none; border-radius: var(--radius-sm); cursor: pointer; overflow-wrap: anywhere; }
+.where-item { display: flex; align-items: center; gap: 8px; padding: 8px; font: inherit; text-align: left; color: var(--text); background: none; border: none; border-radius: var(--radius-sm); cursor: pointer; overflow-wrap: anywhere; }
+.where-item-check { width: 14px; flex-shrink: 0; color: var(--blue-hover); }
+.where-item-name { min-width: 0; overflow-wrap: anywhere; }
 .where-item:hover:not(:disabled) { background: var(--bg-hover); }
 .where-item.on { background: var(--blue-soft); }
 .where-item:disabled { color: var(--text-faint); cursor: not-allowed; }

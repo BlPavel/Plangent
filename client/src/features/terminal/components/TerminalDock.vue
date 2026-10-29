@@ -19,10 +19,10 @@
         v-for="r in runningElsewhere" :key="r.workspaceId ?? 'main'" type="button" class="status-run"
         :title="'Запущено: ' + r.processes.join(', ') + ' — открыть этот терминал'" @click="showPlace(r)"
       >▶ {{ r.label }}</button>
-      <button type="button" class="status-toggle" :class="{ on: open }" :disabled="!context" :title="context ? 'Терминал: ' + context.label + ' (Ctrl+`)' : 'Выберите проект'" @click="open = !open">
+      <AppButton type="button" size="sm" class="status-toggle" :class="{ on: open }" :aria-expanded="open" :disabled="!context" :title="context ? 'Терминал: ' + context.label + ' (Ctrl+`)' : 'Выберите проект'" @click="open = !open">
         <svg viewBox="0 0 16 16" fill="none"><path d="M3 4.5L6.5 8 3 11.5M8 11.5h5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
         Терминал<span v-if="runningHere" class="status-dot" title="Здесь что-то запущено" />
-      </button>
+      </AppButton>
     </footer>
   </div>
 </template>
@@ -30,6 +30,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { api } from '@core/api'
+import AppButton from '@shared/ui/AppButton.vue'
 import TerminalsView from './TerminalsView.vue'
 
 /** Where terminals open: a work's own folder, else the project's main folder; `blocked` — not available yet. */
@@ -111,12 +112,12 @@ onBeforeUnmount(() => { clearInterval(timer); window.removeEventListener('keydow
 .dock-blocked { padding: 16px; font-size: 13px; color: var(--text-muted); }
 .dock-body { flex: 1; min-height: 0; }
 .dock-body :deep(.strip) { height: 36px; }
-.status { display: flex; align-items: center; gap: 4px; height: 26px; padding: 0 8px; border-top: 1px solid var(--border); background: var(--bg2); font-size: 12px; }
+.status { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 5px 12px; border-top: 1px solid var(--border); background: var(--bg2); font-size: 13px; }
 .status-spacer { flex: 1; }
-.status-run { max-width: 260px; height: 20px; padding: 0 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: inherit; font-size: 11.5px; color: var(--accent-hover); background: none; border: none; border-radius: 4px; cursor: pointer; }
+.status-run { max-width: 260px; height: 28px; padding: 0 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: inherit; color: var(--accent-hover); background: none; border: none; border-radius: 4px; cursor: pointer; }
 .status-run:hover { background: var(--bg3); }
-.status-toggle { display: inline-flex; align-items: center; gap: 6px; height: 20px; padding: 0 8px; font: inherit; font-size: 12px; color: var(--text-muted); background: none; border: none; border-radius: 4px; cursor: pointer; }
-.status-toggle svg { width: 13px; height: 13px; }
+.status-toggle { gap: 6px; padding: 0 9px; font-size: 12px; font-weight: 400; color: var(--text-muted); border-color: transparent; }
+.status-toggle svg { width: 14px; height: 14px; }
 .status-toggle:hover:not(:disabled), .status-toggle.on { background: var(--bg3); color: var(--text); }
 .status-toggle:disabled { opacity: 0.45; cursor: default; }
 .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-hover); }
