@@ -19,9 +19,9 @@
       <ChatComposer v-if="!compact" :draft-key="draftKey" :initial-text="initialText" :project-id="projectId" :placeholder="placeholder" :disabled="!agentId || busy" @send="start" @error="localError = $event">
         <template #status><UsageMeter v-if="agentId" :agent-id="agentId" /></template>
       </ChatComposer>
-      <AgentSettingsBar :policy="fixedPolicy ?? policy" :selects="resolvedSelects" :locked="!!fixedPolicy" @policy="policy = $event" @change="(select, value) => (choices[select.configId] = value)">
+      <AgentSettingsBar :policy="fixedPolicy ?? policy" :selects="resolvedSelects" :locked="!!fixedPolicy" @policy="policy = $event" @change="pick">
         <span v-if="optionsState === 'loading'" class="options-note">Загружаю модели агента…</span>
-        <span v-else-if="optionsState" class="options-note" :title="optionsState">Не удалось получить настройки агента · <button type="button" @click="store.fetchAgentOptions(agentId, true)">повторить</button></span>
+        <span v-else-if="optionsState" class="options-note" :title="optionsState">Не удалось получить настройки агента · <button type="button" @click="retry">повторить</button></span>
       </AgentSettingsBar>
       <!-- Compact: no message to write, the first message is `initialText` as is. -->
       <div v-if="compact" class="new-chat-foot">
@@ -41,8 +41,7 @@ import AppButton from '@shared/ui/AppButton.vue'
 import ChatComposer, { type ContentBlock } from './ChatComposer.vue'
 import UsageMeter from './UsageMeter.vue'
 import AgentSettingsBar from './AgentSettingsBar.vue'
-import { agentSelects, type AgentSelect } from '../utils/agent-options'
-import { useChatStore } from '../stores/sessions'
+import { useAgentLaunchOptions } from '../composables/useAgentLaunchOptions'
 
 /** What a new agent session starts with — the body of POST /agent-sessions (and of a planning run). */
 export interface NewChatRequest {
@@ -75,47 +74,19 @@ const props = defineProps<{
   sendLabel?: string
 }>()
 const emit = defineEmits<{ start: [request: NewChatRequest] }>()
-const store = useChatStore(), agents = useAgentsStore()
+const agents = useAgentsStore()
 const agentId = ref(''), policy = ref('ask'), localError = ref('')
-const choices = ref<Record<string, string>>({})
+const { resolvedSelects, state: optionsState, launch, pick, retry } = useAgentLaunchOptions(agentId)
 
 const agentList = computed(() => agents.agents.map(a => ({ value: a.id, label: a.name })))
-// The agent reports its own models/modes/levels; the first fetch opens a throwaway session (a few seconds).
-const reported = computed(() => store.agentOptions[agentId.value])
-const selects = computed(() => (reported.value && !('error' in reported.value) ? agentSelects(reported.value) : []))
-const optionsState = computed(() => (!agentId.value ? '' : !reported.value ? 'loading' : 'error' in reported.value ? reported.value.error : ''))
-/**
- * What the chat will start with: the user's pick, else what Plangent applies on start (mode: "default",
- * the model and reasoning depth from the agent's settings), else the agent's own default.
- */
-const resolvedSelects = computed(() => selects.value.map(s => ({ ...s, current: choice(s) })))
-function choice(select: AgentSelect) {
-  if (choices.value[select.configId]) return choices.value[select.configId]
-  const offered = (v: string | undefined) => !!v && select.options.some(o => o.value === v)
-  if (select.kind === 'mode') return ['default', 'read-only'].find(offered) ?? select.current
-  const agent = agents.agents.find(a => a.id === agentId.value)
-  if (select.kind === 'model' && offered(agent?.model)) return agent!.model
-  if (select.category === 'thought_level' && offered(agent?.reasoning_effort)) return agent!.reasoning_effort
-  return select.current
-}
 
 const fallbackAgent = () => props.defaultAgentId || agents.agents[0]?.id || ''
 watch(() => props.projectId, () => { agentId.value = fallbackAgent() }, { immediate: true })
 watch(() => agents.agents.length, () => { if (!agentId.value) agentId.value = fallbackAgent() })
-watch(agentId, id => { choices.value = {}; if (id && !store.agentOptions[id]) void store.fetchAgentOptions(id) }, { immediate: true })
 
 function start(content: ContentBlock[]) {
   localError.value = ''
-  const modelSelect = selects.value.find(s => s.kind === 'model'), modeSelect = selects.value.find(s => s.kind === 'mode')
-  emit('start', {
-    agent_id: agentId.value,
-    policy: props.fixedPolicy ?? policy.value,
-    // Sent even when it matches the agent's own default: the server would otherwise apply the default from settings.
-    model: modelSelect ? choice(modelSelect) : '',
-    mode: modeSelect ? choice(modeSelect) : '',
-    config: Object.fromEntries(selects.value.filter(s => s.kind === 'config' && (s.configId in choices.value || choice(s) !== s.current)).map(s => [s.configId, choice(s)])),
-    content,
-  })
+  emit('start', { agent_id: agentId.value, policy: props.fixedPolicy ?? policy.value, ...launch(), content })
 }
 </script>
 

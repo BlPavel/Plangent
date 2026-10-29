@@ -10,6 +10,7 @@
         <AppButton v-if="agent.busy && !readOnly" size="xs" variant="ghost" :disabled="agent.stopping" title="Прервать агента; пункты без ответа вернутся в очередь" @click="agent.stop()">{{ agent.stopping ? 'Останавливаю…' : 'Стоп' }}</AppButton>
         <AppButton size="xs" variant="ghost" :title="journal ? 'Вернуться к замечаниям' : 'Полный лог агента: рассуждения, команды, настройки модели'" @click="journal = !journal">{{ journal ? '← Замечания' : 'Журнал' }}</AppButton>
       </template>
+      <span v-else-if="agent.work" class="rp-muted">Замечания уйдут агенту этой работы — он знает весь контекст</span>
       <span v-else class="rp-muted">Агент выбирается при первой отправке</span>
     </div>
 
@@ -39,6 +40,10 @@
           :title="agent.busy ? 'Агент работает: дождитесь конца хода' : pending ? 'Отправить агенту новые пункты и ваши ответы в обсуждениях' : 'Нечего отправлять'"
           @click="agent.send()"
         >{{ agent.sending ? 'Отправка…' : `Отправить${pending ? ' ' + pending : ''}` }}</AppButton>
+        <button
+          v-if="agent.work && !readOnly && pending && !agent.busy && !agent.sending" type="button" class="rp-link"
+          title="Отдать замечания другому агенту или модели: он продолжит в папке этой работы" @click="agent.setup = { ids: null }"
+        >другому агенту…</button>
         <FinishReview v-if="store.liveReview && !readOnly" class="rp-finish" />
       </div>
       <div v-if="agent.error && !agent.setup" class="rp-error">{{ agent.error }}</div>

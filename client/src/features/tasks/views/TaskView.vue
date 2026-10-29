@@ -1,14 +1,12 @@
 ﻿<template>
   <div class="task-view">
-    <WorkHeader v-if="task" :task="task" :state="entry?.state ?? null" :branch="workspace?.branch ?? task.branch_name" :menu="menuItems" :viewing="viewingBusy" @back="goBack" @view="viewBranch">
-      <template #actions><CodeButton v-if="pid && !workspace && task.kind !== 'errand'" :project-id="pid" :task="{ id: task.id, key: task.key }" /></template>
-    </WorkHeader>
+    <WorkHeader v-if="task" :task="task" :state="entry?.state ?? null" :branch="workspace?.branch ?? task.branch_name" :main-folder="inMainFolder" :menu="menuItems" @back="goBack" />
     <WorkStages v-if="task" :task="task" :state="entry?.state ?? null" :has-plan="!!plan" @select="activeTab = $event as Tab" />
 
-    <AppModal :model-value="editingTitle" title="Редактирование задачи" :confirm-label="savingTitle ? 'Сохранение…' : 'Сохранить'" @update:model-value="cancelTitleEdit" @confirm="saveTitle">
+    <AppModal :model-value="editingTitle" :title="task?.kind === 'errand' ? 'Поручение' : 'Задача'" :confirm-label="savingTitle ? 'Сохранение…' : 'Сохранить'" @update:model-value="cancelTitleEdit" @confirm="saveTitle">
       <div ref="titleForm" class="task-edit-fields" @keydown.enter.prevent="saveTitle" @keydown.esc.prevent="cancelTitleEdit">
-        <FormField :model-value="task?.key ?? ''" label="Ключ задачи" placeholder="PROJ-123" disabled />
-        <FormField v-model="titleDraft" label="Название" placeholder="Название задачи" :disabled="savingTitle" />
+        <FormField v-model="numberDraft" label="Номер задачи" placeholder="PROJ-123" :disabled="savingTitle" />
+        <FormField v-model="titleDraft" label="Описание" placeholder="Что нужно сделать" :disabled="savingTitle" />
       </div>
     </AppModal>
 
@@ -22,8 +20,22 @@
       </button>
     </div>
 
-    <div v-if="activeTab === 'chat' && task" class="tab-body"><WorkChat :key="task.id" :task="task" :default-agent-id="defaultAgentId" show-rounds @open-check="activeTab = 'check'" /></div>
-    <div v-if="activeTab === 'check' && task" class="tab-body"><WorkCheck :key="task.id" :task="task" :default-agent-id="defaultAgentId" @checked="activeTab = 'finish'" /></div>
+    <div v-if="activeTab === 'chat' && task" class="tab-body"><WorkChat :key="task.id" :task="task" :workspace="workspace" :default-agent-id="defaultAgentId" show-rounds @open-check="activeTab = 'check'" /></div>
+    <div v-if="activeTab === 'check' && task" class="tab-body">
+      <!-- Проверка is the «Код» screen of the work's folder: files, diff, remarks with the agent, commits, МР. -->
+      <p v-if="workspace && workspace.status !== 'ready'" class="exec-no-plan">{{ workspace.status === 'failed' ? 'Рабочее место недоступно: ' + workspace.error : 'Готовлю рабочее место…' }}</p>
+      <CodeTab
+        v-else-if="isOrdinary" :key="task.id + (workspace?.id ?? '')" :project-id="task.project_id" :workspace-id="workspace?.id ?? null"
+        :task="{ id: task.id, key: task.key }" :default-agent-id="executorAgentId" work
+      >
+        <template #actions>
+          <span v-if="entry?.state.status === 'reviewing'" class="check-note">🤖 Идёт ревью агентом…</span>
+          <AppButton size="sm" :disabled="taskDone || reviewStarting || entry?.state.status === 'reviewing'" title="Агент-ревьюер проверит изменения работы; замечания появятся справа" @click="runReview">🤖 Ревью агентом</AppButton>
+          <AppButton size="sm" variant="blue" @click="activeTab = 'finish'">Завершение →</AppButton>
+        </template>
+      </CodeTab>
+      <WorkCheck v-else :key="task.id" :task="task" :default-agent-id="defaultAgentId" @checked="activeTab = 'finish'" />
+    </div>
     <div v-if="activeTab === 'finish' && task" class="tab-body"><WorkFinish :key="task.id" :task="task" :workspace="workspace" @closed="onClosed" /></div>
     <div v-show="activeTab === 'analysis'" class="tab-body">
       <AnalysisPanel
@@ -130,13 +142,14 @@ import WorkHeader from '../components/WorkHeader.vue'
 import WorkStages from '../components/WorkStages.vue'
 import { useWorkStore } from '../stores/work'
 import { useWorkActions } from '../composables/useWorkActions'
-import { workspacesApi } from '../api'
+import { workApi, workspacesApi } from '../api'
 import ExecutionQueue from '../components/ExecutionQueue.vue'
+import AppButton from '@shared/ui/AppButton.vue'
 import StepDetailPanel from '../components/StepDetailPanel.vue'
 import AppModal from '@shared/ui/AppModal.vue'
 import { type MenuItem } from '@shared/ui/AppMenu.vue'
 import FormField from '@shared/ui/FormField.vue'
-import { CodeButton } from '@features/code'
+import { CodeTab } from '@features/code'
 import { useChatStore, type NewChatRequest, type ContentBlock } from '@features/agent-chat'
 import { useTaskQueue, TaskQueueKey } from '../composables/useTaskQueue'
 import { sessionState } from '../utils/queue-status'
@@ -150,13 +163,14 @@ const chatStore = useChatStore()
 
 const task = ref<Task | null>(appStore.currentTask)
 const editingTitle = ref(false)
-const titleDraft = ref('')
+const titleDraft = ref(''), numberDraft = ref('')
 const savingTitle = ref(false)
 const titleForm = ref<HTMLElement>()
 
 async function startTitleEdit() {
   if (!task.value) return
   titleDraft.value = task.value.title ?? ''
+  numberDraft.value = task.value.external_key ?? ''
   editingTitle.value = true
   await nextTick()
   const input = titleForm.value?.querySelector<HTMLInputElement>('input:not(:disabled)')
@@ -170,20 +184,22 @@ function cancelTitleEdit() {
 
 async function saveTitle() {
   const current = task.value
-  const title = titleDraft.value.trim()
-  if (!current || savingTitle.value || !title) return
-  if (title === current.title) {
+  const title = titleDraft.value.trim(), number = numberDraft.value.trim()
+  if (!current || savingTitle.value) return
+  if (!title && !number) { appStore.toast('Укажите номер задачи или описание', 'error'); return }
+  if (title === (current.title ?? '') && number === (current.external_key ?? '')) {
     editingTitle.value = false
     return
   }
   savingTitle.value = true
   try {
-    const updated = await api.patch<Task>(`/projects/${current.project_id}/tasks/${current.id}`, { title })
+    const updated = await api.patch<Task>(`/projects/${current.project_id}/tasks/${current.id}`, { title, external_key: number || null })
     if (task.value?.id !== current.id) return
-    task.value = { ...task.value, title: updated.title }
+    task.value = { ...task.value, title: updated.title, external_key: updated.external_key }
     appStore.currentTask = task.value
     editingTitle.value = false
-    appStore.toast('Название задачи сохранено', 'success')
+    void work.load(pid.value ? [pid.value] : [])
+    appStore.toast('Сохранено', 'success')
   } catch (e: unknown) { appStore.toast(String(e), 'error') }
   finally { savingTitle.value = false }
 }
@@ -202,6 +218,18 @@ const workspace = computed(() => entry.value?.workspace ?? null)
 const isOrdinary = computed(() => appStore.currentProject?.kind === 'project')
 const canChooseBranch = computed(() => isOrdinary.value && !task.value?.base_commit && (!workspace.value || workspace.value.status === 'failed'))
 const legacyBranch = computed(() => !workspace.value && task.value?.kind !== 'errand' && !canChooseBranch.value)
+/** Started without its own folder: the work changes the project's main folder. */
+const inMainFolder = computed(() => isOrdinary.value && !workspace.value && !!task.value?.base_commit && !task.value?.closed_at)
+/** Remarks of Проверка go by default to the agent who did the work. */
+const executorAgentId = computed(() => chatStore.sessions.find(s => s.task_id === tid.value && ['errand', 'task-chat', 'executor'].includes(s.role))?.agent_id ?? defaultAgentId.value)
+const reviewStarting = ref(false)
+async function runReview() {
+  if (!task.value || reviewStarting.value) return
+  reviewStarting.value = true
+  try { chatStore.put(await workApi.review(task.value.project_id, task.value.id) as import('@features/agent-chat').ChatSession); void work.load(pid.value ? [pid.value] : []) }
+  catch (cause) { appStore.toast(String(cause).replace(/^Error:\s*/, ''), 'error') }
+  finally { reviewStarting.value = false }
+}
 
 // Planning view: the plan next to the task's planning chats.
 const planningOpen = ref(false)
@@ -329,19 +357,12 @@ function applyRouteTab() {
 }
 watch(() => route.query.tab, applyRouteTab)
 
-const viewingBusy = ref(false)
-async function viewBranch() {
-  const w = workspace.value
-  if (!w || viewingBusy.value) return
-  viewingBusy.value = true
-  try { if (await actions.view(w.project_id, w)) appStore.toast('Терминал и «Код» проекта теперь показывают ветку ' + w.branch, 'success') }
-  finally { viewingBusy.value = false }
-}
 const menuItems = computed<MenuItem[]>(() => {
   const t = task.value
   if (!t) return []
   return [
-    { label: 'Переименовать', action: () => void startTitleEdit() },
+    { label: 'Номер и описание…', action: () => void startTitleEdit() },
+    ...(!t.closed_at && t.status !== 'done' ? [{ label: 'Закрыть работу', hint: 'Без пуша и МР; можно открыть снова', action: () => void closeWork() }] : []),
     ...(t.kind === 'errand' && !t.closed_at ? [
       { label: 'Добавить план', hint: 'Поручение станет задачей, ветка сохранится', action: () => void addPlanToErrand() },
       { separator: true as const },
@@ -370,6 +391,12 @@ async function cancelErrand(mode: 'keep' | 'discard') {
   await work.load(pid.value ? [pid.value] : [])
   appStore.toast('Поручение отменено', 'success')
   goBack()
+}
+async function closeWork() {
+  if (!task.value) return
+  if (!await appStore.confirm('Закрыть работу? Рабочее место будет убрано, ветка останется. Открыть снова можно из списка «Готово».', { confirmLabel: 'Закрыть работу' })) return
+  const closed = await actions.close(task.value)
+  if (closed) { appStore.toast('Работа закрыта', 'success'); await onClosed(closed) }
 }
 async function onClosed(closed: Task) {
   task.value = closed; appStore.currentTask = closed
@@ -665,6 +692,7 @@ async function savePlan() {
 }
 
 .exec-no-plan { font-size: 13px; color: var(--text-muted); padding: 16px 20px; }
+.check-note { font-size: 12px; color: var(--blue-hover); white-space: nowrap; }
 .exec { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(360px, 45%) minmax(0, 1fr); }
 .exec-left { min-height: 0; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 20px; border-right: 1px solid var(--border); }
 .exec-right { min-height: 0; min-width: 0; display: flex; flex-direction: column; }

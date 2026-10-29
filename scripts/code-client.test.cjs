@@ -353,7 +353,7 @@ test('review session completion clears stale busy state and lets a queued discus
   h.codeReviewsApi.current = async () => current
   const chats = reactive({ sessions: [{ id: 'session', status: 'thinking' }], snapshots: { session: { events: [], permissions: [] } }, connect: async () => {} })
   const agent = moduleAt('client/src/features/code/stores/review-agent.ts', {
-    '@core/api': { api: {} }, '@features/agent-chat': { useChatStore: () => chats }, './code': { useCodeStore: () => h.store },
+    '@core/api': { api: {} }, '@features/agent-chat': { useChatStore: () => chats }, './code': { useCodeStore: () => h.store }, '../utils/thread': moduleAt('client/src/features/code/utils/thread.ts'),
   }).useReviewAgentStore()
   const { threadState } = moduleAt('client/src/features/code/utils/thread.ts')
   await h.store.start('p')

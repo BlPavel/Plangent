@@ -88,13 +88,13 @@ test('execution roots, errands, task chats and independent review rounds', async
       assert.equal(getOrchestrator(task.id), undefined);
     });
     const errand = await createErrand(project.id, { text: 'Correct card spacing', agent_id: agent.id });
-    await t.test('errand runs in workspace, agent names it and chat stays the same', async () => {
+    await t.test('errand runs in workspace, keeps the developer\'s title and chat stays the same', async () => {
       const workspace = workspaces.activeWorkspace(errand.task.id)!;
       assert.equal(workspace.status, 'ready'); assert.ok(allowed(errand.session).includes('complete_step'));
       await until(() => ['ready', 'complete'].includes(sessions.getSession(errand.session.id).status));
       const report = sessions.history(errand.session.id).filter(e => e.type === 'assistant').map(e => e.payload.text).join('');
       assert.equal(JSON.parse(report).cwd, workspace.path);
-      await until(() => tasks.getTask(errand.task.id)?.title !== 'Correct card spacing');
+      assert.equal(tasks.getTask(errand.task.id)?.title, 'Correct card spacing');
       assert.equal((await taskChat(errand.task.id)).id, errand.session.id);
     });
     await t.test('task chat is lazy, includes all steps and reports, and is reused', async () => {
@@ -151,6 +151,26 @@ test('execution roots, errands, task chats and independent review rounds', async
       const chat = () => sessions.listSessions(project.id).find(s => s.task_id === payload.task.id && s.role === 'errand');
       await until(() => chat()?.status === 'complete');
       assert.equal(workspaces.activeWorkspace(payload.task.id)!.status, 'ready');
+    });
+    await t.test('an errand from a number and description waits for the request in its chat', async () => {
+      const errand = await createErrand(project.id, { title: 'Profile layout', external_key: 'PROJ-7', agent_id: agent.id, policy: 'ask', branch_name: 'fix/profile-layout' });
+      assert.equal(errand.task.title, 'Profile layout'); assert.equal(errand.task.external_key, 'PROJ-7');
+      assert.equal(workspaces.activeWorkspace(errand.task.id)?.branch, 'fix/profile-layout');
+      assert.equal(errand.session.policy, 'ask');
+      const { workEntry } = await import('../work');
+      assert.equal(workEntry(errand.task.id).state.text, 'Напишите агенту, что сделать');
+      assert.equal(sessions.history(errand.session.id).some(e => e.type === 'user'), false);
+      await assert.rejects(createErrand(project.id, { agent_id: agent.id }), /номер задачи или описание/);
+    });
+    await t.test('an existing branch gets its own folder; the main folder takes one work at a time', async () => {
+      git(repo, 'branch', 'feature/existing');
+      const existing = await createErrand(project.id, { title: 'Continue', agent_id: agent.id, place: 'existing', branch: 'feature/existing' });
+      assert.equal(workspaces.activeWorkspace(existing.task.id)?.branch, 'feature/existing');
+      const main = await createErrand(project.id, { title: 'Here', agent_id: agent.id, place: 'existing', branch: git(repo, 'branch', '--show-current') });
+      assert.equal(workspaces.activeWorkspace(main.task.id), null);
+      assert.equal(await workspaces.rootForSession(main.session), project.repo_path);
+      await assert.rejects(createErrand(project.id, { title: 'Second', agent_id: agent.id, place: 'main' }), /основной папке уже идёт работа/);
+      tasks.updateTask(main.task.id, { closed_at: new Date().toISOString(), status: 'done' });
     });
     await t.test('automatic errand review runs once after a normal turn', async () => {
       const errand = await createErrand(project.id, { text: 'Review this automatically', agent_id: agent.id, auto_review: true });

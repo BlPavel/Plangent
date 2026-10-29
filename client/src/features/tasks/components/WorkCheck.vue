@@ -2,7 +2,7 @@
   <div class="work-check">
     <header class="check-bar">
       <span class="check-summary">
-        {{ data?.changes.length ?? 0 }} {{ plural(data?.changes.length ?? 0) }} · просмотрено {{ viewedCount }}
+        {{ data?.changes.length ?? 0 }} {{ plural(data?.changes.length ?? 0) }}
         <template v-if="rounds.length"> · ревью агентом: раунд {{ rounds.length }}<span v-if="reviewerWorking"> идёт…</span><span v-else> ✓</span></template>
       </span>
       <span class="check-spacer" />
@@ -16,7 +16,6 @@
         <p v-if="data && !data.changes.length" class="muted">Изменений для сравнения нет.</p>
         <div v-for="change in data?.changes ?? []" :key="change.file" class="file-row" :class="{ active: opened === change.file }">
           <button type="button" class="file-name" :title="change.file" @click="openFile(change.file)">{{ change.file }}</button>
-          <button type="button" class="file-mark" :class="{ on: isViewed(change) }" :title="isViewed(change) ? 'Снять отметку «просмотрено»' : 'Отметить просмотренным'" :aria-pressed="isViewed(change)" @click="toggleViewed(change)">{{ isViewed(change) ? '✓' : '○' }}</button>
         </div>
       </nav>
       <section class="check-diff">
@@ -81,19 +80,6 @@ const side = ref<'remarks' | 'chat'>('remarks')
 const closed = computed(() => props.task.status === 'done')
 const plural = (n: number) => n % 10 === 1 && n % 100 !== 11 ? 'файл' : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? 'файла' : 'файлов'
 const statusText = (status: string) => ({ draft: 'ждёт решения', sent: 'отправлено агенту', rejected: 'не надо' } as Record<string, string>)[status] ?? status
-
-// «Просмотрено» is remembered per file together with the size of its diff: a changed file asks for a new look.
-const viewedKey = computed(() => 'plangent.viewed.' + props.task.id)
-const viewed = ref<Record<string, number>>({})
-const loadViewed = () => { try { viewed.value = JSON.parse(localStorage.getItem(viewedKey.value) || '{}') } catch { viewed.value = {} } }
-const isViewed = (c: { file: string; diff: string }) => viewed.value[c.file] === c.diff.length
-function toggleViewed(c: { file: string; diff: string }) {
-  const next = { ...viewed.value }
-  if (isViewed(c)) delete next[c.file]; else next[c.file] = c.diff.length
-  viewed.value = next
-  try { localStorage.setItem(viewedKey.value, JSON.stringify(next)) } catch { /* storage unavailable */ }
-}
-const viewedCount = computed(() => data.value?.changes.filter(isViewed).length ?? 0)
 
 const base = computed(() => '/projects/' + props.task.project_id + '/tasks/' + props.task.id)
 const reviewBase = computed(() => '/projects/' + props.task.project_id + '/code-reviews')
@@ -173,7 +159,7 @@ const stop = onServerEvent(event => {
   }
 })
 onBeforeUnmount(() => { stop(); clearTimeout(timer); version++ })
-watch(() => props.task.id, () => { loadViewed(); data.value = undefined; selected.value = []; opened.value = ''; file.value = undefined; void load() }, { immediate: true })
+watch(() => props.task.id, () => { data.value = undefined; selected.value = []; opened.value = ''; file.value = undefined; void load() }, { immediate: true })
 </script>
 <style scoped>
 .work-check { display: flex; flex-direction: column; height: 100%; min-height: 0; }
@@ -189,8 +175,6 @@ watch(() => props.task.id, () => { loadViewed(); data.value = undefined; selecte
 .file-row { display: flex; align-items: center; gap: 4px; border-radius: var(--radius-sm); }
 .file-row.active { background: var(--bg3); }
 .file-name { flex: 1; min-width: 0; padding: 5px 6px; background: none; border: none; color: inherit; font: inherit; font-size: 12.5px; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; direction: rtl; }
-.file-mark { padding: 2px 6px; background: none; border: none; color: var(--text-muted); cursor: pointer; }
-.file-mark.on { color: var(--accent-hover); }
 .side-tabs { display: flex; border-bottom: 1px solid var(--border); flex-shrink: 0; }
 .side-tabs button { padding: 8px 14px; background: none; border: none; border-bottom: 2px solid transparent; color: var(--text-muted); cursor: pointer; font: inherit; }
 .side-tabs button.active { color: var(--text); border-bottom-color: var(--blue); }

@@ -17,7 +17,8 @@ function validateWorkFields(data: Partial<Task>): void {
   if (data.close_reason != null && !['done', 'cancelled'].includes(data.close_reason)) throw new Error('Invalid close reason');
   if (data.closed_at != null && (typeof data.closed_at !== 'string' || !Number.isFinite(Date.parse(data.closed_at)))) throw new Error('Invalid closed_at');
   if (data.origin_task_id != null && (typeof data.origin_task_id !== 'string' || !getTask(data.origin_task_id))) throw new Error('Origin task not found');
-  if (data.external_key != null && (typeof data.external_key !== 'string' || data.external_key && !/^[A-Z][A-Z0-9_]*-\d+$/.test(data.external_key))) throw new Error('Ключ внешней задачи: PROJ-123');
+  // Номер задачи: any short line (a tracker key, a number); several works may share it.
+  if (data.external_key != null && (typeof data.external_key !== 'string' || data.external_key.length > 100 || /[\r\n\0]/.test(data.external_key))) throw new Error('Номер задачи: одна строка до 100 символов');
 }
 
 export function listTasks(project_id: string): Task[] {

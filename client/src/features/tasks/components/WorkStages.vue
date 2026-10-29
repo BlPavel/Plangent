@@ -9,22 +9,12 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { Task, WorkState } from '@core/models'
+import { workStageIndex, workStagesOf } from '../utils/work-state'
 
 const props = defineProps<{ task: Task; state: WorkState | null; hasPlan: boolean }>()
 defineEmits<{ select: [string] }>()
-const stages = computed(() => props.task.kind === 'errand'
-  ? [{ tab: 'chat', label: 'Выполнение' }, { tab: 'check', label: 'Проверка' }, { tab: 'finish', label: 'Завершение' }]
-  : [{ tab: 'analysis', label: 'Анализ' }, { tab: 'plan', label: 'План' }, { tab: 'exec', label: 'Выполнение' }, { tab: 'check', label: 'Проверка' }, { tab: 'finish', label: 'Завершение' }])
-/** Index of the stage the work is at; everything before it is done. */
-const current = computed(() => {
-  const errand = props.task.kind === 'errand', stage = props.state?.stage ?? 'plan'
-  if (stage === 'done') return stages.value.length
-  const offset = errand ? 0 : 2
-  if (stage === 'execution') return offset
-  if (stage === 'check') return offset + 1
-  if (stage === 'finish') return offset + 2
-  return props.hasPlan ? 1 : 0
-})
+const stages = computed(() => workStagesOf(props.task))
+const current = computed(() => workStageIndex(props.task, props.state, props.hasPlan))
 const mark = (i: number) => i < current.value ? 'done' : i === current.value ? 'current' : 'next'
 </script>
 <style scoped>

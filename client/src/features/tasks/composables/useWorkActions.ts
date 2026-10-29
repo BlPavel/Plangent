@@ -1,6 +1,6 @@
 import { useAppStore } from '@core/stores/app'
-import type { Task, Workspace } from '@core/models'
-import { workApi, workspacesApi, type ViewingWarnings } from '../api'
+import type { Task } from '@core/models'
+import { workApi } from '../api'
 
 interface Blockers { files?: string[]; commits?: string[] }
 const blockersOf = (cause: unknown) => (cause as { blockers?: Blockers }).blockers
@@ -41,19 +41,5 @@ export function useWorkActions() {
     if (!request.trim()) return
     return attempt(() => workApi.errandFrom(t.project_id, t.id, { text: request, agent_id: agentId ?? undefined }))
   }
-  /** «Смотреть эту ветку» (null — back to the main place): warns about a working agent and about apps running in terminals of another place. */
-  async function view(projectId: string, w: Workspace | null) {
-    try { return await workspacesApi.view(projectId, w?.id ?? null) }
-    catch (cause) {
-      const warnings = (cause as { warnings?: ViewingWarnings }).warnings
-      if (!warnings) { app.toast(text(cause), 'error'); return }
-      const lines = [
-        ...(warnings.agentWorking ? ['Агент этой работы ещё вносит правки: файлы будут меняться под вами.'] : []),
-        ...warnings.terminals.map(t => 'В терминале «' + t.title + '» запущено: ' + t.processes.map(p => p.name).join(', ') + ' (другая ветка). Остановить его нужно самому.'),
-      ]
-      if (!await app.confirm(lines.join('\n'), { confirmLabel: w ? 'Смотреть всё равно' : 'Вернуться всё равно' })) return
-      return attempt(() => workspacesApi.view(projectId, w?.id ?? null, true))
-    }
-  }
-  return { close, reopen, addPlan, cancel, remove, errandFrom, view, attempt, guarded }
+  return { close, reopen, addPlan, cancel, remove, errandFrom, attempt, guarded }
 }

@@ -11,21 +11,29 @@
       <SuggestMenu v-if="token" :anchor="area" @dismiss="token = null; clear()" title="Файлы и папки" :loading="loading" empty="Ничего не найдено" :items="suggestions" :active="active" @pick="insert" @hover="active = $event" />
       <textarea
         ref="area" v-model="text" class="ic-text" rows="3" :placeholder="placeholder" spellcheck="false"
-        @input="onInput" @keydown="onKey" @click="updateToken" @keyup="onKeyUp"
+        @input="onInput" @keydown="onKey" @click="updateToken" @keyup="onKeyUp" @paste="onPaste"
       />
     </div>
-    <div class="ic-actions">
-      <span class="ic-hint">Markdown. @ — ссылка на файл или папку. Ctrl+Enter — сохранить</span>
-      <AppButton type="button" size="xs" variant="ghost" @click="emit('cancel')">Отмена</AppButton>
-      <AppButton type="submit" size="xs" variant="blue" :disabled="!text.trim() || busy">Сохранить</AppButton>
+    <div v-if="files.length" class="ic-files">
+      <span v-for="(file, index) in files" :key="file.path" class="ic-file" :title="file.path">📎 {{ file.name }}<button type="button" title="Убрать" @click="files.splice(index, 1)">×</button></span>
     </div>
-    <div v-if="error" class="ic-error">{{ error }}</div>
+    <div class="ic-actions">
+      <label class="btn btn-subtle btn-xs btn-icon" title="Приложить файл или скриншот (можно вставить Ctrl+V)">
+        <svg viewBox="0 0 16 16" fill="none"><path d="M13 7.5l-5.2 5.2a3.2 3.2 0 0 1-4.5-4.5l5.6-5.6a2.1 2.1 0 0 1 3 3L6.3 11.2a1 1 0 0 1-1.5-1.5L10 4.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" /></svg>
+        <input type="file" multiple hidden @change="picked" />
+      </label>
+      <span class="ic-hint">{{ uploading ? 'Прикрепляю…' : 'Markdown. @ — ссылка на файл или папку. Скриншот — Ctrl+V. Ctrl+Enter — сохранить' }}</span>
+      <AppButton type="button" size="xs" variant="ghost" @click="emit('cancel')">Отмена</AppButton>
+      <AppButton type="submit" size="xs" variant="blue" :disabled="(!text.trim() && !files.length) || busy || uploading">Сохранить</AppButton>
+    </div>
+    <div v-if="error || attachError" class="ic-error">{{ error || attachError }}</div>
   </form>
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import AppButton from '@shared/ui/AppButton.vue'
+import { api } from '@core/api'
 import { SuggestMenu, useMentionFiles, type SuggestItem } from '@features/agent-chat'
 import { useCodeStore } from '../stores/code'
 import { extractRefs } from '../utils/refs'
@@ -50,6 +58,24 @@ const active = ref(0)
 const knownRefs = new Set(props.initialRefs ?? [])
 const { suggestions, loading, search, clear } = useMentionFiles(() => store.projectId)
 const token = ref<{ start: number; end: number; query: string } | null>(null)
+/** Files and screenshots: saved next to Plangent and named in the item, so the agent can open them. */
+const files = ref<{ name: string; path: string }[]>([])
+const uploading = ref(false), attachError = ref('')
+async function attach(list: File[]) {
+  if (!list.length) return
+  uploading.value = true; attachError.value = ''
+  try {
+    for (const file of list) {
+      const data = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = reject; reader.readAsDataURL(file) })
+      const name = file.name || 'скриншот.png'
+      const { path } = await api.post<{ path: string }>('/upload-temp', { data, name })
+      files.value.push({ name, path })
+    }
+  } catch (cause) { attachError.value = 'Не удалось приложить файл: ' + (cause instanceof Error ? cause.message : String(cause)) }
+  finally { uploading.value = false }
+}
+function onPaste(event: ClipboardEvent) { if (event.clipboardData?.files.length) { event.preventDefault(); void attach(Array.from(event.clipboardData.files)) } }
+function picked(event: Event) { const input = event.target as HTMLInputElement; void attach(Array.from(input.files ?? [])); input.value = '' }
 const placeholder = computed(() => (kind.value === 'question' ? 'Что непонятно? Агент только ответит, код не тронет' : 'Что исправить? (? в начале — вопрос)'))
 
 // "?" at the start of the text makes it a question, as the toggle would.
@@ -100,8 +126,9 @@ function onKey(event: KeyboardEvent) {
 }
 
 function save() {
-  const value = text.value.trim()
-  if (!value || props.busy) return
+  const attached = files.value.map(file => '📎 ' + file.name + ': ' + file.path).join('\n')
+  const value = [text.value.trim(), attached].filter(Boolean).join('\n\n')
+  if (!value || props.busy || uploading.value) return
   emit('save', { kind: kind.value, text: value, refs: extractRefs(value, new Set([...store.files, ...knownRefs]), paths.value.dirs) })
 }
 onMounted(() => { area.value?.focus() })
@@ -119,4 +146,7 @@ onMounted(() => { area.value?.focus() })
 .ic-actions { display: flex; align-items: center; gap: 6px; }
 .ic-hint { flex: 1; font-size: 11px; color: var(--text-faint); }
 .ic-error { font-size: 12px; color: var(--danger-hover); }
+.ic-files { display: flex; flex-wrap: wrap; gap: 4px; }
+.ic-file { display: inline-flex; align-items: center; gap: 4px; max-width: 240px; padding: 1px 2px 1px 6px; font-size: 11.5px; background: var(--bg3); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ic-file button { width: 16px; height: 16px; padding: 0; font: inherit; color: var(--text-muted); background: none; border: none; cursor: pointer; }
 </style>

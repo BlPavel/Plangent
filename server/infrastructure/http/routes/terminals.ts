@@ -1,5 +1,5 @@
 import { viewedWorkspaceId } from '../../../core/workspaces/viewing';
-import { childProcesses } from '../../terminal/process-tree';
+import { childProcessesOf } from '../../terminal/process-tree';
 import { rootForWorkspace } from '../../../core/workspaces/roots';
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
@@ -39,6 +39,13 @@ const shells = detectShells();
 terminalsRouter.get('/shells', (_req, res) => res.json(shells.map(({ id, label }) => ({ id, label }))));
 terminalsRouter.get('/', (req, res) => res.json([...terminals.values()].filter(t => (!req.query.projectId || t.projectId === req.query.projectId) && (req.query.workspace === undefined || (t.workspaceId ?? '') === req.query.workspace))
   .map(t => ({ ...t, exitCode: getPtySession(t.id)?.exitCode, status: getPtySession(t.id)?.exitCode === undefined ? 'running' : 'exited' }))));
+// Terminals of a project in which something runs (an app, a watcher): the bottom panel shows where.
+terminalsRouter.get('/running', async (req, res) => {
+  try {
+    const projectId = String(req.query.projectId ?? '');
+    res.json((await runningTerminals(projectId)).map(t => ({ id: t.id, title: t.title, workspaceId: t.workspaceId, processes: t.processes })));
+  } catch (e) { res.status(400).json({ error: String(e) }); }
+});
 terminalsRouter.post('/', (req, res) => {
   try {
     const project = getProject(req.body.projectId);
@@ -83,9 +90,11 @@ terminalsRouter.delete('/:id', async (req, res) => { await killPtySession(req.pa
 export async function shutdownTerminals() { await Promise.all([...terminals.keys()].map(killPtySession)); }
 
 export async function viewingTerminalWarnings(projectId: string, workspaceId: string | null) {
-  return (await Promise.all([...terminals.values()].filter(t => t.projectId === projectId && t.workspaceId !== workspaceId).map(async terminal => {
-    const session = getPtySession(terminal.id);
-    const processes = session && session.exitCode === undefined ? await childProcesses(session.pty.pid) : [];
-    return { ...terminal, processes };
-  }))).filter(t => t.processes.length);
+  return (await runningTerminals(projectId)).filter(t => t.workspaceId !== workspaceId);
+}
+async function runningTerminals(projectId: string) {
+  const live = [...terminals.values()].filter(t => t.projectId === projectId)
+    .map(terminal => ({ terminal, session: getPtySession(terminal.id) })).filter(({ session }) => session && session.exitCode === undefined);
+  const children = await childProcessesOf(live.map(({ session }) => session!.pty.pid));
+  return live.map(({ terminal, session }) => ({ ...terminal, processes: children.get(session!.pty.pid) ?? [] })).filter(t => t.processes.length);
 }

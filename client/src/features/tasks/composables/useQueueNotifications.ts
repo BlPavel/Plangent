@@ -36,7 +36,7 @@ export function startQueueNotifications(router: Router) {
     void api.get<Task>(`/projects/${projectId}/tasks/${taskId}`).then(task => {
       const fixes = event.type === 'work:fixes_ready'
       if (!fixes && task.kind !== 'errand') return
-      const name = task.kind === 'errand' ? '⚡ ' + (task.title || 'Поручение') : task.key
+      const name = (task.kind === 'errand' ? '⚡ ' : '') + ([task.external_key, task.title].filter(Boolean).join(' ') || task.key)
       const body = fixes ? 'исправления готовы' : 'готово к проверке'
       if (focused()) app.toast(`${name}: ${body}`, 'success')
       platform.notify?.(name, body, taskTarget(taskId, projectId) + '&tab=check')

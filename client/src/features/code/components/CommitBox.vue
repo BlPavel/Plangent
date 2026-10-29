@@ -75,7 +75,7 @@ watch(input, () => {
   done.value = false
   checking.value = true
   timer = setTimeout(async () => {
-    try { const result = await gitApi.checkMessage(git.projectId, input.value); if (current === version) check.value = result }
+    try { const result = await gitApi.checkMessage(git.projectId, input.value, git.workspaceId); if (current === version) check.value = result }
     catch (cause) { if (current === version) error.value = errorOf(cause) }
     finally { if (current === version) checking.value = false }
   }, 300)
@@ -95,7 +95,7 @@ async function generate() {
   generating.value = true; error.value = ''
   try {
     if (!stagedCount.value) await stageAll()
-    const text = await gitApi.generateMessage(git.projectId, { taskId: props.taskId, includeDescription: git.settings?.include_description ?? false })
+    const text = await gitApi.generateMessage(git.projectId, { taskId: props.taskId, includeDescription: git.settings?.include_description ?? false }, git.workspaceId)
     message.value = [text.title, text.body].filter(Boolean).join('\n\n')
   } catch (cause) { error.value = errorOf(cause) } finally { generating.value = false; void code.refresh() }
 }

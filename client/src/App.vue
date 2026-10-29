@@ -30,7 +30,8 @@
     </aside>
 
     <main class="content">
-      <RouterView :key="route.params.id ? String(route.params.id) : route.path" />
+      <div class="content-view"><RouterView :key="route.params.id ? String(route.params.id) : route.path" /></div>
+      <TerminalDock :context="terminalPlace" :place-label="placeLabel" />
     </main>
 
     <AppToast />
@@ -50,7 +51,8 @@ import { useAgentsStore } from '@features/agents'
 import type { Project, ProjectKind } from '@core/models'
 import { api } from '@core/api'
 import { platform } from '@core/platform'
-import { startQueueNotifications, useBlockedQueuesStore } from '@features/tasks'
+import { startQueueNotifications, useBlockedQueuesStore, useWorkStore } from '@features/tasks'
+import { TerminalDock, type TerminalPlace } from '@features/terminal'
 import { startCodeNotifications, useCodeAttentionStore } from '@features/code'
 import { UpdateStatus } from '@features/updates'
 import AppToast from '@shared/ui/AppToast.vue'
@@ -91,6 +93,25 @@ platform.onNotificationClick?.(async target => {
 })
 
 const isSettingsRoute = computed(() => route.path === '/settings')
+
+// The bottom terminal works where you are: inside a work — in its own folder, elsewhere — in the project's main folder.
+const work = useWorkStore()
+const workName = (t: { kind: string; title?: string; external_key?: string | null; key: string }) => (t.kind === 'errand' ? '⚡ ' : '') + [t.external_key, t.title].filter(Boolean).join(' ') || t.key
+const terminalPlace = computed<TerminalPlace | null>(() => {
+  const task = appStore.currentTask
+  if (route.path.startsWith('/task/') && task && task.id === String(route.params.id)) {
+    const workspace = work.entries.find(e => e.task.id === task.id)?.workspace
+    if (workspace && workspace.status !== 'ready') return { projectId: task.project_id, workspaceId: null, label: workName(task), blocked: 'Рабочее место этой работы ещё не готово — терминал откроется в нём, когда оно будет готово.' }
+    return { projectId: task.project_id, workspaceId: workspace?.id ?? null, label: workName(task) + (workspace ? ' · ⎇ ' + workspace.branch : ' · основная папка') }
+  }
+  const project = appStore.currentProject
+  return project && project.kind !== 'source' ? { projectId: project.id, workspaceId: null, label: project.name + ' · основная папка' } : null
+})
+function placeLabel(_projectId: string, workspaceId: string | null) {
+  if (!workspaceId) return 'основная папка'
+  const entry = work.entries.find(e => e.workspace?.id === workspaceId)
+  return entry ? workName(entry.task) : 'папка работы'
+}
 
 const NEW_OPTIONS: { kind: ProjectKind; icon: string; label: string; hint: string }[] = [
   { kind: 'project', icon: '📁', label: 'Проект', hint: 'Репозиторий, в котором работают агенты' },
@@ -215,5 +236,6 @@ function selectProject(p: Project) {
 .sidebar-link:hover { background: var(--bg3); color: var(--text); }
 .sidebar-link.active { background: var(--bg3); color: var(--text); box-shadow: inset 2px 0 0 var(--blue); }
 
-.content { flex: 1; overflow: hidden; }
+.content { flex: 1; min-width: 0; overflow: hidden; display: flex; flex-direction: column; }
+.content-view { flex: 1; min-height: 0; overflow: hidden; }
 </style>

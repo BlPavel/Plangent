@@ -1,7 +1,7 @@
 <template>
   <div class="ct">
     <header class="ct-head">
-      <button v-if="task" type="button" class="ct-crumb" @click="emit('back')">← Задача-{{ task.key }}</button>
+      <button v-if="task && !work" type="button" class="ct-crumb" @click="emit('back')">← Задача-{{ task.key }}</button>
       <template v-if="store.repository">
         <span v-if="store.head" class="ct-head-commit" :title="store.repository.message ?? ''">
           HEAD <code>{{ store.head.slice(0, 7) }}</code><template v-if="store.repository.message"> «{{ store.repository.message }}»</template>
@@ -17,7 +17,8 @@
       </template>
       <span class="ct-spacer" />
       <span v-if="store.watchError" class="ct-warn" :title="store.watchError">авто-обновление недоступно</span>
-      <button v-if="store.repository" type="button" class="btn btn-sm" :class="finishAttention ? 'btn-blue' : 'btn-ghost'" title="Коммиты, push и МР — агент сделает их по настройкам проекта" @click="showRight('finish')">
+      <slot name="actions" />
+      <button v-if="store.repository && !work" type="button" class="btn btn-sm" :class="finishAttention ? 'btn-blue' : 'btn-ghost'" title="Коммиты, push и МР — агент сделает их по настройкам проекта" @click="showRight('finish')">
         {{ finish.run && !finishDone ? 'Завершение · ' + (finishStages[finish.run.stage] || finish.run.stage) : 'Завершить работу' }}
       </button>
       <button type="button" class="ct-refresh" :class="{ spinning: store.loading }" :disabled="store.loading" title="Обновить: статус, дерево и открытый файл" :aria-busy="store.loading" aria-label="Обновить" @click="store.refresh()">⟳</button>
@@ -124,7 +125,7 @@
           </div>
         </template>
         <!-- Kept mounted: the finish run reports its progress (and the tab's badge) while another tab is open. -->
-        <div v-if="store.repository" v-show="rightTab === 'finish'" class="ct-scroll">
+        <div v-if="store.repository && !work" v-show="rightTab === 'finish'" class="ct-scroll">
           <FinishPanel :key="projectId + (task?.id || '')" :project-id="projectId" :task="task" :blocked="git.writeBlocked" :branch="store.branch" @attention="showRight('finish')" />
         </div>
         <div v-if="store.repository && rightTab === 'mr'" class="ct-scroll">
@@ -185,12 +186,14 @@ const props = defineProps<{
   task?: { id: string; key: string } | null
   /** Agent preselected when sending a round: the task's agent, else the project's. */
   defaultAgentId?: string | null
+  /** Проверка inside a work's page: its own Завершение stage replaces the panel, remarks go to the work's chat. */
+  work?: boolean
 }>()
 const emit = defineEmits<{ back: [] }>()
 
 const git = useGitStore()
 const external = useExternalThreadsStore()
-watch(() => props.projectId, id => external.reset(id), { immediate: true })
+watch(() => props.projectId, id => external.reset(id, props.workspaceId ?? undefined), { immediate: true })
 const pathsOf = (list: GitChange[]) => list.flatMap(c => [c.path, ...(c.originalPath ? [c.originalPath] : [])])
 async function stageMany(list: GitChange[], stage: boolean) { try { await git.run(stage ? 'stage' : 'unstage', { paths: pathsOf(list) }); await store.refresh() } catch { /* git error displayed in the branch bar */ } }
 const toggleStage = (change: GitChange) => stageMany([change], change.status === 'U' || ['.', ' ', '?'].includes(change.indexStatus))
@@ -211,6 +214,10 @@ const search = ref<InstanceType<typeof SearchPanel>>()
 type LeftTab = 'changes' | 'files' | 'search'
 const leftTab = ref<LeftTab>('changes')
 const agent = useReviewAgentStore()
+// In a work the remarks go to the work's own chat unless another agent is chosen.
+watch(() => [props.work, props.task?.id, props.workspaceId], () => {
+  agent.work = props.work && props.task ? { projectId: props.projectId, taskId: props.task.id, workspaceId: props.workspaceId ?? undefined } : null
+}, { immediate: true })
 const mode = ref<'diff' | 'file'>('diff')
 const quickOpen = ref(false)
 const loaded = ref(false)
@@ -366,7 +373,7 @@ async function reanchor() {
   try {
     const key = (i: CodeReviewItem) => `${i.line_start}:${i.line_end}:${i.outdated}`
     const before = new Map(store.items.map(i => [i.id, key(i)]))
-    const moved = (await Promise.all(sides.map(side => codeReviewsApi.fileItems(props.projectId, review.id, path, side)))).flat()
+    const moved = (await Promise.all(sides.map(side => codeReviewsApi.fileItems(props.projectId, review.id, path, side, undefined, store.workspaceId)))).flat()
     if (turn === anchoring && moved.some(i => before.get(i.id) !== key(i))) await store.refresh()
   } catch { /* anchors stay as stored */ }
 }
@@ -436,7 +443,7 @@ function showRight(tab: RightTab) { rightCollapsed.value = false; rightTab.value
 watch(() => route.query.finish, value => { if (value === '1') showRight('finish') })
 // --- the developer's merge/rebase: its conflicts and the agent resolving them ----------
 const conflicts = useConflictsStore()
-watch(() => props.projectId, id => { void conflicts.start(id) }, { immediate: true })
+watch(() => props.projectId, id => { void conflicts.start(id, props.workspaceId ?? undefined) }, { immediate: true })
 const conflictAttention = computed(() => conflicts.mode === 'answer' ? conflicts.questions.length : 0)
 watch(() => conflicts.operation, operation => { if (!operation && rightTab.value === 'conflicts') rightTab.value = 'remarks' })
 const conflictPanel = ref<InstanceType<typeof ConflictPanel>>()
@@ -449,13 +456,13 @@ async function openConflicts() {
 const rightTabs = computed(() => [
   ...(conflicts.operation ? [{ id: 'conflicts' as const, label: 'Конфликты', count: conflictAttention.value || conflicts.conflicted.length, warning: !!conflictAttention.value, hint: conflictAttention.value ? `Агент ждёт ответа: ${conflictAttention.value}` : 'Конфликтных файлов' }] : []),
   { id: 'remarks' as const, label: 'Замечания', count: attention.value || store.items.length, warning: !!attention.value, hint: attention.value ? `Ждут вашего ответа: ${attention.value}` : '' },
-  { id: 'finish' as const, label: 'Завершение', count: finishAttention.value ? 1 : 0, warning: true, hint: 'Ждёт вашего решения' },
+  ...(props.work ? [] : [{ id: 'finish' as const, label: 'Завершение', count: finishAttention.value ? 1 : 0, warning: true, hint: 'Ждёт вашего решения' }]),
   { id: 'mr' as const, label: 'МР', count: 0, warning: false, hint: '' },
 ])
 const rightRail = computed(() => [
   ...(conflicts.operation ? [{ id: 'conflicts', label: 'Конфликты', icon: 'conflicts' as const, count: conflictAttention.value || conflicts.conflicted.length, tone: conflictAttention.value ? 'warning' as const : undefined, dot: conflicts.state?.session?.status }] : []),
   { id: 'remarks', label: 'Замечания', icon: 'remarks' as const, count: attention.value || store.items.length, tone: attention.value ? 'warning' as const : undefined, dot: agent.session?.status },
-  { id: 'finish', label: 'Завершение работ', icon: 'finish' as const, count: finishAttention.value ? 1 : 0, tone: 'warning' as const },
+  ...(props.work ? [] : [{ id: 'finish', label: 'Завершение работ', icon: 'finish' as const, count: finishAttention.value ? 1 : 0, tone: 'warning' as const }]),
   { id: 'mr', label: 'МР', icon: 'mr' as const },
 ])
 /** «Посмотреть правку»: the agent's changes of that round, opened at the file it named. */
@@ -499,7 +506,7 @@ function onKey(event: KeyboardEvent) {
 
 async function begin(projectId: string) {
   loaded.value = false
-  await store.start(projectId)
+  await store.start(projectId, props.workspaceId ?? undefined)
   loaded.value = true
   if (store.projectId !== projectId) return
   const remembered = lastOpened.get(projectId)
@@ -509,7 +516,7 @@ async function begin(projectId: string) {
 }
 
 onMounted(() => { window.addEventListener('keydown', onKey) })
-onBeforeUnmount(() => { window.removeEventListener('keydown', onKey); store.stop(); git.stop(); conflicts.stop() })
+onBeforeUnmount(() => { window.removeEventListener('keydown', onKey); store.stop(); git.stop(); conflicts.stop(); if (props.work) agent.work = null })
 watch(() => props.projectId, id => { void begin(id) }, { immediate: true })
 </script>
 

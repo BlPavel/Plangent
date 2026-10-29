@@ -6,7 +6,7 @@ import type { ConflictState } from '../git-types'
 
 /** The merge/rebase the developer runs themselves, its conflicted files and the agent resolving them. */
 export const useConflictsStore = defineStore('code-conflicts', () => {
-  const projectId = ref(''), state = ref<ConflictState | null>(null), busy = ref(false), error = ref('')
+  const projectId = ref(''), workspaceId = ref<string | undefined>(), state = ref<ConflictState | null>(null), busy = ref(false), error = ref('')
   const operation = computed(() => state.value?.operation ?? null)
   const conflicted = computed(() => state.value?.files.filter(f => f.conflicted) ?? [])
   const working = computed(() => ['starting', 'thinking', 'waiting'].includes(state.value?.session?.status ?? ''))
@@ -27,13 +27,13 @@ export const useConflictsStore = defineStore('code-conflicts', () => {
     const p = projectId.value, token = ++generation
     if (!p) return
     try {
-      const next = await conflictsApi.state(p)
+      const next = await conflictsApi.state(p, workspaceId.value)
       if (token === generation && p === projectId.value) state.value = next
     } catch { /* not a git project or the server is busy: keep the last known state */ }
   }
-  async function start(p: string) {
+  async function start(p: string, workspace?: string) {
     stop()
-    projectId.value = p; state.value = null; error.value = ''
+    projectId.value = p; workspaceId.value = workspace; state.value = null; error.value = ''
     unsubscribe = onServerEvent<{ type: string; projectId?: string; session?: { id: string } }>(event => {
       const mine = event.type === 'conflicts:changed' && event.projectId === projectId.value
       const agent = event.type === 'agent_session' && event.session?.id === state.value?.session?.id
@@ -54,7 +54,7 @@ export const useConflictsStore = defineStore('code-conflicts', () => {
     } catch (cause) { if (p === projectId.value) error.value = (cause instanceof Error ? cause.message : String(cause)).replace(/^Error:\s*/, '') }
     finally { if (p === projectId.value) busy.value = false }
   }
-  const resolve = (input: { note?: string; answers?: Record<string, string> } = {}) => act(() => conflictsApi.resolve(projectId.value, input))
-  const stopAgent = () => act(async () => { await conflictsApi.stop(projectId.value); await refresh() })
+  const resolve = (input: { note?: string; answers?: Record<string, string> } = {}) => act(() => conflictsApi.resolve(projectId.value, input, workspaceId.value))
+  const stopAgent = () => act(async () => { await conflictsApi.stop(projectId.value, workspaceId.value); await refresh() })
   return { projectId, state, busy, error, operation, conflicted, working, questions, mode, start, stop, refresh, resolve, stopAgent }
 })

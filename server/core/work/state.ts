@@ -8,6 +8,8 @@ export interface WorkInput {
   plan?: string; remarks?: number;
   mrState?: string;
   finish?: { status: FinishStatus; error?: string } | null;
+  /** An errand whose chat is open but the developer has not written the request yet. */
+  awaitingBrief?: boolean;
 }
 /** Presentation policy only; no storage, network or clock access. */
 export function computeWorkState(input: WorkInput): WorkState {
@@ -31,6 +33,7 @@ export function computeWorkState(input: WorkInput): WorkState {
   if (workspace?.status === 'failed') return result('execution', 'failed', 'attention', '❗', workspace.error || 'Рабочее место недоступно', 'recreate', 'Пересоздать');
   if (workspace?.status === 'preparing') return result('execution', 'preparing', 'preparation', '◌', 'Подготовка рабочего места', 'chat', 'Открыть');
   if (task.kind === 'errand' && !sessions.length) return result('execution', 'preparing', 'preparation', '◌', 'Запуск поручения', 'chat', 'Открыть');
+  if (input.awaitingBrief) return result('execution', 'waiting', 'attention', '❗', 'Напишите агенту, что сделать', 'chat', 'Написать агенту');
   const queueWaiting = queue?.stages.flatMap(s => s.sessions).some(s => ['waiting_for_developer', 'ready_for_execution'].includes(s.status));
   if (waiting || queueWaiting || queue?.status === 'paused') return result('execution', 'waiting', 'attention', '❗', 'Нужно ваше действие', waiting ? 'chat' : 'queue', waiting ? 'Ответить агенту' : 'Продолжить');
   if (finish && !['complete', 'cancelled'].includes(finish.status)) return result('finish',

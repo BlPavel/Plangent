@@ -2,7 +2,12 @@ import { api, workspaceApi } from '@core/api'
 import type { Task, WorkEntry, Workspace } from '@core/models'
 const root = (p: string) => '/projects/' + encodeURIComponent(p)
 const task = (p: string, t: string) => root(p) + '/tasks/' + encodeURIComponent(t)
-export interface ErrandInput { text: string; agent_id?: string; model?: string; policy?: string; base_branch?: string; auto_review?: boolean }
+/** A new errand: номер and/or описание, who does it and where (see the server's ErrandInput); `text` is sent to the agent at once. */
+export interface ErrandInput {
+  title?: string; external_key?: string; text?: string
+  agent_id?: string; model?: string; mode?: string; config?: Record<string, string>; policy?: string; auto_review?: boolean
+  place?: 'new' | 'existing' | 'main'; base_branch?: string; branch_name?: string; branch?: string
+}
 export const workApi = {
   list: (p: string) => api.get<WorkEntry[]>(root(p) + '/work'),
   attention: () => api.get<{ projectId: string; count: number }[]>('/work/attention'),

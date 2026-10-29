@@ -9,7 +9,7 @@
       v-else
       ref="view" v-model:mode="mode" v-model:ignore-whitespace="ignoreWhitespace"
       :file="viewerFile" :side="'new'" :hunks="hunks" :original-path="change?.originalPath"
-      :image-src="viewerFile.kind === 'image' ? codeApi.imageUrl(projectId, viewerFile.path) + '&v=' + store.file?.size : undefined"
+      :image-src="viewerFile.kind === 'image' ? codeApi.imageUrl(projectId, viewerFile.path, store.workspaceId) + '&v=' + store.file?.size : undefined"
       :markers="markers" :old-markers="oldMarkers" :widget-lines="widgetLines" :old-widget-lines="oldWidgetLines"
       @select="emit('select', $event)" @marker-click="(line, side) => emit('marker-click', line, side)"
     >
@@ -61,7 +61,7 @@ async function loadAtEnd() {
   if (atEnd.value?.path === target && atEnd.value.end === end) return
   const mine = endRequest = new AbortController()
   try {
-    const { content } = await codeApi.oldFile(props.projectId, target, end, mine.signal)
+    const { content } = await codeApi.oldFile(props.projectId, target, end, mine.signal, store.workspaceId)
     if (!mine.signal.aborted) atEnd.value = { path: target, end, content }
   } catch {
     // Absent at the end of the review (deleted): the Diff shows the removed lines against an empty file.

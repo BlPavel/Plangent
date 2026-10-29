@@ -34,6 +34,8 @@ export async function createWorkspace(taskId: string, input: { branch: string; b
     if (await fs.lstat(destination).then(() => true, () => false)) throw new CodeError('Workspace folder already exists', 409);
     await fetchRepository(root, options);
     const existing = await localBranchHead(root, input.branch);
+    // A branch that exists only in origin (pushed from elsewhere) is checked out as its local tracking copy.
+    const remoteOnly = !existing && await runGit(root, ['show-ref', '--verify', '--quiet', 'refs/remotes/origin/' + input.branch], options).then(() => true, () => false);
     const remoteBase = 'refs/remotes/origin/' + input.base.replace(/^origin\//, '');
     const hasRemoteBase = await runGit(root, ['show-ref', '--verify', '--quiet', remoteBase], options).then(() => true, () => false);
     const base = hasRemoteBase ? remoteBase : 'refs/heads/' + input.base.replace(/^origin\//, '');
@@ -41,6 +43,7 @@ export async function createWorkspace(taskId: string, input: { branch: string; b
     const workspace = insertWorkspace({ project_id: project.id, task_id: taskId, branch: input.branch, base_branch: input.base, path: destination });
     try {
       await runGit(root, existing ? ['worktree', 'add', '--', destination, input.branch]
+        : remoteOnly ? ['worktree', 'add', '--track', '-b', input.branch, '--', destination, 'origin/' + input.branch]
         : ['worktree', 'add', '-b', input.branch, '--', destination, base], options);
       return await prepareWorkspace(workspace.id, { signal: options.signal });
     } catch (error) {

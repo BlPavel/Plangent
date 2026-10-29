@@ -11,6 +11,8 @@ const continued = new Map<string, string | null>()
 
 export const useCodeStore = defineStore('code', () => {
   const projectId = ref<string | null>(null)
+  /** The work's folder the screen shows; undefined — the project's main folder. */
+  const workspaceId = ref<string | undefined>(undefined)
   const repository = ref<RepositoryInfo | null>(null)
   const changes = ref<GitChange[]>([])
   const stats = ref<Record<string, LineStat>>({})
@@ -93,12 +95,12 @@ export const useCodeStore = defineStore('code', () => {
       if (!controller.signal.aborted) throw cause
     } finally { if (requests.get(key) === controller) requests.delete(key) }
   }
-  const loadTree = (path = '') => read('tree:' + path, (p, signal) => codeApi.tree(p, path, includeIgnored.value, signal), value => { trees.value[path] = value })
+  const loadTree = (path = '') => read('tree:' + path, (p, signal) => codeApi.tree(p, path, includeIgnored.value, signal, workspaceId.value), value => { trees.value[path] = value })
   /** The selected file is gone from disk (deleted by the developer or the agent): not an error. */
   let fileMissing = false
   const loadFile = (path: string) => read('file', async (p, signal) => {
     fileMissing = false
-    try { return await codeApi.file(p, path, signal) }
+    try { return await codeApi.file(p, path, signal, workspaceId.value) }
     catch (cause) {
       if (!signal.aborted && selectedPath.value === path) file.value = null
       if (/not found/i.test(String((cause as Error)?.message ?? cause))) { fileMissing = true; return null }
@@ -113,16 +115,16 @@ export const useCodeStore = defineStore('code', () => {
   async function openReview(id: string | null) {
     openedReviewId.value = id; openedReview.value = null; baseData.value = null
     requests.get('detail')?.abort(); requests.get('base')?.abort()
-    if (id) await read('detail', (p, signal) => codeReviewsApi.detail(p, id, signal), value => { openedReview.value = value })
+    if (id) await read('detail', (p, signal) => codeReviewsApi.detail(p, id, signal, workspaceId.value), value => { openedReview.value = value })
     else base.value = 'head'
     await loadBase().catch(cause => { error.value = cause instanceof Error ? cause.message : String(cause) })
   }
   const loadBase = () => {
     const id = baseReviewId.value
     const kind = effectiveBase.value
-    if (kind === 'remote') return read('base', (p, signal) => codeReviewsApi.remoteComparison(p, remoteRef.value, signal), value => { baseData.value = value })
+    if (kind === 'remote') return read('base', (p, signal) => codeReviewsApi.remoteComparison(p, remoteRef.value, signal, workspaceId.value), value => { baseData.value = value })
     if (kind === 'head' || !id) { baseData.value = null; return Promise.resolve() }
-    return read('base', (p, signal) => codeReviewsApi.baseChanges(p, id, kind, kind === 'agent' ? baseRound.value ?? undefined : undefined, signal), value => { baseData.value = value })
+    return read('base', (p, signal) => codeReviewsApi.baseChanges(p, id, kind, kind === 'agent' ? baseRound.value ?? undefined : undefined, signal, workspaceId.value), value => { baseData.value = value })
   }
   async function setBase(value: CompareBase, round: string | null = null) {
     base.value = value; if (value === 'remote') remoteRef.value = round ?? remoteRef.value; baseRound.value = round; baseData.value = null
@@ -135,7 +137,7 @@ export const useCodeStore = defineStore('code', () => {
   }
   const loadHistory = () => {
     historyLoaded = true
-    return read('history', (p, signal) => codeReviewsApi.history(p, signal), value => { history.value = value })
+    return read('history', (p, signal) => codeReviewsApi.history(p, signal, workspaceId.value), value => { history.value = value })
   }
   async function refresh() {
     if (!projectId.value) return
@@ -143,11 +145,11 @@ export const useCodeStore = defineStore('code', () => {
     loading.value = true; error.value = null
     const paths = new Set(['', ...Object.keys(trees.value)])
     const jobs = [
-      read('repository', (p, s) => codeApi.repository(p, s), value => { repository.value = value }),
-      read('changes', (p, s) => codeApi.changes(p, s), value => { changes.value = value }),
-      read('stats', (p, s) => codeApi.stats(p, s), value => { stats.value = value }),
-      read('files', (p, s) => codeApi.files(p, includeIgnored.value, s), value => { files.value = value }),
-      read('current', (p, s) => codeReviewsApi.current(p, s), value => { current.value = value }),
+      read('repository', (p, s) => codeApi.repository(p, s, workspaceId.value), value => { repository.value = value }),
+      read('changes', (p, s) => codeApi.changes(p, s, workspaceId.value), value => { changes.value = value }),
+      read('stats', (p, s) => codeApi.stats(p, s, workspaceId.value), value => { stats.value = value }),
+      read('files', (p, s) => codeApi.files(p, includeIgnored.value, s, workspaceId.value), value => { files.value = value }),
+      read('current', (p, s) => codeReviewsApi.current(p, s, workspaceId.value), value => { current.value = value }),
       ...[...paths].map(loadTree),
     ]
     if (selectedPath.value !== null) {
@@ -156,7 +158,7 @@ export const useCodeStore = defineStore('code', () => {
     }
     if (openedReviewId.value) {
       const id = openedReviewId.value
-      jobs.push(read('detail', (p, s) => codeReviewsApi.detail(p, id, s), value => { openedReview.value = value }))
+      jobs.push(read('detail', (p, s) => codeReviewsApi.detail(p, id, s, workspaceId.value), value => { openedReview.value = value }))
     }
     if (historyLoaded) jobs.push(loadHistory())
     const results = await Promise.allSettled(jobs)
@@ -181,28 +183,30 @@ export const useCodeStore = defineStore('code', () => {
     stopEvents?.(); stopEvents = undefined
     for (const controller of requests.values()) controller.abort()
     requests.clear()
-    projectId.value = null; loading.value = false; searching.value = false
+    projectId.value = null; workspaceId.value = undefined; loading.value = false; searching.value = false
     repository.value = null; changes.value = []; stats.value = {}; trees.value = {}; files.value = []
     selectedPath.value = null; file.value = null; current.value = null
     openedReviewId.value = null; openedReview.value = null; history.value = []
     base.value = 'head'; remoteRef.value = ''; baseRound.value = null; baseData.value = null; continuedHead.value = null
     matches.value = []; searchSummary.value = null; error.value = null; watchError.value = null; searchError.value = null
   }
-  async function start(p: string) {
-    stop(); projectId.value = p
-    stopEvents = onServerEvent<{ type: string; projectId?: string; error?: string; session?: { project_id: string; role: string } }>(event => {
+  async function start(p: string, workspace?: string) {
+    stop(); projectId.value = p; workspaceId.value = workspace
+    stopEvents = onServerEvent<{ type: string; projectId?: string; workspaceId?: string; error?: string; session?: { project_id: string; role: string } }>(event => {
       if (event.type === 'events:disconnected') watchError.value = 'Connection lost; reconnecting'
       // Session lifecycle events carry the project inside session, rather than at the top level.
       const reviewSessionChanged = event.type === 'agent_session' && event.session?.role === 'code-fixer'
       const eventProject = reviewSessionChanged ? event.session?.project_id : event.projectId
       if (eventProject !== projectId.value) return
+      // Another folder of the same project (a work's own folder or the main one) changed: not ours.
+      if (event.type === 'code:changed' && (event.workspaceId ?? undefined) !== workspaceId.value) return
       if (event.type === 'code:error') { watchError.value = event.error ?? 'Cannot watch project'; return }
       if (event.type === 'code:subscribed') watchError.value = null
       if (reviewSessionChanged || ['code:subscribed', 'code:changed', 'code_review_updated', 'code_review_needs_decision'].includes(event.type)) {
         clearTimeout(timer); timer = setTimeout(() => void refresh(), 100)
       }
     })
-    stopWatch = subscribeCodeProject(p)
+    stopWatch = subscribeCodeProject(p, workspace)
     await refresh()
   }
   async function setIncludeIgnored(value: boolean) {
@@ -222,7 +226,7 @@ export const useCodeStore = defineStore('code', () => {
     const controller = new AbortController()
     requests.set('search', controller); searching.value = true
     try {
-      for await (const event of codeApi.search(p, options, controller.signal)) {
+      for await (const event of codeApi.search(p, options, controller.signal, workspaceId.value)) {
         if (controller.signal.aborted || projectId.value !== p) return
         if (event.type === 'match') matches.value.push(event)
         else searchSummary.value = event
@@ -242,28 +246,28 @@ export const useCodeStore = defineStore('code', () => {
     if (projectId.value === p && lifecycle === active) await refresh()
     return result
   }
-  const addDraft = (data: ReviewDraft, origin: 'project' | 'task' = 'project', originId?: string) => mutate(p => codeReviewsApi.addDraft(p, data, origin, originId ?? p))
-  const updateDraft = (r: string, i: string, data: DraftPatch) => mutate(p => codeReviewsApi.updateDraft(p, r, i, data))
-  const removeItem = (r: string, i: string) => mutate(p => codeReviewsApi.removeItem(p, r, i))
-  const makeGeneral = (r: string, i: string) => mutate(p => codeReviewsApi.makeGeneral(p, r, i))
-  const addMessage = (r: string, i: string, data: { kind: 'text' | 'implement'; text: string; choice?: number }) => mutate(p => codeReviewsApi.addMessage(p, r, i, data))
-  const removeMessage = (r: string, i: string, m: string) => mutate(p => codeReviewsApi.removeMessage(p, r, i, m))
-  const closeItem = (r: string, i: string, resolution: 'accept' | 'answered' | 'reject' | 'reopen') => mutate(p => codeReviewsApi.closeItem(p, r, i, resolution))
-  const sendRound = (r: string, sessionId: string, note?: string, itemIds?: string[]) => mutate(p => codeReviewsApi.sendRound(p, r, sessionId, note, itemIds))
+  const addDraft = (data: ReviewDraft, origin: 'project' | 'task' = 'project', originId?: string) => mutate(p => codeReviewsApi.addDraft(p, data, origin, originId ?? p, workspaceId.value))
+  const updateDraft = (r: string, i: string, data: DraftPatch) => mutate(p => codeReviewsApi.updateDraft(p, r, i, data, workspaceId.value))
+  const removeItem = (r: string, i: string) => mutate(p => codeReviewsApi.removeItem(p, r, i, workspaceId.value))
+  const makeGeneral = (r: string, i: string) => mutate(p => codeReviewsApi.makeGeneral(p, r, i, workspaceId.value))
+  const addMessage = (r: string, i: string, data: { kind: 'text' | 'implement'; text: string; choice?: number }) => mutate(p => codeReviewsApi.addMessage(p, r, i, data, workspaceId.value))
+  const removeMessage = (r: string, i: string, m: string) => mutate(p => codeReviewsApi.removeMessage(p, r, i, m, workspaceId.value))
+  const closeItem = (r: string, i: string, resolution: 'accept' | 'answered' | 'reject' | 'reopen') => mutate(p => codeReviewsApi.closeItem(p, r, i, resolution, workspaceId.value))
+  const sendRound = (r: string, sessionId: string, note?: string, itemIds?: string[]) => mutate(p => codeReviewsApi.sendRound(p, r, sessionId, note, itemIds, workspaceId.value))
   /** Stops the review's agent; threads it left without a reply return to the queue. */
-  const stopAgent = (r: string) => mutate(p => codeReviewsApi.stop(p, r))
-  const finish = (r: string, mode: 'require_resolved' | 'carry' | 'close' = 'require_resolved') => mutate(p => codeReviewsApi.finish(p, r, mode))
+  const stopAgent = (r: string) => mutate(p => codeReviewsApi.stop(p, r, workspaceId.value))
+  const finish = (r: string, mode: 'require_resolved' | 'carry' | 'close' = 'require_resolved') => mutate(p => codeReviewsApi.finish(p, r, mode, workspaceId.value))
   const removeReview = (r: string) => mutate(async p => {
     const active = lifecycle
-    await codeReviewsApi.removeReview(p, r)
+    await codeReviewsApi.removeReview(p, r, workspaceId.value)
     if (lifecycle === active && openedReviewId.value === r) await openReview(null)
   })
   function diff(path: string, options: DiffOptions = {}, signal?: AbortSignal) {
     if (!projectId.value) throw new Error('No project selected')
-    return codeApi.diff(projectId.value, path, options, signal)
+    return codeApi.diff(projectId.value, path, options, signal, workspaceId.value)
   }
   onScopeDispose(stop)
-  return { projectId, repository, head, branch, changes, stats, trees, files, includeIgnored, selectedPath, file, current, openedReviewId, openedReview, review, items, rounds, readOnly, history, loading, error, watchError,
+  return { projectId, workspaceId, repository, head, branch, changes, stats, trees, files, includeIgnored, selectedPath, file, current, openedReviewId, openedReview, review, items, rounds, readOnly, history, loading, error, watchError,
     base, remoteRef, baseRound, baseData, screen, unresolved, liveReview, agentWorking, effectiveBase, shownChanges, shownStats, diffEnds, commitBannerShown, otherReview, runningElsewhere, setBase, continueReview,
     matches, searchSummary, searching, searchError, start, stop, refresh, loadTree, selectFile, openReview, loadHistory, setIncludeIgnored, search, cancelSearch, clearSearch, diff,
     messages, addDraft, updateDraft, removeItem, makeGeneral, addMessage, removeMessage, closeItem, sendRound, stopAgent, finish, removeReview }

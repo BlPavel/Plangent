@@ -1,6 +1,8 @@
 export { default as ChatView } from './components/ChatView.vue'
 export { default as AgentChats } from './components/AgentChats.vue'
 export { default as NewChatPanel, type NewChatRequest } from './components/NewChatPanel.vue'
+export { default as AgentSettingsBar } from './components/AgentSettingsBar.vue'
+export { useAgentLaunchOptions } from './composables/useAgentLaunchOptions'
 export { default as MessageMarkdown } from '@shared/ui/MessageMarkdown.vue'
 export type { ContentBlock } from './components/ChatComposer.vue'
 export { useChatStore, statusLabel, statusTone, type ChatSession } from './stores/sessions'

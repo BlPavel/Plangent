@@ -25,8 +25,6 @@
         </div>
       </div>
 
-      <ViewingBar v-if="!isGroup" :workspace="viewing.workspace" :project-id="currentProject.id" @terminal="activeTab = 'terminal'" />
-
       <!-- Tab bar -->
       <div class="tab-bar">
         <button
@@ -41,14 +39,13 @@
 
       <div v-show="activeTab === 'agents'" class="tab-content"><AgentChats :project-id="currentProject.id" :default-agent-id="projectsStore.agentFor(currentProject)" /></div>
       <div v-if="isGroup" v-show="activeTab === 'projects'" class="tab-content"><GroupProjects :group="currentProject" /></div>
-      <div v-show="activeTab === 'terminal'" class="tab-content"><TerminalsView :project-id="currentProject.id" :workspace-id="viewing.workspace?.id ?? null" :visible="activeTab === 'terminal'" /></div>
       <div v-show="activeTab === 'tasks'" class="tab-content tasks-tab">
         <WorkList :project="currentProject" :members="members" :agents="agentsStore.agents" :default-agent-id="projectsStore.agentFor(currentProject)" :owner-name="ownerName" :move-menu="moveMenu" @open="openWork" @changed="loadTasks" />
       </div>
 
       <!-- Tab: Инструкции -->
       <!-- Mounted only while open: the screen watches the project folder. -->
-      <div v-if="activeTab === 'code' && !isGroup" class="tab-content"><CodeTab :key="viewing.workspace?.id ?? 'main'" :project-id="currentProject.id" :workspace-id="viewing.workspace?.id ?? null" :task="codeTask" :default-agent-id="projectsStore.agentFor(currentProject)" @back="backToTask" /></div>
+      <div v-if="activeTab === 'code' && !isGroup" class="tab-content"><CodeTab :project-id="currentProject.id" :task="codeTask" :default-agent-id="projectsStore.agentFor(currentProject)" @back="backToTask" /></div>
       <div v-if="activeTab === 'review'" class="tab-content"><BranchReviewTab :key="currentProject.id" :project-id="currentProject.id" :members="isGroup ? projectsStore.members(currentProject.id) : undefined" @open-instructions="openReviewSkills" /></div>
       <div v-if="activeTab === 'settings'" class="tab-content"><ProjectSettingsTab :key="currentProject.id" :project="currentProject" /></div>
       <div v-show="activeTab === 'instructions'" class="tab-content instructions-tab">
@@ -68,13 +65,12 @@
 </template>
 
 <script lang="ts">
-type HomeTab = 'agents' | 'projects' | 'terminal' | 'tasks' | 'code' | 'review' | 'instructions' | 'settings'
+type HomeTab = 'agents' | 'projects' | 'tasks' | 'code' | 'review' | 'instructions' | 'settings'
 // Module-level so it survives HomeView being unmounted while a task is open.
 const lastTab: { projectId: string | null; tab: HomeTab } = { projectId: null, tab: 'agents' }
 </script>
 
 <script setup lang="ts">
-import { TerminalsView } from '@features/terminal'
 import { AgentChats } from '@features/agent-chat'
 import { CodeTab, useCodeAttentionStore } from '@features/code'
 import { BranchReviewTab } from '@features/branch-review'
@@ -89,12 +85,10 @@ import { type MenuItem } from '@shared/ui/AppMenu.vue'
 import AppButton from '@shared/ui/AppButton.vue'
 import { InstructionsWorkspace } from '@features/library'
 import ProjectFormModal from '../components/ProjectFormModal.vue'
-import ViewingBar from '../components/ViewingBar.vue'
-import { useViewingStore } from '../stores/viewing'
 import ProjectSettingsTab from '../components/ProjectSettingsTab.vue'
 import GroupProjects from '../components/GroupProjects.vue'
 import SourceView from '../components/SourceView.vue'
-import { WorkList, useWorkStore } from '@features/tasks'
+import { WorkList, useWorkStore, workspacesApi } from '@features/tasks'
 import { onServerEvent } from '@core/api/events'
 import { onUnmounted } from 'vue'
 
@@ -103,7 +97,6 @@ const route = useRoute()
 const appStore = useAppStore()
 const projectsStore = useProjectsStore()
 const agentsStore = useAgentsStore()
-const viewing = useViewingStore()
 
 const currentProject = computed(() => appStore.currentProject)
 const isGroup = computed(() => currentProject.value?.kind === 'group')
@@ -118,7 +111,6 @@ type TabItem = { id: HomeTab; label: string; disabled: boolean; count?: number; 
 const tabs = computed<TabItem[]>(() => [
   ...(isGroup.value ? [{ id: 'projects' as const, label: `Проекты · ${members.value.length}`, disabled: false }] : []),
   { id: 'agents' as const, label: 'Агенты', disabled: false },
-  { id: 'terminal' as const, label: 'Терминал', disabled: false },
   { id: 'tasks' as const, label: 'Задачи', disabled: false },
   ...(isGroup.value ? [] : [{ id: 'code' as const, label: 'Код', disabled: false, count: codeAttentionCount.value, countTitle: 'Пункты, по которым нужно ваше решение' }]),
   { id: 'review' as const, label: 'Ревью', disabled: false },
@@ -165,7 +157,12 @@ const stopWorkEvents = onServerEvent(event => { if (event.type === 'task_updated
 onUnmounted(stopWorkEvents)
 
 watch(() => currentProject.value?.id, () => { loadTasks() }, { immediate: true })
-watch(() => (isGroup.value ? null : currentProject.value?.id), id => { void viewing.load(id) }, { immediate: true })
+// «Код» and the terminal of the project always show its main folder: a work's folder is seen inside the work.
+// An older «Смотреть эту ветку» choice is dropped once.
+watch(() => (isGroup.value ? null : currentProject.value?.id), async id => {
+  if (!id) return
+  try { if (await workspacesApi.viewing(id)) await workspacesApi.view(id, null, true) } catch { /* the main folder is the default anyway */ }
+}, { immediate: true })
 watch(() => currentProject.value?.id, id => {
   // «Настройки» opened from a group's project list asks for its tab together with the project switch.
   activeTab.value = route.query.tab === 'settings' ? 'settings' : 'agents'
