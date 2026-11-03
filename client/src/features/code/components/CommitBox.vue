@@ -45,7 +45,10 @@ import CoauthorsField from './CoauthorsField.vue'
 /** The commit box under the changes, as in Zed: one message field, the agent's suggestion and a commit button with its variants. */
 const props = defineProps<{ taskId?: string }>()
 const git = useGitStore(), code = useCodeStore()
-const message = ref(''), coauthors = ref<Coauthor[]>([]), coauthorsOpen = ref(false)
+const draft = computed(() => git.getCommitDraft(git.projectId, git.workspaceId))
+const message = computed({ get: () => draft.value.message, set: value => { draft.value.message = value } })
+const coauthors = computed<Coauthor[]>({ get: () => draft.value.coauthors, set: value => { draft.value.coauthors = value } })
+const coauthorsOpen = ref(false)
 const generating = ref(false), checking = ref(false), error = ref(''), check = ref<MessageCheck | null>(null), overrideNeeded = ref(false)
 /** committing — this box's commit is running; shown — its hook output is still relevant. */
 const committing = ref(false), shown = ref(false), done = ref(false)
@@ -79,7 +82,7 @@ watch(input, () => {
     catch (cause) { if (current === version) error.value = errorOf(cause) }
     finally { if (current === version) checking.value = false }
   }, 300)
-}, { deep: true })
+}, { deep: true, immediate: true })
 watch(() => git.lastAction, action => { if (action && action !== 'commit') shown.value = false })
 onBeforeUnmount(() => { clearTimeout(timer); version++ })
 
@@ -92,20 +95,22 @@ const pathsOf = (list: GitChange[]) => list.flatMap(c => [c.path, ...(c.original
 /** Ticks every change: «закоммитить всё» and a suggestion with nothing ticked work on the whole folder. */
 async function stageAll() { if (code.changes.some(c => !isStaged(c))) await git.run('stage', { paths: pathsOf(code.changes) }) }
 async function generate() {
+  const targetDraft = draft.value
   generating.value = true; error.value = ''
   try {
     if (!stagedCount.value) await stageAll()
     const text = await gitApi.generateMessage(git.projectId, { taskId: props.taskId, includeDescription: git.settings?.include_description ?? false }, git.workspaceId)
-    message.value = [text.title, text.body].filter(Boolean).join('\n\n')
+    targetDraft.message = [text.title, text.body].filter(Boolean).join('\n\n')
   } catch (cause) { error.value = errorOf(cause) } finally { generating.value = false; void code.refresh() }
 }
 function commitByKey() { if (canCommit.value) void commit(mode.value, false) }
 async function commit(kind: 'staged' | 'all', overrideForbidden: boolean) {
+  const targetDraft = draft.value
   error.value = ''; done.value = false; committing.value = true; shown.value = true
   try {
     if (kind === 'all') await stageAll()
     await git.run('commit', { ...input.value, overrideForbidden })
-    message.value = ''; overrideNeeded.value = false; done.value = true
+    targetDraft.message = ''; targetDraft.coauthors = []; overrideNeeded.value = false; done.value = true
   } catch (cause) {
     overrideNeeded.value = (cause as { code?: string }).code === 'forbidden_message'
     error.value = overrideNeeded.value ? 'В сообщении есть запрещённый текст. Уберите его или закоммитьте как есть.' : errorOf(cause)

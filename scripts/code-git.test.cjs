@@ -34,6 +34,8 @@ function toggle(element, checked) { element.checked = checked; element.dispatchE
 const SplitButtonStub = { props: ['disabled', 'items', 'title', 'variant', 'menuDisabled'], emits: ['click'], setup(props, { slots, emit }) { return () => h('button', { disabled: props.disabled, onClick: () => emit('click') }, slots.default?.()) } }
 const CoauthorsStub = { props: ['modelValue', 'known'], emits: ['update:modelValue'], setup(props, { emit }) { return () => h('button', { class: 'pick-peer', onClick: () => emit('update:modelValue', [props.known[0]]) }, 'peer') } }
 function commitBox(git, code, gitApi) {
+  const drafts = reactive({})
+  git.getCommitDraft ??= (project, workspace) => drafts[JSON.stringify([project, workspace ?? null])] ??= { message: '', coauthors: [] }
   return component('client/src/features/code/components/CommitBox.vue', {
     '../stores/git': { useGitStore: () => git }, '../stores/code': { useCodeStore: () => code }, '../api': { gitApi },
     '@shared/ui/SplitButton.vue': { default: SplitButtonStub }, './CoauthorsField.vue': { default: CoauthorsStub },
@@ -300,4 +302,29 @@ test('MR threads render with their location', async () => {
   assert.match(screen.root.textContent, /почему так\?/)
   assert.match(screen.root.textContent, /a\.ts:4/)
  } finally { screen.close() }
+})
+
+test('commit draft survives tab remounts and stays separate for each workspace', async () => {
+  const git = reactive({ projectId: 'p', repository: {}, blocked: '', writeBlocked: '', coauthors: [], settings: {} })
+  const code = reactive({ changes: [], refresh: async () => {} })
+  const comp = commitBox(git, code, { checkMessage: async () => ({ violations: [] }) })
+  let view = mount(comp)
+  const message = 'Keep this title\n\nAnd description'
+  input(view.root.querySelector('textarea'), message)
+  await nextTick()
+  view.close()
+  view = mount(comp)
+  assert.equal(view.root.querySelector('textarea').value, message)
+  git.workspaceId = 'task-workspace'
+  await nextTick()
+  assert.equal(view.root.querySelector('textarea').value, '')
+  input(view.root.querySelector('textarea'), 'Task draft')
+  await nextTick()
+  git.workspaceId = undefined
+  await nextTick()
+  assert.equal(view.root.querySelector('textarea').value, message)
+  git.projectId = 'other'
+  await nextTick()
+  assert.equal(view.root.querySelector('textarea').value, '')
+  view.close()
 })
