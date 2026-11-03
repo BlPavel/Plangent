@@ -3,13 +3,17 @@ import { getDb } from '../../infrastructure/db/schema';
 import { CodeError } from '../code/files';
 import { broadcast } from '../shared/events';
 import { onPlanSaved, type PlanSaved } from '../orchestration/plan-events';
+import { parseMaterialIdentifiers } from '../materials';
+import { onMaterialSaved, type MaterialSaved } from '../materials/events';
 import { createPlanReviewStore } from './store';
-import { kinds, stepIds, text, decide, remapRemark } from './remarks';
+import { kindsOf, referenceIds, quoteOf, text, decide, remapRemark, remapMaterialRemark } from './remarks';
 import { overview } from './agent';
 import { markSent, markAnswered } from './planner';
-import type { PlanReview, PlanRemark, PlanMessage } from './types';
+import type { PlanReview, PlanRemark, PlanMessage, ReviewTarget } from './types';
 
 export * from './types';
+export const reviewTargets: readonly ReviewTarget[] = ['plan', 'architecture', 'qa'];
+export function isReviewTarget(value: unknown): value is ReviewTarget { return reviewTargets.includes(value as ReviewTarget); }
 export function createPlanReviewService(db: Database.Database = getDb()) {
   const store = createPlanReviewStore(db);
   function task(projectId: string, taskId: string) {
@@ -31,29 +35,42 @@ export function createPlanReviewService(db: Database.Database = getDb()) {
     const review = scoped(projectId, taskId, id);
     return { review, remarks: store.remarks(id).map(r => ({ ...r, messages: store.messages(r.id) })) };
   }
-  function list(projectId: string, taskId: string) { task(projectId, taskId); return store.listReviews(taskId); }
-  function create(projectId: string, taskId: string, input: { session_id?: string | null; skill_id?: string | null } = {}) {
+  function list(projectId: string, taskId: string, target: ReviewTarget = 'plan') { task(projectId, taskId); return store.listReviews(taskId, target); }
+  /** The persisted text of what is reviewed, never a caller-provided snapshot. */
+  function current(taskId: string, target: ReviewTarget): { content: string; version: number } | undefined {
+    if (target === 'plan') return db.prepare('SELECT content,version FROM plans WHERE task_id=? ORDER BY version DESC LIMIT 1').get(taskId) as { content: string; version: number } | undefined;
+    return db.prepare('SELECT content,version FROM materials WHERE task_id=? AND type=? ORDER BY version DESC LIMIT 1').get(taskId, target) as { content: string; version: number } | undefined;
+  }
+  /** Q… identifiers of the QA the developer marked ready: only a ready QA is a ground of the plan review. */
+  function readyCriteria(taskId: string): string[] {
+    const ready = db.prepare("SELECT 1 FROM preparation_marks WHERE task_id=? AND stage='qa' AND status='ready'").get(taskId);
+    const qa = ready ? current(taskId, 'qa') : undefined;
+    return qa ? parseMaterialIdentifiers(qa.content).filter(id => id.startsWith('Q')) : [];
+  }
+  function create(projectId: string, taskId: string, input: { session_id?: string | null; skill_id?: string | null; target?: ReviewTarget } = {}) {
     task(projectId, taskId);
-    // Read the persisted plan, never a caller-provided snapshot.
-    const plan = db.prepare('SELECT content,version FROM plans WHERE task_id=? ORDER BY version DESC LIMIT 1').get(taskId) as { content: string; version: number } | undefined;
-    if (!plan) throw new CodeError('Plan not found', 409);
+    const { target = 'plan', ...rest } = input;
+    if (!isReviewTarget(target)) throw new CodeError('Invalid review target');
+    const plan = current(taskId, target);
+    if (!plan) throw new CodeError(target === 'plan' ? 'Plan not found' : 'Nothing to review: the document does not exist yet', 409);
     const hasQueue = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='task_queues'").get();
     const queue = hasQueue ? db.prepare('SELECT data FROM task_queues WHERE task_id=?').get(taskId) as { data: string } | undefined : undefined;
-    if (queue && ['running', 'paused'].includes(JSON.parse(queue.data).status)) throw new CodeError('Plan is frozen while the queue is running', 409);
-    const r = store.createReview({ task_id: taskId, plan_content: plan.content, plan_version: plan.version, ...input });
+    if (queue && ['running', 'paused'].includes(JSON.parse(queue.data).status)) throw new CodeError((target === 'plan' ? 'Plan' : 'Document') + ' is frozen while the queue is running', 409);
+    const r = store.createReview({ task_id: taskId, target, plan_content: plan.content, plan_version: plan.version, ...rest });
     notify(taskId, r.id);
     return detail(projectId, taskId, r.id);
   }
   function addRemark(projectId: string, taskId: string, id: string, input: Record<string, unknown>) {
     const r = scoped(projectId, taskId, id);
     if (r.status !== 'open') throw new CodeError('Review is closed', 409);
-    if (!kinds.includes(input.kind as typeof kinds[number])) throw new CodeError('Invalid remark kind');
-    const steps = stepIds(input.steps ?? [], r.plan_content).map(id => ({ id, deleted: false }));
+    if (!kindsOf(r.target).includes(input.kind as PlanRemark['kind'])) throw new CodeError('Invalid remark kind');
+    const steps = referenceIds(r.target, input.steps ?? [], r.plan_content).map(id => ({ id, deleted: false }));
+    const quote = r.target === 'plan' ? '' : quoteOf(input.quote, r.plan_content);
     const result = store.addRemark({ review_id: id, steps, kind: input.kind as PlanRemark['kind'],
-      text: text(input.text), suggestion: text(input.suggestion, false) });
+      text: text(input.text), suggestion: text(input.suggestion, false), quote });
     // A late reviewer output for an old snapshot is visibly stale too.
-    const current = db.prepare('SELECT content FROM plans WHERE task_id=? ORDER BY version DESC LIMIT 1').get(taskId) as { content: string } | undefined;
-    if (current && current.content !== r.plan_content) {
+    const latest = current(taskId, r.target);
+    if (latest && latest.content !== r.plan_content) {
       result.outdated = true;
       store.saveRemark(result);
     }
@@ -63,7 +80,7 @@ export function createPlanReviewService(db: Database.Database = getDb()) {
   function setOverview(projectId: string, taskId: string, id: string, input: Record<string, unknown>) {
     const r = scoped(projectId, taskId, id);
     if (r.status !== 'open') throw new CodeError('Review is closed', 409);
-    store.saveReview(overview(r, store.remarks(id), input));
+    store.saveReview(overview(r, store.remarks(id), input, r.target === 'plan' ? readyCriteria(taskId) : []));
     notify(taskId, id);
     return detail(projectId, taskId, id);
   }
@@ -128,15 +145,24 @@ export function createPlanReviewService(db: Database.Database = getDb()) {
   }
   function onSaved(event: PlanSaved) {
     db.transaction(() => {
-      for (const r of store.listReviews(event.taskId)) {
+      for (const r of store.listReviews(event.taskId, 'plan')) {
         for (const remark of store.remarks(r.id)) store.saveRemark(remapRemark(remark, r, event));
       }
     })();
-    if (store.listReviews(event.taskId).length) notify(event.taskId);
+    if (store.listReviews(event.taskId, 'plan').length) notify(event.taskId);
   }
-  return { list, create, detail, addRemark, setOverview, setStatus, decision, addMessage, revise, sent, delivered, onSaved };
+  function onMaterialChanged(event: MaterialSaved) {
+    db.transaction(() => {
+      for (const r of store.listReviews(event.taskId, event.type)) {
+        for (const remark of store.remarks(r.id)) store.saveRemark(remapMaterialRemark(remark, r, event));
+      }
+    })();
+    if (store.listReviews(event.taskId, event.type).length) notify(event.taskId);
+  }
+  return { list, create, readyCriteria, detail, addRemark, setOverview, setStatus, decision, addMessage, revise, sent, delivered, onSaved, onMaterialChanged };
 }
 let service: ReturnType<typeof createPlanReviewService> | undefined;
 export const planReviews = () => service ??= createPlanReviewService();
-// Subscribe once when the public module is loaded by HTTP/MCP; orchestration never imports this module.
+// Subscribe once when the public module is loaded by HTTP/MCP; orchestration and materials never import this module.
 onPlanSaved(event => planReviews().onSaved(event));
+onMaterialSaved(event => planReviews().onMaterialChanged(event));

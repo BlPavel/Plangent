@@ -1,18 +1,18 @@
 ﻿<template>
   <aside class="review-panel">
     <header class="toolbar">
-      <strong>Ревью плана</strong>
+      <strong>{{ L.title }}</strong>
       <span class="spacer" />
       <AppButton v-if="canLaunch && state.reviews.value.length" size="sm" variant="ghost" :class="{ on: setupOpen }" :disabled="phase === 'running'" :title="phase === 'running' ? 'Ревьюер ещё работает' : 'Настроить и запустить новый раунд ревью'" @click="setupOpen = !setupOpen">Новый раунд</AppButton>
       <AppButton size="sm" variant="ghost" icon title="Скрыть панель ревью" aria-label="Скрыть панель ревью" @click="$emit('close')">✕</AppButton>
     </header>
-    <p v-if="locked" class="muted">План заморожен на время выполнения очереди.</p>
+    <p v-if="locked" class="muted">{{ L.frozen }}</p>
     <section v-if="canLaunch && setupOpen" class="setup">
       <div class="setup-grid">
         <span class="setup-label">Агент</span>
         <AgentPicker :key="setupKey" v-model="choice" :default-agent-id="defaultAgentId" />
         <span class="setup-label">Скилл</span>
-        <PlainSelect v-if="skills.length" v-model="skill" :options="skills.map(s => ({ value: s.id, label: s.title + ' · ' + origins[s.origin] }))" label="Скилл ревью плана" />
+        <PlainSelect v-if="skills.length" v-model="skill" :options="skills.map(s => ({ value: s.id, label: s.title + ' · ' + origins[s.origin] }))" :label="L.skill" />
         <span v-else class="muted">Нет скиллов проекта: только общие проверки из настроек</span>
         <span class="setup-label">Пожелание</span>
         <textarea v-model="wish" class="control wish" rows="4" placeholder="Необязательно: на что обратить внимание, что не проверять" spellcheck="false" />
@@ -32,25 +32,27 @@
       </label>
       <p class="phase" :class="'phase-' + phase" role="status"><span class="phase-dot" />{{ reviewerName }} · {{ phaseText }}</p>
       <p v-if="phase === 'stalled' || phase === 'failed'" role="status" class="warn">{{ stalledText }}</p>
-      <p v-if="!isLatest" class="warn">Это не последний раунд: решения здесь уже не уходят планировщику. Вернитесь к последнему раунду.</p>
+      <p v-if="!isLatest" class="warn">Это не последний раунд: решения здесь уже не уходят {{ L.recipient }}. Вернитесь к последнему раунду.</p>
       <p v-if="summaryLine" class="counts">{{ summaryLine }}</p>
       <p v-if="nextStep" class="next" role="status">{{ nextStep }}</p>
       <h3>Сводка</h3>
       <MessageMarkdown v-if="detail.review.overview" :text="detail.review.overview" />
       <p v-else class="muted">Сводка появится после ответа ревьюера.</p>
-      <h3>Покрытие материалов</h3>
-      <p class="muted">Как план выглядел на момент ревью: {{ detail.review.coverage.length ? 'что из требований покрыто шагами.' : 'ревьюер ещё не сохранил таблицу.' }}</p>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Статус</th><th>Требование</th><th>Шаги</th><th>Замечание</th></tr></thead>
-          <tbody><tr v-for="(row, index) in detail.review.coverage" :key="index">
-            <td :title="coverageLabels[row.status]" :aria-label="coverageLabels[row.status]">{{ coverageIcons[row.status] }}</td><td>{{ row.requirement }}</td>
-            <td>{{ row.steps.join(', ') || '—' }}</td>
-            <td><button v-if="row.remark_id" type="button" class="link" @click="focusCard(row.remark_id)">→ замечание {{ cardNumber(row.remark_id) }}</button></td>
-          </tr></tbody>
-        </table>
-      </div>
-      <p v-if="detail.review.coverage.length" class="muted">Таблица — справка: здесь ничего не нажимается. Решения принимаются в карточках ниже.</p>
+      <template v-if="target === 'plan'">
+        <h3>Покрытие материалов</h3>
+        <p class="muted">Как план выглядел на момент ревью: {{ detail.review.coverage.length ? 'что из требований покрыто шагами.' : 'ревьюер ещё не сохранил таблицу.' }}</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Статус</th><th>Источник</th><th>Требование</th><th>Шаги</th><th>Замечание</th></tr></thead>
+            <tbody><tr v-for="(row, index) in detail.review.coverage" :key="index">
+              <td :title="coverageLabels[row.status]" :aria-label="coverageLabels[row.status]">{{ coverageIcons[row.status] }}</td><td>{{ row.criterion ? 'QA ' + row.criterion : 'Анализ' }}</td><td>{{ row.requirement }}</td>
+              <td>{{ row.steps.join(', ') || '—' }}</td>
+              <td><button v-if="row.remark_id" type="button" class="link" @click="focusCard(row.remark_id)">→ замечание {{ cardNumber(row.remark_id) }}</button></td>
+            </tr></tbody>
+          </table>
+        </div>
+        <p v-if="detail.review.coverage.length" class="muted">Таблица — справка: здесь ничего не нажимается. Решения принимаются в карточках ниже.</p>
+      </template>
       <header class="toolbar">
         <h3>Замечания ({{ detail.remarks.length }})</h3>
         <div class="toolbar-actions">
@@ -58,16 +60,16 @@
             Отправить ревьюеру{{ askCount ? ` (${askCount})` : '' }}
           </AppButton>
           <AppButton v-if="!readonly" size="sm" :variant="canSend ? 'blue' : 'ghost'" :disabled="locked || state.busy.value || !canSend || !isLatest" :title="sendHint" @click="send">
-            Отправить планировщику ({{ acceptedCount }})
+            Отправить {{ L.recipient }} ({{ acceptedCount }})
           </AppButton>
         </div>
       </header>
       <p v-if="activityText" class="activity" role="status"><span class="phase-dot" />{{ activityText }}</p>
-      <p v-else-if="reportChat" class="report-link" role="status">Планировщик вносил изменения. Отчёт о том, что и как исправлено, он пишет в своём чате, там же можно задать вопрос или попросить поправить.
-        <button type="button" class="link" @click="$emit('openPlanner', reportChat)">Открыть чат планировщика</button></p>
+      <p v-else-if="reportChat" class="report-link" role="status">{{ L.recipientNom }} вносил изменения. Отчёт о том, что и как исправлено, он пишет в своём чате, там же можно задать вопрос или попросить поправить.
+        <button type="button" class="link" @click="$emit('openPlanner', reportChat)">Открыть {{ L.recipientChat }}</button></p>
       <RemarkCard
         v-for="(remark, index) in detail.remarks" :key="remark.id" :ref="el => setCard(remark.id, el)"
-        :remark="remark" :number="index + 1" :readonly="readonly || locked" :busy="state.busy.value" :selected="focused === remark.id" :planner="plannerState(remark)" :reviewer-working="reviewerWorking"
+        :remark="remark" :target="target" :number="index + 1" :readonly="readonly || locked" :busy="state.busy.value" :selected="focused === remark.id" :planner="plannerState(remark)" :reviewer-working="reviewerWorking"
         @highlight="$emit('highlight', $event)" @open-planner="remark.planner_session_id && $emit('openPlanner', remark.planner_session_id)" @edit="(text, suggestion) => state.run(() => api.edit(projectId, taskId, detail!.review.id, remark.id, text, suggestion))"
         @decision="(status, comment) => state.run(() => api.decision(projectId, taskId, detail!.review.id, remark.id, status, comment))"
       />
@@ -84,12 +86,15 @@ import PlainSelect from '@shared/ui/PlainSelect.vue'
 import MessageMarkdown from '@shared/ui/MessageMarkdown.vue'
 import { planReviewApi as api } from '../../plan-review/api'
 import { usePlanReview } from '../../plan-review/usePlanReview'
-import type { Launch, Remark, Skill } from '../../plan-review/types'
+import type { Launch, Remark, ReviewTarget, Skill } from '../../plan-review/types'
+import { reviewLabels } from '../../plan-review/labels'
 import AgentPicker from './AgentPicker.vue'
 import RemarkCard from './RemarkCard.vue'
-const props = defineProps<{ projectId: string; taskId: string; defaultAgentId?: string | null; locked: boolean; readonly: boolean }>()
+const props = withDefaults(defineProps<{ projectId: string; taskId: string; target?: ReviewTarget; defaultAgentId?: string | null; locked: boolean; readonly: boolean }>(), { target: 'plan' })
 const emit = defineEmits<{ highlight: [ids: string[]]; counts: [counts: Record<string, number>]; attention: [count: number]; close: []; openPlanner: [sessionId: string] }>()
-const state = usePlanReview(toRef(props, 'projectId'), toRef(props, 'taskId'))
+const target = toRef(props, 'target')
+const L = computed(() => reviewLabels[props.target])
+const state = usePlanReview(toRef(props, 'projectId'), toRef(props, 'taskId'), target)
 const detail = state.detail, agents = useAgentsStore(), chats = useChatStore()
 watch(state.counts, counts => emit('counts', counts), { immediate: true })
 const wish = ref(''), skill = ref(''), skills = ref<Skill[]>([])
@@ -105,7 +110,7 @@ watch(undecided, n => emit('attention', props.readonly ? 0 : n), { immediate: tr
 const sending = ref('')
 const plannerWorking = computed(() => detail.value?.remarks.some(r => plannerState(r) === 'working') ?? false)
 const activityText = computed(() => sending.value
-  || (plannerWorking.value ? 'Планировщик исправляет план по принятым карточкам…' : '')
+  || (plannerWorking.value ? `${L.value.recipientNom} исправляет ${L.value.subject} по принятым карточкам…` : '')
   || (reviewerWorking.value && phase.value === 'done' ? 'Ревьюер отвечает в карточках…' : ''))
 // The planner's report is written in its chat; the panel points there once cards have gone to it.
 const reportChat = computed(() => detail.value?.remarks.filter(r => ['sent', 'applied', 'answered'].includes(r.status) && r.planner_session_id).at(-1)?.planner_session_id || '')
@@ -117,7 +122,7 @@ async function ask() {
 }
 // The planner gets the accepted cards once every card has a decision.
 const canSend = computed(() => !!acceptedCount.value && !undecided.value)
-const sendHint = computed(() => undecided.value ? `Сначала решите по всем карточкам: осталось ${undecided.value}` : acceptedCount.value ? 'Принятые карточки уйдут планировщику: он исправит план' : 'Принятых карточек нет')
+const sendHint = computed(() => undecided.value ? `Сначала решите по всем карточкам: осталось ${undecided.value}` : acceptedCount.value ? `Принятые карточки уйдут ${L.value.recipient}: он исправит ${L.value.subject}` : 'Принятых карточек нет')
 const isLatest = computed(() => !detail.value || detail.value.review.id === state.reviews.value[0]?.id)
 // The reviewer is live while its chat works. An «open» review whose chat has stopped will never be completed by itself.
 const reviewerChat = computed(() => chats.sessions.find(s => s.id === detail.value?.review.session_id))
@@ -142,25 +147,26 @@ const stalledText = computed(() => {
 })
 const summaryLine = computed(() => {
   const parts: [string, number][] = [['Без решения', countOf('open')], ['Принято', countOf('accepted')], ['С ревьюером', countOf('discussing')],
-    ['Отправлено', countOf('sent')], ['Планировщик ответил', countOf('answered')], ['Учтено в плане', countOf('applied')], ['Отклонено', countOf('rejected')]]
+    ['Отправлено', countOf('sent')], [`${L.value.recipientNom} ответил`, countOf('answered')], [`Учтено ${L.value.subjectIn}`, countOf('applied')], ['Отклонено', countOf('rejected')]]
   return parts.filter(([, n]) => n).map(([label, n]) => label + ' ' + n).join(' · ')
 })
 // One line telling what to do next, from the state of the cards.
 const nextStep = computed(() => {
   if (!detail.value || !detail.value.remarks.length || props.readonly) return ''
   if (props.locked) return 'Очередь выполняется. Решения можно будет принимать, когда она закончится или будет остановлена.'
-  if (countOf('answered')) return 'Планировщик ответил. Прочитайте ответы и решите по карточкам: принять, отклонить или обсудить с ревьюером.'
+  if (countOf('answered')) return `${L.value.recipientNom} ответил. Прочитайте ответы и решите по карточкам: принять, отклонить или обсудить с ревьюером.`
   if (askCount.value) return 'Ваши сообщения ждут отправки. Нажмите «Отправить ревьюеру»: он ответит в карточках.'
-  if (countOf('discussing')) return 'Есть карточки в обсуждении с ревьюером. Когда он ответит, примите или отклоните их — тогда планировщику можно будет отправить принятые.'
-  if (countOf('open')) return 'Решите по каждой карточке: «Принять» — исправить план, «Обсудить» — спросить ревьюера, «Отклонить» — не согласен.'
-  if (acceptedCount.value) return 'По всем карточкам есть решения. Нажмите «Отправить планировщику»: он исправит план по принятым.'
-  if (countOf('sent')) return 'Планировщик работает над отправленными карточками. Ответы и правки появятся здесь.'
-  return 'Все замечания разобраны. Можно запускать очередь на вкладке «Выполнение» или проверить план ещё раз.'
+  if (countOf('discussing')) return `Есть карточки в обсуждении с ревьюером. Когда он ответит, примите или отклоните их — тогда ${L.value.recipient} можно будет отправить принятые.`
+  if (countOf('open')) return `Решите по каждой карточке: «Принять» — исправить ${L.value.subject}, «Обсудить» — спросить ревьюера, «Отклонить» — не согласен.`
+  if (acceptedCount.value) return `По всем карточкам есть решения. Нажмите «Отправить ${L.value.recipient}»: он исправит ${L.value.subject} по принятым.`
+  if (countOf('sent')) return `${L.value.recipientNom} работает над отправленными карточками. Ответы и правки появятся здесь.`
+  return props.target === 'plan' ? 'Все замечания разобраны. Можно запускать очередь на вкладке «Выполнение» или проверить план ещё раз.'
+    : 'Все замечания разобраны. Можно отметить раздел готовым или проверить документ ещё раз.'
 })
 const unfinishedText = computed(() => {
   if (!detail.value || !isLatest.value) return ''
-  const parts = [undecided.value && 'без решения: ' + undecided.value, acceptedCount.value && 'не отправлено планировщику: ' + acceptedCount.value].filter(Boolean)
-  return parts.length ? 'В текущем раунде осталось ' + parts.join(', ') + '. Новый раунд откроется отдельно: ревьюер увидит ваши решения как историю, но планировщику они не уйдут.' : ''
+  const parts = [undecided.value && 'без решения: ' + undecided.value, acceptedCount.value && 'не отправлено ' + L.value.recipient + ': ' + acceptedCount.value].filter(Boolean)
+  return parts.length ? 'В текущем раунде осталось ' + parts.join(', ') + '. Новый раунд откроется отдельно: ревьюер увидит ваши решения как историю, но ' + L.value.recipient + ' они не уйдут.' : ''
 })
 function plannerState(remark: Remark) {
   if (remark.status !== 'sent' || !remark.planner_session_id) return ''
@@ -173,6 +179,7 @@ const reviewerName = computed(() => {
 })
 const coverageIcons = { covered: '✅', missing: '❌', partial: '⚠' }
 const coverageLabels = { covered: 'Покрыто', missing: 'Не покрыто', partial: 'Частично' }
+// Identifiers of a document (D…/Q…) are looked up like the steps of a plan.
 function focusStep(id: string) {
   const remark = detail.value?.remarks.find(r => r.status === 'open' && r.steps.some(s => !s.deleted && s.id === id))
   if (remark) focusCard(remark.id)
@@ -203,24 +210,24 @@ function loadSetup() {
 // Project, group and global skills; the previous round's one stays chosen, else the first (as the server does).
 async function loadSkills(p: string, t: string) {
   try {
-    const value = await api.skills(p, t)
+    const value = await api.skills(p, t, props.target)
     if (p !== props.projectId || t !== props.taskId) return
     skills.value = value
     skill.value = value.find(s => s.id === state.reviews.value[0]?.skill_id)?.id || value[0]?.id || ''
   } catch { skills.value = []; skill.value = '' }
 }
-watch(() => [props.projectId, props.taskId, state.reviews.value[0]?.id], loadSetup, { immediate: true })
+watch(() => [props.projectId, props.taskId, props.target, state.reviews.value[0]?.id], loadSetup, { immediate: true })
 async function launch() {
   if (props.locked || props.readonly || !choice.value.agent_id) return
-  if (await state.run(() => api.launch(props.projectId, props.taskId, { ...choice.value, ...(skill.value ? { skill_id: skill.value } : {}), wish: wish.value }))) { wish.value = ''; setupOpen.value = false }
+  if (await state.run(() => api.launch(props.projectId, props.taskId, { ...choice.value, ...(skill.value ? { skill_id: skill.value } : {}), wish: wish.value }, props.target))) { wish.value = ''; setupOpen.value = false }
 }
 // No dialog: the planner that wrote the plan continues if it is free, otherwise a new one starts with the default agent.
 async function send() {
   if (!detail.value || props.locked || props.readonly || state.busy.value || !canSend.value) return
-  sending.value = 'Отправляю карточки планировщику…'
+  sending.value = `Отправляю карточки ${L.value.recipient}…`
   try { await state.run(() => api.send(props.projectId, props.taskId, detail.value!.review.id, props.defaultAgentId ? { agent_id: props.defaultAgentId } : {})) } finally { sending.value = '' }
 }
-watch(() => [props.projectId, props.taskId], () => { focused.value = ''; emit('highlight', []) })
+watch(() => [props.projectId, props.taskId, props.target], () => { focused.value = ''; emit('highlight', []) })
 watch(state.selected, () => { focused.value = ''; emit('highlight', []) })
 </script>
 <style scoped>

@@ -2,8 +2,8 @@
   <template v-for="(part, i) in parts" :key="i">
     <button
       v-if="part.target" type="button" class="analysis-link" :class="{ broken: !part.valid, file: part.target.includes('/') }" :disabled="!part.valid"
-      :title="part.valid ? (part.target.includes('/') ? 'Открыть файл анализа' : 'Открыть раздел анализа') : 'Раздел или файл не найден в анализе'"
-      @click="navigation?.open(part.target)"
+      :title="part.valid ? 'Открыть материал' : 'Материал или идентификатор не найден'"
+      @click="links?.open(part.target)"
     >
       <svg v-if="part.target.includes('/')" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M10.5 5.5L6.2 9.8a1.2 1.2 0 001.7 1.7l4.6-4.6a2.4 2.4 0 00-3.4-3.4L4.5 8.1a3.6 3.6 0 005.1 5.1l3.9-3.9" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" /></svg>
       <svg v-else viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4 2.5h5.5L12 5v8.5H4z M6 7.5h4M6 10h4" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" /></svg>
@@ -14,17 +14,15 @@
 </template>
 <script setup lang="ts">
 import { computed, inject } from 'vue'
-import { AnalysisNavigationKey } from '../composables/analysisNavigation'
+import { DocumentLinksKey } from '@shared/composables/documentLinks'
 const props = defineProps<{ text: string }>()
-const navigation = inject(AnalysisNavigationKey)
+const links = inject(DocumentLinksKey, undefined)
 const parts = computed(() => {
   const result: { text?: string; target?: string; valid?: boolean }[] = []
   let cursor = 0
   for (const m of props.text.matchAll(/\[\[([^\]]+)\]\]/g)) {
     result.push({ text: props.text.slice(cursor, m.index) })
-    const [slug, ...names] = m[1].split('/')
-    const section = navigation?.sections.value.find(s => s.slug === slug)
-    result.push({ target: m[1], valid: !!section && (!names.length || section.files.some(f => f.name === names.join('/'))) })
+    result.push({ target: m[1], valid: links?.exists(m[1]) ?? false })
     cursor = m.index! + m[0].length
   }
   result.push({ text: props.text.slice(cursor) })

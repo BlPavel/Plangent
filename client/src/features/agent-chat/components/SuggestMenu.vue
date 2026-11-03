@@ -7,7 +7,7 @@
       </div>
       <div ref="list" class="suggest-list">
         <div v-if="!items.length" class="suggest-empty">{{ loading ? 'Поиск…' : empty }}</div>
-        <template v-for="(item, index) in items" :key="item.value">
+        <template v-for="(item, index) in items" :key="`${index}:${item.value}`">
           <div v-if="item.section && item.section !== items[index - 1]?.section" class="suggest-section">{{ SECTIONS[item.section] }}</div>
           <button
             type="button"

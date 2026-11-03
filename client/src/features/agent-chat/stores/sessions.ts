@@ -28,6 +28,7 @@ export interface AgentLimits { agentId: string; at: number; windows: LimitWindow
 export interface ChatEvent { seq: number; session_id: string; type: string; payload: ChatPayload }
 type SocketMessage = { type: 'agent_delta'; kind: string; text: string } | { type: 'agent_event'; event: ChatEvent }
 export interface ChatSnapshot {
+  commands?: { name: string; description: string; source: 'plangent' }[];
   session: ChatSession; events: ChatEvent[];
   queue: { id: string; content: string }[];
   streaming: { text: string; type: string } | null;

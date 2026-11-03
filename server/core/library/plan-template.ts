@@ -1,6 +1,4 @@
-import { readItemContent } from './library-manager';
-import { libraryItemsFor, listLibraryItems } from './index';
-import { getProject } from '../projects';
+import { resolveLevelText } from './section-settings';
 
 export const PLAN_PROTOCOL_LOCKED = `## Протокол Plangent (не удалять)
 
@@ -17,14 +15,14 @@ Plangent отслеживает шаги плана по строкам-чекб
 она станет новым шагом.
 
 Ссылки на материалы анализа добавляй в строку шага: [[раздел]] или [[раздел/файл]].
-Используй slug раздела и точное имя файла из get_plan; ссылка должна существовать.`;
+Используй slug раздела и точное имя файла из get_plan; ссылка должна существовать.
+
+Если в get_plan есть готовые материалы architecture и qa, шаг ссылается на них: [[architecture#D2]], [[qa#Q3]] на отдельное решение или критерий,
+[[architecture]], [[qa]] на весь документ. Идентификатор должен быть в присланном тексте.
+Шаг - это действие, ссылки на нужные решения и критерии и короткая проверка результата; тексты критериев в шаг не копируй.
+Каждый критерий QA закрой хотя бы одним шагом (один шаг может закрывать несколько). Если критерий закрывают несколько шагов,
+он проверяется только после последнего из них. Если QA нет в get_plan, локальные критерии остаются в шагах.`;
 
 export function resolvePlanTemplate(projectId: string): string {
-  const project = getProject(projectId);
-  const templates = project
-    ? libraryItemsFor(project, 'plan-template').filter(t => t.enabled)
-    : listLibraryItems({ type: 'plan-template', projectId: '', enabledOnly: true }).map(t => ({ ...t, origin: 'global' as const }));
-  // The closest level wins: the project itself, then its group, then the global template.
-  const template = (['direct', 'group', 'global'] as const).map(origin => templates.find(t => t.origin === origin)).find(Boolean);
-  return template ? readItemContent(template) : '';
+  return resolveLevelText('plan-template', projectId);
 }

@@ -24,6 +24,7 @@ import { workspacesRouter } from './routes/workspaces';
 import { workRouter, workAttentionRouter } from './routes/work';
 import { plansRouter } from './routes/plans';
 import { analysisRouter } from './routes/analysis';
+import { materialsRouter, preparationRouter } from './routes/materials';
 import { runsRouter } from './routes/runs';
 import { libraryRouter } from './routes/library';
 import { agentsRouter } from './routes/agents';
@@ -63,6 +64,8 @@ export function createApp() {
   // this local-only endpoint; the default JSON limit remains in force elsewhere.
   app.use('/api/upload-temp', express.json({ limit: '25mb' }), uploadRouter);
   app.use('/api/projects/:projectId/tasks/:taskId/analysis', analysisRouter);
+  app.use('/api/projects/:projectId/tasks/:taskId/materials', materialsRouter);
+  app.use('/api/projects/:projectId/tasks/:taskId/preparation', preparationRouter);
   app.use('/api/integrations', integrationsRouter);
   app.use(express.json({ limit: '25mb' }));
 

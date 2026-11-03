@@ -1,3 +1,4 @@
+import { DEFAULT_INTERVIEW_INSTRUCTION } from '../../../core/library/interview-instruction';
 import { Router, Request, Response } from 'express';
 import {
   listLibraryItems, getLibraryItem, createLibraryItem, updateLibraryItem, deleteLibraryItem,
@@ -9,6 +10,7 @@ import { DEFAULT_CODE_FIXER_INSTRUCTION } from '../../../core/library/code-fixer
 import { DEFAULT_COMMIT_RULES } from '../../../core/library/commit-rules';
 import { DEFAULT_PLAN_REVIEW_INSTRUCTION } from '../../../core/library/plan-review-instruction';
 import { DEFAULT_INSTRUCTION_GUIDE } from '../../../core/library/instruction-guide';
+import { MATERIAL_KINDS } from '../../../core/materials/kinds';
 import { PLAN_PROTOCOL_LOCKED } from '../../../core/library/plan-template';
 import { syncItem, unsyncItem, syncAll } from '../../../core/library/syncer';
 import { LibraryItemType, LibraryScope } from '../../../models';
@@ -38,6 +40,12 @@ libraryRouter.post('/proposals/:proposalId/reject', (req: Request, res: Response
 
 
 
+libraryRouter.get('/interview-instruction/defaults', (_req: Request, res: Response) => res.json({ content: DEFAULT_INTERVIEW_INSTRUCTION }));
+
+const GLOBAL_ONLY_TYPES = new Set(['interview-instruction', 'plan-review-instruction', ...Object.values(MATERIAL_KINDS).map(kind => kind.reviewInstructionType)]);
+
+const SINGLE_LEVEL_MATERIAL_TYPES = new Set<string>(Object.values(MATERIAL_KINDS).flatMap(kind => [kind.templateType, kind.reviewInstructionType]));
+
 libraryRouter.get('/code-fixer-instruction/defaults', (_req: Request, res: Response) => {
   res.json({ content: DEFAULT_CODE_FIXER_INSTRUCTION });
 });
@@ -49,6 +57,16 @@ libraryRouter.get('/commit-rules/defaults', (_req: Request, res: Response) => {
 libraryRouter.get('/plan-review-instruction/defaults', (_req: Request, res: Response) => {
   res.json({ content: DEFAULT_PLAN_REVIEW_INSTRUCTION });
 });
+
+for (const material of ['architecture', 'qa'] as const) {
+  const kind = MATERIAL_KINDS[material];
+  libraryRouter.get('/' + kind.reviewInstructionType + '/defaults', (_req: Request, res: Response) => {
+    res.json({ content: kind.defaultReviewInstruction });
+  });
+  libraryRouter.get('/' + kind.templateType + '/defaults', (_req: Request, res: Response) => {
+    res.json({ content: kind.defaultTemplate, lockedProtocol: kind.protocol });
+  });
+}
 
 libraryRouter.get('/instruction-guide/defaults', (_req: Request, res: Response) => {
   res.json({ content: DEFAULT_INSTRUCTION_GUIDE });
@@ -88,13 +106,14 @@ libraryRouter.post('/', (req: Request, res: Response) => {
   if (!type || !slug || !title || !scope) {
     return res.status(400).json({ error: 'type, slug, title, scope required' });
   }
+  if (GLOBAL_ONLY_TYPES.has(type) && scope !== 'global') return res.status(400).json({ error: 'This instruction is global only' });
   const targets: string[] = Array.isArray(req.body.targets) ? req.body.targets : project_id ? [project_id] : [];
   const own_only: string[] = Array.isArray(req.body.own_only) ? req.body.own_only : [];
   // Only one main file / plan template / instruction guide per level.
-  if (type === 'main' || type === 'plan-template' || type === 'instruction-guide' || type === 'code-fixer-instruction' || type === 'plan-review-instruction' || type === 'commit-rules') {
+  if (type === 'interview-instruction' || type === 'main' || type === 'plan-template' || SINGLE_LEVEL_MATERIAL_TYPES.has(type) || type === 'instruction-guide' || type === 'code-fixer-instruction' || type === 'plan-review-instruction' || type === 'commit-rules') {
     const clash = listLibraryItems({ type, scope }).some(other => scope === 'global' || other.targets.some(t => targets.includes(t)));
     if (clash) {
-      return res.status(409).json({ error: type === 'commit-rules' ? 'Правила коммитов для этого уровня уже существуют' : type === 'code-fixer-instruction' ? 'Инструкция агента доработки для этого уровня уже существует' : type === 'plan-review-instruction' ? 'Инструкция ревью плана для этого уровня уже существует' : type === 'main' ? 'Главный файл для этого уровня уже существует' : type === 'plan-template' ? 'Шаблон плана для этого уровня уже существует' : 'Руководство по инструкциям для этого уровня уже существует' });
+      return res.status(409).json({ error: type === 'commit-rules' ? 'Правила коммитов для этого уровня уже существуют' : type === 'code-fixer-instruction' ? 'Инструкция агента доработки для этого уровня уже существует' : type === 'plan-review-instruction' ? 'Инструкция ревью плана для этого уровня уже существует' : type === 'main' ? 'Главный файл для этого уровня уже существует' : type === 'plan-template' ? 'Шаблон плана для этого уровня уже существует' : SINGLE_LEVEL_MATERIAL_TYPES.has(type) ? 'Настройка раздела для этого уровня уже существует' : 'Руководство по инструкциям для этого уровня уже существует' });
     }
   }
   const item = createLibraryItem({ type, slug, title, description, scope, targets, own_only, frontmatter, agent_filter, enabled });
@@ -106,6 +125,7 @@ libraryRouter.post('/', (req: Request, res: Response) => {
 libraryRouter.put('/:id', (req: Request, res: Response) => {
   const { content, ...rest } = req.body;
   const before = getLibraryItem(req.params.id);
+  if (before && GLOBAL_ONLY_TYPES.has(rest.type ?? before.type) && (rest.scope ?? before.scope) !== 'global') return res.status(400).json({ error: 'This instruction is global only' });
   const updated = updateLibraryItem(req.params.id, rest);
   if (!before || !updated) return res.status(404).json({ error: 'Not found' });
   // Availability changed: take the files away from where the item no longer applies.

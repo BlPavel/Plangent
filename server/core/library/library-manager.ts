@@ -5,6 +5,13 @@ import { LibraryItem, LibraryItemType } from '../../models';
 const LIBRARY_DIR = path.join(process.cwd(), 'data', 'library');
 
 // A project's detached copy keeps its own folder: it shares the slug with the group's item it came from.
+const MATERIAL_FILES: Partial<Record<LibraryItemType, string>> = {
+  'interview-instruction': 'INTERVIEW_INSTRUCTION.md',
+  'architecture-template': 'ARCHITECTURE_TEMPLATE.md', 'architecture-review-instruction': 'ARCHITECTURE_REVIEW_INSTRUCTION.md',
+  'architecture-review-skill': 'ARCHITECTURE_REVIEW_SKILL.md', 'qa-template': 'QA_TEMPLATE.md',
+  'qa-review-instruction': 'QA_REVIEW_INSTRUCTION.md', 'qa-review-skill': 'QA_REVIEW_SKILL.md',
+};
+
 function contentDir(type: LibraryItemType, slug: string, item?: LibraryItem): string {
   return path.join(LIBRARY_DIR, `${type}s`, item?.detached_from ? `${slug}~${item.id}` : slug);
 }
@@ -73,6 +80,8 @@ function getContentPath(item: LibraryItem): string {
   if (item.type === 'plan-review-instruction') {
     return path.join(contentDir(item.type, item.slug, item), 'PLAN_REVIEW_INSTRUCTION.md');
   }
+  const material = MATERIAL_FILES[item.type];
+  if (material) return path.join(contentDir(item.type, item.slug, item), material);
   if (item.type === 'plan-template') {
     return path.join(contentDir(item.type, item.slug, item), 'PLAN_TEMPLATE.md');
   }

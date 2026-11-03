@@ -6,6 +6,8 @@ import { getPlanFilePath, migratePlanFile } from './task-files';
 import { materializePlanFile, watchPlanFile, deletePlanFile } from './plan-file';
 import { materializeTaskAnalysis } from './analysis';
 import type { Task } from '../../models';
+import { getLatestMaterial } from '../materials';
+import { materializeMaterial } from './task-files';
 
 export function initTaskFiles(): void {
   for (const task of getDb().prepare('SELECT * FROM tasks').all() as Task[]) initTaskFile(task);
@@ -29,4 +31,8 @@ export function initTaskFile(task: Task): void {
     watchPlanFile(task, plan.id, project.repo_path);
   }
   materializeTaskAnalysis(task.id, true);
+  for (const type of ['architecture', 'qa'] as const) {
+    const material = getLatestMaterial(task.id, type);
+    if (material) materializeMaterial(task, project.repo_path, type, material.content);
+  }
 }

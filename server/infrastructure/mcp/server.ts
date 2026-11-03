@@ -1,3 +1,4 @@
+import { interviewGuide } from '../../core/library/interview-instruction';
 import { brief as planReviewBrief, reviewerOutput } from '../../core/plan-review/reviewer';
 import { taskReviewBrief, addTaskRemark, submitTaskReview } from '../../core/orchestration/task-review';
 import { items as planReviewItems, reply as planReviewReply } from '../../core/plan-review/planner-transport';
@@ -7,6 +8,8 @@ import { agentView as branchQuestions, agentReply as branchReply } from '../../c
 import { brief as reviewBrief, setOverview as setReviewOverview } from '../../core/branch-review/agent';
 import { agentRemark } from '../../core/branch-review/remarks';
 import { conflictBrief, reportConflictFile } from '../../core/conflicts';
+import { materialToolContext, submitMaterial } from '../../core/materials/author';
+import { stepContextFor } from '../../core/orchestration/step-context';
 import { analysisToolContext, saveAnalystSection } from '../../core/orchestration/analysis-context';
 import { Router } from 'express';
 import { randomBytes } from 'crypto';
@@ -49,13 +52,14 @@ export function allowed(session: AgentSession): PlangentTool[] {
   if (session.role === 'plan-reviewer') return ['get_plan_review_brief', 'set_plan_review_overview', 'add_plan_remark', 'answer_plan_remark', 'revise_plan_remark'];
   if (session.role === 'errand') return ['complete_step', 'request_help', 'report_progress', 'get_review', 'start_review_item', 'reply_review_item'];
   if (session.role === 'task-chat') return ['request_help', 'report_progress', 'get_review', 'start_review_item', 'reply_review_item'];
-  if (session.role === 'executor') return session.policy === 'read-only' ? ['request_help', 'report_progress'] : ['complete_step', 'request_help', 'report_progress'];
-  if (session.role === 'analyst') return ['get_analysis', 'save_section'];
+  if (session.role === 'executor') return session.policy === 'read-only' ? ['get_step_context', 'request_help', 'report_progress'] : ['get_step_context', 'complete_step', 'request_help', 'report_progress'];
+  if (session.role === 'analyst') return ['get_interview_guide', 'get_analysis', 'save_section'];
+  if (session.role === 'material-author') return ['get_interview_guide', 'get_material', 'submit_material', 'get_plan_review_items', 'reply_plan_remark'];
   if (session.role === 'code-fixer') return ['get_review', 'start_review_item', 'reply_review_item'];
   if (session.role === 'conflict-resolver') return ['get_conflicts', 'report_conflict_file'];
   if (session.role === 'committer') return [...['get_finish_context', 'set_commits', 'finish_commits'] as PlangentTool[], ...(finishScenario(session) === 'full' ? ['set_merge_request' as const] : [])];
   if (session.role === 'librarian') return ['get_library', 'get_library_item', 'propose_library_change'];
-  if (session.role === 'planner') return ['get_plan', 'submit_plan', 'get_plan_review_items', 'reply_plan_remark'];
+  if (session.role === 'planner') return ['get_interview_guide', 'get_plan', 'submit_plan', 'get_plan_review_items', 'reply_plan_remark'];
   return [];
 }
 function planTask(session: AgentSession) {
@@ -87,6 +91,7 @@ mcpRouter.post('/', async (req, res) => {
     const name = request.params.name as keyof typeof tools;
     if (!allowed(session).includes(name)) throw new Error('Tool not allowed for this role');
     if (!['thinking', 'waiting'].includes(session.status)) throw new Error('Session has no active turn');
+    if (name === 'get_interview_guide') return { content: [{ type: 'text', text: JSON.stringify(interviewGuide(session)) }] };
     const args = request.params.arguments ?? {};
     for (const field of ['add_task_remark', 'set_plan_review_overview', 'add_plan_remark', 'revise_plan_remark', 'save_section', 'propose_library_change', 'reply_review_item', 'set_commits', 'add_review_remark'].includes(name) ? [] : Object.keys(tools[name].fields)) {
       if (field === 'line' ? !Number.isInteger(args[field]) || Number(args[field]) < 1 : typeof args[field] !== 'string' || !String(args[field]).trim()) throw new Error(`Invalid ${field}`);
@@ -174,6 +179,18 @@ mcpRouter.post('/', async (req, res) => {
         const result = section ? { saved: true, section: { id: section.id, slug: section.slug, title: section.title, kind: section.kind, author: section.author }, link: '[[' + section.slug + ']]' }
           : analysisToolContext(task.id, project.repo_path, task.key);
         if (section) addEvent(id, name, { summary: 'Раздел анализа сохранён: ' + section.title, link: '[[' + section.slug + ']]' });
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+      } catch (e) { return { isError: true, content: [{ type: 'text', text: e instanceof Error ? e.message : String(e) }] }; }
+    }
+    if (name === 'get_step_context') {
+      try {
+        return { content: [{ type: 'text', text: JSON.stringify(stepContextFor(session)) }] };
+      } catch (e) { return { isError: true, content: [{ type: 'text', text: e instanceof Error ? e.message : String(e) }] }; }
+    }
+    if (name === 'get_material' || name === 'submit_material') {
+      try {
+        const result = name === 'get_material' ? materialToolContext(session) : submitMaterial(session, args);
+        if (name === 'submit_material') addEvent(id, name, { summary: 'Документ сохранён, версия ' + (result as { version: number }).version });
         return { content: [{ type: 'text', text: JSON.stringify(result) }] };
       } catch (e) { return { isError: true, content: [{ type: 'text', text: e instanceof Error ? e.message : String(e) }] }; }
     }

@@ -121,7 +121,7 @@ orchestratorRouter.post('/done', async (req: Request, res: Response) => {
   if (!project || !task || task.project_id !== projectId) return res.status(404).json({ error: 'Not found' });
 
   await getOrchestrator(taskId)?.stop('Задача завершена');
-  const chats = listSessions(projectId).filter(s => s.task_id === taskId && ['planner', 'analyst'].includes(s.role));
+  const chats = listSessions(projectId).filter(s => s.task_id === taskId && ['planner', 'analyst', 'material-author'].includes(s.role));
   for (const chat of chats) {
     await closeSession(chat.id);
     updateSession(chat.id, { status: 'ready', reason: 'Задача завершена. Верните её в работу, чтобы продолжить.' });

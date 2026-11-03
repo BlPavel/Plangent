@@ -1,4 +1,4 @@
-﻿import { parseHTML } from 'linkedom';
+﻿import { DOMParser } from 'linkedom';
 import { relativePath, requestUrl } from '../integrations';
 import { DocsSourceConfig, DocsSourceError, LinkPattern } from './types';
 
@@ -78,7 +78,7 @@ export function validateConfig(value: unknown): DocsSourceConfig {
     }
   }
   if (c.original_url !== undefined) endpoint(c.original_url);
-  const document = parseHTML('<html><body></body></html>').document;
+  const document = new DOMParser().parseFromString('<html><body></body></html>', 'text/html');
   if (c.conversion_rules !== undefined && !Array.isArray(c.conversion_rules)) throw new DocsSourceError('Conversion rules must be an array');
   for (const r of c.conversion_rules ?? []) {
     text(r.selector, 'selector');

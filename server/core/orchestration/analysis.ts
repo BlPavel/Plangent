@@ -1,4 +1,5 @@
 import { v4 as uuid } from 'uuid';
+import { MATERIAL_LINK_TARGETS } from '../materials/links';
 import path from 'path';
 import fs from 'fs';
 import { getSession } from '../agent-sessions/sessions';
@@ -60,7 +61,7 @@ export function createAnalysisSection(data: { task_id: string; title: string; de
   if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(base)) base = 'section-' + base;
   const sections = listAnalysisSections(data.task_id);
   let slug = base;
-  for (let suffix = 2; sections.some(s => s.slug.toLowerCase() === slug.toLowerCase()); suffix++) slug = base + '-' + suffix;
+  for (let suffix = 2; sections.some(s => s.slug.toLowerCase() === slug.toLowerCase()) || (MATERIAL_LINK_TARGETS as readonly string[]).includes(slug.toLowerCase()); suffix++) slug = base + '-' + suffix;
   const id = uuid();
   getDb().prepare('INSERT INTO analysis_sections (id, task_id, slug, title, description, kind, author, position) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
     .run(id, data.task_id, slug, value.title, value.description, value.kind, value.author, Math.max(-1, ...sections.map(s => s.position)) + 1);

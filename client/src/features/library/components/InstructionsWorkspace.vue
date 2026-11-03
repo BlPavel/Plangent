@@ -1,12 +1,14 @@
 <template>
   <div class="workspace" :class="{ split: panelOpen }">
-    <section class="list-pane" :class="{ 'skills-pane': view === 'items' || view === 'review' || view === 'plan-review' }">
+    <section class="list-pane" :class="{ 'skills-pane': view === 'items' || view === 'review' || view === 'plan-review' || view === 'architecture-review' || view === 'qa-review' }">
       <div class="views">
         <button type="button" class="view" :class="{ active: view === 'items' }" @click="view = 'items'">Элементы</button>
         <button type="button" class="view" :class="{ active: view === 'guide' }" @click="view = 'guide'">Руководство для агента</button>
         <button type="button" class="view" :class="{ active: view === 'fixer' }" @click="view = 'fixer'">Агент доработки</button>
         <button type="button" class="view" :class="{ active: view === 'review' }" @click="view = 'review'">Ревью МР</button>
         <button type="button" class="view" :class="{ active: view === 'plan-review' }" @click="view = 'plan-review'">Ревью плана</button>
+        <button type="button" class="view" :class="{ active: view === 'architecture-review' }" @click="view = 'architecture-review'">Ревью архитектуры</button>
+        <button type="button" class="view" :class="{ active: view === 'qa-review' }" @click="view = 'qa-review'">Ревью QA</button>
         <button type="button" class="view" :class="{ active: view === 'commits' }" @click="view = 'commits'">Коммиты</button>
         <button type="button" class="view" :class="{ active: view === 'branches' }" @click="view = 'branches'">Ветки</button>
         <button type="button" class="view" :class="{ active: view === 'mr' }" @click="view = 'mr'">Merge request</button>
@@ -33,6 +35,12 @@
           <template #actions>
             <AppButton v-if="!panelOpen" variant="subtle" size="sm" title="Агент изучит код проекта, расспросит вас и предложит скилл ревью плана" @click="panelOpen = true">✦ Написать с агентом</AppButton>
           </template>
+        </SkillsManager>
+      </template>
+      <template v-else-if="view === 'architecture-review' || view === 'qa-review'">
+        <p class="hint">Выбранный скилл добавляется к общей инструкции ревью из глобальных настроек.</p>
+        <SkillsManager :key="view" class="skills" scope="project" :project-id="projectId" :allowed-types="[view === 'architecture-review' ? 'architecture-review-skill' : 'qa-review-skill']">
+          <template #actions><AppButton v-if="!panelOpen" variant="subtle" size="sm" @click="panelOpen = true">✦ Написать с агентом</AppButton></template>
         </SkillsManager>
       </template>
       <InstructionGuideEditor v-else-if="view === 'guide'" scope="project" :project-id="projectId" />
@@ -62,7 +70,7 @@ import CommitSettings from './CommitSettings.vue'
 /** `requested` opens a section from outside (the Ревью tab asks for its skills). */
 const props = defineProps<{ projectId: string; defaultAgentId?: string | null; requested?: { view: 'review'; at: number } | null }>()
 const store = useLibraryStore()
-const view = ref<'items' | 'guide' | 'fixer' | 'review' | 'plan-review' | 'commits' | 'branches' | 'mr'>('items')
+const view = ref<'items' | 'guide' | 'fixer' | 'review' | 'plan-review' | 'architecture-review' | 'qa-review' | 'commits' | 'branches' | 'mr'>('items')
 const panelOpen = ref(false)
 const pending = computed(() => store.proposalsFor({ projectId: props.projectId }).filter(p => p.status === 'pending').length)
 
@@ -83,9 +91,10 @@ watch(() => props.requested?.at, () => { if (props.requested) view.value = props
 .split .list-pane { flex: 0 1 46%; min-width: 360px; }
 .panel { flex: 1 1 54%; min-width: 420px; border-left: 1px solid var(--border); }
 
-.views { display: flex; gap: 2px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.views { display: flex; gap: 2px; border-bottom: 1px solid var(--border); flex-shrink: 0; overflow-x: auto; }
 .view { background: none; border: none; border-bottom: 2px solid transparent; margin-bottom: -1px; padding: 6px 10px; color: var(--text-muted); font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; }
 .view:hover { color: var(--text); }
+.view { flex-shrink: 0; }
 .view.active { color: var(--text); border-bottom-color: var(--blue); }
 
 .hint { margin: 0; font-size: 12.5px; color: var(--text-muted); }

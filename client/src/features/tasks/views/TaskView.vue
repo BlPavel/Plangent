@@ -1,7 +1,7 @@
 ﻿<template>
   <div class="task-view">
     <WorkHeader v-if="task" :task="task" :state="entry?.state ?? null" :branch="workspace?.branch ?? task.branch_name" :main-folder="inMainFolder" :menu="menuItems" @back="goBack" />
-    <WorkStages v-if="task" :task="task" :state="entry?.state ?? null" :has-plan="!!plan" :active="activeTab" :tabs="tabs" @select="activeTab = $event as Tab" />
+    <WorkStages v-if="task" :task="task" :state="entry?.state ?? null" :has-plan="!!plan" :active="activeTab" :tabs="tabs" :stages="task.kind === 'errand' ? [] : stages" :exec-done="execDone" :locked="!!analysisLockedReason" @select="activeTab = $event as Tab" @complete="completeStage" @skip="skipStage" />
 
     <AppModal :model-value="editingTitle" :title="task?.kind === 'errand' ? 'Редактировать поручение' : 'Редактировать задачу'" :confirm-label="savingTitle ? 'Сохранение…' : 'Сохранить'" @update:model-value="cancelTitleEdit" @confirm="saveTitle">
       <div ref="titleForm" class="task-edit-fields" @keydown.enter.prevent="saveTitle" @keydown.esc.prevent="cancelTitleEdit">
@@ -36,7 +36,16 @@
         :opened="openedAnalysis" :open-file="openedAnalysisFile" :agent-revision="agentRevision"
         :chats="analysisChats" :selected-chat="shownAnalysisChat" :initials="chatInitials"
         :launching="analysisLaunch.launching.value" :launch-error="analysisLaunch.error.value"
-        @reload="loadAnalysis" @planning="planFromAnalysis" @select-chat="selectedAnalysisChat = $event" @remove-chat="removeChat" @launch="launchAnalysis"
+        @reload="loadAnalysis" @select-chat="selectedAnalysisChat = $event" @remove-chat="removeChat" @launch="launchAnalysis"
+      />
+    </div>
+    <!-- Tabs: Архитектура and QA are the same panel for two kinds of document -->
+    <div v-for="t in materialTypes" :key="t" v-show="activeTab === t" class="tab-body">
+      <MaterialPanel
+        :type="t" :material="materials[t]" :opened-identifier="openedMaterial?.type === t ? openedMaterial.identifier : undefined" :stage="stages.find(s => s.stage === t)" :project-id="pid ?? ''" :task-id="tid ?? ''" :default-agent-id="defaultAgentId"
+        :locked-reason="analysisLockedReason" :done="taskDone" :chats="materialChats(t)" :selected-chat="shownMaterialChat(t)" :initials="chatInitials"
+        :launching="materialLaunch[t].launching.value" :launch-error="materialLaunch[t].error.value" :live="materialChats(t).some(c => ['starting', 'thinking'].includes(c.status))"
+        @select-chat="selectedMaterialChat[t] = $event" @remove-chat="removeChat" @launch="launchMaterial(t, $event)" @reload="loadMaterial(t); loadStages()" @review-attention="materialAttention[t] = $event"
       />
     </div>
     <!-- Tab: План -->
@@ -121,12 +130,14 @@ import { useTaskSessionStore } from '../stores/taskSession'
 import { api } from '@core/api'
 import { onServerEvent } from '@core/api/events'
 import { platform } from '@core/platform'
-import type { Task, Plan, AnalysisSection, PlanStep, OrchestratorEvent } from '@core/models'
+import type { Task, Plan, AnalysisSection, PlanStep, OrchestratorEvent, Material, MaterialType, PreparationStage, StageSummary } from '@core/models'
 import AnalysisPanel from '../components/AnalysisPanel.vue'
 import { useAgentChatLaunch } from '../composables/useAgentChatLaunch'
 import { DocumentLinksKey } from '@shared/composables/documentLinks'
+import { resolveDocumentTarget } from '../utils/document-target'
 import { AnalysisNavigationKey } from '../composables/analysisNavigation'
 import PlanPanel from '../components/PlanPanel.vue'
+import MaterialPanel from '../components/MaterialPanel.vue'
 import StepPicker from '../components/StepPicker.vue'
 import StartExecutionDialog from '../components/StartExecutionDialog.vue'
 import ExecutionBranch from '../components/ExecutionBranch.vue'
@@ -140,7 +151,7 @@ import WorkHeader from '../components/WorkHeader.vue'
 import WorkStages from '../components/WorkStages.vue'
 import { useWorkStore } from '../stores/work'
 import { useWorkActions } from '../composables/useWorkActions'
-import { workApi, workspacesApi } from '../api'
+import { workApi, workspacesApi, preparationApi } from '../api'
 import ExecutionWorkspace from '../components/ExecutionWorkspace.vue'
 import ExecutionQueue from '../components/ExecutionQueue.vue'
 import AppButton from '@shared/ui/AppButton.vue'
@@ -207,7 +218,7 @@ const agents = computed(() => agentsStore.agents)
 const editingPlan = ref(false)
 const planContent = ref('')
 
-type Tab = 'chat' | 'analysis' | 'plan' | 'exec' | 'check' | 'finish'
+type Tab = 'chat' | 'analysis' | 'architecture' | 'qa' | 'plan' | 'exec' | 'check' | 'finish'
 const activeTab = ref<Tab>('plan')
 const showStart = ref(false), startingWork = ref(false), startError = ref('')
 const executionPlace = ref<WorkPlace>({ place: 'new', branch_name: '', base_branch: '', branch: '' })
@@ -265,6 +276,13 @@ function taskChats(role: string) {
 }
 const analysisChats = computed(() => taskChats('analyst'))
 const planningChats = computed(() => taskChats('planner'))
+// Authors of the architecture and QA documents: one role, the kind of document is in the session's metadata.
+const materialTypes = ['architecture', 'qa'] as const
+const materialChats = (type: MaterialType) => taskChats('material-author').filter(s => s.metadata?.material_type === type)
+const selectedMaterialChat = ref<Record<MaterialType, string | null | undefined>>({ architecture: undefined, qa: undefined })
+const shownMaterialChat = (type: MaterialType) => shown(materialChats(type), selectedMaterialChat.value[type])
+const materialLaunch = { architecture: useAgentChatLaunch(pid, tid, 'architecture'), qa: useAgentChatLaunch(pid, tid, 'qa') }
+const materialAttention = ref<Record<MaterialType, number>>({ architecture: 0, qa: 0 })
 // null — the "new chat" panel; undefined (or a chat that is gone) — the latest chat.
 const selectedAnalysisChat = ref<string | null | undefined>()
 const selectedPlanningChat = ref<string | null | undefined>()
@@ -281,6 +299,7 @@ async function removeChat(id: string, name: string) {
     await chatStore.remove(id)
     if (selectedAnalysisChat.value === id) selectedAnalysisChat.value = undefined
     if (selectedPlanningChat.value === id) selectedPlanningChat.value = undefined
+    for (const type of materialTypes) if (selectedMaterialChat.value[type] === id) selectedMaterialChat.value[type] = undefined
   } catch (e) { appStore.toast(String(e), 'error') }
 }
 let analysisLoadVersion = 0
@@ -313,12 +332,16 @@ async function openAnalysis(target: string) {
 }
 provide(AnalysisNavigationKey, { sections: analysisSections, open: openAnalysis })
 provide(DocumentLinksKey, {
-  exists: target => {
-    const [slug, ...names] = target.split('/')
-    const section = analysisSections.value.find(s => s.slug === slug)
-    return !!section && (!names.length || section.files.some(f => f.name === names.join('/')))
+  exists: target => !!resolveDocumentTarget(target, analysisSections.value, materials.value),
+  open: async target => {
+    const resolved = resolveDocumentTarget(target, analysisSections.value, materials.value)
+    if (!resolved) return
+    if (resolved.type === 'analysis') { await openAnalysis(target); return }
+    openedMaterial.value = null
+    activeTab.value = resolved.type
+    await nextTick()
+    openedMaterial.value = { type: resolved.type, identifier: resolved.identifier ?? '' }
   },
-  open: openAnalysis,
 })
 async function launchAnalysis(request: NewChatRequest) {
   if (taskDone.value) return
@@ -328,12 +351,50 @@ async function launchAnalysis(request: NewChatRequest) {
   await chatStore.load(result.session_id).catch(() => {}) // so the new tab is there right away
   selectedAnalysisChat.value = result.session_id
 }
-function planFromAnalysis() {
-  planningMessage.value = 'Составь план по анализу задачи'
-  planningOpen.value = true
-  planningError.value = ''
-  activeTab.value = 'plan'
+async function launchMaterial(type: MaterialType, request: NewChatRequest) {
+  if (taskDone.value) return
+  const result = await materialLaunch[type].launch(request)
+  if (!result) return
+  chatInitials.value[result.session_id] = result.content
+  await chatStore.load(result.session_id).catch(() => {}) // so the new tab is there right away
+  selectedMaterialChat.value[type] = result.session_id
 }
+
+// ——— Architecture, QA and the stage marks ———
+const materials = ref<Record<MaterialType, Material | null>>({ architecture: null, qa: null })
+const openedMaterial = ref<{ type: MaterialType; identifier: string } | null>(null)
+const stages = ref<StageSummary[]>([])
+async function loadMaterial(type: MaterialType) {
+  if (!pid.value || !tid.value) return
+  try { materials.value[type] = await preparationApi.material(pid.value, tid.value, type) } catch (e) { appStore.toast(String(e), 'error') }
+}
+async function loadStages() {
+  if (!pid.value || !tid.value) return
+  try { stages.value = await preparationApi.stages(pid.value, tid.value) } catch { /* the strip falls back to plain stage order */ }
+}
+async function markStage(stage: PreparationStage, status: 'ready' | 'skipped') {
+  if (!pid.value || !tid.value) return false
+  try { stages.value = await preparationApi.mark(pid.value, tid.value, stage, status); return true }
+  catch (e) { appStore.toast(String(e).replace(/^Error:\s*/, ''), 'error'); return false }
+}
+const isStage = (tab: string): tab is PreparationStage => ['analysis', 'architecture', 'qa', 'plan'].includes(tab)
+/** «Завершить и перейти к …»: the developer's mark; an agent never sets it. «План» also stops the planners, as «Утвердить план». */
+async function completeStage(tab: string) {
+  if (!isStage(tab)) return
+  if (tab === 'plan') { await approvePlan(); return }
+  if (await markStage(tab, 'ready')) goToNext(tab)
+}
+async function skipStage(tab: string) {
+  if (!isStage(tab)) return
+  const draft = stages.value.find(s => s.stage === tab)?.status === 'draft'
+  if (draft && !(await appStore.confirm('Пропустить этап? Набросок сохранится, но основанием для следующих этапов не будет.', { confirmLabel: 'Пропустить', danger: false }))) return
+  if (await markStage(tab, 'skipped')) goToNext(tab)
+}
+function goToNext(tab: string) {
+  const next = tabs.value[tabs.value.findIndex(t => t.id === tab) + 1]
+  if (next) activeTab.value = next.id
+}
+const execDone = computed(() => !!plan.value?.steps.length && plan.value.steps.every(s => s.done))
 const queue = useTaskQueue(pid, tid)
 provide(TaskQueueKey, queue)
 const selectedQueueId = ref<string | null>(null)
@@ -360,6 +421,8 @@ const tabs = computed<TabItem[]>(() => {
   if (task.value.kind === 'errand') return [{ id: 'chat', label: 'Выполнение' }, check, finish]
   return [
     { id: 'analysis', label: 'Анализ' },
+    { id: 'architecture', label: 'Архитектура', count: materialAttention.value.architecture, countTitle: 'Карточки ревью архитектуры, которые ждут вашего решения или ответа автора' },
+    { id: 'qa', label: 'QA', count: materialAttention.value.qa, countTitle: 'Карточки ревью QA, которые ждут вашего решения или ответа автора' },
     { id: 'plan', label: 'План', count: planAttention.value, countTitle: 'Карточки ревью плана, которые ждут вашего решения или ответа планировщика' },
     ...(taskDone.value ? [] : [{ id: 'exec' as const, label: 'Выполнение', count: attentionCount.value, countTitle: 'Шаги, которым нужен ваш ответ', live: queue.frozen.value }]),
     check, finish,
@@ -444,6 +507,7 @@ function openChatFromRoute() {
   if (taskDone.value) { if (typeof chatId === 'string') activeTab.value = 'plan'; return }
   if (typeof chatId !== 'string') return
   if (analysisChats.value.some(c => c.id === chatId)) { selectedAnalysisChat.value = chatId; activeTab.value = 'analysis'; return }
+  for (const type of materialTypes) if (materialChats(type).some(c => c.id === chatId)) { selectedMaterialChat.value[type] = chatId; activeTab.value = type; return }
   if (planningChats.value.some(c => c.id === chatId)) { selectedPlanningChat.value = chatId; planningOpen.value = true; activeTab.value = 'plan'; return }
   const s = queue.allSessions.value.find(x => x.sessionId === chatId)
   if (s) { activeTab.value = 'exec'; selectedQueueId.value = s.id }
@@ -476,11 +540,19 @@ async function handleEvent(event: OrchestratorEvent) {
   switch (event.type) {
     case 'analysis_updated':
       await loadAnalysis(event.actor)
+      void loadStages()
+      break
+    case 'material_updated':
+      await Promise.all([loadMaterial(event.materialType), loadStages()])
+      break
+    case 'stages_updated':
+      stages.value = event.stages
       break
     case 'task_status':
       if (task.value) task.value = { ...task.value, status: event.status }
       break
     case 'plan_updated':
+      void loadStages()
       // During planning we need the full content live; reload to get content + steps.
       if (planningOpen.value || !plan.value || !event.steps) {
         await loadPlan()
@@ -518,7 +590,7 @@ onMounted(async () => {
   void work.load(appStore.currentProject ? [appStore.currentProject.id] : [])
   await loadTask()
   restorePlanning()
-  await Promise.all([loadPlan(), loadAnalysis(), agentsStore.load(), queue.load()])
+  await Promise.all([loadPlan(), loadAnalysis(), loadStages(), ...materialTypes.map(loadMaterial), agentsStore.load(), queue.load()])
   if (task.value?.kind === 'errand') activeTab.value = 'chat'
   else if (queue.queue.value?.status === 'finished') activeTab.value = 'check'
   else if (!plan.value) activeTab.value = 'analysis'
@@ -538,16 +610,18 @@ function restorePlanning() {
   selectedAnalysisChat.value = snap.selectedAnalysisChat
   planningOpen.value = snap.planningOpen
   selectedPlanningChat.value = snap.selectedPlanningChat
+  selectedMaterialChat.value = { architecture: snap.selectedMaterialChat?.architecture, qa: snap.selectedMaterialChat?.qa }
 }
 
-watch([planningOpen, selectedAnalysisChat, selectedPlanningChat], () => {
+watch([planningOpen, selectedAnalysisChat, selectedPlanningChat, selectedMaterialChat], () => {
   if (!tid.value) return
   sessionStore.save(tid.value, {
     selectedAnalysisChat: selectedAnalysisChat.value,
     planningOpen: planningOpen.value,
     selectedPlanningChat: selectedPlanningChat.value,
+    selectedMaterialChat: { ...selectedMaterialChat.value },
   })
-})
+}, { deep: true })
 
 watch(taskDone, done => { if (done && (activeTab.value === 'exec' || typeof route.query.session === 'string')) activeTab.value = 'plan' })
 const analysisLockedReason = computed(() => {
@@ -581,12 +655,15 @@ async function launchPlanning(request: NewChatRequest) {
 
 // Approve the plan: stop the planning agents and leave the planning view. The chats stay and can be
 // continued later through "Изменить план с агентом" (the agent restarts with its conversation).
+// It is the same action as «Завершить и перейти к …» on the plan stage: earlier unfinished stages become skipped.
 async function approvePlan() {
+  if (!(await markStage('plan', 'ready'))) return
   await Promise.all(planningChats.value.map(c => api.post(`/agent-sessions/${c.id}/close`, {}).catch(() => { /* already stopped */ })))
   planningOpen.value = false
   planningMessage.value = ''
   await loadPlan()
   appStore.toast('План утверждён', 'success')
+  goToNext('plan')
 }
 
 // ——— Mark task done ———

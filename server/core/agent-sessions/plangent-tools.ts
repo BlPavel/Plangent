@@ -2,19 +2,20 @@ import type { ToolCallUpdate } from '@agentclientprotocol/sdk';
 
 /** Tools the Plangent MCP server gives agents (served by infrastructure/mcp/server.ts). */
 export const plangentTools = {
+  get_interview_guide: { description: 'Read the current Plangent interview rules and the focus of this section. Call only when the developer explicitly requests an interview. Save answers with your role’s existing tools.', fields: {} },
   get_task_review_brief: { description: 'Read task review protocol, skill, captured task diff, analysis, plan, executor reports and existing branch review items. Call first.', fields: {} },
   add_task_remark: { description: 'Create an agent draft in Code. Lines refer to the current worktree. Invalid lines become file remarks.', fields: {
     scope: { type: 'string', enum: ['line', 'file', 'general'] }, kind: { type: 'string', enum: ['fix', 'question'] }, text: { type: 'string' },
     file: { type: 'string' }, line_start: { type: 'integer', minimum: 1 }, line_end: { type: 'integer', minimum: 1 },
   } },
   submit_task_review: { description: 'Complete the task review with a short summary. The queue continues without waiting for findings to be resolved.', fields: { summary: { type: 'string' } } },
-  get_plan_review_brief: { description: 'Read review protocol, plan, analysis, skill, wish and decision history. Call first.', fields: {} },
-  set_plan_review_overview: { description: 'Finish review: save overview and coverage; missing/partial rows link to cards.', fields: { overview: { type: 'string' }, coverage: { type: 'array', items: { type: 'object', required: ['requirement', 'steps', 'status'], properties: { requirement: { type: 'string' }, steps: { type: 'array', items: { type: 'string' } }, status: { type: 'string', enum: ['covered', 'missing', 'partial'] }, remark_id: { type: 'string' } } } } } },
-  add_plan_remark: { description: 'Create a plan card. steps: existing pN ids, [] for the whole plan.', fields: { steps: { type: 'array', items: { type: 'string' } }, kind: { type: 'string', enum: ['contradiction', 'order', 'coverage', 'extra', 'unclear', 'risk'] }, text: { type: 'string' }, suggestion: { type: 'string' } } },
+  get_plan_review_brief: { description: 'Read review protocol, the reviewed plan or document, its grounds (analysis, for QA the ready architecture), instruction, skill, wish and decision history. Call first.', fields: {} },
+  set_plan_review_overview: { description: 'Finish review: save overview and coverage; missing/partial rows link to cards. When the brief has a ready QA, add a row per criterion (source qa, criterion Q..); the save is rejected while one has no row. A review of an architecture/QA document has no coverage: pass [].', fields: { overview: { type: 'string' }, coverage: { type: 'array', items: { type: 'object', required: ['requirement', 'steps', 'status'], properties: { requirement: { type: 'string' }, steps: { type: 'array', items: { type: 'string' } }, status: { type: 'string', enum: ['covered', 'missing', 'partial'] }, remark_id: { type: 'string' }, source: { type: 'string', enum: ['analysis', 'qa'] }, criterion: { type: 'string' } } } } } },
+  add_plan_remark: { description: 'Create a review card. steps: existing pN ids of a plan, or D../Q.. identifiers of an architecture/QA document; [] for the whole document. For a document, quote may mark the place by an exact quote. kind order applies to a plan only, suggestion to a document only.', fields: { steps: { type: 'array', items: { type: 'string' } }, kind: { type: 'string', enum: ['contradiction', 'order', 'coverage', 'extra', 'unclear', 'risk', 'suggestion'] }, text: { type: 'string' }, suggestion: { type: 'string' }, quote: { type: 'string' } } },
   answer_plan_remark: { description: 'Answer the developer in a card they discuss with you. Explain with evidence from the plan and analysis; say whether you keep, change or withdraw the remark. Never change the plan.', fields: { id: { type: 'string' }, text: { type: 'string' } } },
   revise_plan_remark: { description: 'Rewrite a card after the developer convinced you or agreed on a different version: give the full new text (and suggestion). The planner sees only the card, never the discussion, so the card must stand on its own. The previous version is kept for the developer. Use together with answer_plan_remark.', fields: { id: { type: 'string' }, text: { type: 'string' }, suggestion: { type: 'string' } } },
-  get_plan_review_items: { description: 'Read assigned cards with threads and decisions. Call get_plan first.', fields: {} },
-  reply_plan_remark: { description: 'Reply in an assigned card. Explain using current pN ids.', fields: { id: { type: 'string' }, kind: { type: 'string', enum: ['answer', 'options', 'questions', 'change', 'disagree'] }, text: { type: 'string' } } },
+  get_plan_review_items: { description: 'Read assigned review cards and decisions. Call get_plan (planner) or get_material (document author) first.', fields: {} },
+  reply_plan_remark: { description: 'Reply in an assigned card. Explain using current pN ids (or D../Q.. identifiers of the document).', fields: { id: { type: 'string' }, kind: { type: 'string', enum: ['answer', 'options', 'questions', 'change', 'disagree'] }, text: { type: 'string' } } },
   get_finish_context: { description: 'Read changed files, diffs, commit rules, task context, options and user revision note. Call first.', fields: {} },
   set_commits: { description: 'Submit the full commit list. Include each changed file exactly once. Plangent creates commits. Correct errors and retry.', fields: {
     commits: { type: 'array', minItems: 1, items: { type: 'object', additionalProperties: false, required: ['files','title'], properties: {
@@ -30,7 +31,7 @@ export const plangentTools = {
     fields: { proposal: { type: 'object', additionalProperties: false,
       required: ['action', 'type', 'slug', 'title', 'content', 'explanation'],
       properties: {
-        action: { type: 'string', enum: ['create', 'update'] }, type: { type: 'string', enum: ['skill', 'main', 'command', 'review-skill', 'plan-review-skill'] },
+        action: { type: 'string', enum: ['create', 'update'] }, type: { type: 'string', enum: ['skill', 'main', 'command', 'review-skill', 'plan-review-skill', 'architecture-review-skill', 'qa-review-skill'] },
         slug: { type: 'string' }, title: { type: 'string' }, description: { type: 'string' }, frontmatter: { type: 'object' },
         content: { type: 'string' }, explanation: { type: 'string' }, item_id: { type: 'string' },
         scope: { type: 'string', enum: ['global', 'project'] }, targets: { type: 'array', items: { type: 'string' } },
@@ -70,6 +71,12 @@ export const plangentTools = {
     description: 'Save an analysis section. Omit slug to create; supply existing slug to update. Defaults to worked, author agent. Source or developer material edits require an explicit developer request and source_requested=true.',
     fields: { title: { type: 'string' }, description: { type: 'string' }, slug: { type: 'string' },
       kind: { type: 'string', enum: ['source', 'worked'] }, source_requested: { type: 'boolean' } },
+  },
+  get_step_context: { description: 'Get your assigned steps and the materials they refer to via [[...]]: analysis sections and files, the architecture and QA documents with the referenced decision and criterion ids. Call it before starting when the steps have references. A criterion shared with other steps is verified only after the last of them.', fields: {} },
+  get_material: { description: 'Get the task, analysis, your document (current text and version), how to write it and the format rules. Call it before writing or changing the document, and again after a rejected save.', fields: {} },
+  submit_material: {
+    description: 'Save the whole document (markdown) of your section. Call again with the full text after every change. The save is rejected if the developer changed the document after get_material; then read it again and carry over your edits. Does not mark the section ready: only the developer does that.',
+    fields: { content: { type: 'string' } },
   },
   get_plan: { description: 'Get the task, its current plan (if any), the plan template and the plan format rules. Call it before writing a plan.', fields: {} },
   submit_plan: {

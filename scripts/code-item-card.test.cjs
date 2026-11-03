@@ -186,6 +186,29 @@ test('chat composer still sends resource links after moving mention search into 
 })
 
 
+test('interview menu displays both Plangent and agent commands and preserves their distinct selections', async () => {
+  const Menu = await component('client/src/features/agent-chat/components/SuggestMenu.vue')
+  const bundle = await build({ entryPoints: [path.resolve('client/src/features/agent-chat/utils/commands.ts')], bundle: true, write: false, platform: 'node', format: 'cjs' })
+  const mod = new Module(path.resolve('scripts/.commands-test.cjs'), module)
+  mod.filename = path.resolve('scripts/.commands-test.cjs')
+  mod._compile(bundle.outputFiles[0].text, mod.filename)
+  const { mergeCommands, commandSuggestions } = mod.exports
+  const commands = mergeCommands([{ name: 'interview', description: 'Agent interview' }], [{ name: 'interview', description: 'Уточнить решения', source: 'plangent' }])
+  const items = commandSuggestions(commands, 'INTER')
+  const picks = []
+  const app = createApp({ render: () => h(Menu, {
+    title: 'Команды', active: 0,
+    items, onPick: item => picks.push(item.value),
+  }) })
+  app.mount('#app')
+  try {
+    assert.deepEqual([...document.querySelectorAll('.suggest-label')].map(el => el.textContent), ['/interview (plangent)', '/interview'])
+    const rows = document.querySelectorAll('.suggest-item')
+    rows[0].click(); rows[1].click()
+    assert.deepEqual(picks, ['interview', 'agent:interview'])
+  } finally { app.unmount() }
+})
+
 test('mention menu escapes clipping containers, fits the window and follows the input on scroll and resize', async () => {
   const Menu = await component('client/src/features/agent-chat/components/SuggestMenu.vue')
   const oldWidth = window.innerWidth, oldHeight = window.innerHeight

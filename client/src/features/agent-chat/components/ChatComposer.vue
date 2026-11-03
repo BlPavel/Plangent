@@ -62,6 +62,7 @@
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useMentionFiles } from '../composables/useMentionFiles'
 import { emptyDraft, useChatDraftsStore } from '../stores/drafts'
+import { commandSuggestions, type ChatCommand } from '../utils/commands'
 import AppButton from '@shared/ui/AppButton.vue'
 import SuggestMenu, { type SuggestItem } from './SuggestMenu.vue'
 
@@ -70,7 +71,7 @@ export type ContentBlock = Record<string, unknown>
 const props = withDefaults(defineProps<{
   projectId: string
   draftKey?: string
-  commands?: { name: string; description: string }[]
+  commands?: ChatCommand[]
   busy?: boolean
   disabled?: boolean
   initialText?: string
@@ -98,9 +99,7 @@ let dismissedAt = -1
 const suggestItems = computed<SuggestItem[]>(() => {
   if (!suggest.value) return []
   if (suggest.value.kind === 'command') {
-    const q = suggest.value.query.toLowerCase()
-    return props.commands.filter(c => c.name.toLowerCase().includes(q)).slice(0, 50)
-      .map(c => ({ value: c.name, label: '/' + c.name, detail: c.description, command: true }))
+    return commandSuggestions(props.commands, suggest.value.query)
   }
   return fileSuggestions.value
 })

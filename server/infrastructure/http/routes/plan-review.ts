@@ -1,8 +1,9 @@
 import { Router, type Request, type Response } from 'express';
 import { localOrigin } from '../local-origin';
 import { CodeError } from '../../../core/code/files';
-import { planReviews } from '../../../core/plan-review';
+import { planReviews, isReviewTarget, type ReviewTarget } from '../../../core/plan-review';
 import { planReviewSkills } from '../../../core/library/plan-review-skill';
+import { materialReviewSkills } from '../../../core/library/section-settings';
 
 export const planReviewRouter = Router({ mergeParams: true });
 planReviewRouter.use(localOrigin);
@@ -15,12 +16,21 @@ const body = (req: Request): Record<string, unknown> => {
   if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) throw new CodeError('Invalid body');
   return req.body;
 };
-planReviewRouter.get('/', guard((req, res) => res.json(planReviews().list(req.params.projectId, req.params.taskId))));
+/** `?target=architecture|qa` selects the reviewed document; without it the paths work for the plan as before. */
+const targetOf = (req: Request): ReviewTarget => {
+  const target = req.query.target ?? 'plan';
+  if (!isReviewTarget(target)) throw new CodeError('Invalid review target');
+  return target;
+};
+planReviewRouter.get('/', guard((req, res) => res.json(planReviews().list(req.params.projectId, req.params.taskId, targetOf(req)))));
 planReviewRouter.post('/', guard((req, res) => {
   // Session binding will be supplied by the reviewer launcher, not arbitrary HTTP input.
-  res.status(201).json(planReviews().create(req.params.projectId, req.params.taskId));
+  res.status(201).json(planReviews().create(req.params.projectId, req.params.taskId, { target: targetOf(req) }));
 }));
-planReviewRouter.get('/skills', guard((req, res) => res.json(planReviewSkills(req.params.projectId))));
+planReviewRouter.get('/skills', guard((req, res) => {
+  const target = targetOf(req);
+  res.json(target === 'plan' ? planReviewSkills(req.params.projectId) : materialReviewSkills(target, req.params.projectId));
+}));
 planReviewRouter.get('/:id', guard((req, res) => res.json(planReviews().detail(req.params.projectId, req.params.taskId, req.params.id))));
 planReviewRouter.put('/:id/remarks/:rid/decision', guard((req, res) =>
   res.json(planReviews().decision(req.params.projectId, req.params.taskId, req.params.id, req.params.rid, body(req)))));
@@ -37,7 +47,7 @@ planReviewRouter.post('/:id/remarks/:rid/messages', guard((req, res) =>
 
 planReviewRouter.post('/launch', guard(async (req, res) => {
   const { launch } = await import('../../../core/plan-review/reviewer');
-  res.status(201).json(await launch(req.params.projectId, req.params.taskId, body(req)));
+  res.status(201).json(await launch(req.params.projectId, req.params.taskId, { ...body(req), target: targetOf(req) }));
 }));
 planReviewRouter.post('/:id/send', guard(async (req, res) => {
   const { deliver } = await import('../../../core/plan-review/planner-transport');

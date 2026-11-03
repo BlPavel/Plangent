@@ -1,6 +1,4 @@
-import { readItemContent } from './library-manager';
-import { getLibraryItem, libraryItemsFor, libraryOrigin } from './index';
-import { getProject } from '../projects';
+import { reviewSkillsOf, resolveReviewSkillOf } from './section-settings';
 import type { LibraryOrigin } from './index';
 
 /**
@@ -15,19 +13,10 @@ export interface PlanReviewSkill { id: string; title: string; description: strin
 
 /** Plan-review skills that apply to a project: its own, its group's and global ones. */
 export function planReviewSkills(projectId: string): PlanReviewSkill[] {
-  const project = getProject(projectId);
-  if (!project) return [];
-  const order = { direct: 0, group: 1, global: 2 };
-  return libraryItemsFor(project, 'plan-review-skill').filter(item => item.enabled)
-    .sort((a, b) => order[a.origin] - order[b.origin])
-    .map(item => ({ id: item.id, title: item.title, description: item.description, origin: item.origin }));
+  return reviewSkillsOf('plan-review-skill', projectId);
 }
 
 /** The chosen skill's text; an unknown or unavailable one falls back to the project's first skill, and without any there is none. */
 export function resolvePlanReviewSkill(projectId: string, skillId?: string | null): { id: string; title: string; content: string } | null {
-  const project = getProject(projectId);
-  const chosen = skillId ? getLibraryItem(skillId) : null;
-  const item = chosen && chosen.type === 'plan-review-skill' && chosen.enabled && project && libraryOrigin(chosen, project) ? chosen
-    : (() => { const first = planReviewSkills(projectId)[0]; return first ? getLibraryItem(first.id) : null; })();
-  return item ? { id: item.id, title: item.title, content: readItemContent(item) } : null;
+  return resolveReviewSkillOf('plan-review-skill', projectId, skillId);
 }

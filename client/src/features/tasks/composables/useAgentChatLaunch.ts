@@ -3,7 +3,7 @@ import { api } from '@core/api'
 import type { RunStartResult } from '@core/models'
 import type { NewChatRequest } from '@features/agent-chat'
 
-export function useAgentChatLaunch(projectId: Ref<string | undefined>, taskId: Ref<string | undefined>, purpose: 'plan' | 'analysis') {
+export function useAgentChatLaunch(projectId: Ref<string | undefined>, taskId: Ref<string | undefined>, purpose: 'plan' | 'analysis' | 'architecture' | 'qa') {
   const launching = ref(false), error = ref('')
   async function launch({ content, ...options }: NewChatRequest) {
     if (!projectId.value || !taskId.value || !options.agent_id || launching.value) return

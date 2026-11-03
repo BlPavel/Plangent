@@ -1,5 +1,6 @@
 import { readItemContent, writeItemContent, deleteItemContent } from './library-manager';
 import { listLibraryItems, updateLibraryItem } from './index';
+import { resolveGlobalText } from './section-settings';
 import { getDb } from '../../infrastructure/db/schema';
 
 /**
@@ -16,8 +17,7 @@ Back every remark with concrete steps and materials. Suggest a fix when it is cl
 
 /** The global text; without one the built-in text applies. */
 export function resolvePlanReviewInstruction(): string {
-  const item = listLibraryItems({ type: 'plan-review-instruction', scope: 'global', enabledOnly: true })[0];
-  return item ? readItemContent(item) : DEFAULT_PLAN_REVIEW_INSTRUCTION;
+  return resolveGlobalText('plan-review-instruction', DEFAULT_PLAN_REVIEW_INSTRUCTION);
 }
 
 /**

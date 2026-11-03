@@ -21,6 +21,7 @@ import { resolveReviewSkill } from '../library/review-skill';
 import { getOrchestrator } from './orchestrator';
 import { isActive, saveQueue, getQueue } from './queue';
 import { CodeError } from '../code/files';
+import { getReadyMaterials } from '../materials/stages';
 
 export const TASK_REVIEW_PROTOCOL = [
   'You are a task reviewer. Read files and run read-only commands only. Never edit files or change Git state.',
@@ -81,7 +82,10 @@ export async function taskReviewBrief(session: AgentSession) {
   const { orch } = scope(session);
   const task = getTask(session.task_id!)!, project = getProject(session.project_id)!;
   const current = await reviews(activeWorkspace(session.task_id!)?.id, session.task_id!).current(project.id);
-  return { protocol: TASK_REVIEW_PROTOCOL, task, plan: getLatestPlan(task.id)?.content ?? '',
+  const { architecture, qa } = getReadyMaterials(task.id);
+  return { protocol: [...TASK_REVIEW_PROTOCOL,
+    'When ready architecture or QA materials are provided, check implementation against architecture decisions (structure) and QA criteria (code behavior, even without tests). Findings about violations must reference the relevant D… decision or Q… criterion (for example [[architecture#D1]] or [[qa#Q3]]).'],
+    task, plan: getLatestPlan(task.id)?.content ?? '', architecture, qa,
     analysis: analysisToolContext(task.id, project.repo_path, task.key),
     skill: session.metadata.task_review_skill,
     range: { base: task.base_commit, repository: session.metadata.task_review_repository, captured_at: session.created_at },

@@ -1,5 +1,5 @@
 import { api, workspaceApi } from '@core/api'
-import type { Task, WorkEntry, Workspace } from '@core/models'
+import type { Task, WorkEntry, Workspace, Material, MaterialType, PreparationStage, StageSummary } from '@core/models'
 const root = (p: string) => '/projects/' + encodeURIComponent(p)
 const task = (p: string, t: string) => root(p) + '/tasks/' + encodeURIComponent(t)
 /** A new errand: номер and/or описание, who does it and where (see the server's ErrandInput); `text` is sent to the agent at once. */
@@ -31,3 +31,10 @@ export const workspacesApi = {
   recreate: (p: string, w: string, discard = false) => api.post<Workspace>(root(p) + '/workspaces/' + encodeURIComponent(w) + '/recreate', { discard }),
 }
 export interface ViewingWarnings { agentWorking: boolean; terminals: { id: string; title: string; cwd: string; workspaceId: string | null; processes: { pid: number; name: string }[] }[] }
+/** Architecture and QA documents of a task and the developer's marks of its preparation stages. */
+export const preparationApi = {
+  stages: (p: string, t: string) => api.get<StageSummary[]>(task(p, t) + '/preparation'),
+  mark: (p: string, t: string, stage: PreparationStage, status: 'ready' | 'skipped') => api.post<StageSummary[]>(task(p, t) + '/preparation/' + stage, { status }),
+  material: (p: string, t: string, type: MaterialType) => api.get<Material | null>(task(p, t) + '/materials/' + type),
+  save: (p: string, t: string, type: MaterialType, content: string, expected_version: number) => api.put<Material>(task(p, t) + '/materials/' + type, { content, expected_version }),
+}

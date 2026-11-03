@@ -52,8 +52,11 @@ import AppButton from '@shared/ui/AppButton.vue'
 import { useLibraryStore } from '../stores/library'
 
 /** One editor for every rule text with project / group / global levels and a built-in default. */
-const props = withDefaults(defineProps<{ scope: LibraryScope; projectId?: string; type?: 'code-fixer-instruction' | 'commit-rules' | 'plan-review-instruction' }>(), { type: 'code-fixer-instruction' })
+const props = withDefaults(defineProps<{ scope: LibraryScope; projectId?: string; type?: 'code-fixer-instruction' | 'commit-rules' | 'plan-review-instruction' | 'architecture-review-instruction' | 'qa-review-instruction' | 'interview-instruction' }>(), { type: 'code-fixer-instruction' })
 const CONFIG = {
+  'interview-instruction': { title: 'Уточняющее интервью', itemTitle: 'Уточняющее интервью', slug: 'interview_instruction', description: 'Общая инструкция для всех проектов. Если своя не задана, применяется встроенная.' },
+  'qa-review-instruction': { title: 'Ревью QA', itemTitle: 'Ревью QA', slug: 'qa_review_instruction', description: 'Общая инструкция для всех проектов. Если своя не задана, применяется встроенная.' },
+  'architecture-review-instruction': { title: 'Ревью архитектуры', itemTitle: 'Ревью архитектуры', slug: 'architecture_review_instruction', description: 'Общая инструкция для всех проектов. Если своя не задана, применяется встроенная.' },
   'code-fixer-instruction': {
     title: 'Агент доработки', itemTitle: 'Агент доработки', slug: 'code_fixer_instruction',
     description: 'Ваши правила для агента, который исполняет замечания ревью кода: что ему можно трогать, чего избегать, как отчитываться. Как читать замечания и вопросы и как их закрывать, агент получает от Plangent вместе с самими пунктами — здесь это описывать не нужно. Git и запись вне папки проекта запрещены в любом случае. Действует ближайший уровень: проект, группа, глобальный; если нигде не задано — предустановленный текст.',

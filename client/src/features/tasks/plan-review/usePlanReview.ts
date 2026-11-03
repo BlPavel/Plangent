@@ -2,17 +2,17 @@
 import { onServerEvent } from '@core/api/events'
 import { errorText } from '@shared/utils/errorText'
 import { planReviewApi as api } from './api'
-import type { Detail, Review } from './types'
+import type { Detail, Review, ReviewTarget } from './types'
 
-export function usePlanReview(project: Ref<string>, task: Ref<string>) {
+export function usePlanReview(project: Ref<string>, task: Ref<string>, target: Ref<ReviewTarget> = ref('plan')) {
   const reviews = ref<Review[]>([]), detail = ref<Detail | null>(null), selected = ref('')
   const error = ref(''), busy = ref(false)
   let alive = true, generation = 0, request = 0
   async function refresh() {
-    const seq = ++request, gen = generation, p = project.value, t = task.value
+    const seq = ++request, gen = generation, p = project.value, t = task.value, kind = target.value
     if (!p || !t) return
     try {
-      const rows = await api.list(p, t)
+      const rows = await api.list(p, t, kind)
       const id = rows.some(r => r.id === selected.value) ? selected.value : rows[0]?.id
       const value = id ? await api.detail(p, t, id) : null
       if (!alive || seq !== request || gen !== generation) return
@@ -32,7 +32,7 @@ export function usePlanReview(project: Ref<string>, task: Ref<string>) {
     } catch (cause) { if (alive && gen === generation) error.value = errorText(cause); return false }
     finally { if (alive && gen === generation) busy.value = false }
   }
-  watch([project, task], () => {
+  watch([project, task, target], () => {
     ++generation; ++request; reviews.value = []; detail.value = null; selected.value = ''; error.value = ''; busy.value = false
     void refresh()
   }, { immediate: true })

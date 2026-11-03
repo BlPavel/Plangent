@@ -138,6 +138,7 @@ import ToolCallCard from './ToolCallCard.vue'
 import UsageMeter, { type UsageInfo } from './UsageMeter.vue'
 import AgentSettingsBar from './AgentSettingsBar.vue'
 import { agentSelects, type AgentOptionsSource, type AgentSelect } from '../utils/agent-options'
+import { mergeCommands, type ChatCommand } from '../utils/commands'
 import { useChatStore, statusLabel, statusTone, type ChatEvent, type ChatSession } from '../stores/sessions'
 
 // `cards`: event types the host feature renders itself through the `card` slot (e.g. library proposals).
@@ -158,7 +159,11 @@ const NOTICES: Record<string, string> = { notice: 'Сессия перезапу
 const agentName = computed(() => agents.agents.find(a => a.id === snap.value?.session.agent_id)?.name ?? '')
 const busy = computed(() => ['thinking', 'starting'].includes(snap.value?.session.status ?? ''))
 const thinking = computed(() => snap.value?.session.status === 'thinking')
-const commands = computed(() => [...(snap.value?.events ?? [])].reverse().find(e => e.type === 'available_commands_update')?.payload.availableCommands ?? [])
+const commands = computed(() => {
+  const own = snap.value?.commands ?? []
+  const agent = ([...(snap.value?.events ?? [])].reverse().find(e => e.type === 'available_commands_update')?.payload.availableCommands ?? []) as ChatCommand[]
+  return mergeCommands(agent, own)
+})
 interface SessionMeta extends AgentOptionsSource { usage?: UsageInfo }
 const meta = computed(() => (snap.value?.session.metadata ?? {}) as SessionMeta)
 // Planning/review steps pin the session read-only until execution starts.

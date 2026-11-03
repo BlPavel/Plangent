@@ -31,6 +31,7 @@
       <span v-if="form.type === 'command' && form.title.trim()" class="hint">Будет вызываться как <code>/{{ slugPreview }}</code></span>
       <span v-else-if="form.type === 'review-skill'" class="hint">Так скилл называется в выборе перед разбором МР.</span>
       <span v-else-if="form.type === 'plan-review-skill'" class="hint">Так скилл называется в выборе перед ревью плана.</span>
+      <span v-else-if="isReviewSkill" class="hint">Так скилл называется в выборе перед ревью соответствующего материала.</span>
       <span v-else class="hint">Только латиница, цифры и <code>_</code> (например <code>db_migrations</code>). Так будет называться файл на диске.</span>
       <span v-if="err.title" class="error">{{ err.title }}</span>
     </div>
@@ -52,7 +53,7 @@
     </div>
 
     <!-- Agent filter — pick from agents created in настройках -->
-    <div v-if="form.type !== 'plan-template' && !isReviewSkill" class="form-field">
+    <div v-if="!form.type.endsWith('-template') && !isReviewSkill" class="form-field">
       <label>Для каких агентов</label>
       <div v-if="agents.length" class="agent-picker">
         <button
@@ -108,7 +109,7 @@ const props = defineProps<{
   lockedPlanProtocol?: string
 }>()
 const { form } = props
-const isReviewSkill = computed(() => form.type === 'review-skill' || form.type === 'plan-review-skill')
+const isReviewSkill = computed(() => form.type === 'review-skill' || form.type.endsWith('-review-skill'))
 
 const TYPES: { value: LibraryItemType; label: string }[] = [
   { value: 'skill', label: 'Скилл' },
@@ -116,6 +117,10 @@ const TYPES: { value: LibraryItemType; label: string }[] = [
   { value: 'main', label: 'Главный файл' },
   { value: 'plan-template', label: 'Шаблон плана' },
   { value: 'review-skill', label: 'Скилл ревью' },
+  { value: 'architecture-template', label: 'Как писать архитектуру' },
+  { value: 'qa-template', label: 'Как писать QA' },
+  { value: 'architecture-review-skill', label: 'Ревью архитектуры' },
+  { value: 'qa-review-skill', label: 'Ревью QA' },
   { value: 'plan-review-skill', label: 'Ревью плана' },
 ]
 const availableTypes = computed(() => TYPES.filter(t => !props.allowedTypes || props.allowedTypes.includes(t.value)))
@@ -140,6 +145,13 @@ const typeHint = computed(() => ({
   'plan-template': 'Структура плана для режима планирования. Протокол шагов добавляется ниже и не редактируется.',
   'review-skill': 'Что агенту важно в ревью МР этого проекта и что пропускать. Выбирается перед разбором во вкладке «Ревью»; формат сводки и замечаний задаёт Plangent.',
   'plan-review-skill': 'Ваши требования к плану в этом проекте: архитектура, границы модулей, соглашения. Общие проверки (противоречия, порядок, покрытие) уже задаёт глобальная инструкция. Выбирается перед запуском ревью плана; формат замечаний задаёт Plangent. В папки агентов не синхронизируется.',
+  'architecture-template': 'Как писать архитектуру: применяется только в соответствующем разделе подготовки задачи.',
+  'qa-template': 'Как писать QA: применяется только в соответствующем разделе подготовки задачи.',
+  'architecture-review-skill': 'Ревью архитектуры: применяется только в соответствующем разделе подготовки задачи.',
+  'qa-review-skill': 'Ревью QA: применяется только в соответствующем разделе подготовки задачи.',
+  'architecture-review-instruction': 'Общая инструкция из глобальных настроек.',
+  'qa-review-instruction': 'Общая инструкция из глобальных настроек.',
+  'interview-instruction': 'Общая инструкция из глобальных настроек.',
   'plan-review-instruction': 'Что проверять в плане. Редактируется во вкладке «Ревью плана».',
 }[form.type]))
 

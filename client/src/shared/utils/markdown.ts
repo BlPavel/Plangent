@@ -40,3 +40,13 @@ md.renderer.rules.analysis_reference = (tokens, index, _options, env) => {
     + '"' + (valid ? '' : ' disabled style="color:var(--danger)"') + '>' + label + '</button>'
 }
 export const renderMarkdown = (value: string, links?: DocumentLinks) => md.render(value, { links })
+
+// A ```mermaid block is kept as source; MessageMarkdown turns it into a diagram after rendering (the library loads lazily).
+const defaultFence = md.renderer.rules.fence!
+md.renderer.rules.fence = (tokens, idx, options, env, self) => {
+  const token = tokens[idx]
+  if (token.info.trim().split(/\s+/)[0] !== 'mermaid') return defaultFence(tokens, idx, options, env, self)
+  return '<div class="mermaid-block" data-mermaid><pre><code>' + md.utils.escapeHtml(token.content) + '</code></pre></div>\n'
+}
+/** True when the markdown has a mermaid block, so the diagram library is worth loading. */
+export const hasMermaid = (value: string) => /^ {0,3}(`{3,}|~{3,})\s*mermaid\b/m.test(value)

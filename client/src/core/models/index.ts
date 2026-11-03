@@ -1,3 +1,4 @@
+import type { MaterialType, StageSummary } from './materials'
 export interface LayoutSlot {
   dir: string
   global: string
@@ -135,6 +136,8 @@ export interface Run {
 }
 
 export type LibraryItemType = 'skill' | 'command' | 'main' | 'plan-template' | 'instruction-guide' | 'code-fixer-instruction' | 'commit-rules' | 'review-skill' | 'plan-review-skill' | 'plan-review-instruction'
+  | 'architecture-template' | 'architecture-review-instruction' | 'architecture-review-skill'
+  | 'qa-template' | 'qa-review-instruction' | 'qa-review-skill' | 'interview-instruction'
 export type LibraryScope = 'global' | 'project'
 
 export interface LibraryItem {
@@ -274,7 +277,10 @@ export type OrchestratorEvent = QueueEventBase & (
   | { type: 'task_updated' }
   // idMap: old → new step ids when the planner's plan was renumbered in order.
   | { type: 'plan_updated'; content?: string; steps: PlanStep[]; idMap?: Record<string, string> }
+  | { type: 'material_updated'; materialType: MaterialType; version: number }
+  | { type: 'stages_updated'; stages: StageSummary[] }
 )
 
 export * from './workspace'
 export * from './work'
+export * from './materials'

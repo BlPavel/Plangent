@@ -1,11 +1,12 @@
 <template>
-  <div class="md" :class="{ 'md-typing': live || catching }" v-html="html" @click="openDocument" />
+  <div ref="host" class="md" :class="{ 'md-typing': live || catching }" v-html="html" @click="openDocument" />
 </template>
 
 <script setup lang="ts">
-import { computed, inject } from 'vue'
+import { computed, inject, ref } from 'vue'
 import { DocumentLinksKey } from '@shared/composables/documentLinks'
 import { useSmoothText } from '@shared/composables/useSmoothText'
+import { useMermaid } from '@shared/composables/useMermaid'
 import { renderMarkdown } from '@shared/utils/markdown'
 
 /** Markdown message body; text that grows after mount is typed out smoothly. */
@@ -13,6 +14,9 @@ const props = defineProps<{ text: string; live?: boolean }>()
 const { shown, catching } = useSmoothText(() => props.text)
 const links = inject(DocumentLinksKey, undefined)
 const html = computed(() => renderMarkdown(shown.value, links))
+// Diagrams are drawn once the text stops growing: a half-typed diagram is a syntax error.
+const host = ref<HTMLElement>()
+useMermaid(host, () => html.value, () => !props.live && !catching.value)
 function openDocument(event: MouseEvent) {
   const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-analysis-target]')
   const target = button?.dataset.analysisTarget
@@ -57,6 +61,13 @@ function openDocument(event: MouseEvent) {
 .md :deep(table) { border-collapse: collapse; display: block; overflow-x: auto; font-size: 13px; }
 .md :deep(th), .md :deep(td) { padding: 6px 10px; border: 1px solid var(--border); text-align: left; }
 .md :deep(th) { background: var(--bg2); font-weight: 600; }
+
+/* Mermaid: a diagram replaces its source; a broken one keeps the source with the message */
+.md :deep(.mermaid-block) { margin: 0 0 12px; }
+.md :deep(.mermaid-block[data-mermaid='done']) { display: flex; justify-content: center; overflow-x: auto; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg2); }
+.md :deep(.mermaid-block svg) { max-width: 100%; height: auto; }
+.md :deep(.mermaid-block pre) { margin: 0; }
+.md :deep(.mermaid-error) { margin: 6px 0 0; font-size: 12.5px; color: var(--danger); }
 
 /* Blinking caret after the last block while the answer is being typed */
 .md-typing :deep(> *:last-child::after) {

@@ -1,17 +1,18 @@
 <template>
-  <div class="plan-template-editor">
+  <div class="plan-template-editor" :class="{ 'material-template': type !== 'plan-template' }">
     <div class="editor-grid">
       <section class="editor-section">
         <div class="section-row">
           <div>
             <h3>Основное тело</h3>
-            <p>Этот текст агент получает первым в режиме планирования. Можно оставить пустым — тогда агент получит только Протокол Plangent.</p>
+            <p>{{ type === 'plan-template' ? 'Текст для планирования. Можно оставить пустым.' : 'Как писать материал. Если своё не задано, применяется встроенный текст.' }}</p>
           </div>
           <div class="actions">
-            <button class="btn btn-primary btn-sm" :disabled="saving || !isDirty" @click="save">
+            <AppButton variant="primary" size="sm" :disabled="saving || !isDirty" @click="save">
               {{ saving ? 'Сохранение...' : 'Сохранить' }}
-            </button>
-            <button class="btn btn-ghost btn-sm" :disabled="saving || !isDirty" @click="cancel">Отмена</button>
+            </AppButton>
+            <AppButton variant="ghost" size="sm" :disabled="saving || !isDirty" @click="cancel">Отмена</AppButton>
+            <AppButton v-if="type !== 'plan-template' && item" variant="ghost" size="sm" :disabled="saving" @click="reset">Вернуть предустановленное</AppButton>
           </div>
         </div>
         <textarea
@@ -26,7 +27,7 @@
         <div class="section-row">
           <div>
             <h3>Протокол Plangent</h3>
-            <p>Этот блок добавляется к prompt из кода и не сохраняется в пользовательский шаблон.</p>
+            <p>Plangent добавляет этот блок к инструкции автоматически. Он не сохраняется в пользовательский шаблон.</p>
           </div>
         </div>
         <textarea class="template-editor protocol readonly" :value="defaults.lockedProtocol" spellcheck="false" readonly />
@@ -39,16 +40,19 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { api } from '@core/api'
 import { useAppStore } from '@core/stores/app'
+import AppButton from '@shared/ui/AppButton.vue'
 import type { LibraryItem, LibraryScope } from '@core/models'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   scope: LibraryScope
   projectId?: string
-}>()
+  type?: 'plan-template' | 'architecture-template' | 'qa-template'
+}>(), { type: 'plan-template' })
 
 const appStore = useAppStore()
 
-const defaults = ref({ lockedProtocol: '' })
+const defaults = ref({ lockedProtocol: '', content: '' })
+const title = computed(() => ({ 'plan-template': 'Шаблон плана', 'architecture-template': 'Как писать архитектуру', 'qa-template': 'Как писать QA' })[props.type])
 const item = ref<LibraryItem | null>(null)
 const content = ref('')
 const savedContent = ref('')
@@ -58,13 +62,13 @@ const saving = ref(false)
 const isDirty = computed(() => content.value !== savedContent.value)
 
 onMounted(load)
-watch(() => [props.scope, props.projectId], load)
+watch(() => [props.scope, props.projectId, props.type], load)
 
 async function load() {
   loading.value = true
   try {
     defaults.value = await loadDefaults()
-    const params = new URLSearchParams({ type: 'plan-template', scope: props.scope })
+    const params = new URLSearchParams({ type: props.type, scope: props.scope })
     if (props.scope === 'project' && props.projectId) params.set('projectId', props.projectId)
     const items = await api.get<LibraryItem[]>(`/library?${params.toString()}`)
     item.value = items[0] ?? null
@@ -73,7 +77,7 @@ async function load() {
       content.value = full.content ?? ''
       savedContent.value = content.value
     } else {
-      content.value = ''
+      content.value = defaults.value.content ?? ''
       savedContent.value = content.value
     }
   } catch (e: unknown) {
@@ -93,17 +97,17 @@ async function save() {
     if (item.value) {
       item.value = await api.put<LibraryItem>(`/library/${item.value.id}`, {
         content: content.value,
-        title: 'Шаблон плана',
+        title: title.value,
         slug: item.value.slug,
-        type: 'plan-template',
+        type: props.type,
         scope: props.scope,
         project_id: props.scope === 'project' ? (props.projectId ?? null) : null,
       })
     } else {
       item.value = await api.post<LibraryItem>('/library', {
-        type: 'plan-template',
-        slug: 'default_plan',
-        title: 'Шаблон плана',
+        type: props.type,
+        slug: props.type.replaceAll('-', '_'),
+        title: title.value,
         description: '',
         scope: props.scope,
         project_id: props.scope === 'project' ? (props.projectId ?? null) : null,
@@ -119,8 +123,15 @@ async function save() {
   }
 }
 
-async function loadDefaults(): Promise<{ lockedProtocol: string }> {
-  return api.get<{ lockedProtocol: string }>('/library/plan-template/defaults')
+async function reset() {
+  if (!item.value) return
+  saving.value = true
+  try { await api.delete(`/library/${item.value.id}`); await load() }
+  catch (e) { appStore.toast(String(e), 'error') }
+  finally { saving.value = false }
+}
+async function loadDefaults(): Promise<{ lockedProtocol: string; content: string }> {
+  return api.get(`/library/${props.type}/defaults`)
 }
 </script>
 
@@ -130,6 +141,8 @@ async function loadDefaults(): Promise<{ lockedProtocol: string }> {
   flex: 1;
   min-height: 0;
 }
+
+.material-template { flex: 0 0 480px; min-height: 480px; }
 
 .editor-grid {
   flex: 1;

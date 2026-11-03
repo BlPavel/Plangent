@@ -1,7 +1,11 @@
-import { analysisToolContext, selectedAnalysisContext } from './analysis-context';
+import { analysisToolContext } from './analysis-context';
+import { parsePlanSteps } from './plans';
+import { getReadyMaterials } from '../materials/stages';
+import { getLatestMaterial, parseMaterialIdentifiers } from '../materials';
 import { PLAN_PROTOCOL_LOCKED } from '../library/plan-template';
 import { REVIEW_SKILL_AUTHORING } from '../library/review-skill';
 import { PLAN_REVIEW_SKILL_AUTHORING } from '../library/plan-review-skill';
+import { MATERIAL_KINDS } from '../materials/kinds';
 /** Hidden librarian instructions; the authoring guide itself comes from get_library. */
 export function buildLibrarianPrompt(projectName: string): string {
   return [
@@ -14,6 +18,8 @@ export function buildLibrarianPrompt(projectName: string): string {
     'After submitting, briefly explain your choice and wait for feedback. The developer applies or rejects proposals.',
     REVIEW_SKILL_AUTHORING,
     PLAN_REVIEW_SKILL_AUTHORING,
+    MATERIAL_KINDS.architecture.reviewSkillAuthoring,
+    MATERIAL_KINDS.qa.reviewSkillAuthoring,
     '',
     "Developer's message:",
   ].join('\n');
@@ -31,7 +37,7 @@ export interface RunContext {
   taskId?: string;
   repoPath?: string;
   analysisRepoPath?: string;
-  purpose?: 'analysis' | 'plan' | 'execute' | 'preflight';
+  purpose?: 'analysis' | 'plan' | 'execute' | 'preflight' | 'architecture' | 'qa';
   runHistory: Array<{
     agent: string;
     date: string;
@@ -60,12 +66,23 @@ function buildPlanningPrompt(ctx: RunContext): string {
   ].join('\n');
 }
 
+/** Ready architecture and QA ground the plan; drafts and skipped ones are named so the planner can tell the developer. */
+function materialsForPlanner(taskId: string): Record<string, unknown> {
+  const ready = getReadyMaterials(taskId);
+  const ground = (type: 'architecture' | 'qa') => ready[type]
+    ? { version: ready[type]!.version, content: ready[type]!.content, identifiers: parseMaterialIdentifiers(ready[type]!.content) } : null;
+  const unused = (['architecture', 'qa'] as const).filter(type => !ready[type] && getLatestMaterial(taskId, type));
+  return { architecture: ground('architecture'), qa: ground('qa'),
+    ...(unused.length ? { materialsNotUsed: unused.map(type => type + ': not marked ready by the developer, do not rely on it') } : {}) };
+}
+
 /** What get_plan returns to the planner. */
 export function planningToolContext(ctx: RunContext): Record<string, unknown> {
   return {
     task: { key: ctx.taskKey, title: ctx.taskTitle ?? '', description: ctx.taskDescription ?? '' },
     project: ctx.projectName,
     ...(ctx.taskId && ctx.repoPath ? { analysis: analysisToolContext(ctx.taskId, ctx.analysisRepoPath ?? ctx.repoPath, ctx.taskKey) } : {}),
+    ...(ctx.taskId ? materialsForPlanner(ctx.taskId) : {}),
     currentPlan: ctx.planContent || null,
     template: ctx.planTemplate?.trim() || null,
     format: PLAN_PROTOCOL_LOCKED.trim(),
@@ -80,6 +97,17 @@ export function buildAnalysisPrompt(ctx: RunContext): string {
     'Only edit developer materials or create/edit source sections when explicitly requested by the developer; set source_requested=true only for that request.',
     'Mention project files by path; do not copy them into analysis. Do not edit project files or write analysis files directly.',
     'Do not create or change the plan. Summarize the saved sections with their [[slug]] links in your reply.',
+    '', "Developer's message:",
+  ].join('\n');
+}
+
+/** A short pointer: the document, template and rules arrive only through get_material. */
+export function buildMaterialPrompt(ctx: RunContext, material: 'architecture' | 'qa'): string {
+  return [
+    '[Plangent] You are the author of the ' + (material === 'qa' ? 'QA' : 'architecture') + ' document for task ' + ctx.taskKey + ' in project ' + ctx.projectName + '. You are read-only.',
+    'Start with the Plangent tool get_material: it gives the task, analysis, the current document, how to write it and the format rules.',
+    'Save the document only with the Plangent tool submit_material (the full text every time) - never write files yourself. Do not mark the section ready: the developer does that.',
+    'Do not change the plan or the analysis. After saving, briefly say what you wrote and wait for the developer.',
     '', "Developer's message:",
   ].join('\n');
 }
@@ -135,6 +163,7 @@ function buildPreflightPrompt(ctx: RunContext): string {
 export function buildPrompt(ctx: RunContext): string {
   if (ctx.purpose === 'analysis') return buildAnalysisPrompt(ctx);
   if (ctx.purpose === 'plan') return buildPlanningPrompt(ctx);
+  if (ctx.purpose === 'architecture' || ctx.purpose === 'qa') return buildMaterialPrompt(ctx, ctx.purpose);
   if (ctx.purpose === 'preflight') return buildPreflightPrompt(ctx);
 
   const lines: string[] = [];
@@ -181,9 +210,10 @@ export function buildPrompt(ctx: RunContext): string {
     lines.push('');
   }
 
-  const materials = ctx.taskId && ctx.repoPath
-    ? selectedAnalysisContext(ctx.taskId, ctx.analysisRepoPath ?? ctx.repoPath, ctx.taskKey, ctx.planContent ?? '', ctx.points) : '';
-  if (materials) lines.push('## Материалы анализа', materials, '');
+  // Materials the steps link to arrive through the tool, not through the prompt.
+  const linked = ctx.planContent && parsePlanSteps(ctx.planContent)
+    .some(s => (!ctx.points || !ctx.points.length || (s.id && ctx.points.includes(s.id))) && (s.analysisLinks ?? []).length);
+  if (linked) lines.push('## Материалы', 'Шаги ссылаются на материалы ([[…]]). Перед началом работы вызови инструмент Plangent get_step_context: он отдаёт эти материалы.', '');
 
   if (ctx.runHistory.length > 0) {
     lines.push('## Run history');

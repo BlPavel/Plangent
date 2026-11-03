@@ -46,8 +46,8 @@ runsRouter.post('/', async (req: Request, res: Response) => {
     reasoning_effort: req.body.reasoning_effort || baseAgent.reasoning_effort,
   };
 
-  const purpose: 'analysis' | 'plan' | 'execute' | 'preflight' =
-    req.body.purpose === 'analysis' ? 'analysis' : req.body.purpose === 'plan' ? 'plan' : req.body.purpose === 'preflight' ? 'preflight' : 'execute';
+  const purpose: 'analysis' | 'plan' | 'execute' | 'preflight' | 'architecture' | 'qa' =
+    req.body.purpose === 'architecture' ? 'architecture' : req.body.purpose === 'qa' ? 'qa' : req.body.purpose === 'analysis' ? 'analysis' : req.body.purpose === 'plan' ? 'plan' : req.body.purpose === 'preflight' ? 'preflight' : 'execute';
   const latestPlan = getLatestPlan(task.id);
   const previousRuns = listRuns(task.id);
   const planFilePath = getPlanFilePath(project.repo_path, task.key);
@@ -81,11 +81,12 @@ runsRouter.post('/', async (req: Request, res: Response) => {
   }
 
   try {
-    if (purpose === 'plan' || purpose === 'analysis') {
+    if (purpose === 'plan' || purpose === 'analysis' || purpose === 'architecture' || purpose === 'qa') {
       // Nothing is sent yet: the briefing goes out, hidden, with the developer's first message.
       const { mode, config } = req.body;
-      const chat = (purpose === 'plan' ? createPlannerSession : createChat)({ project_id: projectId, task_id: taskId, run_id: run.id, agent_id: agent.id, role: purpose === 'analysis' ? 'analyst' : 'planner', policy: 'read-only',
-        model: agent.model, title: task.key + (purpose === 'analysis' ? ' · Анализ' : ' · Планирование'), metadata: { briefing: prompt, reasoningEffort: agent.reasoning_effort,
+      const chat = (purpose === 'plan' ? createPlannerSession : createChat)({ project_id: projectId, task_id: taskId, run_id: run.id, agent_id: agent.id, role: purpose === 'analysis' ? 'analyst' : purpose === 'plan' ? 'planner' : 'material-author', policy: 'read-only',
+        model: agent.model, title: task.key + ' · ' + (purpose === 'analysis' ? 'Анализ' : purpose === 'plan' ? 'Планирование' : purpose === 'qa' ? 'QA' : 'Архитектура'), metadata: { briefing: prompt, reasoningEffort: agent.reasoning_effort,
+          ...(purpose === 'architecture' || purpose === 'qa' ? { material_type: purpose } : {}),
           ...(typeof mode === 'string' && mode ? { preferredMode: mode } : {}),
           ...(config && typeof config === 'object' ? { preferredConfig: Object.fromEntries(Object.entries(config).map(([k, v]) => [k, String(v)])) } : {}) } });
       void startSession(chat.id).catch(() => {});

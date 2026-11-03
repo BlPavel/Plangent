@@ -48,7 +48,8 @@ async function save(git_settings: ProjectGitSettings) {
 }
 const set = (checked: boolean) => save({ ...project.value?.git_settings, include_description: checked })
 function reset() {
-  const { include_description: _, ...rest } = project.value?.git_settings ?? {}
+  const rest = { ...project.value?.git_settings }
+  delete rest.include_description
   return save(rest)
 }
 </script>

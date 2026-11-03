@@ -47,7 +47,7 @@ test('analyst MCP, plan references and execution material selection', async () =
   try {
     const client = await connect(analyst);
     assert.deepEqual((await client.listTools()).tools.map(t => t.name), ['get_analysis', 'save_section']);
-    assert.deepEqual(allowed({ ...analyst, role: 'executor' }), ['request_help', 'report_progress']);
+    assert.deepEqual(allowed({ ...analyst, role: 'executor' }), ['get_step_context', 'request_help', 'report_progress']);
     assert.ok(!allowed({ ...analyst, role: 'planner' }).includes('save_section'));
     const initial = value(await client.callTool({ name: 'get_analysis', arguments: {} }));
     assert.equal(initial.groups[0].sections[0].files[0].content, undefined);
@@ -69,13 +69,18 @@ test('analyst MCP, plan references and execution material selection', async () =
     assert.deepEqual(parsePlanSteps(getLatestPlan(task.id)!.content)[1].analysisLinks, ['api/api.json']);
     const ctx = { projectName: project.name, taskKey: task.key, taskId: task.id, repoPath: root, planContent: getLatestPlan(task.id)!.content, runHistory: [] };
     assert.ok(planningToolContext(ctx).analysis);
+    // Materials are no longer pasted into the prompt: it only points at get_step_context.
     const selected = buildPrompt({ ...ctx, points: ['p1'] });
-    assert.match(selected, /WORKED ONLY/); assert.doesNotMatch(selected, /SOURCE ONLY|contract/);
+    assert.match(selected, /get_step_context/); assert.doesNotMatch(selected, /WORKED ONLY|SOURCE ONLY|contract/);
     const attachment = buildPrompt({ ...ctx, points: ['p2'] });
-    assert.match(attachment, /api.json/); assert.match(attachment, /"contract":true/);
-    assert.doesNotMatch(attachment, /WORKED ONLY|SOURCE ONLY/);
-    assert.doesNotMatch(buildPrompt({ ...ctx, points: ['p3'] }), /## Материалы анализа/);
-    assert.doesNotMatch(buildPrompt({ ...ctx, points: [] }), /WORKED ONLY|SOURCE ONLY/);
+    assert.match(attachment, /get_step_context/); assert.doesNotMatch(attachment, /"contract":true|WORKED ONLY|SOURCE ONLY/);
+    assert.doesNotMatch(buildPrompt({ ...ctx, points: ['p3'] }), /get_step_context/);
+    const stepOne = context.selectedStepContext(task.id, root, task.key, ctx.planContent, ['p1']);
+    assert.match(JSON.stringify(stepOne), /WORKED ONLY/); assert.doesNotMatch(JSON.stringify(stepOne), /SOURCE ONLY|contract/);
+    const stepTwo = context.selectedStepContext(task.id, root, task.key, ctx.planContent, ['p2']);
+    assert.match(stepTwo.analysis[0].files[0].path, /api.json$/); assert.equal(stepTwo.analysis[0].files[0].content, '{"contract":true}');
+    assert.doesNotMatch(JSON.stringify(stepTwo), /WORKED ONLY|SOURCE ONLY/);
+    assert.deepEqual(context.selectedStepContext(task.id, root, task.key, ctx.planContent, ['p3']).analysis, []);
     const before = getLatestPlan(task.id)!.content;
     assert.throws(() => submitPlan(task, root, '- [ ] Bad [[missing]]', true), /Unknown analysis/);
     assert.throws(() => submitPlan(task, root, '- [ ] Bad [[api/missing.json]]', true), /Unknown analysis/);

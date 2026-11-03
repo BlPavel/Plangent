@@ -12,7 +12,6 @@
           <span class="when-shown">Скрыть чат</span>
           <span class="when-hidden">Показать чат</span>
         </label>
-        <AppButton v-if="!done && sections.length" variant="primary" size="sm" title="Открыть «План» и начать планирование по анализу" @click="$emit('planning')">Перейти к планированию →</AppButton>
       </div>
     </header>
 
@@ -29,8 +28,7 @@
           <template v-else>
             <div class="empty-title">Анализ необязателен</div>
             <p>Соберите исходные материалы — ТЗ, API, макеты, переписку — и обсудите их с агентом в чате. Выводы он сохранит проработанными разделами.</p>
-            <p>Для небольшой задачи можно сразу перейти к плану.</p>
-            <AppButton variant="primary" size="sm" @click="$emit('planning')">Перейти к планированию →</AppButton>
+            <p>Для небольшой задачи можно сразу перейти дальше: «Пропустить этап» в меню кнопки перехода вверху отметит анализ пропущенным.</p>
           </template>
         </div>
 
@@ -77,7 +75,7 @@ import AnalysisSectionGroup from './AnalysisSectionGroup.vue'
 import AnalysisFileView from './AnalysisFileView.vue'
 import TaskChats from './TaskChats.vue'
 const props = defineProps<{ projectId: string; taskId: string; defaultAgentId?: string | null; sections: AnalysisSection[]; done: boolean; lockedReason: string; highlights: string[]; opened: string | null; openFile?: string; agentRevision: number; chats: { id: string; title: string }[]; selectedChat: string | null; initials: Record<string, ContentBlock[]>; launching: boolean; launchError: string }>()
-const emit = defineEmits<{ reload: []; planning: []; selectChat: [id: string | null]; removeChat: [id: string, name: string]; launch: [request: NewChatRequest] }>()
+const emit = defineEmits<{ reload: []; selectChat: [id: string | null]; removeChat: [id: string, name: string]; launch: [request: NewChatRequest] }>()
 const app = useAppStore()
 const kinds = ['source', 'worked'] as const
 const error = ref(''), adding = ref<AnalysisSection['kind'] | null>(null), newTitle = ref(''), newDescription = ref('')

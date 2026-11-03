@@ -49,6 +49,11 @@ function writeIfChanged(file: string, content: string | Buffer): void {
   if (fs.existsSync(file) && fs.readFileSync(file).equals(buffer)) return;
   fs.writeFileSync(file, buffer);
 }
+export function materializeMaterial(task: Task, repoPath: string, type: 'architecture' | 'qa', content: string): void {
+  const dir = getTaskDirectory(repoPath, task.key);
+  fs.mkdirSync(dir, { recursive: true });
+  writeIfChanged(path.join(dir, type + '.md'), content);
+}
 export function materializeAnalysis(task: Task, repoPath: string, sections: AnalysisSection[], files: AnalysisFile[],
   syncDescription: (updates: { id: string; description: string }[]) => void): void {
   stopWatchAnalysis(task.id);

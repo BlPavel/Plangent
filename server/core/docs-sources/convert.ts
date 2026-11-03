@@ -1,5 +1,5 @@
 ﻿import TurndownService from 'turndown';
-import { parseHTML } from 'linkedom';
+import { DOMParser } from 'linkedom';
 import path from 'node:path';
 import { DocsSourceConfig, ElementValue } from './types';
 import { matchLink } from './config';
@@ -38,7 +38,7 @@ export function convertBody(body: string, config: DocsSourceConfig, url: string,
         .replace(/^(\s*\[[^\]]+\]:\s*)(\S+)/, (_, a, href) => a + link(href));
     }).join('\n');
   }
-  const { document } = parseHTML('<html><body></body></html>');
+  const document = new DOMParser().parseFromString('<html><body></body></html>', 'text/html');
   // XHTML APIs may use CDATA for literal code; HTML parsers otherwise drop it as a comment.
   document.body.innerHTML = body.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, (_, text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'));
   for (const n of document.querySelectorAll('script,style,iframe,object')) n.remove();

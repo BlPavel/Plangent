@@ -15,6 +15,9 @@
       <button class="stab" :class="{ active: tab === 'plan-review' }" @click="tab = 'plan-review'">Ревью плана</button>
       <button class="stab" :class="{ active: tab === 'commit-rules' }" @click="tab = 'commit-rules'">Коммиты</button>
       <button class="stab" :class="{ active: tab === 'notes' }" @click="tab = 'notes'">Доработки</button>
+      <button class="stab" :class="{ active: tab === 'architecture' }" @click="tab = 'architecture'">Архитектура</button>
+      <button class="stab" :class="{ active: tab === 'qa' }" @click="tab = 'qa'">QA</button>
+      <button class="stab" :class="{ active: tab === 'interview' }" @click="tab = 'interview'">Уточняющее интервью</button>
     </div>
 
     <div v-if="tab === 'connections'" class="tab-body"><ConnectionsSettings :fix="typeof route.query.fix === 'string' ? route.query.fix : undefined" /></div>
@@ -111,6 +114,17 @@
       <CodeFixerInstructionEditor scope="global" type="plan-review-instruction" />
     </div>
 
+    <div v-if="tab === 'architecture'" class="tab-body">
+      <h3>Как писать архитектуру</h3>
+      <PlanTemplateEditor scope="global" type="architecture-template" />
+      <CodeFixerInstructionEditor scope="global" type="architecture-review-instruction" />
+    </div>
+    <div v-if="tab === 'qa'" class="tab-body">
+      <h3>Как писать QA</h3>
+      <PlanTemplateEditor scope="global" type="qa-template" />
+      <CodeFixerInstructionEditor scope="global" type="qa-review-instruction" />
+    </div>
+    <div v-if="tab === 'interview'" class="tab-body"><CodeFixerInstructionEditor scope="global" type="interview-instruction" /></div>
     <!-- Commit message rules (global) -->
     <div v-show="tab === 'commit-rules'" class="tab-body">
       <p class="hint">Глобальные правила действуют во всех проектах, если проект или группа не переопределили их во вкладке «Инструкции» → «Коммиты».</p>
@@ -216,7 +230,7 @@ const appStore = useAppStore()
 const agentsStore = useAgentsStore()
 const chatStore = useChatStore()
 
-type Tab = 'agents' | 'skills' | 'plan-template' | 'instruction-guide' | 'code-fixer' | 'review-skills' | 'plan-review' | 'commit-rules' | 'notes' | 'connections'
+type Tab = 'agents' | 'skills' | 'plan-template' | 'instruction-guide' | 'code-fixer' | 'review-skills' | 'plan-review' | 'architecture' | 'qa' | 'interview' | 'commit-rules' | 'notes' | 'connections'
 // Other screens link straight to a tab, e.g. a docs source's «Изменить пароль» → ?tab=connections&fix=<id>.
 const route = useRoute()
 const tab = ref<Tab>(route.query.tab === 'connections' ? 'connections' : 'agents')
@@ -425,6 +439,7 @@ onMounted(() => {
 .settings-tabs {
   display: flex;
   gap: 2px;
+  overflow-x: auto;
   padding: 0 var(--sp-6);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
@@ -443,6 +458,7 @@ onMounted(() => {
 .plan-template-tab > .hint { flex-shrink: 0; }
 
 .stab {
+  flex-shrink: 0;
   background: none;
   border: none;
   border-bottom: 2px solid transparent;

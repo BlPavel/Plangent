@@ -1,3 +1,4 @@
+import { commandPrompt, sessionCommands } from './commands';
 import { buildCodeFixerBriefing } from '../library/code-fixer-instruction';
 import { buildLibrarianPrompt } from '../orchestration/prompts';
 import type * as ACP from '@agentclientprotocol/sdk';
@@ -406,7 +407,7 @@ export async function sendPrompt(id: string, content: ACP.ContentBlock[]): Promi
     ...(withBriefing ? [{ type: 'text' as const, text: briefing }] : []),
     ...(references ? [{ type: 'text' as const, text: references }] : []),
     ...(session.metadata.needsContext ? [{ type: 'text' as const, text: `Контекст предыдущего разговора (может быть обрезан):\n${transcript(id)}\n\nНовое сообщение:` }] : []),
-    ...content,
+    ...commandPrompt(session, content),
   ];
   if (session.metadata.needsContext || withBriefing) updateSession(id, { metadata: { ...getSession(id).metadata, needsContext: false,
     ...(briefing ? { briefed: true, workspaceBriefingVersion: WORKSPACE_BRIEFING_VERSION } : {}) } });
@@ -486,6 +487,6 @@ export function sessionAvailability(id: string) {
 }
 export function snapshot(id: string) {
   const state = live.get(id);
-  return { session: getSession(id), queue: queuedPrompts(id), streaming: state ? { text: state.text, type: state.textType } : null,
+  return { session: getSession(id), commands: sessionCommands(getSession(id)), queue: queuedPrompts(id), streaming: state ? { text: state.text, type: state.textType } : null,
     permissions: state ? [...state.permissions].map(([permissionId, p]) => ({ permissionId, ...p.request })) : [] };
 }

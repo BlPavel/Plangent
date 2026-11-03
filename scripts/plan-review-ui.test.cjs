@@ -150,3 +150,33 @@ test('plan review UI decisions, delivery, live remapping, answers, another round
   app.unmount();
 });
 
+test('review of a QA document: its own words, identifiers and quotes on cards, no coverage table, target in requests', async () => {
+  const urls = [], highlights = [];
+  const review = { id:'q1', task_id:'t', target:'qa', round:1, plan_version:3, session_id:'session', skill_id:null, overview:'QA summary', coverage:[], status:'completed' };
+  const card = (id, steps, extra) => ({ id, steps, kind:'contradiction', text:'Card '+id, suggestion:'', status:'open', decision:'', outdated:false, applied_version:null, messages:[], quote:'', ...extra });
+  const detail = { review, remarks:[card('one',[{id:'Q4',deleted:false}]), card('two',[],{kind:'suggestion',quote:'A free paragraph'})] };
+  global.fetch = async url => {
+    urls.push(url);
+    let result;
+    if (url.endsWith('/plan-reviews?target=qa')) result = [review];
+    else if (url.endsWith('/skills?target=qa')) result = [{ id:'s1', title:'Dates', origin:'direct' }];
+    else if (url.endsWith('/q1')) result = detail;
+    else throw Error('Unexpected '+url);
+    return new Response(JSON.stringify(result),{status:200,headers:{'Content-Type':'application/json'}});
+  };
+  const Panel = await component('client/src/features/tasks/components/plan-review/PlanReviewPanel.vue');
+  const app = createApp({render:()=>h(Panel,{projectId:'p',taskId:'t',target:'qa',defaultAgentId:'agent',locked:true,readonly:false,onHighlight:ids=>highlights.push(ids)})});
+  app.mount('#app'); await flush(); await flush();
+  const text = document.body.textContent;
+  assert.match(text, /Ревью QA/);
+  assert.match(text, /Документ заморожен/);
+  assert.doesNotMatch(text, /Покрытие материалов/);
+  assert.doesNotMatch(text, /планировщик/i);
+  assert.match(text, /QA summary/);
+  assert.match(text, /Улучшение/);
+  assert.match(text, /A free paragraph/);
+  assert.ok(urls.every(url => url.includes('?target=qa') || url.endsWith('/q1')), urls.join('\n'));
+  assert.equal(button('Отправить автору документа (0)').disabled, true);
+  button('Q4').click(); await flush(); assert.deepEqual(highlights.at(-1), ['Q4']);
+  app.unmount();
+});

@@ -30,3 +30,11 @@ A card can be rewritten before it goes to the planner: by the reviewer after a d
 being discussed) or by the developer (PUT /:id/remarks/:rid/text). The first version stays in `original`.
 The planner never sees threads: get_plan_review_items returns per card only id, steps, kind, text, suggestion and the developer's
 clarification (the decision text of an accepted card), which wins over the text where they differ.
+
+## Review of a material (architecture, QA)
+A review has a target: `plan` (default) | `architecture` | `qa`; rounds are counted per target. `plan_version`/`plan_content` of a review hold the version and text of whatever is reviewed, read from `plans` or `materials`.
+A card of a document points at identifiers (`D…`/`Q…`, in `steps`) and/or an exact `quote`; its kinds are `contradiction`, `coverage`, `extra`, `unclear`, `risk` and `suggestion` (an improvement, kept apart from violations). A document review has no coverage table.
+`get_plan_review_brief` returns by the review's target: the plan with the analysis, or the document with its grounds (the analysis; for QA also the architecture marked ready), the material's review instruction and skill (`core/library/section-settings`).
+Accepted cards go to the author of the same document type: the last `material-author` session of that type or a new one; it reads them with `get_plan_review_items` and replies with `reply_plan_remark`. The recipient is checked against the review's target.
+`core/materials/events` (`material_saved`) outdates the cards of that document, marks vanished identifiers deleted and applies sent cards when the recipient saves the document. This module depends on `core/materials`, never the other way.
+HTTP: the same paths; `?target=architecture|qa` selects the list, `/skills` and `/launch`, other paths belong to a review and know its target.

@@ -21,50 +21,46 @@
           </div>
         </header>
 
-        <div ref="split" class="planning-split" :class="{ dragging }">
-          <section class="plan-pane" :style="{ flexBasis: `${share}%` }">
-            <nav v-if="plan?.steps.length" class="review-step-nav" aria-label="Шаги плана">
-              <button v-for="s in plan.steps" :key="s.id ?? s.index" type="button" :data-step-id="s.id" :title="s.id && remarkCounts[s.id] ? `Открытых замечаний ревью плана: ${remarkCounts[s.id]}` : ''" :class="{ highlighted: !!s.id && highlighted.includes(s.id) }" @click="s.id && focusStepCard(s.id)">{{ s.id }}<span v-if="s.id && remarkCounts[s.id]"> ⚠{{ remarkCounts[s.id] }}</span></button>
-            </nav>
-            <MessageMarkdown v-if="planText" class="plan-doc" :text="planText" />
-            <div v-else class="plan-waiting">
-              {{ planningLive ? 'Ожидаем план от агента…' : 'План появится здесь, когда агент его составит' }}
-            </div>
-          </section>
-          <div
-            class="splitter"
-            role="separator"
-            aria-orientation="vertical"
-            title="Потяните, чтобы изменить ширину. Двойной клик — поровну"
-            @pointerdown="startDrag"
-            @dblclick="setShare(50)"
-          />
-          <TaskChats
-            class="chat-pane"
-            label="План"
-            :chats="planningChats"
-            :selected="selectedPlanningChat"
-            :initials="initials"
-            :draft-text="planningMessage"
-            @select="$emit('selectPlanningChat', $event)"
-            @remove="(id, name) => $emit('removePlanningChat', id, name)"
-          >
-            <template #new>
-              <NewChatPanel
-                :project-id="projectId"
-                :default-agent-id="defaultAgentId"
-                title="Планирование"
-                :text="plan ? 'Скажите, что изменить в плане. Агент изучит код и обновит план — в проекте он ничего не меняет.' : 'Опишите задачу — агент изучит код и составит план. В проекте он ничего не меняет, план появится слева.'"
-                :placeholder="plan ? 'Что изменить в плане…' : 'Опишите задачу…  @ — файл'"
-                fixed-policy="read-only"
-                :initial-text="planningMessage"
-                :busy="planningLaunching"
-                :error="planningError"
-                @start="$emit('launchPlanning', $event)"
-              />
-            </template>
-          </TaskChats>
-        </div>
+        <SplitPane storage-key="plangent.planningShare">
+          <template #start>
+            <section class="plan-pane">
+              <nav v-if="plan?.steps.length" class="review-step-nav" aria-label="Шаги плана">
+                <button v-for="s in plan.steps" :key="s.id ?? s.index" type="button" :data-step-id="s.id" :title="s.id && remarkCounts[s.id] ? `Открытых замечаний ревью плана: ${remarkCounts[s.id]}` : ''" :class="{ highlighted: !!s.id && highlighted.includes(s.id) }" @click="s.id && focusStepCard(s.id)">{{ s.id }}<span v-if="s.id && remarkCounts[s.id]"> ⚠{{ remarkCounts[s.id] }}</span></button>
+              </nav>
+              <MessageMarkdown v-if="planText" class="plan-doc" :text="planText" />
+              <div v-else class="plan-waiting">
+                {{ planningLive ? 'Ожидаем план от агента…' : 'План появится здесь, когда агент его составит' }}
+              </div>
+            </section>
+          </template>
+          <template #end>
+            <TaskChats
+              class="chat-pane"
+              label="План"
+              :chats="planningChats"
+              :selected="selectedPlanningChat"
+              :initials="initials"
+              :draft-text="planningMessage"
+              @select="$emit('selectPlanningChat', $event)"
+              @remove="(id, name) => $emit('removePlanningChat', id, name)"
+            >
+              <template #new>
+                <NewChatPanel
+                  :project-id="projectId"
+                  :default-agent-id="defaultAgentId"
+                  title="Планирование"
+                  :text="plan ? 'Скажите, что изменить в плане. Агент изучит код и обновит план — в проекте он ничего не меняет.' : 'Опишите задачу — агент изучит код и составит план. В проекте он ничего не меняет, план появится слева.'"
+                  :placeholder="plan ? 'Что изменить в плане…' : 'Опишите задачу…  @ — файл'"
+                  fixed-policy="read-only"
+                  :initial-text="planningMessage || (plan ? '' : 'Составь план по анализу задачи')"
+                  :busy="planningLaunching"
+                  :error="planningError"
+                  @start="$emit('launchPlanning', $event)"
+                />
+              </template>
+            </TaskChats>
+          </template>
+        </SplitPane>
       </template>
 
       <!-- Empty state — no plan yet -->
@@ -136,6 +132,7 @@ import AnalysisLinks from './AnalysisLinks.vue'
 import TaskChats from './TaskChats.vue'
 import { NewChatPanel, MessageMarkdown, type NewChatRequest, type ContentBlock } from '@features/agent-chat'
 import AppButton from '@shared/ui/AppButton.vue'
+import SplitPane from '@shared/ui/SplitPane.vue'
 import type { Plan } from '@core/models'
 
 const props = defineProps<{
@@ -202,35 +199,6 @@ function stepsWord(n: number) {
   const tens = n % 100, ones = n % 10
   return tens >= 11 && tens <= 14 ? 'шагов' : ones === 1 ? 'шаг' : ones >= 2 && ones <= 4 ? 'шага' : 'шагов'
 }
-
-// ── Plan / chat split: dragged by the developer, remembered between visits ──
-const SHARE_KEY = 'plangent.planningShare'
-const split = ref<HTMLElement>()
-const dragging = ref(false)
-const share = ref(readShare())
-function readShare() {
-  try { const saved = Number(localStorage.getItem(SHARE_KEY)); return saved >= 20 && saved <= 80 ? saved : 50 } catch { return 50 }
-}
-function setShare(value: number) {
-  share.value = Math.min(80, Math.max(20, Math.round(value * 10) / 10))
-  try { localStorage.setItem(SHARE_KEY, String(share.value)) } catch { /* storage unavailable */ }
-}
-function startDrag(event: PointerEvent) {
-  const handle = event.currentTarget as HTMLElement
-  const box = split.value!.getBoundingClientRect()
-  handle.setPointerCapture(event.pointerId)
-  dragging.value = true
-  const move = (e: PointerEvent) => setShare(((e.clientX - box.left) / box.width) * 100)
-  const stop = () => {
-    dragging.value = false
-    handle.removeEventListener('pointermove', move)
-    handle.removeEventListener('pointerup', stop)
-    handle.removeEventListener('pointercancel', stop)
-  }
-  handle.addEventListener('pointermove', move)
-  handle.addEventListener('pointerup', stop)
-  handle.addEventListener('pointercancel', stop)
-}
 </script>
 <style scoped>
 .review-step-nav { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 10px; }
@@ -252,9 +220,7 @@ function startDrag(event: PointerEvent) {
 .planning-meta { font-size: 12px; color: var(--text-faint); }
 .planning-actions { margin-left: auto; display: flex; gap: 8px; }
 
-.planning-split { flex: 1; min-height: 0; display: flex; }
-.planning-split.dragging { cursor: col-resize; user-select: none; }
-.plan-pane { flex-grow: 0; flex-shrink: 0; min-width: 0; overflow-y: auto; padding: 20px 24px; display: flex; flex-direction: column; }
+.plan-pane { flex: 1; min-width: 0; overflow-y: auto; padding: 20px 24px; display: flex; flex-direction: column; }
 .plan-doc :deep(ul) { list-style: none; padding-left: 4px; }
 .plan-doc :deep(ul ul) { padding-left: 20px; }
 /* [[раздел]] / [[раздел/файл]] in the plan document: the same label as AnalysisLinks in the step list */
@@ -262,9 +228,6 @@ function startDrag(event: PointerEvent) {
 .plan-doc :deep(button.btn[data-analysis-target]:not(:disabled):hover) { border-color: var(--blue-hover); }
 .plan-doc :deep(button.btn[data-analysis-target]:disabled) { opacity: 1; border-style: dashed; border-color: var(--danger); background: var(--danger-soft); color: var(--danger-hover) !important; text-decoration: line-through; }
 .chat-pane { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
-.splitter { position: relative; width: 1px; flex-shrink: 0; background: var(--border); cursor: col-resize; touch-action: none; }
-.splitter::before { content: ''; position: absolute; inset: 0 -4px; }
-.splitter:hover, .dragging .splitter { background: var(--blue); box-shadow: 0 0 0 1px var(--blue); }
 
 .plan-tab-content { flex: 1; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 12px; }
 
