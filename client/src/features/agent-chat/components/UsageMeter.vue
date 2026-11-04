@@ -1,6 +1,6 @@
 <template>
   <div v-if="context || windows.length || showUnavailable" ref="root" class="usage" :class="{ 'usage-below': placement === 'below' }" @mouseenter="open = true" @mouseleave="open = false">
-    <button type="button" class="usage-trigger" aria-label="Контекст и лимиты агента" :aria-expanded="open" @click="open = !open">
+    <AppButton variant="subtle" size="sm" aria-label="Контекст и лимиты агента" :aria-expanded="open" @click="open = !open">
       <span v-if="!context && !tightest" class="meter-text">{{ limits ? 'Нет данных' : 'Загрузка…' }}</span>
       <span v-if="context" class="meter" :class="tone(context.percent)" title="Контекст">
         <svg class="ring" viewBox="0 0 20 20">
@@ -16,7 +16,7 @@
         </svg>
         <span class="meter-text"><span class="meter-label">{{ short(tightest.label) }}</span> {{ tightest.percent >= 100 ? 'исчерпан' : tightest.percent + '%' }}</span>
       </span>
-    </button>
+    </AppButton>
 
     <Transition name="pop">
       <div v-if="open" class="usage-pop">
@@ -49,6 +49,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import AppButton from '@shared/ui/AppButton.vue'
 import { useChatStore } from '../stores/sessions'
 
 export interface UsageInfo { used: number; size: number; cost?: { amount: number; currency: string } | null }
@@ -97,7 +98,7 @@ watch(() => props.agentId, poll)
 
 <style scoped>
 .usage { position: relative; display: inline-flex; }
-.usage-trigger { display: inline-flex; align-items: center; gap: 10px; height: var(--size-sm); padding: 0 8px; background: none; border: none; border-radius: 8px; color: var(--text-muted); font: inherit; font-size: 12px; cursor: pointer; }
+.usage-trigger { display: inline-flex; align-items: center; gap: 10px; height: var(--size-sm); padding: 0 8px; background: none; border: none; border-radius: var(--radius); color: var(--text-muted); font: inherit; font-size: var(--fs-sm); cursor: pointer; }
 .usage-trigger:hover { background: var(--bg3); color: var(--text); }
 .meter { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
 .meter-text { font-variant-numeric: tabular-nums; }
@@ -107,28 +108,28 @@ watch(() => props.agentId, poll)
 .ring { width: 16px; height: 16px; transform: rotate(-90deg); flex-shrink: 0; }
 .ring-track, .ring-fill { fill: none; stroke-width: 2.5; }
 .ring-track { stroke: var(--border-strong); }
-.ring-fill { stroke: var(--blue-hover); stroke-linecap: round; transition: stroke-dasharray 0.3s; }
+.ring-fill { stroke: var(--blue-hover); stroke-linecap: round; transition: stroke-dasharray var(--motion-slow); }
 .warn .ring-fill { stroke: var(--warning-text); }
 .danger .ring-fill { stroke: var(--danger-hover); }
 
-.usage-pop { position: absolute; right: 0; bottom: calc(100% + 8px); width: 290px; padding: 4px 14px 12px; background: var(--bg2); border: 1px solid var(--border-strong); border-radius: var(--radius); box-shadow: var(--shadow-md); z-index: 50; font-size: 12.5px; }
+.usage-pop { position: absolute; right: 0; bottom: calc(100% + 8px); width: 290px; padding: 4px 14px 12px; background: var(--bg2); border: 1px solid var(--border-strong); border-radius: var(--radius); box-shadow: var(--shadow-md); z-index: var(--z-local-menu); font-size: var(--fs-md); }
 /* Keep hover continuous across the gap, including the opening animation's offset. */
 .usage-pop::before { content: ''; position: absolute; left: -1px; right: -1px; top: 100%; height: 13px; }
 .usage-below .usage-pop { top: calc(100% + 8px); bottom: auto; }
 .usage-below .usage-pop::before { top: auto; bottom: 100%; }
-.pop-section { margin: 10px 0 6px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); }
+.pop-section { margin: 10px 0 6px; font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); }
 .pop-section + .pop-row, .pop-section + .pop-limit { margin-top: 0; }
 .pop-section:not(:first-child) { padding-top: 10px; border-top: 1px solid var(--border); }
 .pop-row { display: flex; justify-content: space-between; gap: 8px; }
 .pop-value { color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .pop-value.warn { color: var(--warning-text); }
 .pop-value.danger { color: var(--danger-hover); }
-.pop-note { margin-top: 4px; font-size: 11.5px; color: var(--text-faint); }
+.pop-note { margin-top: 4px; font-size: var(--fs-sm); color: var(--text-faint); }
 .pop-limit + .pop-limit { margin-top: 10px; }
 .bar { height: 5px; margin-top: 6px; border-radius: var(--radius-pill); background: var(--bg3); overflow: hidden; }
-.bar span { display: block; height: 100%; border-radius: inherit; background: var(--blue-hover); transition: width 0.3s; }
+.bar span { display: block; height: 100%; border-radius: inherit; background: var(--blue-hover); transition: width var(--motion-slow); }
 .bar span.warn { background: var(--warning-text); }
 .bar span.danger { background: var(--danger-hover); }
-.pop-enter-active, .pop-leave-active { transition: opacity 0.12s, transform 0.12s; }
+.pop-enter-active, .pop-leave-active { transition: opacity var(--motion-fast), transform var(--motion-fast); }
 .pop-enter-from, .pop-leave-to { opacity: 0; transform: translateY(4px); }
 </style>

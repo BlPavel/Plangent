@@ -1,3 +1,6 @@
+import type { AppUpdates } from '@contracts'
+export type { AppUpdates, UpdateState } from '@contracts'
+
 // What the app needs from its host platform, expressed as capabilities —
 // NOT as "are we running inside Electron". Feature code depends on this port;
 // the only place that knows the actual runtime is ./index.ts, which picks an
@@ -37,21 +40,3 @@ export interface PlatformBridge {
   readonly updates?: AppUpdates
 }
 
-// Keep in sync with UpdateState in electron/updater.ts.
-export type UpdateState =
-  | { status: 'idle' }
-  | { status: 'checking' }
-  | { status: 'up-to-date' }
-  | { status: 'downloading'; version: string; percent: number }
-  | { status: 'ready'; version: string }
-  // Can't be installed in place: the developer downloads it from the release page.
-  | { status: 'manual'; version: string; url: string }
-  | { status: 'error'; message: string }
-
-export interface AppUpdates {
-  getState(): Promise<UpdateState>
-  onState(handler: (state: UpdateState) => void): void
-  // Quits the app, installs the downloaded update and starts the new version.
-  install(): Promise<void>
-  openRelease(): void
-}

@@ -1,3 +1,4 @@
+import { typedRoutes } from '../typed-route';
 import { createTaskBranch } from '../../../core/tasks/git';
 import { captureTaskBaseCommit } from '../../../core/tasks/base-commit';
 import { getQueue, isFrozen } from '../../../core/orchestration/queue';
@@ -10,8 +11,9 @@ import { listSessions } from '../../../core/agent-sessions/sessions';
 import { closeSession } from '../../../core/agent-sessions/acp-host';
 
 export const tasksRouter = Router({ mergeParams: true });
+const tasksRouterRoutes = typedRoutes(tasksRouter, '/api/projects/:projectId/tasks');
 
-tasksRouter.post('/:taskId/base-commit', async (req: Request, res: Response) => {
+tasksRouterRoutes.json('POST /api/projects/:projectId/tasks/:taskId/base-commit', async (req, res) => {
   const task = getTask(req.params.taskId);
   if (!task || task.project_id !== req.params.projectId) return res.status(404).json({ error: 'Not found' });
   if (task.status === 'done' || isFrozen(getQueue(task.id, task.project_id)))
@@ -20,7 +22,7 @@ tasksRouter.post('/:taskId/base-commit', async (req: Request, res: Response) => 
   catch (cause) { res.status(400).json({ error: cause instanceof Error ? cause.message : String(cause) }); }
 });
 
-tasksRouter.get('/', (req: Request, res: Response) => {
+tasksRouterRoutes.json('GET /api/projects/:projectId/tasks', (req, res) => {
   const { projectId } = req.params;
   const project = getProject(projectId);
   if (!project) return res.status(404).json({ error: 'Project not found' });
@@ -30,24 +32,24 @@ tasksRouter.get('/', (req: Request, res: Response) => {
   res.json(tasks.sort((a, b) => b.created_at.localeCompare(a.created_at)));
 });
 
-tasksRouter.post('/:taskId/move', async (req: Request, res: Response) => {
+tasksRouterRoutes.json('POST /api/projects/:projectId/tasks/:taskId/move', async (req, res) => {
   const task = getTask(req.params.taskId);
   if (!task || task.project_id !== req.params.projectId) return res.status(404).json({ error: 'Not found' });
   try { res.json(await moveTask(task.id, String(req.body.project_id ?? ''))); }
   catch (e) { res.status(400).json({ error: e instanceof Error ? e.message : String(e) }); }
 });
 
-tasksRouter.post('/:taskId/branch', async (req: Request,res: Response) => {
+tasksRouterRoutes.json('POST /api/projects/:projectId/tasks/:taskId/branch', async (req,res) => {
   try { res.json(await createTaskBranch(req.params.projectId,req.params.taskId,req.body)); }
   catch(e) { res.status((e as { status?: number }).status ?? 400).json({ error: e instanceof Error ? e.message : String(e) }); }
 });
-tasksRouter.get('/:taskId', (req: Request, res: Response) => {
+tasksRouterRoutes.json('GET /api/projects/:projectId/tasks/:taskId', (req, res) => {
   const t = getTask(req.params.taskId);
   if (!t) return res.status(404).json({ error: 'Not found' });
   res.json(t);
 });
 
-tasksRouter.post('/', (req: Request, res: Response) => {
+tasksRouterRoutes.json('POST /api/projects/:projectId/tasks', (req, res) => {
   const { projectId } = req.params;
   const { key, title, description, jira_url, branch_name, kind, auto_review, closed_at, close_reason, origin_task_id, external_key } = req.body;
   const project = getProject(projectId);
@@ -58,7 +60,7 @@ tasksRouter.post('/', (req: Request, res: Response) => {
   } catch (error) { res.status(400).json({ error: error instanceof Error ? error.message : String(error) }); }
 });
 
-tasksRouter.patch('/:taskId', (req: Request, res: Response) => {
+tasksRouterRoutes.json('PATCH /api/projects/:projectId/tasks/:taskId', (req, res) => {
   if (getTask(req.params.taskId)?.project_id !== req.params.projectId) return res.status(404).json({ error: 'Not found' });
   let t;
   try { const { title, jira_url, branch_name, status, finish_scenario, target_branch, external_key, base_branch, kind, auto_review, closed_at, close_reason, origin_task_id } = req.body; t = updateTask(req.params.taskId, { title, jira_url, branch_name, status, finish_scenario, target_branch, external_key, base_branch, kind, auto_review, closed_at, close_reason, origin_task_id }); }
@@ -67,7 +69,7 @@ tasksRouter.patch('/:taskId', (req: Request, res: Response) => {
   res.json(t);
 });
 
-tasksRouter.delete('/:taskId', async (req: Request, res: Response) => {
+tasksRouterRoutes.empty('DELETE /api/projects/:projectId/tasks/:taskId', async (req, res) => {
   const task = getTask(req.params.taskId);
   if (!task || task.project_id !== req.params.projectId) return res.status(404).json({ error: 'Not found' });
 
@@ -78,7 +80,7 @@ tasksRouter.delete('/:taskId', async (req: Request, res: Response) => {
   for (const chat of listSessions(task.project_id).filter(s => s.task_id === task.id)) await closeSession(chat.id);
 
   try { await deleteTask(task.id, { discard: req.query.discard === '1' }); }
-  catch (error) { return res.status((error as { status?: number }).status ?? 400).json({ error: error instanceof Error ? error.message : String(error), blockers: (error as { blockers?: unknown }).blockers }); }
+  catch (error) { return res.status((error as { status?: number }).status ?? 400).json({ error: error instanceof Error ? error.message : String(error), blockers: (error as { blockers?: import('@contracts').ApiError['blockers'] }).blockers }); }
 
   res.status(204).end();
 });

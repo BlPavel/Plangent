@@ -1,21 +1,10 @@
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
-const vm = require('node:vm')
-const ts = require('typescript')
 const { createPinia, setActivePinia } = require('pinia')
 
 function moduleAt(file, mocks = {}, globals = {}, sourceOverride) {
-  const exports = {}
-  const context = {
-    exports, require: name => name in mocks ? mocks[name] : require(name),
-    AbortController, TextDecoder, URLSearchParams, setTimeout, clearTimeout, ...globals,
-  }
-  const source = ts.transpileModule(sourceOverride ?? fs.readFileSync(file, 'utf8'), {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-  }).outputText
-  vm.runInNewContext(source, context, { filename: file })
-  return exports
+  return require('./client-test-loader.cjs').loader({ '@core/stores/drafts': require('./drafts-test-support.cjs'), '@core/composables/useDraft': require('./drafts-test-support.cjs'), ...mocks }, globals, false)(file, sourceOverride)
 }
 const plain = value => JSON.parse(JSON.stringify(value))
 function harness() {
@@ -34,7 +23,7 @@ function harness() {
   }
   const codeReviewsApi = { current: async () => ({ review: null, items: [], rounds: [], other_reviews: [], file_views: [] }), attention: async () => [] }
   const store = moduleAt('client/src/features/code/stores/code.ts', {
-    '@core/api/events': events, '../api': { codeApi, codeReviewsApi },
+    '@core/api/events': events, '../events': events, '../api': { codeApi, codeReviewsApi },
     '../utils/screen-state': moduleAt('client/src/features/code/utils/screen-state.ts'),
   }).useCodeStore()
   return { store, codeApi, codeReviewsApi, handlers, stops, calls: () => calls,
@@ -142,9 +131,9 @@ test('WebSocket reconnect resubscribes; reference counts preserve remaining view
     WebSocket: Socket, location: { protocol: 'https:', host: 'localhost' },
     setTimeout: fn => { timers.push(fn); return timers.length }, clearTimeout: () => {},
   })
-  const stopHandler = events.onServerEvent(() => {})
-  const stopA = events.subscribeCodeProject('p')
-  const stopB = events.subscribeCodeProject('p')
+  const codeEvents = moduleAt('client/src/features/code/events.ts', { '@core/api/events': events }); const stopHandler = events.onServerEvent(() => {})
+  const stopA = codeEvents.subscribeCodeProject('p')
+  const stopB = codeEvents.subscribeCodeProject('p')
   sockets[0].open()
   assert.deepEqual(sockets[0].sent, [{ type: 'code:subscribe', projectId: 'p' }])
   stopA()
@@ -212,7 +201,12 @@ test('mutations update loaded history and deleting an opened review clears its d
   await h.store.start('p')
   await h.store.loadHistory()
   await h.store.openReview('r')
+  const drafts = require('./drafts-test-support.cjs').useDraftsStore()
+  drafts.get('code-review:r:composer:a', () => 'unsent')
+  drafts.get('code-review:other:composer:a', () => 'keep')
   await h.store.removeReview('r')
+  assert.equal(drafts.drafts['code-review:r:composer:a'], undefined)
+  assert.equal(drafts.drafts['code-review:other:composer:a'], 'keep')
   assert.equal(h.store.openedReviewId, null)
   assert.equal(h.store.openedReview, null)
   assert.equal(reads, 2)
@@ -351,7 +345,7 @@ test('review session completion clears stale busy state and lets a queued discus
     messages: [{ item_id: 'item', author: 'developer', text: 'Change it', sent: false }],
     rounds: [{ session_id: 'session' }], other_reviews: [], file_views: [], agent_working: true }
   h.codeReviewsApi.current = async () => current
-  const chats = reactive({ sessions: [{ id: 'session', status: 'thinking' }], snapshots: { session: { events: [], permissions: [] } }, connect: async () => {} })
+  const chats = reactive({ sessions: [{ id: 'session', role: 'code-fixer', status: 'thinking' }], snapshots: { session: { events: [], permissions: [] } }, connect: async () => {} })
   const agent = moduleAt('client/src/features/code/stores/review-agent.ts', {
     '@core/api': { api: {} }, '@features/agent-chat': { useChatStore: () => chats }, './code': { useCodeStore: () => h.store }, '../utils/thread': moduleAt('client/src/features/code/utils/thread.ts'),
   }).useReviewAgentStore()
@@ -383,7 +377,7 @@ test('review session completion clears stale busy state and lets a queued discus
         messages: [{ ...current.messages[0], sent: true }] }
     }
     await agent.send(['item'])
-    assert.deepEqual(submitted, ['p', 'review', 'session', '', ['item']])
+    assert.deepEqual(submitted, ['p', 'review', 'session', '', ['item'], undefined])
     assert.equal(threadState(h.store.items[0], h.store.messages), 'agent')
     assert.equal(h.store.messages[0].sent, true)
     // Failures and subsequent turns also refresh the server's busy flag.
@@ -468,8 +462,8 @@ test('shared mention search cannot show stale results after another query, dismi
 })
 
 test('project sidebar adds Code decisions and permission requests to its existing queue count', () => {
-  const source = fs.readFileSync('client/src/App.vue', 'utf8').match(/const projectAttention = \(projectId: string\) => \[[\s\S]*?\n\]/)[0]
-  const result = moduleAt('client/src/App.vue', {}, {
+  const source = fs.readFileSync('client/src/app/App.vue', 'utf8').match(/const projectAttention = \(projectId: string\) => \[[\s\S]*?\n\]/)[0]
+  const result = moduleAt('client/src/app/App.vue', {}, {
     blockedQueues: { forProject: () => [{ taskKey: 'TASK-1', reason: 'Existing question' }] },
     codeAttention: { forProject: () => [{ items: [{ file: 'code.ts', text: 'Explain this' }, { file: null, text: 'Choose an approach' }] }] },
     chatStore: { sessions: [{ role: 'code-fixer', project_id: 'p', status: 'waiting', reason: 'Permission required' },
@@ -518,12 +512,12 @@ test('finish confirmation saves manual edits before accept; moving, merging and 
  const component = moduleAt(file, {
   '@core/api': { api: { get: async () => ({ values: { finish_scenario: 'commits', branch_template: 'feature/{key}-{slug}' } }) } },
   '@core/stores/app': { useAppStore: () => ({ confirm: async () => true }) },
-  '@shared/ui/BranchNameInput.vue': { default: {} }, '@shared/ui/BranchSelect.vue': { default: {} },
-  '@shared/utils/finish-scenarios': { FINISH_SCENARIOS: { commits: {}, push: {}, full: {} } },
+  '@shared/ui/AppButton.vue': { default: {} }, '@shared/ui/BranchNameInput.vue': { default: {} }, '@shared/ui/BranchSelect.vue': { default: {} },
+  '../finish-scenarios': { FINISH_SCENARIOS: { commits: {}, push: {}, full: {} } },
   '@features/code': { CommitDiff: {}, CoauthorsField: {}, GitAgentNote: {}, useGitStore: () => reactive({ settings: { finish_scenario: 'commits', base_branch: '', include_description: true, branch_prefixes: [], mr_reviewers: [] }, repository: { upstream: 'origin/feature' }, branches: [], coauthors: [] }) },
   '../stores/finish': { useFinishStore: () => store },
   '../api': { finishApi: { context: async () => ({ changes: [], diffs: {} }) } },
-  '../types': moduleAt('client/src/features/finish/types.ts', { '@shared/utils/finish-scenarios': { finishScenarioLabels: {} } }),
+  '../types': moduleAt('client/src/features/finish/types.ts', { './finish-scenarios': { finishScenarioLabels: {} } }),
  }, {}, source).default
  const scope = effectScope()
  try {
@@ -551,7 +545,7 @@ test('group Git settings: overrides and resets stay in one project', () => {
  const { reactive } = require('vue')
  const file = 'client/src/features/projects/components/GitSettingsFields.vue'
  const source = compileScript(parse(fs.readFileSync(file, 'utf8'), { filename: file }).descriptor, { id: 'git-settings-test' }).content
- const component = moduleAt(file, { '@shared/ui/MemberPicker.vue': { default: {} }, '@shared/ui/BranchSelect.vue': { default: {} }, '@shared/ui/PlainSelect.vue': { default: {} }, '@shared/utils/finish-scenarios': { finishScenarioLabels: {} } }, {}, source).default
+ const component = moduleAt(file, { '@shared/ui/MemberPicker.vue': { default: {} }, '@shared/ui/BranchSelect.vue': { default: {} }, '@shared/ui/PlainSelect.vue': { default: {} }, '@features/finish': { finishScenarioLabels: {} } }, {}, source).default
  const group = reactive({ base_branch: 'main', mr_squash: true, branch_prefixes: ['feature'] })
  const first = reactive({ modelValue: {}, inherited: group, section: 'mr', sources: { mr_squash: 'group' } })
  const second = reactive({ modelValue: {}, inherited: group, section: 'mr', sources: { mr_squash: 'group' } })

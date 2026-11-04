@@ -21,7 +21,7 @@
         <AppButton size="sm" variant="ghost" :disabled="saving" @click="cancel">{{ own ? 'Отмена' : 'Не переопределять' }}</AppButton>
         <AppButton v-if="own" size="sm" variant="danger-ghost" :disabled="saving" @click="reset">{{ scope === 'global' ? 'Вернуть предустановленное' : 'Сбросить переопределение' }}</AppButton>
       </div>
-      <textarea v-model="content" class="text" spellcheck="false" :disabled="loading" placeholder="Текст руководства (Markdown, лучше на английском — так же, как пишутся сами инструкции)" />
+      <AppTextarea mono block rows="16" v-model="content" spellcheck="false" :disabled="loading" placeholder="Текст руководства (Markdown, лучше на английском — так же, как пишутся сами инструкции)" />
     </template>
 
     <template v-else>
@@ -31,23 +31,25 @@
         </AppButton>
         <span class="hint">Начнётся с текста, который действует сейчас.</span>
       </div>
-      <textarea v-if="inherited" class="text readonly" :value="inherited.content" spellcheck="false" readonly />
+      <AppTextarea mono block rows="16" v-if="inherited" :model-value="inherited.content" spellcheck="false" readonly />
     </template>
 
     <section class="defaults">
       <h3>Предустановленные инструкции</h3>
       <p>Встроенное руководство, которое применяется, если своё не задано. Его можно взять за основу с помощью кнопки в редакторе.</p>
-      <textarea class="text readonly" :value="defaultText" aria-label="Предустановленные инструкции" spellcheck="false" readonly />
+      <AppTextarea mono block rows="16" :model-value="defaultText" aria-label="Предустановленные инструкции" spellcheck="false" readonly />
     </section>
   </div>
 </template>
 
 <script setup lang="ts">
+import AppTextarea from '@shared/ui/AppTextarea.vue'
+import { libraryEndpoints } from '../api'
+
 import { computed, onMounted, ref, watch } from 'vue'
-import { api } from '@core/api'
 import { useAppStore } from '@core/stores/app'
 import { useProjectsStore } from '@features/projects'
-import type { LibraryItem, LibraryScope } from '@core/models'
+import type { LibraryItem, LibraryScope } from '@contracts'
 import AppButton from '@shared/ui/AppButton.vue'
 import { useLibraryStore } from '../stores/library'
 
@@ -80,8 +82,8 @@ async function load() {
   try {
     defaultText.value = await store.getInstructionGuideDefault()
     const list = props.scope === 'global'
-      ? (await api.get<LibraryItem[]>('/library?type=instruction-guide&scope=global')).map(i => ({ ...i, origin: 'direct' as const }))
-      : await api.get<LibraryItem[]>(`/library?type=instruction-guide&forProject=${encodeURIComponent(props.projectId ?? '')}`)
+      ? (await libraryEndpoints.getLibrary({ params: {  }, query: Object.fromEntries(new URLSearchParams("type=instruction-guide&scope=global")) })).map(i => ({ ...i, origin: 'direct' as const }))
+      : await libraryEndpoints.getLibrary({ params: {  }, query: Object.fromEntries(new URLSearchParams("type=instruction-guide&forProject=" + encodeURIComponent(props.projectId ?? ''))) })
     own.value = list.find(i => i.origin === 'direct') ?? null
     const parent = (['group', 'global'] as const).map(origin => list.find(i => i.origin === origin && i.enabled)).find(Boolean)
     inherited.value = parent
@@ -104,11 +106,11 @@ function cancel() {
 async function save() {
   saving.value = true
   try {
-    if (own.value) await api.put<LibraryItem>(`/library/${own.value.id}`, { content: content.value })
-    else own.value = await api.post<LibraryItem>('/library', {
+    if (own.value) await libraryEndpoints.putLibraryById({ params: { id: own.value.id }, body: { content: content.value } })
+    else own.value = await libraryEndpoints.postLibrary({ params: {  }, body: {
       type: 'instruction-guide', slug: 'instruction_guide', title: 'Руководство по инструкциям', description: '',
       scope: props.scope, targets: props.scope === 'project' && props.projectId ? [props.projectId] : [], content: content.value,
-    })
+    } })
     saved.value = content.value
     app.toast('Руководство сохранено', 'success')
   } catch (e) { app.toast(String(e), 'error') }
@@ -128,19 +130,13 @@ async function reset() {
 .guide-editor { display: flex; flex-direction: column; gap: 10px; min-height: 0; }
 .defaults { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
 .section-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
-h3 { margin: 0 0 3px; font-size: 14px; }
-p { margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.45; max-width: 720px; }
-.effective { font-size: 12.5px; display: flex; gap: 6px; }
+h3 { margin: 0 0 3px; font-size: var(--fs-base); }
+p { margin: 0; color: var(--text-muted); font-size: var(--fs-sm); line-height: 1.45; max-width: 720px; }
+.effective { font-size: var(--fs-md); display: flex; gap: 6px; }
 .effective-label { color: var(--text-muted); }
 .effective-value { font-weight: 500; }
 .effective-value.own { color: var(--blue-hover); }
 .toolbar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .spacer { flex: 1; }
-.hint { font-size: 12px; color: var(--text-faint); }
-.text {
-  width: 100%; min-height: 360px; background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius);
-  color: var(--text); font-family: 'Cascadia Code', 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.5; padding: 12px; resize: vertical;
-}
-.text:focus { outline: none; border-color: var(--blue); }
-.text.readonly { color: var(--text-muted); }
+.hint { font-size: var(--fs-sm); color: var(--text-faint); }
 </style>

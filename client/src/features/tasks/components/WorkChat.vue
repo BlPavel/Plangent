@@ -10,15 +10,17 @@
     <p v-if="shown && awaitingBrief" class="chat-note">Опишите агенту, что сделать: подробности, файлы через @, скриншоты. Агент начнёт работу после первого сообщения.</p>
     <ChatView v-if="shown" :key="shown" :session-id="shown" :no-composer="closed || reviewOpened" />
     <p v-else-if="task.kind === 'errand' && !closed" class="chat-note">{{ workspace?.status === 'failed' ? 'Рабочее место не подготовлено: ' + workspace.error : 'Готовлю рабочее место и подключаю агента… Чат откроется сам.' }}</p>
-    <button v-else-if="!loading && !closed" class="btn btn-ghost btn-sm chat-open" @click="open">Открыть чат задачи</button>
+    <AppButton variant="ghost" size="sm" v-else-if="!loading && !closed" class="chat-open" @click="open">Открыть чат задачи</AppButton>
     <span v-else-if="loading" class="chat-note">Подготовка чата…</span>
   </div>
 </template>
 <script setup lang="ts">
+import AppButton from '@shared/ui/AppButton.vue'
+import { tasksEndpoints } from '../api'
+
 import { computed, ref, watch } from 'vue'
-import { ChatView, useChatStore, type ChatSession } from '@features/agent-chat'
-import { api } from '@core/api'
-import type { Task, Workspace } from '@core/models'
+import { ChatView, useChatStore} from '@features/agent-chat'
+import type { Task, Workspace } from '@contracts'
 import AppSelect from '@shared/ui/AppSelect.vue'
 import ReviewRoundCard from './ReviewRoundCard.vue'
 
@@ -52,7 +54,7 @@ async function open() {
   if (loading.value) return
   loading.value = true; error.value = ''
   try {
-    const chat = await api.post<ChatSession>('/projects/' + props.task.project_id + '/tasks/' + props.task.id + '/chat', { agent_id: props.defaultAgentId })
+    const chat = await tasksEndpoints.postProjectsByProjectIdTasksByTaskIdChat({ params: { projectId: props.task.project_id, taskId: props.task.id }, body: { agent_id: props.defaultAgentId ?? undefined } })
     chats.put(chat); primary.value = chat.id
   } catch (cause) { error.value = String(cause) }
   finally { loading.value = false }
@@ -68,7 +70,7 @@ watch(() => props.task.id, () => {
 <style scoped>
 .work-chat { display: flex; flex-direction: column; min-height: 0; height: 100%; gap: 8px; }
 .chat-pick { padding: 8px var(--sp-5) 0; }
-.chat-note { margin: 0; padding: 10px var(--sp-5) 0; font-size: 12.5px; color: var(--text-muted); }
+.chat-note { margin: 0; padding: 10px var(--sp-5) 0; font-size: var(--fs-md); color: var(--text-muted); }
 .chat-note.error { color: var(--danger-hover); }
 .chat-open { align-self: flex-start; margin: 12px var(--sp-5); }
 .round-cards { display: flex; flex-direction: column; gap: 6px; }

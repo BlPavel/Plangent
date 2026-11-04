@@ -7,6 +7,7 @@ const Module = require('node:module');
 const { parseHTML } = require('linkedom');
 const { window } = parseHTML('<html><body><div id="app"></div></body></html>');
 for (const key of ['window', 'document', 'HTMLElement', 'SVGElement', 'Element', 'Node']) global[key] = window[key];
+Object.defineProperty(window.HTMLElement.prototype, Symbol.toStringTag, { value: 'HTMLElement' });
 Object.defineProperty(window.HTMLSelectElement.prototype, 'value', { configurable: true, get() { return this.querySelector('option[selected]')?.getAttribute('value') || ''; }, set(value) { for (const option of this.querySelectorAll('option')) { if (option.getAttribute('value') === value) option.setAttribute('selected', ''); else option.removeAttribute('selected'); } } });
 global.requestAnimationFrame = callback => setTimeout(callback, 0);
 global.cancelAnimationFrame = clearTimeout;
@@ -19,9 +20,8 @@ const { parse, compileScript } = require('@vue/compiler-sfc');
 
 async function component(file) {
   const bundle = await build({
-    entryPoints: [path.resolve(file)], bundle: true, write: false, platform: 'node', format: 'cjs',
+    entryPoints: [path.resolve(file)], bundle: true, write: false, loader: { '.css': 'empty', '.md': 'text' }, platform: 'node', format: 'cjs',
     external: ['vue', 'pinia'],
-    loader: { '.md': 'text' }, // Match Vite's bundled Markdown ?raw imports.
     alias: { '@core': path.resolve('client/src/core'), '@shared': path.resolve('client/src/shared') },
     plugins: [{ name: 'vue-test', setup(build) { build.onLoad({ filter: /\.vue$/ }, args => {
       const { descriptor } = parse(fs.readFileSync(args.path, 'utf8'), { filename: args.path });
@@ -41,6 +41,11 @@ async function field(label, value) {
   const f = [...document.querySelectorAll('.form-field')].find(f => f.querySelector('label')?.textContent === label);
   assert.ok(f, 'field '+label);
   const input = f.querySelector('input,select,textarea');
+  if (!input) {
+    f.querySelector('button').click(); await flush();
+    const option = [...document.querySelectorAll('[role="option"]')].find(o => o.textContent.trim().startsWith(({ own: 'Свои данные для входа', connection: 'Fixture' }[value] || value)));
+    assert.ok(option, `option ${value}`); option.click(); await flush(); return;
+  }
   if (input.tagName === 'SELECT') Object.defineProperty(input, 'value', { configurable: true, writable: true, value });
   else input.value = value;
   input.dispatchEvent(new window.Event(input.tagName === 'SELECT' ? 'change' : 'input', { bubbles: true })); await flush();
@@ -60,7 +65,7 @@ test('functional connection and docs forms apply presets, save normalized data, 
     if (url === '/api/integrations/storage') response = { available: true, insecure_dev_storage: false };
     if (url === '/api/integrations/normalize-url') response = { base_url: new URL(body.base_url).origin };
     if (url === '/api/projects/draft/docs/presets') response = [{ id: 'docs', name: 'Docs preset', description: 'Source help', config }];
-    if (url === '/api/projects/draft/docs/probe') response = { urls: ['https://docs.example.test/doc/1'], fields: { id: '1', title: 'Root' }, preview: 'Preview text', missing: [] };
+    if (url === '/api/projects/draft/docs/probe') response = { urls: ['https://docs.example.test/doc/1'], fields: { id: '1', title: 'Root' }, preview: 'Preview text', missing: [], warnings: [] };
     if (url === '/api/projects/draft/docs/resolve') response = { id: '1', title: 'Root', url: 'https://docs.example.test/read/1' };
     if (url === '/api/projects/draft/docs/children') response = [{ id: '2', title: 'Child', url: '' }];
     return new Response(JSON.stringify(response), { status: 200, headers: { 'Content-Type': 'application/json' } });

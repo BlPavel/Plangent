@@ -1,0 +1,8 @@
+.option { display: flex; align-items: center; gap: var(--sp-2); width: 100%; padding: var(--sp-2); border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.option:hover:not(:disabled), .option:focus-visible, .option.active { background: var(--bg-hover); outline: none; }
+.option:disabled { opacity: .45; cursor: not-allowed; }
+.option.selected { color: var(--blue-hover); background: var(--blue-soft); }
+.option.danger { color: var(--danger-hover); }
+.description { display: block; color: var(--text-muted); font-size: var(--fs-xs); }
+.heading { padding: var(--sp-2); color: var(--text-muted); font-size: var(--fs-xs); }
+.separator { margin-block: var(--sp-1); border-top: 1px solid var(--border); }

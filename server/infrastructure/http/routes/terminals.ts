@@ -1,3 +1,4 @@
+import { typedRoutes } from '../typed-route';
 import { viewedWorkspaceId } from '../../../core/workspaces/viewing';
 import { childProcessesOf } from '../../terminal/process-tree';
 import { rootForWorkspace } from '../../../core/workspaces/roots';
@@ -9,6 +10,7 @@ import { getProject } from '../../../core/projects';
 import { createPtySession, getPtySession, killPtySession } from '../../terminal/pty-manager';
 const terminals = new Map<string, { id: string; projectId: string; title: string; shell: string; cwd: string; workspaceId: string | null }>();
 export const terminalsRouter = Router();
+const terminalsRouterRoutes = typedRoutes(terminalsRouter, '/api/terminals');
 // First existing candidate wins: an executable on PATH or an absolute path.
 function findExecutable(...candidates: string[]) {
   const dirs = (process.env.PATH ?? '').split(path.delimiter).filter(Boolean);
@@ -36,17 +38,17 @@ function detectShells(): Shell[] {
   ];
 }
 const shells = detectShells();
-terminalsRouter.get('/shells', (_req, res) => res.json(shells.map(({ id, label }) => ({ id, label }))));
-terminalsRouter.get('/', (req, res) => res.json([...terminals.values()].filter(t => (!req.query.projectId || t.projectId === req.query.projectId) && (req.query.workspace === undefined || (t.workspaceId ?? '') === req.query.workspace))
+terminalsRouterRoutes.json('GET /api/terminals/shells', (_req, res) => res.json(shells.map(({ id, label }) => ({ id, label }))));
+terminalsRouterRoutes.json('GET /api/terminals', (req, res) => res.json([...terminals.values()].filter(t => (!req.query.projectId || t.projectId === req.query.projectId) && (req.query.workspace === undefined || (t.workspaceId ?? '') === req.query.workspace))
   .map(t => ({ ...t, exitCode: getPtySession(t.id)?.exitCode, status: getPtySession(t.id)?.exitCode === undefined ? 'running' : 'exited' }))));
 // Terminals of a project in which something runs (an app, a watcher): the bottom panel shows where.
-terminalsRouter.get('/running', async (req, res) => {
+terminalsRouterRoutes.json('GET /api/terminals/running', async (req, res) => {
   try {
     const projectId = String(req.query.projectId ?? '');
     res.json((await runningTerminals(projectId)).map(t => ({ id: t.id, title: t.title, workspaceId: t.workspaceId, processes: t.processes })));
   } catch (e) { res.status(400).json({ error: String(e) }); }
 });
-terminalsRouter.post('/', (req, res) => {
+terminalsRouterRoutes.json('POST /api/terminals', (req, res) => {
   try {
     const project = getProject(req.body.projectId);
     if (!project) throw new Error('Проект не найден');
@@ -64,13 +66,13 @@ terminalsRouter.post('/', (req, res) => {
     terminals.set(id, terminal); res.status(201).json(terminal);
   } catch (e) { res.status(400).json({ error: String(e) }); }
 });
-terminalsRouter.patch('/:id', (req, res) => {
+terminalsRouterRoutes.json('PATCH /api/terminals/:id', (req, res) => {
   const terminal = terminals.get(req.params.id);
   if (!terminal) return res.status(404).json({ error: 'Терминал не найден' });
   if (typeof req.body.title === 'string' && req.body.title.trim()) terminal.title = req.body.title.trim().slice(0, 100);
   res.json(terminal);
 });
-terminalsRouter.post('/:id/:action', async (req, res) => {
+terminalsRouterRoutes.json('POST /api/terminals/:id/:action', async (req, res) => {
   const terminal = terminals.get(req.params.id);
   if (!terminal) return res.status(404).json({ error: 'Терминал не найден' });
   try {
@@ -86,7 +88,7 @@ terminalsRouter.post('/:id/:action', async (req, res) => {
     res.json(terminal);
   } catch (e) { res.status(400).json({ error: String(e) }); }
 });
-terminalsRouter.delete('/:id', async (req, res) => { await killPtySession(req.params.id); terminals.delete(req.params.id); res.status(204).end(); });
+terminalsRouterRoutes.empty('DELETE /api/terminals/:id', async (req, res) => { await killPtySession(req.params.id); terminals.delete(req.params.id); res.status(204).end(); });
 export async function shutdownTerminals() { await Promise.all([...terminals.keys()].map(killPtySession)); }
 
 export async function viewingTerminalWarnings(projectId: string, workspaceId: string | null) {

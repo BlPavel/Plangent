@@ -1,16 +1,13 @@
 <template>
   <form class="nw" @submit.prevent="submit">
     <div class="nw-head">
-      <div class="nw-kinds" role="group" aria-label="Что создать">
-        <button type="button" :class="{ on: kind === 'errand' }" @click="kind = 'errand'">⚡ Поручение</button>
-        <button type="button" :class="{ on: kind === 'task' }" @click="kind = 'task'">📋 Задача с планом</button>
-      </div>
+      <AppSegmented :model-value="kind" :options="[{ value: 'errand', label: '⚡ Поручение' }, { value: 'task', label: '📋 Задача с планом' }]" label="Что создать" @update:model-value="kind = $event as 'errand' | 'task'" />
       <span class="nw-hint">{{ kind === 'errand' ? 'Сразу к делу, без анализа и плана. Подробности напишете агенту в чате.' : 'Анализ, план и очередь шагов.' }}</span>
     </div>
     <div class="nw-box" :class="{ focused }" @focusin="focused = true" @focusout="focused = false">
       <div class="nw-fields">
-        <input v-model="number" class="nw-number" placeholder="Номер задачи" aria-label="Номер задачи" maxlength="100" :disabled="busy" />
-        <input
+        <AppInput v-model="number" class="nw-number" mono placeholder="Номер задачи" aria-label="Номер задачи" maxlength="100" :disabled="busy" />
+        <AppInput
           v-model="title" class="nw-title" aria-label="Описание" maxlength="300" :disabled="busy"
           :placeholder="kind === 'errand' ? 'Что нужно сделать? Например: поправить вёрстку в профиле' : 'Описание задачи'"
         />
@@ -20,11 +17,11 @@
           <AppSelect v-model="agentId" :options="agentList" size="sm" variant="subtle" heading="Агент, который выполнит поручение" placeholder="Агент" />
           <AgentSettingsBar class="nw-settings" :policy="policy" :selects="resolvedSelects" @policy="policy = $event" @change="pick">
             <span v-if="optionsState === 'loading'" class="nw-note">Загружаю модели агента…</span>
-            <span v-else-if="optionsState" class="nw-note" :title="optionsState">Нет настроек агента · <button type="button" @click="retry">повторить</button></span>
+            <span v-else-if="optionsState" class="nw-note" :title="optionsState">Нет настроек агента · <AppButton variant="link" size="xs" @click="retry">повторить</AppButton></span>
           </AgentSettingsBar>
           <span class="nw-spacer" />
           <WhereToWork ref="where" v-model="place" :project-id="project.id" :ordinary="!isGroup" :taken="taken" />
-          <button type="button" class="nw-toggle" :class="{ on: review }" :title="review ? 'После выполнения агент-ревьюер проверит изменения' : 'Без автоматического ревью агентом'" @click="review = !review"><span class="nw-switch" />Ревью</button>
+          <AppSwitch v-model="review" :title="review ? 'После выполнения агент-ревьюер проверит изменения' : 'Без автоматического ревью агентом'">Ревью</AppSwitch>
           <AppButton type="submit" variant="blue" size="sm" :disabled="!canSubmit">{{ busy ? 'Создаю…' : '⚡ Поручить' }}</AppButton>
         </template>
         <template v-else>
@@ -41,9 +38,13 @@
   </form>
 </template>
 <script setup lang="ts">
+import AppInput from '@shared/ui/AppInput.vue'
+import { AppSegmented, AppSwitch } from '@shared/ui'
+import { tasksEndpoints } from '../api'
+
+import { useDraft } from '@core/composables/useDraft'
 import { computed, ref, watch } from 'vue'
-import type { Agent, Project, Task } from '@core/models'
-import { api } from '@core/api'
+import type { Agent, Project, Task } from '@contracts'
 import { AgentSettingsBar, useAgentLaunchOptions } from '@features/agent-chat'
 import { gitApi } from '@features/code'
 import AppButton from '@shared/ui/AppButton.vue'
@@ -59,7 +60,7 @@ const work = useWorkStore()
 const isGroup = computed(() => props.project.kind === 'group')
 const kind = ref<'errand' | 'task'>(localStorage.getItem('work.newKind') === 'task' ? 'task' : 'errand')
 watch(kind, value => localStorage.setItem('work.newKind', value))
-const number = ref(''), title = ref(''), owner = ref(''), busy = ref(false), error = ref(''), focused = ref(false)
+const number = useDraft(() => `project:${props.project.id}:new-work:number`, () => ''), title = useDraft(() => `project:${props.project.id}:new-work:title`, () => ''), owner = useDraft(() => `project:${props.project.id}:new-work:owner`, () => ''), busy = ref(false), error = ref(''), focused = ref(false)
 
 // Errand: who does it and how — chosen every time, starting from the project's agent and its own settings.
 const agentId = ref(''), policy = ref('allow-all'), review = ref(false)
@@ -99,7 +100,7 @@ async function submit() {
       })
       emit('created', task, 'chat')
     } else {
-      const task = await api.post<Task>(`/projects/${owner.value || props.project.id}/tasks`, { title: title.value.trim() || undefined, external_key: number.value.trim() || undefined })
+      const task = await tasksEndpoints.postProjectsByProjectIdTasks({ params: { projectId: owner.value || props.project.id }, body: { title: title.value.trim() || undefined, external_key: number.value.trim() || undefined } })
       emit('created', task, 'analysis')
     }
     number.value = ''; title.value = ''
@@ -112,28 +113,18 @@ async function submit() {
 .nw { padding: var(--sp-3) var(--sp-4) var(--sp-3); border-bottom: 1px solid var(--border); }
 .nw-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
 .nw-kinds { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; flex-shrink: 0; }
-.nw-kinds button { padding: 5px 12px; background: none; border: none; color: var(--text-muted); cursor: pointer; font: inherit; font-size: 12.5px; }
+.nw-kinds button { padding: 5px 12px; background: none; border: none; color: var(--text-muted); cursor: pointer; font: inherit; font-size: var(--fs-md); }
 .nw-kinds button.on { background: var(--bg3); color: var(--text); }
-.nw-hint { min-width: 0; font-size: 11.5px; color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.nw-box { background: var(--bg2); border: 1px solid var(--border-strong); border-radius: var(--radius-lg); transition: border-color 0.12s, box-shadow 0.12s; }
+.nw-hint { min-width: 0; font-size: var(--fs-sm); color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nw-box { background: var(--bg2); border: 1px solid var(--border-strong); border-radius: var(--radius-lg); transition: border-color var(--motion-fast), box-shadow var(--motion-fast); }
 .nw-box.focused { border-color: var(--blue); box-shadow: 0 0 0 3px var(--blue-soft); }
 .nw-fields { display: flex; align-items: stretch; padding-top: 6px; }
-.nw-fields input { min-width: 0; padding: 4px 14px; background: transparent; border: none; outline: none; color: var(--text); font: inherit; font-size: 14px; }
-.nw-fields input::placeholder { color: var(--text-faint); }
-.nw-number { flex: 0 0 150px; font-family: 'Cascadia Code', 'JetBrains Mono', monospace; font-size: 13px; border-right: 1px solid var(--border); }
+.nw-number { flex: 0 0 150px; }
 .nw-title { flex: 1; }
 .nw-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 2px; padding: 4px 8px 8px; }
 .nw-settings { padding-top: 0; }
 .nw-spacer { flex: 1; }
-.nw-note { font-size: 12px; color: var(--text-faint); padding: 0 6px; white-space: nowrap; }
-.nw-note button { background: none; border: none; padding: 0; color: var(--blue-hover); font: inherit; cursor: pointer; }
+.nw-note { font-size: var(--fs-sm); color: var(--text-faint); padding: 0 6px; white-space: nowrap; }
 .nw-owner { width: 200px; }
-.nw-toggle { display: inline-flex; align-items: center; gap: 7px; height: var(--size-sm); padding: 0 10px 0 8px; margin-right: 4px; background: transparent; border: 1px solid transparent; border-radius: var(--radius-btn); color: var(--text-muted); font: inherit; font-size: 12px; cursor: pointer; }
-.nw-toggle:hover { background: var(--bg3); color: var(--text); }
-.nw-toggle.on { color: var(--blue-hover); }
-.nw-switch { position: relative; width: 24px; height: 14px; border-radius: var(--radius-pill); background: var(--border-strong); flex-shrink: 0; transition: background 0.15s; }
-.nw-switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 10px; height: 10px; border-radius: 50%; background: var(--text); transition: transform 0.15s; }
-.nw-toggle.on .nw-switch { background: var(--blue); }
-.nw-toggle.on .nw-switch::after { transform: translateX(10px); background: #fff; }
-.nw-error { margin-top: 6px; font-size: 12px; color: var(--danger-hover); white-space: pre-wrap; }
+.nw-error { margin-top: 6px; font-size: var(--fs-sm); color: var(--danger-hover); white-space: pre-wrap; }
 </style>

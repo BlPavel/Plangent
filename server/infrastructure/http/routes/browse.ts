@@ -1,14 +1,16 @@
+import { typedRoutes } from '../typed-route';
 import { Router, Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
 
 export const browseRouter = Router();
+const browseRouterRoutes = typedRoutes(browseRouter, '/api/browse');
 
 // Above a drive root on Windows: the list of drives, so a folder on D: can be reached from C:.
 const DRIVES = '::drives';
 
-browseRouter.get('/', (req: Request, res: Response) => {
+browseRouterRoutes.json('GET /api/browse', (req, res) => {
   const rawPath = (req.query.path as string) || os.homedir();
   if (rawPath === DRIVES) {
     const drives = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map(l => `${l}:\\`).filter(d => { try { return fs.existsSync(d); } catch { return false; } });

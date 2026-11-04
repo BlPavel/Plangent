@@ -117,7 +117,7 @@ defineExpose({
 <style scoped>
 .fv { height: 100%; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .fv > :deep(.code-view) { flex: 1; }
-.fv-empty { margin: auto; max-width: 360px; padding: 24px; text-align: center; font-size: 13px; color: var(--text-muted); }
-.fv-empty-title { margin-bottom: 6px; font-size: 15px; font-weight: 600; color: var(--text); }
-kbd { font-family: inherit; font-size: 11px; padding: 0 4px; border: 1px solid var(--border-strong); border-radius: 4px; background: var(--bg3); }
+.fv-empty { margin: auto; max-width: 360px; padding: 24px; text-align: center; font-size: var(--fs-md); color: var(--text-muted); }
+.fv-empty-title { margin-bottom: 6px; font-size: var(--fs-lg); font-weight: 600; color: var(--text); }
+kbd { font-family: inherit; font-size: var(--fs-xs); padding: 0 4px; border: 1px solid var(--border-strong); border-radius: var(--radius-4); background: var(--bg3); }
 </style>

@@ -5,3 +5,5 @@ export { default as InstructionGuideEditor } from './components/InstructionGuide
 export { default as CodeFixerInstructionEditor } from './components/CodeFixerInstructionEditor.vue'
 export { default as InstructionsWorkspace } from './components/InstructionsWorkspace.vue'
 export { useLibraryStore } from './stores/library'
+
+export { libraryEndpoints } from './api'

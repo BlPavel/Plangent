@@ -24,10 +24,10 @@
     <div class="dp-list">
       <form v-if="composing" class="dp-new" @submit.prevent="addGeneral">
         <div class="dp-new-head">Общий вопрос по ветке</div>
-        <textarea v-model="generalText" class="control dp-text" rows="3" placeholder="Например: расскажи в общих чертах, что изменилось и на что обратить внимание. Ctrl+Enter — сохранить" spellcheck="false" @keydown.ctrl.enter.prevent="addGeneral" @keydown.meta.enter.prevent="addGeneral" />
+        <AppTextarea v-model="generalText" block rows="3" placeholder="Например: расскажи в общих чертах, что изменилось и на что обратить внимание. Ctrl+Enter — сохранить" spellcheck="false" @keydown.ctrl.enter.prevent="addGeneral" @keydown.meta.enter.prevent="addGeneral" />
         <div class="dp-new-bar">
-          <button type="button" class="btn btn-subtle btn-xs" @click="composing = false">Отмена</button>
-          <button class="btn btn-blue btn-xs" :disabled="!generalText.trim()">Сохранить</button>
+          <AppButton variant="subtle" size="xs" type="button"  @click="composing = false">Отмена</AppButton>
+          <AppButton variant="blue" size="xs" type="submit" :disabled="!generalText.trim()">Сохранить</AppButton>
         </div>
       </form>
       <div v-if="!screen.questions.length && !composing" class="dp-empty">
@@ -42,6 +42,8 @@
   </div>
 </template>
 <script setup lang="ts">
+import AppTextarea from '@shared/ui/AppTextarea.vue'
+import { useDraft } from '@core/composables/useDraft'
 import { computed, ref } from 'vue'
 import AppButton from '@shared/ui/AppButton.vue'
 import { statusLabel } from '@features/agent-chat'
@@ -54,7 +56,7 @@ import BranchQuestionCard from './BranchQuestionCard.vue'
 const props = defineProps<{ screenKey: string; scope: string; reviewId: string; head: string }>()
 const emit = defineEmits<{ goto: [question: BranchQuestion]; 'to-remark': [question: BranchQuestion, text: string] }>()
 const { screen, session, busy, agentName } = useReviewAgent(props.screenKey, computed(() => props.head))
-const sending = ref(false), stopping = ref(false), error = ref(''), composing = ref(false), generalText = ref('')
+const sending = ref(false), stopping = ref(false), error = ref(''), composing = ref(false), generalText = useDraft(() => `branch-review:${props.reviewId}:discuss:generalText`, () => '')
 
 const queuedIds = computed(() => new Set(screen.messages.filter(m => m.author === 'developer' && !m.sent).map(m => m.question_id)))
 const pending = computed(() => queuedIds.value.size)
@@ -86,11 +88,11 @@ async function addGeneral() {
 }
 </script>
 <style scoped>
-.dp { flex: 1; display: flex; flex-direction: column; min-height: 0; font-size: 12px; }
+.dp { flex: 1; display: flex; flex-direction: column; min-height: 0; font-size: var(--fs-sm); }
 .dp-agent, .dp-actions { display: flex; align-items: center; gap: 8px; padding: 8px 10px; flex-shrink: 0; }
 .dp-agent { border-bottom: 1px solid var(--border); }
 .dp-name { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dp-dot { width: 7px; height: 7px; flex-shrink: 0; border-radius: 50%; background: var(--text-faint); }
+.dp-dot { width: 7px; height: 7px; flex-shrink: 0; border-radius: var(--radius-round); background: var(--text-faint); }
 .dp-dot.thinking, .dp-dot.starting { background: var(--blue-hover); }
 .dp-dot.waiting { background: var(--warning-text); }
 .dp-spacer { flex: 1; }
@@ -99,6 +101,8 @@ async function addGeneral() {
 .dp-empty { padding: 8px 2px; color: var(--text-muted); line-height: 1.45; }
 .dp-new { display: flex; flex-direction: column; gap: 6px; padding: 8px; background: var(--bg2); border: 1px solid var(--blue); border-radius: var(--radius-sm); }
 .dp-new-head { font-weight: 600; color: var(--text-muted); }
-.dp-text { width: 100%; padding: 8px 10px; line-height: 1.45; resize: vertical; font: inherit; }
 .dp-new-bar { display: flex; justify-content: flex-end; gap: 6px; }
+
+/* Local secondary text. */
+.muted { color: var(--text-muted); font-size: var(--fs-sm); }
 </style>

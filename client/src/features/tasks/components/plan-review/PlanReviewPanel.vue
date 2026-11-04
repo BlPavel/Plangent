@@ -1,9 +1,9 @@
-﻿<template>
+<template>
   <aside class="review-panel">
     <header class="toolbar">
       <strong>{{ L.title }}</strong>
       <span class="spacer" />
-      <AppButton v-if="canLaunch && state.reviews.value.length" size="sm" variant="ghost" :class="{ on: setupOpen }" :disabled="phase === 'running'" :title="phase === 'running' ? 'Ревьюер ещё работает' : 'Настроить и запустить новый раунд ревью'" @click="setupOpen = !setupOpen">Новый раунд</AppButton>
+      <AppButton v-if="canLaunch && state.reviews.value.length" size="sm" variant="ghost" :pressed="setupOpen" :disabled="phase === 'running'" :title="phase === 'running' ? 'Ревьюер ещё работает' : 'Настроить и запустить новый раунд ревью'" @click="setupOpen = !setupOpen">Новый раунд</AppButton>
       <AppButton size="sm" variant="ghost" icon title="Скрыть панель ревью" aria-label="Скрыть панель ревью" @click="$emit('close')">✕</AppButton>
     </header>
     <p v-if="locked" class="muted">{{ L.frozen }}</p>
@@ -12,10 +12,10 @@
         <span class="setup-label">Агент</span>
         <AgentPicker :key="setupKey" v-model="choice" :default-agent-id="defaultAgentId" />
         <span class="setup-label">Скилл</span>
-        <PlainSelect v-if="skills.length" v-model="skill" :options="skills.map(s => ({ value: s.id, label: s.title + ' · ' + origins[s.origin] }))" :label="L.skill" />
+        <AppSelect v-if="skills.length" v-model="skill" :options="skills.map(s => ({ value: s.id, label: s.title + ' · ' + origins[s.origin] }))" :label="L.skill" />
         <span v-else class="muted">Нет скиллов проекта: только общие проверки из настроек</span>
         <span class="setup-label">Пожелание</span>
-        <textarea v-model="wish" class="control wish" rows="4" placeholder="Необязательно: на что обратить внимание, что не проверять" spellcheck="false" />
+        <AppTextarea v-model="wish" block rows="4" placeholder="Необязательно: на что обратить внимание, что не проверять" spellcheck="false" />
       </div>
       <p v-if="unfinishedText" class="warn">{{ unfinishedText }}</p>
       <div class="setup-actions">
@@ -28,7 +28,7 @@
     </div>
     <template v-if="detail">
       <label v-if="state.reviews.value.length > 1">Раунд
-        <PlainSelect v-model="state.selected.value" :options="state.reviews.value.map((r, i) => ({ value: r.id, label: 'Раунд ' + r.round + (i === 0 ? ' · последний' : '') }))" label="Раунд ревью" />
+        <AppSelect v-model="state.selected.value" :options="state.reviews.value.map((r, i) => ({ value: r.id, label: 'Раунд ' + r.round + (i === 0 ? ' · последний' : '') }))" label="Раунд ревью" />
       </label>
       <p class="phase" :class="'phase-' + phase" role="status"><span class="phase-dot" />{{ reviewerName }} · {{ phaseText }}</p>
       <p v-if="phase === 'stalled' || phase === 'failed'" role="status" class="warn">{{ stalledText }}</p>
@@ -47,7 +47,7 @@
             <tbody><tr v-for="(row, index) in detail.review.coverage" :key="index">
               <td :title="coverageLabels[row.status]" :aria-label="coverageLabels[row.status]">{{ coverageIcons[row.status] }}</td><td>{{ row.criterion ? 'QA ' + row.criterion : 'Анализ' }}</td><td>{{ row.requirement }}</td>
               <td>{{ row.steps.join(', ') || '—' }}</td>
-              <td><button v-if="row.remark_id" type="button" class="link" @click="focusCard(row.remark_id)">→ замечание {{ cardNumber(row.remark_id) }}</button></td>
+              <td><AppButton variant="link" size="md" v-if="row.remark_id" type="button"  @click="focusCard(row.remark_id)">→ замечание {{ cardNumber(row.remark_id) }}</AppButton></td>
             </tr></tbody>
           </table>
         </div>
@@ -66,8 +66,8 @@
       </header>
       <p v-if="activityText" class="activity" role="status"><span class="phase-dot" />{{ activityText }}</p>
       <p v-else-if="reportChat" class="report-link" role="status">{{ L.recipientNom }} вносил изменения. Отчёт о том, что и как исправлено, он пишет в своём чате, там же можно задать вопрос или попросить поправить.
-        <button type="button" class="link" @click="$emit('openPlanner', reportChat)">Открыть {{ L.recipientChat }}</button></p>
-      <RemarkCard
+        <AppButton variant="link" size="md" type="button"  @click="$emit('openPlanner', reportChat)">Открыть {{ L.recipientChat }}</AppButton></p>
+      <RemarkCard :task-id="taskId"
         v-for="(remark, index) in detail.remarks" :key="remark.id" :ref="el => setCard(remark.id, el)"
         :remark="remark" :target="target" :number="index + 1" :readonly="readonly || locked" :busy="state.busy.value" :selected="focused === remark.id" :planner="plannerState(remark)" :reviewer-working="reviewerWorking"
         @highlight="$emit('highlight', $event)" @open-planner="remark.planner_session_id && $emit('openPlanner', remark.planner_session_id)" @edit="(text, suggestion) => state.run(() => api.edit(projectId, taskId, detail!.review.id, remark.id, text, suggestion))"
@@ -78,12 +78,14 @@
   </aside>
 </template>
 <script setup lang="ts">
+import AppTextarea from '@shared/ui/AppTextarea.vue'
+import { useDraft } from '@core/composables/useDraft'
 import { computed, onBeforeUnmount, ref, toRef, watch, type ComponentPublicInstance } from 'vue'
 import { useAgentsStore } from '@features/agents'
 import { useChatStore } from '@features/agent-chat'
 import AppButton from '@shared/ui/AppButton.vue'
-import PlainSelect from '@shared/ui/PlainSelect.vue'
-import MessageMarkdown from '@shared/ui/MessageMarkdown.vue'
+import AppSelect from '@shared/ui/AppSelect.vue'
+import { MessageMarkdown } from '@shared/markdown'
 import { planReviewApi as api } from '../../plan-review/api'
 import { usePlanReview } from '../../plan-review/usePlanReview'
 import type { Launch, Remark, ReviewTarget, Skill } from '../../plan-review/types'
@@ -97,7 +99,7 @@ const L = computed(() => reviewLabels[props.target])
 const state = usePlanReview(toRef(props, 'projectId'), toRef(props, 'taskId'), target)
 const detail = state.detail, agents = useAgentsStore(), chats = useChatStore()
 watch(state.counts, counts => emit('counts', counts), { immediate: true })
-const wish = ref(''), skill = ref(''), skills = ref<Skill[]>([])
+const wish = useDraft(() => `task:${props.taskId}:review:${props.target}:wish`, () => ''), skill = ref(''), skills = ref<Skill[]>([])
 const origins = { direct: 'проект', group: 'группа', global: 'везде' }
 const choice = ref<Launch>({ agent_id: '' })
 const acceptedCount = computed(() => detail.value?.remarks.filter(r => r.status === 'accepted').length || 0)
@@ -231,23 +233,23 @@ watch(() => [props.projectId, props.taskId, props.target], () => { focused.value
 watch(state.selected, () => { focused.value = ''; emit('highlight', []) })
 </script>
 <style scoped>
-.review-panel { flex: 0 0 44%; min-width: 0; overflow-y: auto; padding: 16px; border-left: 1px solid var(--border); display: flex; flex-direction: column; gap: 12px; font-size: 13px; }
+.review-panel { flex: 0 0 44%; min-width: 0; overflow-y: auto; padding: 16px; border-left: 1px solid var(--border); display: flex; flex-direction: column; gap: 12px; font-size: var(--fs-md); }
 .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
-h3, p { margin: 0; } h3 { font-size: 13px; }
+h3, p { margin: 0; } h3 { font-size: var(--fs-md); }
 .muted { color: var(--text-muted); }
 .warn { color: var(--warning-text); }
-.counts { color: var(--text-muted); font-size: 12px; }
+.counts { color: var(--text-muted); font-size: var(--fs-sm); }
 .next { padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg2); }
 .spacer { flex: 1; }
 .error-box { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 12px; border: 1px solid var(--danger); border-radius: var(--radius-sm); background: var(--danger-soft); color: var(--danger-hover); }
-.activity { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: var(--radius-sm); font-weight: 600; background: rgba(210, 153, 34, 0.15); color: var(--warning-text); }
+.activity { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: var(--radius-sm); font-weight: 600; background: var(--warning-soft); color: var(--warning-text); }
 .activity .phase-dot { animation: phase-pulse 1.2s ease-in-out infinite; }
 .report-link { padding: 8px 12px; border-radius: var(--radius-sm); background: var(--accent-soft); color: var(--accent-hover); }
 .report-link .link { margin-left: 4px; }
 .toolbar-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-left: auto; }
 .phase { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: var(--radius-sm); font-weight: 600; background: var(--bg3); color: var(--text-muted); }
-.phase-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
-.phase-running { background: rgba(210, 153, 34, 0.15); color: var(--warning-text); }
+.phase-dot { width: 8px; height: 8px; border-radius: var(--radius-round); background: currentColor; flex-shrink: 0; }
+.phase-running { background: var(--warning-soft); color: var(--warning-text); }
 .phase-running .phase-dot { animation: phase-pulse 1.2s ease-in-out infinite; }
 .phase-done { background: var(--accent-soft); color: var(--accent-hover); }
 .phase-failed, .phase-stalled { background: var(--danger-soft); color: var(--danger-hover); }
@@ -256,16 +258,14 @@ h3, p { margin: 0; } h3 { font-size: 13px; }
 .setup { display: flex; flex-direction: column; gap: 10px; padding: 10px 12px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg2); flex-shrink: 0; }
 .setup-grid { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px 12px; }
 .setup-label:last-of-type { align-self: start; padding-top: 8px; }
-.wish { min-height: 80px; padding: 8px 10px; line-height: 1.45; resize: vertical; }
-.setup-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.4px; }
+.setup-label { font-size: var(--fs-xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.4px; }
 .setup-controls { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .setup-actions { display: flex; justify-content: flex-end; }
 .table-wrap { overflow-x: auto; flex-shrink: 0; }
-table { border-collapse: collapse; width: 100%; font-size: 12px; }
+table { border-collapse: collapse; width: 100%; font-size: var(--fs-sm); }
 td, th { padding: 6px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; overflow-wrap: anywhere; }
 .link { border: 0; background: none; color: var(--blue-hover); cursor: pointer; }
-label { display: flex; flex-direction: column; gap: 6px; } textarea { width: 100%; resize: vertical; }
+label { display: flex; flex-direction: column; gap: 6px; }
 @media (max-width: 900px) { .review-panel { flex-basis: 50%; } }
 </style>
-
 

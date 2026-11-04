@@ -23,18 +23,15 @@
       :disabled="(select.kind === 'mode' && locked) || (select.kind === 'model' && busy)"
       @update:model-value="pick(select, $event)"
     />
-    <button
+    <AppSwitch
       v-if="split.plan"
-      type="button"
-      class="plan-toggle"
-      :class="{ on: split.plan.active }"
+      :model-value="split.plan.active"
       :disabled="locked && split.plan.select.kind === 'mode'"
       :title="split.plan.active ? 'Сначала план — включено. Агент изучает код и предлагает план, ничего не меняя.' : 'Сначала план: агент изучит код и предложит план, ничего не меняя'"
-      @click="togglePlan"
+      @update:model-value="togglePlan"
     >
-      <span class="switch" />
       План
-    </button>
+    </AppSwitch>
     <slot />
   </div>
 </template>
@@ -42,6 +39,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import AppSelect from '@shared/ui/AppSelect.vue'
+import AppSwitch from '@shared/ui/AppSwitch.vue'
 import { POLICIES, POLICY_HEADING, splitPlan, type AgentSelect } from '../utils/agent-options'
 
 /** Policy, agent mode/model/reasoning selects and the "plan first" toggle, shown under the composer. */
@@ -76,15 +74,15 @@ function togglePlan() {
   border-radius: var(--radius-btn);
   color: var(--text-muted);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   cursor: pointer;
-  transition: background 0.12s, color 0.12s;
+  transition: background var(--motion-fast), color var(--motion-fast);
 }
 .plan-toggle:hover:not(:disabled) { background: var(--bg3); color: var(--text); }
 .plan-toggle:disabled { opacity: 0.5; cursor: not-allowed; }
 .plan-toggle.on { color: var(--blue-hover); }
-.switch { position: relative; width: 24px; height: 14px; border-radius: var(--radius-pill); background: var(--border-strong); transition: background 0.15s; flex-shrink: 0; }
-.switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 10px; height: 10px; border-radius: 50%; background: var(--text); transition: transform 0.15s; }
+.switch { position: relative; width: 24px; height: 14px; border-radius: var(--radius-pill); background: var(--border-strong); transition: background var(--motion-modal); flex-shrink: 0; }
+.switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 10px; height: 10px; border-radius: var(--radius-round); background: var(--text); transition: transform var(--motion-modal); }
 .on .switch { background: var(--blue); }
-.on .switch::after { transform: translateX(10px); background: #fff; }
+.on .switch::after { transform: translateX(10px); background: var(--on-accent); }
 </style>

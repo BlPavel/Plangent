@@ -8,9 +8,10 @@
 </template>
 
 <script setup lang="ts">
+import { projectsEndpoints } from '@features/projects'
+
 import { ref } from 'vue'
-import { api } from '@core/api'
-import type { ProjectGitSettings } from '@core/models'
+import type { ProjectGitSettings } from '@contracts'
 import { useAppStore } from '@core/stores/app'
 import SaveStatus, { type SaveState } from '@shared/ui/SaveStatus.vue'
 import { errorText } from '@shared/utils/errorText'
@@ -19,10 +20,10 @@ import { GitAgentFields } from '@features/projects'
 /** The app-wide git agent: every project and group without its own choice uses it. Saves on change. */
 const app = useAppStore()
 const own = ref<ProjectGitSettings>({}), state = ref<SaveState>('idle')
-api.get<{ own: ProjectGitSettings }>('/projects/git-defaults').then(data => { own.value = data.own }, cause => app.toast(errorText(cause), 'error'))
+projectsEndpoints.getProjectsGitDefaults({ params: {  } }).then(data => { own.value = data.own }, cause => app.toast(errorText(cause), 'error'))
 async function change(value: ProjectGitSettings) {
   own.value = value; state.value = 'saving'
-  try { own.value = (await api.put<{ own: ProjectGitSettings }>('/projects/git-defaults', value)).own; state.value = 'saved' }
+  try { own.value = (await projectsEndpoints.putProjectsGitDefaults({ params: {  }, body: value })).own; state.value = 'saved' }
   catch (cause) { state.value = 'idle'; app.toast(errorText(cause), 'error') }
 }
 </script>

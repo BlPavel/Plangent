@@ -15,11 +15,11 @@
     <div class="rp-list">
       <form v-if="composing" class="rp-new" @submit.prevent="addGeneral" @keydown.esc.stop.prevent="composing = false">
         <div class="rp-new-head">Замечание к МР целиком</div>
-        <textarea v-model="text" class="control rp-text" rows="4" placeholder="Текст уйдёт в МР общим комментарием. Ctrl+Enter — сохранить" spellcheck="false" @keydown.ctrl.enter.prevent="addGeneral" @keydown.meta.enter.prevent="addGeneral" />
+        <AppTextarea v-model="text" block rows="4" placeholder="Текст уйдёт в МР общим комментарием. Ctrl+Enter — сохранить" spellcheck="false" @keydown.ctrl.enter.prevent="addGeneral" @keydown.meta.enter.prevent="addGeneral" />
         <div class="rp-bar">
           <span class="rp-spacer" />
-          <button type="button" class="btn btn-subtle btn-xs" @click="composing = false">Отмена</button>
-          <button class="btn btn-blue btn-xs" :disabled="!text.trim()">Сохранить</button>
+          <AppButton variant="subtle" size="xs" type="button"  @click="composing = false">Отмена</AppButton>
+          <AppButton variant="blue" size="xs" type="submit" :disabled="!text.trim()">Сохранить</AppButton>
         </div>
       </form>
       <div v-if="!screen.remarks.length && !composing" class="rp-empty">
@@ -37,6 +37,8 @@
   </div>
 </template>
 <script setup lang="ts">
+import AppTextarea from '@shared/ui/AppTextarea.vue'
+import { useDraft } from '@core/composables/useDraft'
 import { computed, ref } from 'vue'
 import { useAppStore } from '@core/stores/app'
 import { platform } from '@core/platform'
@@ -53,7 +55,7 @@ const props = defineProps<{ screenKey: string; scope: string; reviewId: string; 
 const emit = defineEmits<{ goto: [remark: Remark] }>()
 const screen = useBranchReviewStore().of(props.screenKey)
 const app = useAppStore()
-const busy = ref(false), error = ref(''), composing = ref(false), text = ref('')
+const busy = ref(false), error = ref(''), composing = ref(false), text = useDraft(() => `branch-review:${props.reviewId}:remarks:text`, () => '')
 
 const drafts = computed(() => screen.remarks.filter(r => r.status !== 'sent'))
 const sent = computed(() => screen.remarks.filter(r => r.status === 'sent'))
@@ -83,7 +85,7 @@ async function publish() {
   try {
     const result = await branchReviewApi.publish(props.scope, props.reviewId, ready.map(r => r.id))
     screen.remarks = result.remarks
-    if (result.publication_error) error.value = result.publication_error
+    if ('publication_error' in result && result.publication_error) error.value = result.publication_error
     else app.toast('Замечания опубликованы', 'success')
   } catch (cause) { error.value = errorText(cause) } finally { busy.value = false }
 }
@@ -105,11 +107,10 @@ async function markSent() {
 .rp-error { padding: 6px 10px; color: var(--danger-hover); overflow-wrap: anywhere; }
 .rp-list { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 6px; padding: 0 10px 10px; }
 .rp-empty { padding: 8px 2px; color: var(--text-muted); line-height: 1.45; }
-.rp-group { margin-top: 6px; font-size: 11px; font-weight: 600; color: var(--text-muted); overflow-wrap: anywhere; }
+.rp-group { margin-top: 6px; font-size: var(--fs-xs); font-weight: 600; color: var(--text-muted); overflow-wrap: anywhere; }
 .rp-count { font-weight: 400; }
 .rp-new { display: flex; flex-direction: column; gap: 6px; padding: 8px; background: var(--bg2); border: 1px solid var(--blue); border-radius: var(--radius-sm); }
 .rp-new-head { font-weight: 600; color: var(--text-muted); }
-.rp-text { width: 100%; padding: 8px 10px; line-height: 1.45; resize: vertical; font: inherit; }
 .rp-bar { display: flex; align-items: center; gap: 6px; }
 .rp-sent { margin-top: 8px; }
 .rp-sent summary { cursor: pointer; color: var(--text-muted); margin-bottom: 6px; }

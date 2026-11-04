@@ -1,7 +1,7 @@
 <template>
   <div class="ct">
     <header class="ct-head">
-      <button v-if="task && !work" type="button" class="ct-crumb" @click="emit('back')">← Задача-{{ task.key }}</button>
+      <AppButton variant="link" size="xs" v-if="task && !work" type="button"  @click="emit('back')">← Задача-{{ task.key }}</AppButton>
       <template v-if="store.repository">
         <span v-if="store.head" class="ct-head-commit" :title="store.repository.message ?? ''">
           HEAD <code>{{ store.head.slice(0, 7) }}</code><template v-if="store.repository.message"> «{{ store.repository.message }}»</template>
@@ -18,19 +18,19 @@
       <span class="ct-spacer" />
       <span v-if="store.watchError" class="ct-warn" :title="store.watchError">авто-обновление недоступно</span>
       <slot name="actions" />
-      <button v-if="store.repository && !work" type="button" class="btn btn-sm" :class="finishAttention ? 'btn-blue' : 'btn-ghost'" title="Коммиты, push и МР — агент сделает их по настройкам проекта" @click="showRight('finish')">
+      <AppButton :variant="finishAttention ? 'blue' : 'ghost'" size="sm" v-if="store.repository && !work" type="button" title="Коммиты, push и МР — агент сделает их по настройкам проекта" @click="showRight('finish')">
         {{ finish.run && !finishDone ? 'Завершение · ' + (finishStages[finish.run.stage] || finish.run.stage) : 'Завершить работу' }}
-      </button>
-      <button type="button" class="ct-refresh" :class="{ spinning: store.loading }" :disabled="store.loading" title="Обновить: статус, дерево и открытый файл" :aria-busy="store.loading" aria-label="Обновить" @click="store.refresh()">⟳</button>
+      </AppButton>
+      <AppButton variant="subtle" size="sm" icon :disabled="store.loading" title="Обновить: статус, дерево и открытый файл" :aria-busy="store.loading" aria-label="Обновить" @click="store.refresh()">⟳</AppButton>
       <HistoryMenu :history="store.history" :opened-id="store.openedReviewId" @open="store.loadHistory()" @select="store.openReview($event)" @remove="removeHistoryItem" />
     </header>
     <div v-if="conflicts.operation" class="ct-op" role="status">
       <span class="ct-op-text">{{ operationTitle(conflicts.operation) }} · {{ conflicts.conflicted.length ? 'конфликтов: ' + conflicts.conflicted.length : 'конфликтов нет' }}<template v-if="conflicts.mode === 'working'"> · агент работает</template><template v-else-if="conflicts.mode === 'answer'"> · агент ждёт ответа</template></span>
-      <button v-if="conflicts.mode === 'start' && conflicts.conflicted.length" type="button" class="btn btn-blue btn-xs" @click="openConflicts">Разрешить с агентом</button>
-      <button v-else type="button" class="btn btn-ghost btn-xs" @click="showRight('conflicts')">Конфликты</button>
+      <AppButton variant="blue" size="xs" v-if="conflicts.mode === 'start' && conflicts.conflicted.length" type="button"  @click="openConflicts">Разрешить с агентом</AppButton>
+      <AppButton variant="ghost" size="xs" v-else type="button"  @click="showRight('conflicts')">Конфликты</AppButton>
     </div>
     <ReviewBanners @open-items="openFirstUnresolved" />
-    <div v-if="store.error" class="ct-error">{{ store.error }} <button type="button" class="ct-link" @click="store.refresh()">Повторить</button></div>
+    <div v-if="store.error" class="ct-error">{{ store.error }} <AppButton variant="link" size="xs" type="button"  @click="store.refresh()">Повторить</AppButton></div>
 
     <div class="ct-body" :style="{ gridTemplateColumns: `${leftCollapsed ? RAIL : leftWidth}px 0 minmax(0, 1fr) 0 ${rightCollapsed ? RAIL : rightWidth}px` }">
       <PaneRail
@@ -38,11 +38,9 @@
         :items="leftTabs.map(t => ({ id: t.id, label: t.label, icon: t.id, count: t.count }))"
       />
       <aside v-show="!leftCollapsed" class="ct-left">
-        <div class="ct-tabs" role="tablist">
-          <button v-for="t in leftTabs" :key="t.id" type="button" role="tab" class="ct-tab" :class="{ active: leftTab === t.id }" :aria-selected="leftTab === t.id" @click="selectLeft(t.id)">
-            {{ t.label }}<span v-if="t.count" class="ct-count">{{ t.count }}</span>
-          </button>
-          <button type="button" class="ct-collapse" title="Свернуть панель (Ctrl+B)" aria-label="Свернуть левую панель" @click="leftCollapsed = true">«</button>
+        <div class="ct-tabs">
+          <AppTabs :model-value="leftTab" :items="leftTabs.map(t => ({ value: t.id, label: t.label, count: t.count || undefined }))" label="Левая панель" @update:model-value="selectLeft($event as LeftTab)" />
+          <AppButton variant="subtle" size="xs" icon title="Свернуть панель (Ctrl+B)" aria-label="Свернуть левую панель" @click="leftCollapsed = true">«</AppButton>
         </div>
         <div v-show="leftTab === 'changes'" class="ct-pane">
           <BaseSwitcher />
@@ -52,11 +50,11 @@
           >
             <template #empty>
               <span>{{ emptyText }}</span>
-              <button v-if="stageable && git.baseRef" type="button" class="btn btn-ghost btn-xs" :title="'Все изменения ветки относительно ' + git.baseRef" @click="store.setBase('remote', git.baseRef)">Diff ветки</button>
+              <AppButton variant="ghost" size="xs" v-if="stageable && git.baseRef" type="button"  :title="'Все изменения ветки относительно ' + git.baseRef" @click="store.setBase('remote', git.baseRef)">Diff ветки</AppButton>
             </template>
             <template #badges="{ change }">
-              <span v-if="store.effectiveBase === 'agent' && !fileCounts[change.path]" class="ct-badge" title="Агент тронул этот файл, хотя замечаний к нему не было">без замечаний</span>
-              <span v-if="fileCounts[change.path]" class="ct-badge" :title="`Замечаний: ${fileCounts[change.path]}`">💬{{ fileCounts[change.path] }}</span>
+              <AppBadge v-if="store.effectiveBase === 'agent' && !fileCounts[change.path]"  title="Агент тронул этот файл, хотя замечаний к нему не было">без замечаний</AppBadge>
+              <AppBadge v-if="fileCounts[change.path]"  :title="`Замечаний: ${fileCounts[change.path]}`">💬{{ fileCounts[change.path] }}</AppBadge>
             </template>
           </ChangesList>
         </div>
@@ -83,8 +81,8 @@
           @select="onSelect" @marker-click="onMarker"
         >
           <template #header="{ path }">
-            <button type="button" class="ct-link" title="Показать файл в дереве" @click="showInTree(path)">Показать в дереве</button>
-            <button v-if="!reviewReadOnly" type="button" class="ct-link" title="Замечание ко всему файлу" @click="composing = { scope: 'file' }">💬<template v-if="fileNotes.length"> {{ fileNotes.length }}</template></button>
+            <AppButton variant="link" size="xs" type="button"  title="Показать файл в дереве" @click="showInTree(path)">Показать в дереве</AppButton>
+            <AppButton variant="link" size="xs" v-if="!reviewReadOnly" type="button"  title="Замечание ко всему файлу" @click="composing = { scope: 'file' }">💬<template v-if="fileNotes.length"> {{ fileNotes.length }}</template></AppButton>
             <span v-else-if="fileNotes.length" class="ct-muted">💬 {{ fileNotes.length }}</span>
           </template>
           <template #notes="{ path }">
@@ -96,7 +94,7 @@
           <template #widget="{ line, side }">
             <div class="ct-widget">
               <ExternalThreadCard v-for="t in externalAt(line, side)" :key="t.id" :thread="t" :can-discuss="canDiscuss" @discuss="discussExternal" />
-              <ItemView v-for="item in itemsAt(line, side)" :key="item.id" :item="item" :read-only="reviewReadOnly" @open-ref="openRef" @show-change="showChange" />
+              <ItemView v-for="item in itemsAt(line, side)" :key="item.id" :item="item" embedded :read-only="reviewReadOnly" @open-ref="openRef" @show-change="showChange" />
               <ItemComposer
                 v-if="composing?.scope === 'line' && composing.side === side && composing.end === line" :where="composeWhere"
                 :busy="draftBusy" :error="draftError" @save="saveDraft" @cancel="cancelCompose"
@@ -109,11 +107,9 @@
 
       <PaneRail v-if="rightCollapsed" side="right" shortcut="Ctrl+Alt+B" :items="rightRail" @expand="rightCollapsed = false" @pick="showRight($event as RightTab)" />
       <aside v-show="!rightCollapsed" class="ct-right">
-        <div class="ct-tabs" role="tablist">
-          <button v-for="t in rightTabs" :key="t.id" type="button" role="tab" class="ct-tab" :class="{ active: rightTab === t.id }" :aria-selected="rightTab === t.id" @click="rightTab = t.id">
-            {{ t.label }}<span v-if="t.count" class="ct-count" :class="{ warning: t.warning }" :title="t.hint">{{ t.count }}</span>
-          </button>
-          <button type="button" class="ct-collapse" title="Свернуть панель (Ctrl+Alt+B)" aria-label="Свернуть правую панель" @click="rightCollapsed = true">»</button>
+        <div class="ct-tabs">
+          <AppTabs :model-value="rightTab" :items="rightTabs.map(t => ({ value: t.id, label: t.label, count: t.count || undefined, title: t.hint }))" label="Правая панель" @update:model-value="rightTab = $event as RightTab" />
+          <AppButton variant="subtle" size="xs" icon title="Свернуть панель (Ctrl+Alt+B)" aria-label="Свернуть правую панель" @click="rightCollapsed = true">»</AppButton>
         </div>
         <div v-if="rightTab === 'conflicts'" class="ct-scroll">
           <ConflictPanel ref="conflictPanel" @open="path => open(path, 'diff')" />
@@ -144,6 +140,11 @@ const lastOpened = new Map<string, string>()
 </script>
 
 <script setup lang="ts">
+import AppBadge from '@shared/ui/AppBadge.vue'
+import AppButton from '@shared/ui/AppButton.vue'
+import AppTabs from '@shared/ui/AppTabs.vue'
+import { useDraftsStore } from '@core/stores/drafts'
+import { useDraft } from '@core/composables/useDraft'
 import { FinishPanel } from '@features/finish'
 import { TaskMrPanel } from '@features/task-mr'
 import { useFinishStore, finishStages as stages } from '@features/finish'
@@ -286,7 +287,7 @@ function openFirstUnresolved() {
 
 // --- review comments -------------------------------------------------------
 type Compose = { scope: 'file' } | { scope: 'line'; side: CodeSide; start: number; end: number }
-const composing = ref<Compose | null>(null)
+const composing = useDraft<Compose | null>(() => `code-review:${store.review?.id ?? store.projectId}:compose-location`, () => null)
 const draftBusy = ref(false)
 const draftError = ref('')
 const origin = computed(() => (props.task ? { type: 'task' as const, id: props.task.id } : { type: 'project' as const, id: props.projectId }))
@@ -351,11 +352,14 @@ async function saveDraft(value: { kind: 'fix' | 'question'; text: string; refs: 
   const c = composing.value
   const file = store.selectedPath
   if (!c || !file) return
+  const owner = store.review?.id ?? store.projectId, where = composeWhere.value
   draftBusy.value = true; draftError.value = ''
   try {
     await store.addDraft(c.scope === 'file'
       ? { scope: 'file', file, ...value }
       : { scope: 'line', file, side: c.side, line_start: c.start, line_end: c.end, ...value, ...(store.effectiveBase === 'remote' ? { comparison_ref: store.remoteRef } : {}) }, origin.value.type, origin.value.id)
+    useDraftsStore().clearPrefix(`code-review:${owner}:composer:${where}:`)
+    useDraftsStore().clearPrefix(`code-review:${owner}:composer:${file}:`)
     cancelCompose()
   } catch (cause) { draftError.value = cause instanceof Error ? cause.message : 'Не удалось сохранить'; app.toast(draftError.value, 'error') }
   finally { draftBusy.value = false }
@@ -521,45 +525,45 @@ watch(() => props.projectId, id => { void begin(id) }, { immediate: true })
 </script>
 
 <style scoped>
-.ct { --diff-add: #3fb950; --diff-del: var(--danger-hover); --diff-mod: var(--blue-hover); display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; background: var(--bg); }
-.ct-head { display: flex; align-items: center; gap: 8px; flex-shrink: 0; min-height: 38px; padding: 4px 14px; border-bottom: 1px solid var(--border); font-size: 13px; }
-.ct-crumb { padding: 2px 8px; font: inherit; font-size: 12px; color: var(--blue-hover); background: none; border: none; cursor: pointer; }
+.ct { --diff-add: var(--syntax-added); --diff-del: var(--danger-hover); --diff-mod: var(--blue-hover); display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; background: var(--bg); }
+.ct-head { display: flex; align-items: center; gap: 8px; flex-shrink: 0; min-height: 38px; padding: 4px 14px; border-bottom: 1px solid var(--border); font-size: var(--fs-md); }
+.ct-crumb { padding: 2px 8px; font: inherit; font-size: var(--fs-sm); color: var(--blue-hover); background: none; border: none; cursor: pointer; }
 .ct-crumb:hover { text-decoration: underline; }
 .ct-head-commit { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); }
-.ct-head-commit code { font-size: 12px; }
+.ct-head-commit code { font-size: var(--fs-sm); }
 .ct-sep { color: var(--text-faint); }
 .ct-total { white-space: nowrap; color: var(--text-muted); }
 .ct-review { white-space: nowrap; color: var(--blue-hover); font-weight: 500; }
 .ct-review.readonly { color: var(--warning-text); }
-.ct-muted { color: var(--text-muted); font-size: 12px; }
-.ct-warn { font-size: 12px; color: var(--warning-text); }
+.ct-muted { color: var(--text-muted); font-size: var(--fs-sm); }
+.ct-warn { font-size: var(--fs-sm); color: var(--warning-text); }
 .ct-spacer { flex: 1; }
-.ct-refresh { width: 26px; height: 24px; font-size: 15px; line-height: 1; color: var(--text-muted); background: none; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); cursor: pointer; }
+.ct-refresh { width: 26px; height: 24px; font-size: var(--fs-lg); line-height: 1; color: var(--text-muted); background: none; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); cursor: pointer; }
 .ct-refresh:hover:not(:disabled) { color: var(--text); background: var(--bg3); }
 .ct-refresh:disabled { cursor: progress; }
 .ct-crumb:focus-visible, .ct-refresh:focus-visible, .ct-tab:focus-visible, .ct-link:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; border-radius: var(--radius-sm); }
 .ct-refresh.spinning { animation: ct-spin 0.9s linear infinite; }
 @keyframes ct-spin { to { transform: rotate(360deg); } }
-.ct-op { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex-shrink: 0; padding: 6px 14px; font-size: 12px; border-bottom: 1px solid var(--border); background: var(--warning-bg, var(--bg2)); box-shadow: inset 3px 0 0 var(--warning); }
+.ct-op { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex-shrink: 0; padding: 6px 14px; font-size: var(--fs-sm); border-bottom: 1px solid var(--border); background: var(--warning-bg, var(--bg2)); box-shadow: inset 3px 0 0 var(--warning); }
 .ct-op-text { flex: 1 1 320px; min-width: 0; color: var(--text); }
-.ct-error { padding: 6px 14px; font-size: 12px; color: var(--danger-hover); background: var(--danger-soft); border-bottom: 1px solid var(--border); }
-.ct-link { padding: 0 6px; font: inherit; font-size: 12px; color: var(--blue-hover); background: none; border: none; cursor: pointer; white-space: nowrap; }
+.ct-error { padding: 6px 14px; font-size: var(--fs-sm); color: var(--danger-hover); background: var(--danger-soft); border-bottom: 1px solid var(--border); }
+.ct-link { padding: 0 6px; font: inherit; font-size: var(--fs-sm); color: var(--blue-hover); background: none; border: none; cursor: pointer; white-space: nowrap; }
 .ct-link:hover { text-decoration: underline; }
 .ct-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 300px 0 minmax(0, 1fr) 0 380px; }
-.ct-resizer { position: relative; z-index: 2; width: 0; cursor: col-resize; outline: none; }
-.ct-resizer::before { content: ''; position: absolute; top: 0; bottom: 0; left: -3px; width: 6px; opacity: 0.6; transition: background 0.12s; }
+.ct-resizer { position: relative; z-index: var(--z-local-raised); width: 0; cursor: col-resize; outline: none; }
+.ct-resizer::before { content: ''; position: absolute; top: 0; bottom: 0; left: -3px; width: 6px; opacity: 0.6; transition: background var(--motion-fast); }
 .ct-resizer:hover::before, .ct-resizer:focus-visible::before { background: var(--blue); }
 .ct-left { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--border); background: var(--bg); }
 .ct-tabs { display: flex; flex-shrink: 0; border-bottom: 1px solid var(--border); }
-.ct-tab { flex: 1; padding: 7px 4px; font: inherit; font-size: 12px; font-weight: 500; color: var(--text-muted); background: none; border: none; border-bottom: 2px solid transparent; margin-bottom: -1px; cursor: pointer; white-space: nowrap; }
+.ct-tab { flex: 1; padding: 7px 4px; font: inherit; font-size: var(--fs-sm); font-weight: 500; color: var(--text-muted); background: none; border: none; border-bottom: 2px solid transparent; margin-bottom: -1px; cursor: pointer; white-space: nowrap; }
 .ct-tab:hover { color: var(--text); }
 .ct-tab.active { color: var(--text); border-bottom-color: var(--blue); }
 .ct-count.warning { background: var(--warning-text); color: var(--bg); }
-.ct-collapse { flex-shrink: 0; width: 28px; font: inherit; font-size: 13px; color: var(--text-faint); background: none; border: none; cursor: pointer; }
+.ct-collapse { flex-shrink: 0; width: 28px; font: inherit; font-size: var(--fs-md); color: var(--text-faint); background: none; border: none; cursor: pointer; }
 .ct-collapse:hover { color: var(--text); }
 .ct-collapse:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
 .ct-resizer.off { pointer-events: none; }
-.ct-count { margin-left: 5px; padding: 0 5px; font-size: 10px; font-weight: 600; border-radius: var(--radius-pill); background: var(--bg3); color: var(--text-muted); }
+.ct-count { margin-left: 5px; padding: 0 5px; font-size: var(--fs-xs); font-weight: 600; border-radius: var(--radius-pill); background: var(--bg3); color: var(--text-muted); }
 .ct-pane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .ct-scroll { flex: 1; min-height: 0; overflow-y: auto; }
 /* The last block fills the pane; toolbars above it (comparison switch) keep their height. */
@@ -569,13 +573,7 @@ watch(() => props.projectId, id => { void begin(id) }, { immediate: true })
 .ct-right { display: flex; flex-direction: column; min-height: 0; min-width: 0; border-left: 1px solid var(--border); background: var(--bg); }
 .ct-notes { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; max-height: 40%; overflow-y: auto; padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--bg2); }
 .ct-widget { display: flex; flex-direction: column; gap: 4px; }
-/* A remark inside the code must not read as another code line: raised card, blue frame, shadow. */
-.ct-widget :deep(.it) {
-  background: var(--bg3); border-top-color: var(--blue); border-right-color: var(--blue); border-bottom-color: var(--blue);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
-}
-.ct-widget :deep(.it-summary) { font-weight: 500; }
-.ct-badge { flex-shrink: 0; font-size: 10px; color: var(--text-muted); }
+.ct-badge { flex-shrink: 0; font-size: var(--fs-xs); color: var(--text-muted); }
 .plus { color: var(--diff-add); }
 .minus { color: var(--diff-del); }
 </style>

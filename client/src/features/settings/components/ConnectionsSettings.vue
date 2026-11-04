@@ -52,7 +52,7 @@
         <div class="item-main">
           <div class="item-title">
             <span>{{ c.name }}</span>
-            <span class="badge" :class="STATUS[status(c)]?.tone">{{ STATUS[status(c)]?.label || status(c) }}</span>
+            <AppBadge  :tone="STATUS[status(c)]?.tone">{{ STATUS[status(c)]?.label || status(c) }}</AppBadge>
           </div>
           <div class="item-sub"><code>{{ c.base_url }}</code> · {{ STRATEGIES[c.auth_strategy]?.label || c.auth_strategy }} · {{ accountLabel(c) }}</div>
           <div v-if="checks[c.id]?.running" class="item-message">Проверка: вход и запрос «кто я»…</div>
@@ -77,7 +77,7 @@
         <div class="item-main">
           <div class="item-title">
             <span>{{ c.name }}</span>
-            <span class="badge" :class="credentialStatus(c).tone">{{ credentialStatus(c).label }}</span>
+            <AppBadge  :tone="credentialStatus(c).tone">{{ credentialStatus(c).label }}</AppBadge>
           </div>
           <div class="item-sub">Учётная запись · логин {{ c.username }} · {{ usage(c.id) ? 'используют подключения: ' + usage(c.id) : 'не используется' }}</div>
         </div>
@@ -122,17 +122,21 @@
 </template>
 
 <script setup lang="ts">
-import ConnectionsGuide from '@shared/ui/ConnectionsGuide.vue'
+import AppBadge from '@shared/ui/AppBadge.vue'
+import { settingsEndpoints } from '../api'
+import { projectsEndpoints } from '@features/projects'
+
+import ConnectionsGuide from './ConnectionsGuide.vue'
 import { computed, onMounted, ref, watch } from 'vue'
-import { api } from '@core/api'
+
 import { useAppStore } from '@core/stores/app'
-import type { Organization, Credential, Connection, ConnectionCheck, IntegrationPreset, SecretStorage } from '@core/models/integrations'
-import type { Project } from '@core/models'
+import type { Organization, Credential, Connection, ConnectionCheck, IntegrationPreset, SecretStorage } from '@contracts'
+
 import AppButton from '@shared/ui/AppButton.vue'
 import AppModal from '@shared/ui/AppModal.vue'
 import FormField from '@shared/ui/FormField.vue'
 import { errorText } from '@shared/utils/errorText'
-import { formatDateTime } from '@shared/utils/format'
+import { formatDateTime } from '@shared/utils/datetime'
 import ConnectionFormModal from './ConnectionFormModal.vue'
 import { CONFIRM, CREDENTIAL, CREDENTIAL_STATUS, EMPTY, ERRORS, INTRO, NEEDS_UPDATE, ORGANIZATION, STATUS, STORAGE, STRATEGIES, checkText } from '../utils/connection-hints'
 
@@ -148,12 +152,12 @@ const loading = ref(false), loaded = ref(false), loadError = ref('')
 
 async function load() {
   const [o, c, n, p, s] = await Promise.all([
-    api.get<Organization[]>('/integrations/organizations'), api.get<Credential[]>('/integrations/credentials'),
-    api.get<Connection[]>('/integrations/connections'), api.get<IntegrationPreset[]>('/integrations/presets'),
-    api.get<SecretStorage>('/integrations/storage'),
+    settingsEndpoints.getIntegrationsOrganizations({ params: {  } }), settingsEndpoints.getIntegrationsCredentials({ params: {  } }),
+    settingsEndpoints.getIntegrationsConnections({ params: {  } }), settingsEndpoints.getIntegrationsPresets({ params: {  } }),
+    settingsEndpoints.getIntegrationsStorage({ params: {  } }),
   ])
   organizations.value = o; credentials.value = c; connections.value = n; presets.value = p; storage.value = s
-  const own = await Promise.all(n.filter(x => x.credential_mode === 'own').map(async x => [x.id, await api.get<Credential | null>('/integrations/connections/' + x.id + '/credential').catch(() => null)] as const))
+  const own = await Promise.all(n.filter(x => x.credential_mode === 'own').map(async x => [x.id, await settingsEndpoints.getIntegrationsConnectionsByIdCredential({ params: { id: x.id } }).catch(() => null)] as const))
   ownAccounts.value = Object.fromEntries(own)
   loaded.value = true
 }
@@ -226,7 +230,7 @@ async function saveOrganization() {
   if (!f.name.trim()) return app.toast('Укажите название организации', 'error')
   await run(async () => {
     const data = { name: f.name.trim(), credential_id: f.credential_id || null }
-    if (f.id) await api.patch('/integrations/organizations/' + f.id, data); else await api.post('/integrations/organizations', data)
+    if (f.id) await settingsEndpoints.patchIntegrationsOrganizationsById({ params: { id: f.id }, body: data }); else await settingsEndpoints.postIntegrationsOrganizations({ params: {  }, body: data })
     organizationOpen.value = false
   })
 }
@@ -236,13 +240,13 @@ async function saveCredential() {
   const secret = password.value
   const ok = await run(async () => {
     const data = { name: f.name.trim() || f.username.trim(), username: f.username.trim(), organization_id: f.organization_id || null }
-    const saved = f.id ? await api.patch<Credential>('/integrations/credentials/' + f.id, data) : await api.post<Credential>('/integrations/credentials', data)
+    const saved = f.id ? await settingsEndpoints.patchIntegrationsCredentialsById({ params: { id: f.id }, body: data }) : await settingsEndpoints.postIntegrationsCredentials({ params: {  }, body: data })
     // The password is a separate write-only request; it never travels with the account.
-    if (secret) await api.put('/integrations/credentials/' + saved.id + '/password', { password: secret })
+    if (secret) await settingsEndpoints.putIntegrationsCredentialsByIdPassword({ params: { id: saved.id }, body: { password: secret } })
     credentialOpen.value = false
     // A new organization's first account becomes its shared one, so «От организации» works right away.
     const org = organizations.value.find(o => o.id === data.organization_id)
-    if (!f.id && org && !org.credential_id) await api.patch('/integrations/organizations/' + org.id, { name: org.name, credential_id: saved.id })
+    if (!f.id && org && !org.credential_id) await settingsEndpoints.patchIntegrationsOrganizationsById({ params: { id: org.id }, body: { name: org.name, credential_id: saved.id } })
   })
   if (ok && secret && f.id) await recheck('credentials', f.id)
 }
@@ -251,7 +255,7 @@ function openPassword(kind: string, id: string, name = '', token = false) { pass
 async function savePassword() {
   if (!password.value) return app.toast(passwordFor.value.token ? 'Введите токен' : 'Введите пароль', 'error')
   const { kind, id } = passwordFor.value
-  const ok = await run(async () => { await api.put('/integrations/' + kind + '/' + id + '/password', { password: password.value }); passwordOpen.value = false; password.value = '' })
+  const ok = await run(async () => { await settingsEndpoints.savePassword(kind, id, password.value); passwordOpen.value = false; password.value = '' })
   if (ok) await recheck(kind, id)
 }
 /** After a new password, check what signs in with it: the user sees at once whether it works. */
@@ -276,24 +280,24 @@ async function connectionSaved(id: string, passwordChanged: boolean) {
 }
 async function check(id: string, refresh = true) {
   checks.value[id] = { running: true }
-  try { checks.value[id] = { result: await api.post<ConnectionCheck>('/integrations/connections/' + id + '/check') } }
+  try { checks.value[id] = { result: await settingsEndpoints.postIntegrationsConnectionsByIdCheck({ params: { id: id } }) } }
   catch (e) { checks.value[id] = { result: { ok: false, status: 'error', message: errorText(e, ERRORS), url: '' } } }
   if (refresh) await reload()
 }
 
 async function removeOrganization(o: Organization) {
-  if (await app.confirm(CONFIRM.organization(o.name), { confirmLabel: 'Удалить', danger: true })) await run(async () => { await api.delete('/integrations/organizations/' + o.id) })
+  if (await app.confirm(CONFIRM.organization(o.name), { confirmLabel: 'Удалить', danger: true })) await run(async () => { await settingsEndpoints.deleteIntegrationsOrganizationsById({ params: { id: o.id } }) })
 }
 async function removeCredential(c: Credential) {
-  if (await app.confirm(CONFIRM.credential(c.name, usage(c.id)), { confirmLabel: 'Удалить', danger: true })) await run(async () => { await api.delete('/integrations/credentials/' + c.id) })
+  if (await app.confirm(CONFIRM.credential(c.name, usage(c.id)), { confirmLabel: 'Удалить', danger: true })) await run(async () => { await settingsEndpoints.deleteIntegrationsCredentialsById({ params: { id: c.id } }) })
 }
 async function removeConnection(c: Connection) {
   if (!(await app.confirm(CONFIRM.connection(c.name), { confirmLabel: 'Удалить', danger: true }))) return
-  try { await api.delete('/integrations/connections/' + c.id); await reload() }
+  try { await settingsEndpoints.deleteIntegrationsConnectionsById({ params: { id: c.id } }); await reload() }
   catch (e) {
     if (!/used by a source/.test(String(e))) return app.toast(errorText(e, ERRORS), 'error')
     // Name the sources that hold the connection, so the user knows where to go.
-    const sources = await api.get<Project[]>('/projects').then(ps => ps.filter(p => p.connection_id === c.id).map(p => '@' + p.key).join(', ')).catch(() => '')
+    const sources = await projectsEndpoints.getProjects({ params: {  } }).then(ps => ps.filter(p => p.connection_id === c.id).map(p => '@' + p.key).join(', ')).catch(() => '')
     app.toast(CONFIRM.inUse(sources), 'error')
   }
 }
@@ -308,42 +312,42 @@ onMounted(async () => {
 <style scoped>
 .connections { display: flex; flex-direction: column; gap: var(--sp-4); }
 .section-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-.section-title { font-weight: 600; font-size: 14px; }
+.section-title { font-weight: 600; font-size: var(--fs-base); }
 .actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; justify-content: flex-end; }
-.hint { font-size: 12px; line-height: 1.5; color: var(--text-muted); overflow-wrap: anywhere; }
-.empty-state { color: var(--text-muted); font-size: 13px; }
+.hint { font-size: var(--fs-sm); line-height: 1.5; color: var(--text-muted); overflow-wrap: anywhere; }
+.empty-state { color: var(--text-muted); font-size: var(--fs-md); }
 .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 
-.banner { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; border-radius: var(--radius); font-size: 12.5px; line-height: 1.5; border: 1px solid; }
+.banner { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; border-radius: var(--radius); font-size: var(--fs-md); line-height: 1.5; border: 1px solid; }
 .banner > span { flex: 1; min-width: 240px; }
-.banner.warn { background: var(--warning-soft); border-color: rgba(210, 153, 34, 0.4); color: var(--warning-text); }
-.banner.error { background: var(--danger-soft); border-color: rgba(248, 81, 73, 0.4); color: var(--danger-hover); }
+.banner.warn { background: var(--warning-soft); border-color: var(--warning-outline); color: var(--warning-text); }
+.banner.error { background: var(--danger-soft); border-color: var(--danger-outline); color: var(--danger-hover); }
 
-.empty { display: flex; flex-direction: column; gap: 8px; padding: 16px 18px; border: 1px dashed var(--border-strong); border-radius: var(--radius); font-size: 13px; }
-.empty ol { padding-left: 20px; display: flex; flex-direction: column; gap: 4px; color: var(--text-muted); font-size: 12.5px; line-height: 1.5; }
+.empty { display: flex; flex-direction: column; gap: 8px; padding: 16px 18px; border: 1px dashed var(--border-strong); border-radius: var(--radius); font-size: var(--fs-md); }
+.empty ol { padding-left: 20px; display: flex; flex-direction: column; gap: 4px; color: var(--text-muted); font-size: var(--fs-md); line-height: 1.5; }
 .empty .actions { justify-content: flex-start; }
 
 .org { display: flex; flex-direction: column; gap: var(--sp-2); padding: 12px 14px; background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); }
 .org-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .org-title { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.org-name { font-weight: 600; font-size: 13.5px; }
-.org-sub { font-size: 12px; color: var(--text-muted); }
+.org-name { font-weight: 600; font-size: var(--fs-base); }
+.org-sub { font-size: var(--fs-sm); color: var(--text-muted); }
 
-.item { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 10px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); transition: border-color 0.12s; }
+.item { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 10px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); transition: border-color var(--motion-fast); }
 .item:hover { border-color: var(--border-strong); }
 .item-main { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 3px; }
-.item-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-weight: 600; font-size: 13px; }
-.item-sub, .item-url { font-size: 12px; color: var(--text-muted); overflow-wrap: anywhere; }
+.item-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-weight: 600; font-size: var(--fs-md); }
+.item-sub, .item-url { font-size: var(--fs-sm); color: var(--text-muted); overflow-wrap: anywhere; }
 .item-url { color: var(--text-faint); }
-.item-message { font-size: 12px; line-height: 1.45; color: var(--text-muted); overflow-wrap: anywhere; }
+.item-message { font-size: var(--fs-sm); line-height: 1.45; color: var(--text-muted); overflow-wrap: anywhere; }
 .item-message.ok { color: var(--accent-hover); }
 .item-message.error { color: var(--danger-hover); }
 .item-message.warn { color: var(--warning-text); }
 .faint { color: var(--text-faint); }
-code { padding: 1px 5px; background: var(--bg3); border-radius: 4px; font-size: 11.5px; }
+code { padding: 1px 5px; background: var(--bg3); border-radius: var(--radius-4); font-size: var(--fs-sm); }
 
-.badge { padding: 1px 8px; border-radius: var(--radius-pill); font-size: 11px; font-weight: 500; border: 1px solid var(--border-strong); color: var(--text-muted); white-space: nowrap; }
-.badge.ok { color: var(--accent-hover); background: var(--accent-soft); border-color: rgba(46, 160, 67, 0.4); }
-.badge.warn { color: var(--warning-text); background: var(--warning-soft); border-color: rgba(210, 153, 34, 0.4); }
-.badge.error { color: var(--danger-hover); background: var(--danger-soft); border-color: rgba(248, 81, 73, 0.4); }
+.badge { padding: 1px 8px; border-radius: var(--radius-pill); font-size: var(--fs-xs); font-weight: 500; border: 1px solid var(--border-strong); color: var(--text-muted); white-space: nowrap; }
+.badge.ok { color: var(--accent-hover); background: var(--accent-soft); border-color: var(--accent-outline); }
+.badge.warn { color: var(--warning-text); background: var(--warning-soft); border-color: var(--warning-outline); }
+.badge.error { color: var(--danger-hover); background: var(--danger-soft); border-color: var(--danger-outline); }
 </style>

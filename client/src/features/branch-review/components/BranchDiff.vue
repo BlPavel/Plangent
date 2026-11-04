@@ -61,6 +61,6 @@ const markers = (side: CodeSide) => {
 <style scoped>
 .branch-diff { height: 100%; display: flex; flex-direction: column; min-height: 360px; }
 .branch-diff :deep(.code-view) { flex: 1; min-height: 320px; }
-.state { padding: 24px; text-align: center; font-size: 12.5px; color: var(--text-muted); }
+.state { padding: 24px; text-align: center; font-size: var(--fs-md); color: var(--text-muted); }
 .state.error { color: var(--danger-hover); }
 </style>

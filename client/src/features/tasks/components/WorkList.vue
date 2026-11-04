@@ -2,21 +2,19 @@
   <div class="work-list">
     <NewWork :key="project.id" :project="project" :members="members" :agents="agents" :default-agent-id="defaultAgentId" @created="onCreated" />
     <div class="work-toolbar">
-      <div class="work-kinds" role="group" aria-label="Фильтр по виду">
-        <button v-for="k in kinds" :key="k.id" type="button" :class="{ active: kind === k.id }" @click="kind = k.id">{{ k.label }}<span class="work-kind-count">{{ k.count }}</span></button>
-      </div>
+      <AppSegmented :model-value="kind" :options="kinds.map(k => ({ value: k.id, label: `${k.label} (${k.count})` }))" label="Фильтр по виду" @update:model-value="kind = $event as typeof kind" />
       <FormField v-if="isGroup" v-model="owner" type="select" class="work-owner">
         <option value="">Все проекты</option>
         <option value="group">Только группа</option>
         <option v-for="m in members" :key="m.id" :value="m.id">📁 {{ m.name }}</option>
       </FormField>
-      <input v-model="search" class="work-search" placeholder="Номер или описание…" aria-label="Поиск" />
+      <span class="work-search"><AppInput v-model="search" size="sm" block placeholder="Номер или описание…" aria-label="Поиск" /></span>
     </div>
 
     <div class="work-groups">
       <p v-if="work.error" role="alert" class="work-error">{{ work.error }}</p>
-      <div v-else-if="!work.entries.length && !work.loading" class="empty-state small">Пока ничего нет. Поручите что-нибудь агенту или создайте задачу.</div>
-      <div v-else-if="!shown.length" class="empty-state small">Под фильтр ничего не подходит.</div>
+      <AppEmptyState v-else-if="!work.entries.length && !work.loading" small>Пока ничего нет. Поручите что-нибудь агенту или создайте задачу.</AppEmptyState>
+      <AppEmptyState v-else-if="!shown.length" small>Под фильтр ничего не подходит.</AppEmptyState>
       <section v-for="g in groups" :key="g.id" class="work-group">
         <h3 :class="{ clickable: g.id === 'done', attention: g.id === 'attention' }" @click="g.id === 'done' && (doneOpen = !doneOpen)">
           <span v-if="g.id === 'done'" class="caret">{{ doneOpen ? '▾' : '▸' }}</span>{{ g.title }} <span class="work-group-count">· {{ g.items.length }}</span>
@@ -31,7 +29,7 @@
               <div class="work-line">
                 <code v-if="e.task.external_key" class="work-number">{{ e.task.external_key }}</code>
                 <span class="work-title">{{ e.task.title || (e.task.external_key ? '' : '—') }}</span>
-                <span v-if="isGroup" class="work-owner-tag" :class="{ own: e.task.project_id === project.id }">{{ e.task.project_id === project.id ? 'группа' : ownerName(e.task.project_id) }}</span>
+                <AppBadge v-if="isGroup" :tone="e.task.project_id === project.id ? 'open' : 'neutral'">{{ e.task.project_id === project.id ? 'группа' : ownerName(e.task.project_id) }}</AppBadge>
               </div>
               <div class="work-meta">
                 <span class="work-state" :class="{ live: e.state.agentWorking }">{{ e.state.text }}</span>
@@ -65,7 +63,7 @@
         <FormField v-model="numberDraft" label="Номер задачи" placeholder="PROJ-123" maxlength="100" :disabled="saving" />
         <FormField v-model="titleDraft" label="Описание" placeholder="Что нужно сделать" maxlength="300" :disabled="saving" />
         <p v-if="editError" class="work-error" role="alert">{{ editError }}</p>
-        <button type="submit" hidden />
+        <AppButton type="submit" hidden />
       </form>
     </AppModal>
     <AppModal :model-value="!!followUp" title="Поручение по этой работе" confirm-label="Поручить" @update:model-value="followUp = null" @confirm="submitFollowUp">
@@ -75,11 +73,14 @@
 </template>
 
 <script setup lang="ts">
+import AppInput from '@shared/ui/AppInput.vue'
+import { AppBadge, AppEmptyState, AppSegmented } from '@shared/ui'
+import { tasksEndpoints } from '../api'
+
 import { computed, nextTick, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import type { Agent, Project, Task, WorkEntry } from '@core/models'
+import type { Agent, Project, Task, WorkEntry } from '@contracts'
 import { useAppStore } from '@core/stores/app'
-import { api } from '@core/api'
 import AppButton from '@shared/ui/AppButton.vue'
 import AppModal from '@shared/ui/AppModal.vue'
 import AppMenu, { type MenuItem } from '@shared/ui/AppMenu.vue'
@@ -156,7 +157,7 @@ async function saveEdit() {
   if (!title && !number) { editError.value = 'Укажите номер задачи или описание'; return }
   saving.value = true; editError.value = ''
   try {
-    const updated = await api.patch<Task>(`/projects/${task.project_id}/tasks/${task.id}`, { title, external_key: number || null })
+    const updated = await tasksEndpoints.patchProjectsByProjectIdTasksByTaskId({ params: { projectId: task.project_id, taskId: task.id }, body: { title, external_key: number || null } })
     if (app.currentTask?.id === updated.id) app.currentTask = updated
     editing.value = null
     await work.load(); emit('changed')
@@ -182,15 +183,14 @@ async function submitFollowUp() {
 .work-list { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 .work-toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 10px 16px 0; }
 .work-kinds { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
-.work-kinds button { padding: 5px 12px; background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 12.5px; }
+.work-kinds button { padding: 5px 12px; background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: var(--fs-md); }
 .work-kinds button.active { background: var(--bg3); color: var(--text); }
-.work-kind-count { margin-left: 5px; font-size: 11px; color: var(--text-faint); }
+.work-kind-count { margin-left: 5px; font-size: var(--fs-xs); color: var(--text-faint); }
 .work-owner { width: 190px; }
-.work-search { margin-left: auto; width: 220px; height: var(--size-sm); padding: 0 10px; background: var(--bg3); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); color: var(--text); font: inherit; font-size: 12.5px; }
-.work-search:focus { outline: none; border-color: var(--blue); }
+.work-search { margin-left: auto; flex: 0 0 220px; }
 .work-groups { flex: 1; overflow: auto; padding: 0 16px 16px; }
 .work-error { color: var(--danger-hover); }
-.work-group h3 { margin: 14px 0 6px; font-size: 11.5px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
+.work-group h3 { margin: 14px 0 6px; font-size: var(--fs-sm); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
 .work-group h3.attention { color: var(--warning-text); }
 .work-group h3.clickable { cursor: pointer; }
 .work-group-count { color: var(--text-faint); }
@@ -199,31 +199,31 @@ async function submitFollowUp() {
 .work-row.attention { box-shadow: inset 2px 0 0 var(--warning); }
 .work-row.danger { box-shadow: inset 2px 0 0 var(--danger-hover); }
 .work-row:hover, .work-row:focus-visible { border-color: var(--border-strong); background: var(--bg3); outline: none; }
-.work-kind { width: 24px; height: 24px; display: grid; place-items: center; border-radius: 6px; font-size: 12px; }
+.work-kind { width: 24px; height: 24px; display: grid; place-items: center; border-radius: var(--radius-sm); font-size: var(--fs-sm); }
 .work-kind.errand { background: var(--warning-soft); }
 .work-kind.task { background: var(--blue-soft); }
 .work-main { min-width: 0; }
 .work-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.work-number { flex-shrink: 0; font-size: 12px; color: var(--text-muted); }
+.work-number { flex-shrink: 0; font-size: var(--fs-sm); color: var(--text-muted); }
 .work-title { min-width: 0; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.work-meta { display: flex; align-items: center; gap: 10px; margin-top: 2px; min-width: 0; font-size: 11.5px; color: var(--text-faint); white-space: nowrap; overflow: hidden; }
+.work-meta { display: flex; align-items: center; gap: 10px; margin-top: 2px; min-width: 0; font-size: var(--fs-sm); color: var(--text-faint); white-space: nowrap; overflow: hidden; }
 .work-state { color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; }
 .work-row.attention .work-state { color: var(--warning-text); }
 .work-row.danger .work-state { color: var(--danger-hover); }
 .work-state.live { color: var(--blue-hover); }
-.work-state.live::before { content: ''; display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: currentColor; vertical-align: 1px; animation: work-pulse 1.4s ease-in-out infinite; }
+.work-state.live::before { content: ''; display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: var(--radius-round); background: currentColor; vertical-align: 1px; animation: work-pulse 1.4s ease-in-out infinite; }
 @keyframes work-pulse { 50% { opacity: 0.3; } }
-.work-branch { max-width: 280px; overflow: hidden; text-overflow: ellipsis; font-family: 'Cascadia Code', 'JetBrains Mono', monospace; color: var(--text-muted); }
+.work-branch { max-width: 280px; overflow: hidden; text-overflow: ellipsis; font-family: var(--font-mono); color: var(--text-muted); }
 .work-main-folder { color: var(--warning-text); }
 .work-stage { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; min-width: 120px; }
 .work-bars { display: flex; gap: 3px; }
-.work-bars i { width: 16px; height: 4px; border-radius: 2px; background: var(--border-strong); }
+.work-bars i { width: 16px; height: 4px; border-radius: var(--radius-xs); background: var(--border-strong); }
 .work-bars i.passed { background: var(--accent-hover); }
 .work-bars i.current { background: var(--blue-hover); }
 .work-bars i.attention { background: var(--warning); }
-.work-stage-name { font-size: 11.5px; color: var(--text-muted); }
+.work-stage-name { font-size: var(--fs-sm); color: var(--text-muted); }
 .work-actions { display: flex; align-items: center; justify-content: flex-end; gap: 4px; min-width: 130px; }
-.work-owner-tag { flex-shrink: 0; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 1px 8px; border-radius: var(--radius-pill); background: var(--bg3); border: 1px solid var(--border); font-size: 11px; color: var(--text-muted); }
+.work-owner-tag { flex-shrink: 0; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 1px 8px; border-radius: var(--radius-pill); background: var(--bg3); border: 1px solid var(--border); font-size: var(--fs-xs); color: var(--text-muted); }
 .work-owner-tag.own { color: var(--blue-hover); border-color: var(--blue-soft); }
 .work-menu { display: inline-flex; }
 .work-edit { display: flex; flex-direction: column; gap: 12px; }

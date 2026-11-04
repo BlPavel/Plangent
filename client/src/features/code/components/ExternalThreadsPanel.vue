@@ -29,12 +29,12 @@ const store = useExternalThreadsStore()
 
 <style scoped>
 .ep { flex-shrink: 0; max-height: 45%; display: flex; flex-direction: column; border-bottom: 1px solid var(--border); }
-.ep-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 6px 8px 6px 12px; font-size: 12px; }
+.ep-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 6px 8px 6px 12px; font-size: var(--fs-sm); }
 .ep-title { font-weight: 600; }
 .ep-spacer { flex: 1; }
-.ep-muted { font-size: 12px; color: var(--text-muted); }
+.ep-muted { font-size: var(--fs-sm); color: var(--text-muted); }
 .ep-pad { padding: 0 12px 8px; }
-.ep-link { font-size: 11.5px; color: var(--blue-hover); }
-.ep-error { margin: 0 12px 6px; font-size: 12px; color: var(--danger-hover); }
+.ep-link { font-size: var(--fs-sm); color: var(--blue-hover); }
+.ep-error { margin: 0 12px 6px; font-size: var(--fs-sm); color: var(--danger-hover); }
 .ep-list { overflow-y: auto; padding: 0 8px 6px; }
 </style>

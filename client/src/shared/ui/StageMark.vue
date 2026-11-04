@@ -9,15 +9,18 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
-
+import { computed } from 'vue';
 /**
  * A compact status of a stage that can be told apart without colour: filled circle with a tick, skip-forward,
  * small filled circle, empty circle. `changed` is «ready», but the material was edited after the mark.
  */
-const props = defineProps<{ state: 'ready' | 'changed' | 'skipped' | 'draft' | 'empty'; live?: boolean; label?: string }>()
-const names = { ready: 'Готово', changed: 'Изменён после отметки', skipped: 'Пропущено', draft: 'Черновик', empty: 'Не начато' }
-const text = computed(() => props.label ?? names[props.state])
+const props = defineProps<{
+    state: 'ready' | 'changed' | 'skipped' | 'draft' | 'empty';
+    live?: boolean;
+    label?: string;
+}>();
+const names = { ready: 'Готово', changed: 'Изменён после отметки', skipped: 'Пропущено', draft: 'Черновик', empty: 'Не начато' };
+const text = computed(() => props.label ?? names[props.state]);
 </script>
 
 <style scoped>
@@ -27,7 +30,7 @@ const text = computed(() => props.label ?? names[props.state])
 .skipped { color: var(--text-muted); opacity: 0.75; }
 .draft { color: var(--blue-hover); }
 .empty { opacity: 0.55; }
-.live { animation: stage-pulse 1.2s ease-in-out infinite; }
-.changed-dot { position: absolute; top: -2px; right: -3px; width: 6px; height: 6px; border-radius: 50%; background: var(--warning); border: 1px solid var(--bg); }
+.live { animation: stage-pulse var(--motion-pulse) ease-in-out infinite; }
+.changed-dot { position: absolute; top: -2px; right: -3px; width: 6px; height: 6px; border-radius: var(--radius-round); background: var(--warning); border: 1px solid var(--bg); }
 @keyframes stage-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 </style>

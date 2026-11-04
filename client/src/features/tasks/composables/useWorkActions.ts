@@ -1,5 +1,6 @@
+import { useDraftsStore } from '@core/stores/drafts'
 import { useAppStore } from '@core/stores/app'
-import type { Task } from '@core/models'
+import type { Task } from '@contracts'
 import { workApi } from '../api'
 
 interface Blockers { files?: string[]; commits?: string[] }
@@ -35,7 +36,7 @@ export function useWorkActions() {
   }
   async function remove(t: Task) {
     if (!await app.confirm(`Удалить «${t.kind === 'errand' ? t.title || 'поручение' : t.key}»? Действие необратимо.`, { confirmLabel: 'Удалить', danger: true })) return false
-    return (await guarded(discard => workApi.remove(t.project_id, t.id, discard).then(() => true), 'Рабочее место будет удалено вместе с изменениями.')) === true
+    return (await guarded(discard => workApi.remove(t.project_id, t.id, discard).then(() => { useDraftsStore().clearPrefix(`task:${t.id}:`); return true }), 'Рабочее место будет удалено вместе с изменениями.')) === true
   }
   async function errandFrom(t: Task, request: string, agentId?: string | null) {
     if (!request.trim()) return

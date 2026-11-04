@@ -1,6 +1,7 @@
+
+import { activeQueues } from '../api'
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { api } from '@core/api'
 import { platform, type UpdateState } from '@core/platform'
 import { useAppStore } from '@core/stores/app'
 
@@ -29,7 +30,7 @@ export const useUpdatesStore = defineStore('updates', () => {
   async function install() {
     if (!updates || state.value.status !== 'ready') return
     let active: ActiveQueue[] = []
-    try { active = await api.get<ActiveQueue[]>('/queues/active') } catch { /* ask as if nothing runs */ }
+    try { active = await activeQueues() } catch { /* ask as if nothing runs */ }
     if (active.length) {
       const ok = await useAppStore().confirm(
         `Сейчас выполняются задачи: ${active.map(q => q.taskKey).join(', ')}. Перезапуск остановит их — после обновления очередь можно будет запустить снова.`,

@@ -1,4 +1,4 @@
-import type { Task, WorkGroup, WorkState } from '@core/models'
+import type { Task, WorkGroup, WorkState } from '@contracts'
 
 export const workGroups: { id: WorkGroup; title: string }[] = [
   { id: 'attention', title: 'Нужно ваше действие' },

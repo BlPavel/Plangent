@@ -16,18 +16,18 @@
         <div class="session-title">
           <span class="agent">{{ agentName }}</span>
           <code class="points" :title="(session.points ?? []).join(', ')">{{ pointsText }}</code>
-          <span v-if="session.kind !== 'review' && session.queueMode === 'review_first'" class="tag" title="Агент сначала изучает шаги без правок и ждёт вашей команды">сначала обсудить</span>
-          <span v-if="session.kind !== 'review' && session.permissionPolicy !== 'allow-all'" class="tag">{{ policyShort }}</span>
+          <AppBadge v-if="session.kind !== 'review' && session.queueMode === 'review_first'"  title="Агент сначала изучает шаги без правок и ждёт вашей команды">сначала обсудить</AppBadge>
+          <AppBadge v-if="session.kind !== 'review' && session.permissionPolicy !== 'allow-all'" >{{ policyShort }}</AppBadge>
         </div>
         <div class="session-step" :title="stepsTitle">{{ firstStepText }}</div>
       </div>
-      <span class="status-badge" :class="state.tone">{{ state.label }}</span>
+      <AppBadge dot  :tone="state.tone">{{ state.label }}</AppBadge>
       <AppButton
         v-if="editable && session.status !== 'complete'"
         variant="subtle"
         size="sm"
         icon
-        :class="{ on: showSettings }"
+        :pressed="showSettings"
         title="Настройки шага"
         @click.stop="showSettings = !showSettings"
       >
@@ -51,21 +51,22 @@
 
     <QueueReviewItem v-if="showSettings && editable && session.kind === 'review'" :session="session" :agents="agents" @click.stop />
     <div v-else-if="showSettings && editable" class="settings" @click.stop>
-      <label><span>Агент</span><AppSelect :model-value="session.agentId" :options="agentOptions" size="sm" @update:model-value="patch({ agentId: $event, model: undefined, reasoningEffort: undefined })" /></label>
-      <label v-if="modelChoices.length"><span>Модель</span><AppSelect :model-value="session.model ?? agent?.model ?? ''" :options="modelChoices" size="sm" placeholder="По умолчанию" @update:model-value="patch({ model: $event })" /></label>
-      <label v-if="effortChoices.length"><span>Рассуждения</span><AppSelect :model-value="session.reasoningEffort ?? agent?.reasoning_effort ?? ''" :options="effortChoices" size="sm" placeholder="По умолчанию" @update:model-value="patch({ reasoningEffort: $event })" /></label>
-      <label><span>Режим</span><AppSelect :model-value="session.queueMode" :options="MODE_OPTIONS" size="sm" @update:model-value="patch({ queueMode: $event as QueueSessionMode })" /></label>
-      <label><span>Разрешения</span><AppSelect :model-value="session.permissionPolicy" :options="POLICY_OPTIONS" size="sm" heading="Опасные команды (rm -rf, git push --force и т. п.) всегда спрашиваются" @update:model-value="patch({ permissionPolicy: $event as ExecutionPolicy })" /></label>
+      <label><span>Агент</span><AppSelect block :model-value="session.agentId" :options="agentOptions" size="sm" @update:model-value="patch({ agentId: $event, model: undefined, reasoningEffort: undefined })" /></label>
+      <label v-if="modelChoices.length"><span>Модель</span><AppSelect block :model-value="session.model ?? agent?.model ?? ''" :options="modelChoices" size="sm" placeholder="По умолчанию" @update:model-value="patch({ model: $event })" /></label>
+      <label v-if="effortChoices.length"><span>Рассуждения</span><AppSelect block :model-value="session.reasoningEffort ?? agent?.reasoning_effort ?? ''" :options="effortChoices" size="sm" placeholder="По умолчанию" @update:model-value="patch({ reasoningEffort: $event })" /></label>
+      <label><span>Режим</span><AppSelect block :model-value="session.queueMode" :options="MODE_OPTIONS" size="sm" @update:model-value="patch({ queueMode: $event as QueueSessionMode })" /></label>
+      <label><span>Разрешения</span><AppSelect block :model-value="session.permissionPolicy" :options="POLICY_OPTIONS" size="sm" heading="Опасные команды (rm -rf, git push --force и т. п.) всегда спрашиваются" @update:model-value="patch({ permissionPolicy: $event as ExecutionPolicy })" /></label>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import AppBadge from '@shared/ui/AppBadge.vue'
 import { computed, inject, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '@core/stores/app'
 import { codeTarget } from '@features/code'
-import type { Agent, ExecutionPolicy, OrchestratorQueueSession, PlanStep, QueueSessionMode, QueueStage } from '@core/models'
+import type { Agent, ExecutionPolicy, OrchestratorQueueSession, PlanStep, QueueSessionMode, QueueStage } from '@contracts'
 import QueueReviewItem from './QueueReviewItem.vue'
 import AppButton from '@shared/ui/AppButton.vue'
 import AppSelect from '@shared/ui/AppSelect.vue'
@@ -178,7 +179,7 @@ const menuItems = computed<MenuItem[]>(() => {
   border-radius: var(--radius-sm);
   background: var(--bg2);
   cursor: pointer;
-  transition: border-color 0.12s, background 0.12s;
+  transition: border-color var(--motion-fast), background var(--motion-fast);
 }
 .session:hover { border-color: var(--border-strong); }
 .session.selected { border-color: var(--blue); background: var(--blue-soft); }
@@ -194,7 +195,7 @@ const menuItems = computed<MenuItem[]>(() => {
 .grip { display: flex; color: var(--text-faint); margin: 0 -4px 0 -4px; cursor: grab; }
 .grip svg { width: 14px; height: 14px; }
 .session:hover .grip { color: var(--text-muted); }
-.dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: var(--border-strong); }
+.dot { width: 8px; height: 8px; border-radius: var(--radius-round); flex-shrink: 0; background: var(--border-strong); }
 .tone-open .dot { background: var(--blue-hover); }
 .tone-progress .dot { background: var(--warning-text); }
 .tone-done .dot { background: var(--accent-hover); }
@@ -203,20 +204,16 @@ const menuItems = computed<MenuItem[]>(() => {
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 
 .session-text { flex: 1; flex-basis: 140px; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.session-title { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; font-size: 12.5px; }
+.session-title { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; font-size: var(--fs-md); }
 .agent { font-weight: 600; white-space: nowrap; }
-.points { font-family: 'Cascadia Code', 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tag { font-size: 10.5px; color: var(--text-muted); border: 1px solid var(--border-strong); border-radius: var(--radius-pill); padding: 0 6px; white-space: nowrap; }
-.session-step { font-size: 12px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.status-badge { flex-shrink: 0; }
-.btn.on { background: var(--bg3); color: var(--text); }
-.btn svg { width: 14px; height: 14px; }
+.points { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tag { font-size: var(--fs-xs); color: var(--text-muted); border: 1px solid var(--border-strong); border-radius: var(--radius-pill); padding: 0 6px; white-space: nowrap; }
+.session-step { font-size: var(--fs-sm); color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-.session-detail { display: flex; align-items: center; gap: 8px; margin-left: 16px; font-size: 12px; color: var(--text-muted); }
+.session-detail { display: flex; align-items: center; gap: 8px; margin-left: 16px; font-size: var(--fs-sm); color: var(--text-muted); }
 .session-detail.ask { color: var(--warning-text); }
 .detail-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 
 .settings { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; margin-left: 16px; padding-top: 8px; border-top: 1px solid var(--border); cursor: default; }
-.settings label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--text-muted); }
-.settings :deep(.select) { width: 100%; }
+.settings label { display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-xs); color: var(--text-muted); }
 </style>

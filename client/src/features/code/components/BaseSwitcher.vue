@@ -6,16 +6,11 @@
       @update:model-value="store.setBase('remote', $event)"
     />
     <span class="bs-spacer" />
-    <button type="button" class="bs-close" title="Вернуться к незакоммиченным изменениям" aria-label="Закрыть diff ветки" @click="store.setBase('head')">✕</button>
+    <AppButton variant="subtle" size="xs" icon title="Вернуться к незакоммиченным изменениям" aria-label="Закрыть diff ветки" @click="store.setBase('head')">✕</AppButton>
   </div>
   <div v-else-if="store.repository && options.length > 1" class="bs">
-    <div class="bs-group" role="radiogroup" aria-label="Какие изменения показать">
-      <button
-        v-for="option in options" :key="option.value" type="button" role="radio" class="bs-option" :class="{ on: kind === option.value }"
-        :aria-checked="kind === option.value" :disabled="locked" :title="option.hint" @click="pick(option.value)"
-      >{{ option.label }}</button>
-    </div>
-    <PlainSelect
+    <AppSegmented :model-value="kind" :options="options.map(option => ({ value: option.value, label: option.label, disabled: locked }))" label="Какие изменения показать" @update:model-value="pick" />
+    <AppSelect
       v-if="kind === 'agent' && store.rounds.length > 1" class="bs-branch" :model-value="String(round ?? '')" :options="[...store.rounds].reverse().map(r => ({ value: String(r.id), label: 'после раунда ' + r.n }))" small
       label="После какого раунда показать изменения агента" @update:model-value="store.setBase('agent', $event)"
     />
@@ -24,8 +19,10 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import AppButton from '@shared/ui/AppButton.vue'
+import AppSegmented from '@shared/ui/AppSegmented.vue'
 import BranchSelect from '@shared/ui/BranchSelect.vue'
-import PlainSelect from '@shared/ui/PlainSelect.vue'
+import AppSelect from '@shared/ui/AppSelect.vue'
 import { useGitStore } from '../stores/git'
 import { useCodeStore } from '../stores/code'
 
@@ -58,18 +55,18 @@ function pick(value: string) {
 </script>
 
 <style scoped>
-.bs { flex: 0 0 auto; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 10px; border-bottom: 1px solid var(--border); font-size: 12px; }
+.bs { flex: 0 0 auto; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 10px; border-bottom: 1px solid var(--border); font-size: var(--fs-sm); }
 .bs.remote { background: var(--blue-soft); }
 .bs-label { color: var(--text-muted); white-space: nowrap; }
 .bs-spacer { flex: 1; }
 .bs-group { display: inline-flex; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); overflow: hidden; }
-.bs-option { padding: 2px 8px; font: inherit; font-size: 12px; color: var(--text-muted); background: none; border: none; cursor: pointer; white-space: nowrap; }
+.bs-option { padding: 2px 8px; font: inherit; font-size: var(--fs-sm); color: var(--text-muted); background: none; border: none; cursor: pointer; white-space: nowrap; }
 .bs-option + .bs-option { border-left: 1px solid var(--border-strong); }
 .bs-option:hover:not(:disabled) { color: var(--text); }
 .bs-option.on { color: var(--text); background: var(--blue-soft); }
 .bs-option:disabled { cursor: default; }
 .bs-option:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
-.bs-select { min-width: 0; max-width: 180px; padding: 1px 4px; font: inherit; font-size: 12px; color: var(--text); background: var(--bg2); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); }
+.bs-select { min-width: 0; max-width: 180px; padding: 1px 4px; font: inherit; font-size: var(--fs-sm); color: var(--text); background: var(--bg2); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); }
 .bs-branch { flex: 0 1 240px; }
 .bs-close { padding: 0 6px; font: inherit; color: var(--text-muted); background: none; border: none; cursor: pointer; }
 .bs-close:hover { color: var(--text); }

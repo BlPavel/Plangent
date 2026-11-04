@@ -1,3 +1,4 @@
+import { typedRoutes } from './typed-route';
 import { taskMrRouter } from './routes/task-mr';
 import { mrReviewRouter } from './routes/mr-review';
 import { planReviewRouter } from './routes/plan-review';
@@ -99,11 +100,12 @@ export function createApp() {
   app.use('/api/clipboard', clipboardRouter);
   app.use('/api/settings', settingsRouter);
 
-  app.get('/api/health', (_req, res) => {
+  const routes = typedRoutes(app, '');
+  routes.json('GET /api/health', (_req, res) => {
     res.json({ ok: true, version: APP_VERSION });
   });
 
-  app.get('*', (_req, res) => {
+  routes.file('GET *', (_req, res) => {
     res.sendFile(path.join(CLIENT_DIST, 'index.html'));
   });
 

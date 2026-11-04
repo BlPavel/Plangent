@@ -1,20 +1,18 @@
 <template>
   <div class="ml">
     <div class="ml-bar">
-      <div class="ml-seg" role="group" aria-label="Какие МР">
-        <button v-for="o in whoOptions" :key="o.value" type="button" :class="{ on: filters.who === o.value }" @click="filters.who = o.value">{{ o.label }}<span v-if="o.count" class="ml-seg-count">{{ o.count }}</span></button>
-      </div>
-      <span class="ml-below"><PlainSelect :model-value="String(filters.below)" :options="belowOptions" small label="Аппрувы" @update:model-value="filters.below = Number($event)" /></span>
-      <input v-model="filters.search" class="control control-sm ml-search" placeholder="Поиск: название, автор, ветка, !номер" spellcheck="false" />
+      <AppSegmented :model-value="filters.who" :options="whoOptions.map(o => ({ value: o.value, label: o.count ? `${o.label} (${o.count})` : o.label }))" label="Какие МР" @update:model-value="filters.who = $event as MrFilters['who']" />
+      <span class="ml-below"><AppSelect :model-value="String(filters.below)" :options="belowOptions" size="sm" block label="Аппрувы" @update:model-value="filters.below = Number($event)" /></span>
+      <span class="ml-search"><AppInput v-model="filters.search" size="sm" block placeholder="Поиск: название, автор, ветка, !номер" spellcheck="false" /></span>
       <span class="ml-spacer" />
-      <button type="button" class="btn btn-subtle btn-sm" :disabled="loading" title="Загрузить открытые МР из GitLab" @click="emit('refresh')">{{ loading ? 'Загрузка…' : 'Обновить' }}</button>
+      <AppButton variant="subtle" size="sm" type="button"  :disabled="loading" title="Загрузить открытые МР из GitLab" @click="emit('refresh')">{{ loading ? 'Загрузка…' : 'Обновить' }}</AppButton>
     </div>
     <div v-for="e in errors" :key="e.project_id" role="alert" class="ml-error">{{ many ? e.project_name + ': ' : '' }}{{ e.message }}</div>
-    <div v-if="loading && !items.length" class="empty-state small">Загрузка МР…</div>
-    <div v-else-if="!shown.length" class="empty-state small">{{ items.length ? 'Под фильтр не попал ни один МР.' : 'Открытых МР нет.' }}</div>
+    <AppEmptyState small v-if="loading && !items.length" >Загрузка МР…</AppEmptyState>
+    <AppEmptyState small v-else-if="!shown.length" >{{ items.length ? 'Под фильтр не попал ни один МР.' : 'Открытых МР нет.' }}</AppEmptyState>
     <ul v-else class="ml-list">
       <li v-for="mr in shown" :key="key(mr)">
-        <button type="button" class="ml-row" :class="{ mine: mr.mine, opening: opening === key(mr) }" :disabled="!!opening" @click="emit('open', mr)">
+        <AppButton variant="subtle" block multiline start :disabled="!!opening" @click="emit('open', mr)">
           <span class="ml-main">
             <span class="ml-title"><span class="ml-iid">!{{ mr.iid }}</span> {{ mr.title }}</span>
             <span class="ml-sub">
@@ -26,21 +24,26 @@
             </span>
           </span>
           <span class="ml-status">
-            <span v-for="s in statuses(mr)" :key="s.text" class="ml-chip" :class="s.tone" :title="s.title">{{ s.text }}</span>
+            <AppBadge v-for="s in statuses(mr)" :key="s.text"  :tone="s.tone" :title="s.title">{{ s.text }}</AppBadge>
           </span>
           <span class="ml-approvals" :class="{ mine: mr.approvals?.mine }" :title="approvalsTitle(mr)">{{ approvalsText(mr) }}</span>
           <span class="ml-notes" title="Комментариев">💬 {{ mr.notes }}</span>
           <span v-if="opening === key(mr)" class="ml-time ml-opening"><span class="ml-spin" />Открываю</span>
           <span v-else class="ml-time" :title="'Обновлён ' + formatDateTime(mr.updated_at)">{{ ago(mr.updated_at) }}</span>
-        </button>
+        </AppButton>
       </li>
     </ul>
   </div>
 </template>
 <script setup lang="ts">
+import AppBadge from '@shared/ui/AppBadge.vue'
+import AppEmptyState from '@shared/ui/AppEmptyState.vue'
+import AppInput from '@shared/ui/AppInput.vue'
+import AppButton from '@shared/ui/AppButton.vue'
+import AppSegmented from '@shared/ui/AppSegmented.vue'
 import { computed } from 'vue'
-import PlainSelect from '@shared/ui/PlainSelect.vue'
-import { formatDateTime } from '@shared/utils/format'
+import AppSelect from '@shared/ui/AppSelect.vue'
+import { formatDateTime } from '@shared/utils/datetime'
 import type { MrListItem } from '../types'
 import { useBranchReviewStore, type MrFilters } from '../stores/review'
 
@@ -109,16 +112,14 @@ function ago(value: string) {
 .ml { flex: 1; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
 .ml-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex-shrink: 0; }
 .ml-seg { display: inline-flex; height: var(--size-sm); box-sizing: border-box; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); overflow: hidden; }
-.ml-seg button { display: inline-flex; align-items: center; gap: 5px; height: 100%; padding: 0 10px; font: inherit; font-size: 12px; color: var(--text-muted); background: none; border: none; cursor: pointer; }
+.ml-seg button { display: inline-flex; align-items: center; gap: 5px; height: 100%; padding: 0 10px; font: inherit; font-size: var(--fs-sm); color: var(--text-muted); background: none; border: none; cursor: pointer; }
 .ml-seg button + button { border-left: 1px solid var(--border-strong); }
 .ml-seg button.on { color: var(--text); background: var(--blue-soft); }
-.ml-seg-count { font-size: 10.5px; color: var(--text-faint); }
+.ml-seg-count { font-size: var(--fs-xs); color: var(--text-faint); }
 .ml-below { width: 150px; flex-shrink: 0; }
-/* `input.control` outweighs `.control-sm` globally: the small height is set here so the whole bar is one height. */
-.ml-below :deep(.control) { width: 100%; height: var(--size-sm); }
-.ml-search { width: 280px; height: var(--size-sm); }
+.ml-search { flex: 0 0 280px; }
 .ml-spacer { flex: 1; }
-.ml-error { flex-shrink: 0; padding: 6px 10px; font-size: 12px; color: var(--danger-hover); background: var(--danger-soft); border-radius: var(--radius-sm); overflow-wrap: anywhere; }
+.ml-error { flex-shrink: 0; padding: 6px 10px; font-size: var(--fs-sm); color: var(--danger-hover); background: var(--danger-soft); border-radius: var(--radius-sm); overflow-wrap: anywhere; }
 .ml-list { flex: 1; min-height: 0; overflow: auto; list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: var(--radius); }
 .ml-list li + li { border-top: 1px solid var(--border); }
 .ml-row { display: grid; grid-template-columns: minmax(0, 1fr) 230px 56px 48px 76px; align-items: center; gap: 12px; width: 100%; padding: 8px 12px 8px 9px; font: inherit; text-align: left; color: var(--text); background: none; border: none; border-left: 3px solid transparent; cursor: pointer; }
@@ -128,23 +129,23 @@ function ago(value: string) {
 .ml-row.mine { border-left-color: var(--blue); }
 .ml-row.opening { background: var(--blue-soft); }
 .ml-main { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-.ml-title { font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ml-title { font-size: var(--fs-md); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ml-iid { color: var(--text-muted); font-weight: 400; }
-.ml-sub { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 11.5px; line-height: 16px; color: var(--text-muted); white-space: nowrap; }
+.ml-sub { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: var(--fs-sm); line-height: 16px; color: var(--text-muted); white-space: nowrap; }
 .ml-author { flex-shrink: 0; }
-.ml-branches { display: inline-flex; align-items: center; gap: 4px; min-width: 0; font-family: var(--font-mono, monospace); font-size: 11px; line-height: 16px; }
+.ml-branches { display: inline-flex; align-items: center; gap: 4px; min-width: 0; font-family: var(--font-mono); font-size: var(--fs-xs); line-height: 16px; }
 .ml-branch { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .ml-arrow { flex-shrink: 0; color: var(--text-faint); }
 .ml-project { flex-shrink: 0; padding: 0 6px; border-radius: var(--radius-pill); background: var(--bg3); }
 .ml-status { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
-.ml-chip { padding: 1px 8px; font-size: 11px; line-height: 16px; white-space: nowrap; border-radius: var(--radius-pill); background: var(--bg3); color: var(--text-muted); }
+.ml-chip { padding: 1px 8px; font-size: var(--fs-xs); line-height: 16px; white-space: nowrap; border-radius: var(--radius-pill); background: var(--bg3); color: var(--text-muted); }
 .ml-chip.blue { background: var(--blue-soft); color: var(--blue-hover); }
 .ml-chip.warn { background: var(--warning-soft); color: var(--warning-text); }
-.ml-approvals { font-size: 12px; color: var(--text-muted); }
+.ml-approvals { font-size: var(--fs-sm); color: var(--text-muted); }
 .ml-approvals.mine { color: var(--accent-hover); }
-.ml-notes, .ml-time { font-size: 11.5px; color: var(--text-muted); white-space: nowrap; }
+.ml-notes, .ml-time { font-size: var(--fs-sm); color: var(--text-muted); white-space: nowrap; }
 .ml-time { text-align: right; }
 .ml-opening { display: inline-flex; align-items: center; justify-content: flex-end; gap: 6px; color: var(--blue-hover); }
-.ml-spin { width: 10px; height: 10px; border: 2px solid var(--blue-soft); border-top-color: var(--blue-hover); border-radius: 50%; animation: ml-spin 0.8s linear infinite; }
+.ml-spin { width: 10px; height: 10px; border: 2px solid var(--blue-soft); border-top-color: var(--blue-hover); border-radius: var(--radius-round); animation: ml-spin 0.8s linear infinite; }
 @keyframes ml-spin { to { transform: rotate(360deg); } }
 </style>

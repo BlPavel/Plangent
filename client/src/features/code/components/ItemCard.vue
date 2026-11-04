@@ -1,6 +1,6 @@
 <template>
-  <div class="it" :class="[state, item.status, { open, outdated: item.outdated, working }]">
-    <button type="button" class="it-line" :aria-expanded="open" @click="open = !open">
+  <div class="it" :class="[state, item.status, { open, outdated: item.outdated, working, embedded }]">
+    <AppButton variant="subtle" size="sm" block :aria-expanded="open" @click="open = !open">
       <span class="it-dot" :title="label" />
       <span class="it-kind" :title="item.kind === 'question' ? 'Вопрос' : 'Замечание'">{{ item.kind === 'question' ? '?' : '!' }}</span>
       <span v-if="location" class="it-loc">{{ location }}</span>
@@ -11,7 +11,7 @@
       </span>
       <span class="it-summary">{{ summary }}</span>
       <span class="it-status">{{ label }}</span>
-    </button>
+    </AppButton>
 
     <div v-if="open" class="it-body">
       <pre v-if="item.outdated && item.code_snippet" class="it-snippet" title="Код, к которому относилось замечание">{{ item.code_snippet }}</pre>
@@ -21,7 +21,7 @@
         <div class="it-msg-head">{{ item.author === 'agent' ? 'Агент' : 'Вы' }} · {{ item.kind === 'question' ? 'вопрос' : 'замечание' }}</div>
         <MessageMarkdown :text="item.text" />
         <div v-if="item.refs.length" class="it-refs">
-          <button v-for="target in item.refs" :key="target" type="button" class="it-ref" :title="'Открыть: ' + target" @click="emit('open-ref', target)">@{{ target }}</button>
+          <AppButton variant="link" size="xs" v-for="target in item.refs" :key="target" type="button"  :title="'Открыть: ' + target" @click="emit('open-ref', target)">@{{ target }}</AppButton>
         </div>
       </div>
 
@@ -29,13 +29,13 @@
         <div class="it-msg-head">
           {{ message.author === 'agent' ? 'Агент' : 'Вы' }}<template v-if="KIND_LABELS[message.kind]"> · {{ KIND_LABELS[message.kind] }}</template>
           <template v-if="!message.sent"> · в очереди
-            <button v-if="!readOnly" type="button" class="it-link" title="Убрать ответ из очереди" @click="emit('remove-message', message.id)">убрать</button>
+            <AppButton variant="link" size="xs" v-if="!readOnly" type="button"  title="Убрать ответ из очереди" @click="emit('remove-message', message.id)">убрать</AppButton>
           </template>
         </div>
         <MessageMarkdown :text="discussionText(message)" />
         <div v-if="message.files.length || (message.kind === 'change' && message.round_id)" class="it-files">
           <span v-for="file in message.files" :key="file" class="it-file">{{ file }}</span>
-          <button v-if="message.round_id" type="button" class="it-link" title="Diff правок агента за этот заход" @click="emit('show-change', message.round_id, message.files[0])">Посмотреть правку</button>
+          <AppButton variant="link" size="xs" v-if="message.round_id" type="button"  title="Diff правок агента за этот заход" @click="emit('show-change', message.round_id, message.files[0])">Посмотреть правку</AppButton>
         </div>
       </div>
 
@@ -72,8 +72,8 @@
       </div>
 
       <form v-if="!readOnly && state !== 'draft'" class="it-reply" @submit.prevent="submitText">
-        <textarea
-          v-model="text" class="it-input" rows="2" :placeholder="state === 'closed' ? 'Написать агенту (пункт откроется снова)…' : 'Ответить агенту…'"
+        <AppTextarea
+          v-model="text" block rows="2" :placeholder="state === 'closed' ? 'Написать агенту (пункт откроется снова)…' : 'Ответить агенту…'"
           @keydown.enter.ctrl.prevent="submitText" @keydown.enter.meta.prevent="submitText"
         />
         <div class="it-reply-bar">
@@ -86,17 +86,21 @@
 </template>
 
 <script setup lang="ts">
+import AppTextarea from '@shared/ui/AppTextarea.vue'
+import { useDraft } from '@core/composables/useDraft'
 import { computed, ref, watch } from 'vue'
 import AppButton from '@shared/ui/AppButton.vue'
-import MessageMarkdown from '@shared/ui/MessageMarkdown.vue'
+import { MessageMarkdown } from '@shared/markdown'
 import type { CodeReviewItem, CodeReviewMessage } from '../types'
 import { discussionText, stateLabel, type ThreadState } from '../utils/thread'
 
 const props = defineProps<{
+  draftKey?: string
   item: CodeReviewItem
   thread: CodeReviewMessage[]
   state: ThreadState
   readOnly?: boolean
+  embedded?: boolean
   /** Show the file and lines in the collapsed line and a «К коду» action (the right panel list). */
   showLocation?: boolean
   busy?: boolean
@@ -104,7 +108,7 @@ const props = defineProps<{
   agentBusy?: boolean
   /** The agent said it works on this item now. */
   working?: boolean
-  permissions?: { permissionId: string; toolCall: { title: string }; options: { optionId: string; name: string; kind: string }[] }[]
+  permissions?: { permissionId: string; toolCall: { title?: string | null }; options: { optionId: string; name: string; kind: string }[] }[]
 }>()
 const emit = defineEmits<{
   edit: []; remove: []; general: []; goto: []; 'send-now': []
@@ -124,7 +128,7 @@ const permissions = computed(() => props.permissions ?? [])
 const open = ref(permissions.value.length > 0)
 watch(() => permissions.value.length > 0, value => { if (value) open.value = true })
 watch(() => props.item.closed, closed => { if (closed) open.value = false })
-const text = ref('')
+const text = useDraft(() => props.draftKey ?? `code-review:${props.item.review_id}:item:${props.item.id}:text`, () => '')
 
 const label = computed(() => (props.item.outdated ? 'Устарело' : stateLabel(props.item, props.state, props.working)))
 const summary = computed(() => props.item.text.replace(/\s+/g, ' ').trim())
@@ -148,7 +152,9 @@ function submitText() {
 </script>
 
 <style scoped>
-.it { container-type: inline-size; border: 1px solid var(--border-strong); border-left-width: 3px; border-radius: var(--radius-sm); background: var(--bg2); font-size: 12px; }
+.it { container-type: inline-size; border: 1px solid var(--border-strong); border-left-width: 3px; border-radius: var(--radius-sm); background: var(--bg2); font-size: var(--fs-sm); }
+.it.embedded { background: var(--bg3); border-top-color: var(--blue); border-right-color: var(--blue); border-bottom-color: var(--blue); box-shadow: 0 2px 10px var(--overlay-soft); }
+.it.embedded .it-summary { font-weight: var(--fw-medium); }
 .it.draft { border-left-color: var(--text-faint); }
 .it.queued { border-left-color: var(--blue); border-left-style: dashed; }
 .it.agent { border-left-color: var(--blue); }
@@ -158,7 +164,7 @@ function submitText() {
 .it.outdated { border-style: dashed; }
 /* Narrow panel: the meta (place, flags, state) on the first line, the summary on its own line below it */
 .it-line { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; width: 100%; padding: 4px 8px; font: inherit; text-align: left; color: var(--text); background: none; border: none; cursor: pointer; }
-.it-dot { width: 7px; height: 7px; flex-shrink: 0; border-radius: 50%; background: currentColor; color: var(--text-faint); }
+.it-dot { width: 7px; height: 7px; flex-shrink: 0; border-radius: var(--radius-round); background: currentColor; color: var(--text-faint); }
 .it.agent .it-dot, .it.queued .it-dot { color: var(--blue-hover); }
 .it.working .it-dot { animation: it-pulse 1.4s ease-in-out infinite; }
 .it.waiting .it-dot { color: var(--warning-text); }
@@ -166,7 +172,7 @@ function submitText() {
 @keyframes it-pulse { 50% { opacity: 0.3; } }
 .it-kind { flex-shrink: 0; width: 12px; font-weight: 700; color: var(--text-muted); text-align: center; }
 .it-flags { display: flex; flex-wrap: wrap; gap: 4px; order: 1; flex: 1 0 100%; min-width: 0; }
-.it-loc { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: monospace; font-size: 11px; color: var(--text-muted); }
+.it-loc { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-muted); }
 .it-summary { order: 2; flex: 1 0 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); }
 .it.open .it-summary { display: none; }
 @container (min-width: 520px) {
@@ -175,12 +181,12 @@ function submitText() {
   .it-flags { order: 0; flex: 0 1 auto; flex-wrap: nowrap; }
   .it-summary { order: 0; flex: 1 1 0; color: var(--text); }
 }
-.it-flag { flex: 0 1 auto; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 6px; font-size: 10px; font-weight: 600; border-radius: var(--radius-pill); background: var(--blue); color: #fff; }
-.it-status { flex-shrink: 0; margin-left: auto; font-size: 11px; color: var(--text-muted); }
+.it-flag { flex: 0 1 auto; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 6px; font-size: var(--fs-xs); font-weight: 600; border-radius: var(--radius-pill); background: var(--blue); color: var(--on-accent); }
+.it-status { flex-shrink: 0; margin-left: auto; font-size: var(--fs-xs); color: var(--text-muted); }
 .it.waiting .it-status { color: var(--warning-text); font-weight: 600; }
 .it.waiting.done .it-status { color: var(--accent-hover); }
 .it-body { display: flex; flex-direction: column; gap: 6px; padding: 2px 10px 8px; white-space: normal; }
-.it-snippet { margin: 0; padding: 4px 8px; max-height: 120px; overflow: auto; font-size: 11px; background: var(--bg); border-radius: var(--radius-sm); color: var(--text-muted); }
+.it-snippet { margin: 0; padding: 4px 8px; max-height: 120px; overflow: auto; font-size: var(--fs-xs); background: var(--bg); border-radius: var(--radius-sm); color: var(--text-muted); }
 .it-note { color: var(--warning-text); }
 .it-msg { padding: 5px 8px; border-radius: var(--radius-sm); background: var(--bg); }
 .it-msg.developer { border-left: 2px solid var(--text-faint); }
@@ -188,20 +194,18 @@ function submitText() {
 .it-msg.agent.change { border-left-color: var(--accent-hover); }
 .it-msg.agent.disagree { border-left-color: var(--warning-text); }
 .it-msg.queued { border-left-style: dashed; opacity: 0.85; }
-.it-msg-head { margin-bottom: 2px; font-size: 11px; font-weight: 600; color: var(--text-muted); }
+.it-msg-head { margin-bottom: 2px; font-size: var(--fs-xs); font-weight: 600; color: var(--text-muted); }
 .it-link { padding: 0 2px; font: inherit; font-weight: 400; color: var(--blue-hover); background: none; border: none; cursor: pointer; }
 .it-link:hover { text-decoration: underline; }
 .it-refs, .it-files { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 4px; }
-.it-ref { padding: 0 6px; font: inherit; font-size: 11px; color: var(--blue-hover); background: var(--bg2); border: 1px solid var(--border-strong); border-radius: var(--radius-pill); cursor: pointer; }
-.it-file { padding: 0 6px; font-family: monospace; font-size: 11px; color: var(--text-muted); background: var(--bg2); border-radius: var(--radius-pill); }
+.it-ref { padding: 0 6px; font: inherit; font-size: var(--fs-xs); color: var(--blue-hover); background: var(--bg2); border: 1px solid var(--border-strong); border-radius: var(--radius-pill); cursor: pointer; }
+.it-file { padding: 0 6px; font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-muted); background: var(--bg2); border-radius: var(--radius-pill); }
 .it-permission { padding: 6px 8px; border: 1px solid var(--blue); border-radius: var(--radius-sm); background: var(--blue-soft); }
-.it-permission-title { margin-bottom: 6px; font-family: monospace; font-size: 11.5px; overflow-wrap: anywhere; }
-.it-working { font-size: 11px; color: var(--blue-hover); }
+.it-permission-title { margin-bottom: 6px; font-family: var(--font-mono); font-size: var(--fs-sm); overflow-wrap: anywhere; }
+.it-working { font-size: var(--fs-xs); color: var(--blue-hover); }
 .it-actions { display: flex; flex-wrap: wrap; gap: 4px; }
 .it-actions:empty { display: none; }
 .it-reply { display: flex; flex-direction: column; gap: 4px; }
-.it-input { width: 100%; box-sizing: border-box; padding: 5px 8px; font: inherit; font-size: 12px; color: var(--text); background: var(--bg); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); resize: vertical; }
-.it-input:focus { outline: none; border-color: var(--blue); }
 .it-reply-bar { display: flex; align-items: center; gap: 6px; }
-.it-hint { flex: 1; font-size: 11px; color: var(--text-faint); }
+.it-hint { flex: 1; font-size: var(--fs-xs); color: var(--text-faint); }
 </style>

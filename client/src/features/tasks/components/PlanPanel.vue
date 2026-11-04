@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="plan-tab" :class="{ 'with-review': plan && reviewShown }">
     <div ref="planMain" class="plan-main">
       <!-- Planning with an agent: plan on the left, chat on the right, header always visible -->
@@ -25,7 +25,7 @@
           <template #start>
             <section class="plan-pane">
               <nav v-if="plan?.steps.length" class="review-step-nav" aria-label="Шаги плана">
-                <button v-for="s in plan.steps" :key="s.id ?? s.index" type="button" :data-step-id="s.id" :title="s.id && remarkCounts[s.id] ? `Открытых замечаний ревью плана: ${remarkCounts[s.id]}` : ''" :class="{ highlighted: !!s.id && highlighted.includes(s.id) }" @click="s.id && focusStepCard(s.id)">{{ s.id }}<span v-if="s.id && remarkCounts[s.id]"> ⚠{{ remarkCounts[s.id] }}</span></button>
+                <AppButton v-for="s in plan.steps" :key="s.id ?? s.index" variant="subtle" size="xs" :data-step-id="s.id" :title="s.id && remarkCounts[s.id] ? `Открытых замечаний ревью плана: ${remarkCounts[s.id]}` : ''" :pressed="!!s.id && highlighted.includes(s.id)" @click="s.id && focusStepCard(s.id)">{{ s.id }}<span v-if="s.id && remarkCounts[s.id]"> ⚠{{ remarkCounts[s.id] }}</span></AppButton>
               </nav>
               <MessageMarkdown v-if="planText" class="plan-doc" :text="planText" />
               <div v-else class="plan-waiting">
@@ -40,19 +40,18 @@
               :chats="planningChats"
               :selected="selectedPlanningChat"
               :initials="initials"
-              :draft-text="planningMessage"
               @select="$emit('selectPlanningChat', $event)"
               @remove="(id, name) => $emit('removePlanningChat', id, name)"
             >
               <template #new>
-                <NewChatPanel
+                <NewChatPanel :draft-key="`task:${taskId}:plan-chat`"
                   :project-id="projectId"
                   :default-agent-id="defaultAgentId"
                   title="Планирование"
                   :text="plan ? 'Скажите, что изменить в плане. Агент изучит код и обновит план — в проекте он ничего не меняет.' : 'Опишите задачу — агент изучит код и составит план. В проекте он ничего не меняет, план появится слева.'"
                   :placeholder="plan ? 'Что изменить в плане…' : 'Опишите задачу…  @ — файл'"
                   fixed-policy="read-only"
-                  :initial-text="planningMessage || (plan ? '' : 'Составь план по анализу задачи')"
+                  :initial-text="plan ? '' : 'Составь план по анализу задачи'"
                   :busy="planningLaunching"
                   :error="planningError"
                   @start="$emit('launchPlanning', $event)"
@@ -77,10 +76,11 @@
       <!-- Plan editor (manual) -->
       <div v-else-if="editingPlan && !readonly" class="plan-tab-content">
         <div class="plan-editor-wrap">
-          <textarea
-            :value="planContent"
-            @input="$emit('update:planContent', ($event.target as HTMLTextAreaElement).value)"
-            class="plan-editor"
+          <StaleDraftNote v-if="staleDraft" @reload="$emit('reloadDraft')" />
+          <AppTextarea
+            :model-value="planContent"
+            @update:model-value="$emit('update:planContent', $event)"
+            mono block rows="18"
             placeholder="---&#10;plangent: 1&#10;key: KEY&#10;title: Title&#10;status: open&#10;---&#10;&#10;- [ ] (p1) Step 1&#10;- [ ] (p2) Step 2"
           />
           <div class="plan-editor-helper">
@@ -107,7 +107,7 @@
           </div>
           <div v-if="!readonly" class="plan-header-actions">
             <AppButton variant="blue" size="sm" @click="$emit('openPlanning')">▸ Изменить план с агентом</AppButton>
-            <AppButton variant="ghost" size="sm" :class="{ on: reviewOpen }" title="Показать или скрыть ревью утверждённого плана справа: агент проверит план, замечания разбираете вы" @click="reviewOpen = !reviewOpen">Ревью плана{{ attention ? ` (${attention})` : '' }}</AppButton>
+            <AppButton variant="ghost" size="sm" :pressed="reviewOpen" title="Показать или скрыть ревью утверждённого плана справа: агент проверит план, замечания разбираете вы" @click="reviewOpen = !reviewOpen">Ревью плана{{ attention ? ` (${attention})` : '' }}</AppButton>
             <AppButton variant="subtle" size="sm" @click="$emit('togglePlanEdit')">Редактировать вручную</AppButton>
           </div>
         </div>
@@ -116,8 +116,8 @@
             <span class="step-check readonly" :class="{ done: s.done }">{{ s.done ? '✓' : '' }}</span>
             <span class="step-id" v-if="s.id">{{ s.id }}</span>
             <span class="step-text"><AnalysisLinks :text="s.text" /></span>
-            <button v-if="s.id && remarkCounts[s.id]" type="button" class="remark-count" :aria-label="`Замечания к ${s.id}: ${remarkCounts[s.id]}`" :title="`Открытых замечаний ревью плана: ${remarkCounts[s.id]}`" @click="focusStepCard(s.id)">⚠{{ remarkCounts[s.id] }}</button>
-            <span v-if="s.parallelGroup" class="parallel-badge">параллельно: {{ s.parallelGroup }}</span>
+            <AppButton v-if="s.id && remarkCounts[s.id]" variant="subtle" size="xs" :aria-label="`Замечания к ${s.id}: ${remarkCounts[s.id]}`" :title="`Открытых замечаний ревью плана: ${remarkCounts[s.id]}`" @click="focusStepCard(s.id)">⚠{{ remarkCounts[s.id] }}</AppButton>
+            <AppBadge v-if="s.parallelGroup" >параллельно: {{ s.parallelGroup }}</AppBadge>
           </div>
         </div>
       </div>
@@ -126,23 +126,26 @@
   </div>
 </template>
 <script setup lang="ts">
+import AppBadge from '@shared/ui/AppBadge.vue'
+import StaleDraftNote from '@shared/ui/StaleDraftNote.vue'
 import { computed, nextTick, ref } from 'vue'
 import PlanReviewPanel from './plan-review/PlanReviewPanel.vue'
 import AnalysisLinks from './AnalysisLinks.vue'
 import TaskChats from './TaskChats.vue'
 import { NewChatPanel, MessageMarkdown, type NewChatRequest, type ContentBlock } from '@features/agent-chat'
 import AppButton from '@shared/ui/AppButton.vue'
+import AppTextarea from '@shared/ui/AppTextarea.vue'
 import SplitPane from '@shared/ui/SplitPane.vue'
-import type { Plan } from '@core/models'
+import type { Plan } from '@contracts'
 
 const props = defineProps<{
   readonly?: boolean
-  planningMessage?: string
   plan: Plan | null
   projectId: string
   taskId: string
   queueFrozen: boolean
   defaultAgentId?: string | null
+  staleDraft?: boolean
   planningOpen: boolean
   /** A planning chat is starting or thinking right now. */
   planningLive: boolean
@@ -158,6 +161,7 @@ const props = defineProps<{
   progressPct: number
 }>()
 const emit = defineEmits<{
+  reloadDraft: []
   approvePlan: []
   reviewAttention: [count: number]
   openPlanning: []
@@ -202,31 +206,26 @@ function stepsWord(n: number) {
 </script>
 <style scoped>
 .review-step-nav { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 10px; }
-.review-step-nav button { color: var(--text-muted); background: var(--bg3); border: 1px solid var(--border); border-radius: 4px; cursor: pointer; }
-.review-step-nav .highlighted { border-color: var(--blue); background: var(--blue-soft); }
 .plan-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .plan-tab.with-review { flex-direction: row; }
 .plan-header-actions .on, .planning-actions .on { background: var(--bg3); color: var(--text); }
 .step.highlighted { background: var(--blue-soft); border-color: var(--blue); }
-.remark-count { border: 0; border-radius: 8px; color: var(--blue-hover); background: var(--blue-soft); cursor: pointer; }
+.remark-count { border: 0; border-radius: var(--radius); color: var(--blue-hover); background: var(--blue-soft); cursor: pointer; }
 .plan-tab { flex: 1; overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
 
 .planning-bar { display: flex; align-items: center; gap: 12px; padding: 8px 20px; border-bottom: 1px solid var(--border); background: var(--bg); flex-shrink: 0; }
-.planning-status { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--text-muted); }
-.planning-status.live { color: #e3b341; }
-.planning-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border-strong); }
-.live .planning-dot { background: #e3b341; animation: pulse 1.2s ease-in-out infinite; }
+.planning-status { display: flex; align-items: center; gap: 8px; font-size: var(--fs-md); font-weight: 600; color: var(--text-muted); }
+.planning-status.live { color: var(--warning-text); }
+.planning-dot { width: 8px; height: 8px; border-radius: var(--radius-round); background: var(--border-strong); }
+.live .planning-dot { background: var(--warning-text); animation: pulse 1.2s ease-in-out infinite; }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
-.planning-meta { font-size: 12px; color: var(--text-faint); }
+.planning-meta { font-size: var(--fs-sm); color: var(--text-faint); }
 .planning-actions { margin-left: auto; display: flex; gap: 8px; }
 
 .plan-pane { flex: 1; min-width: 0; overflow-y: auto; padding: 20px 24px; display: flex; flex-direction: column; }
 .plan-doc :deep(ul) { list-style: none; padding-left: 4px; }
 .plan-doc :deep(ul ul) { padding-left: 20px; }
 /* [[раздел]] / [[раздел/файл]] in the plan document: the same label as AnalysisLinks in the step list */
-.plan-doc :deep(button.btn[data-analysis-target]) { height: 19px; margin: 0 1px; padding: 0 6px; vertical-align: 1px; border: 1px solid var(--blue-soft); border-radius: 5px; background: var(--blue-soft); color: var(--blue-hover); font-family: 'Cascadia Code', 'JetBrains Mono', monospace; font-size: 11.5px; font-weight: 400; }
-.plan-doc :deep(button.btn[data-analysis-target]:not(:disabled):hover) { border-color: var(--blue-hover); }
-.plan-doc :deep(button.btn[data-analysis-target]:disabled) { opacity: 1; border-style: dashed; border-color: var(--danger); background: var(--danger-soft); color: var(--danger-hover) !important; text-decoration: line-through; }
 .chat-pane { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 
 .plan-tab-content { flex: 1; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 12px; }
@@ -234,24 +233,24 @@ function stepsWord(n: number) {
 .plan-panel-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .plan-header-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
-.plan-waiting { flex: 1; display: flex; align-items: center; justify-content: center; text-align: center; color: var(--text-muted); font-size: 13px; min-height: 120px; }
+.plan-waiting { flex: 1; display: flex; align-items: center; justify-content: center; text-align: center; color: var(--text-muted); font-size: var(--fs-md); min-height: 120px; }
 
-.progress-line { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-muted); flex: 1; }
-.progress-bar { flex: 1; height: 4px; background: var(--bg3); border-radius: 2px; overflow: hidden; }
-.progress-fill { height: 100%; background: var(--accent); transition: width 0.3s; }
+.progress-line { display: flex; align-items: center; gap: 8px; font-size: var(--fs-sm); color: var(--text-muted); flex: 1; }
+.progress-bar { flex: 1; height: 4px; background: var(--bg3); border-radius: var(--radius-xs); overflow: hidden; }
+.progress-fill { height: 100%; background: var(--accent); transition: width var(--motion-slow); }
 
 .steps { display: flex; flex-direction: column; gap: 3px; }
-.step { display: flex; align-items: center; gap: 10px; font-size: 13px; padding: 7px 10px; border-radius: var(--radius-sm); cursor: pointer; transition: background 0.12s, border-color 0.12s; border: 1px solid transparent; }
+.step { display: flex; align-items: center; gap: 10px; font-size: var(--fs-md); padding: 7px 10px; border-radius: var(--radius-sm); cursor: pointer; transition: background var(--motion-fast), border-color var(--motion-fast); border: 1px solid transparent; }
 .step:hover { background: var(--bg3); }
 .step.done { color: var(--text-muted); }
 .step.done .step-text { text-decoration: line-through; text-decoration-color: var(--text-faint); }
-.step-check { width: 18px; height: 18px; border: 1.5px solid var(--border-strong); border-radius: 5px; background: none; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 11px; flex-shrink: 0; color: white; transition: background 0.12s, border-color 0.12s; }
+.step-check { width: 18px; height: 18px; border: 1.5px solid var(--border-strong); border-radius: var(--radius-5); background: none; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: var(--fs-xs); flex-shrink: 0; color: white; transition: background var(--motion-fast), border-color var(--motion-fast); }
 .step-check.done { background: var(--accent); border-color: var(--accent); }
 .step-check.readonly { cursor: default; }
 .step-check.readonly:not(.done):hover { background: none; border-color: var(--border-strong); }
-.step-id { font-size: 10px; color: var(--text-muted); font-family: monospace; flex-shrink: 0; }
+.step-id { font-size: var(--fs-xs); color: var(--text-muted); font-family: var(--font-mono); flex-shrink: 0; }
 .step-text { flex: 1; }
-.parallel-badge { font-size: 10px; color: var(--blue); background: rgba(88,166,255,0.12); padding: 1px 6px; border-radius: 8px; white-space: nowrap; }
+.parallel-badge { font-size: var(--fs-xs); color: var(--blue); background: var(--blue-soft); padding: 1px 6px; border-radius: var(--radius); white-space: nowrap; }
 
 .plan-editor-wrap { display: flex; flex-direction: column; gap: 8px; flex: 1; min-height: 0; }
 .plan-editor {
@@ -259,20 +258,20 @@ function stepsWord(n: number) {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text);
-  font-family: 'Cascadia Code', 'JetBrains Mono', monospace;
-  font-size: 13px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-md);
   padding: 10px;
   flex: 1;
   min-height: 200px;
   resize: none;
 }
 .plan-editor:focus { outline: none; border-color: var(--blue); }
-.plan-editor-helper { display: flex; flex-direction: column; gap: 8px; color: var(--text-muted); font-size: 11px; line-height: 1.4; }
+.plan-editor-helper { display: flex; flex-direction: column; gap: 8px; color: var(--text-muted); font-size: var(--fs-xs); line-height: 1.4; }
 .plan-editor-helper > span code, .plan-editor-helper code {
-  font-family: 'Cascadia Code', 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   background: var(--bg3);
   border: 1px solid var(--border-strong);
-  border-radius: 4px;
+  border-radius: var(--radius-4);
   padding: 1px 5px;
   color: var(--text);
 }

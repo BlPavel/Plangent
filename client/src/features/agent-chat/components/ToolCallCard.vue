@@ -1,12 +1,12 @@
 <template>
   <div class="tool" :class="[state, { open }]">
-    <button type="button" class="tool-head" :disabled="!hasBody" @click="open = !open">
+    <AppButton variant="subtle" size="sm" block :disabled="!hasBody" :aria-expanded="open" @click="open = !open">
       <svg class="tool-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path v-for="(d, i) in icon" :key="i" :d="d" /></svg>
       <span class="tool-title">{{ call.title || 'Инструмент' }}</span>
       <span v-if="state === 'running'" class="tool-spinner" />
       <span v-else-if="state === 'failed'" class="tool-state">ошибка</span>
-      <svg v-if="hasBody" class="tool-chevron" viewBox="0 0 16 16" fill="none"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
-    </button>
+      <UIIconChevronRight v-if="hasBody" class="tool-chevron" />
+    </AppButton>
     <div v-if="open" class="tool-body">
       <template v-for="(part, index) in call.content" :key="index">
         <div v-if="part.type === 'diff'" class="diff">
@@ -21,7 +21,9 @@
 </template>
 
 <script setup lang="ts">
+import { IconChevronRight as UIIconChevronRight } from '@shared/ui/icons'
 import { computed, ref } from 'vue'
+import AppButton from '@shared/ui/AppButton.vue'
 import type { ChatPayload } from '../stores/sessions'
 
 const props = defineProps<{ call: ChatPayload }>()
@@ -82,29 +84,29 @@ function diffLines(oldText: string, newText: string) {
   border: none;
   color: var(--text-muted);
   font: inherit;
-  font-size: 12.5px;
+  font-size: var(--fs-md);
   text-align: left;
   cursor: pointer;
 }
 .tool-head:disabled { cursor: default; }
 .tool-head:not(:disabled):hover { color: var(--text); background: var(--bg3); }
 .tool-icon { width: 14px; height: 14px; flex-shrink: 0; }
-.tool-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: 'Cascadia Code', 'JetBrains Mono', Consolas, monospace; }
+.tool-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); }
 .tool.done .tool-icon { color: var(--accent-hover); }
 .tool.failed { border-color: var(--danger-soft); }
 .tool.failed .tool-icon, .tool-state { color: var(--danger-hover); }
-.tool-state { font-size: 11px; }
-.tool-chevron { width: 13px; height: 13px; flex-shrink: 0; transition: transform 0.15s; }
+.tool-state { font-size: var(--fs-xs); }
+.tool-chevron { width: 13px; height: 13px; flex-shrink: 0; transition: transform var(--motion-modal); }
 .tool.open .tool-chevron { transform: rotate(90deg); }
-.tool-spinner { width: 12px; height: 12px; flex-shrink: 0; border: 1.5px solid var(--border-strong); border-top-color: var(--blue-hover); border-radius: 50%; animation: spin 0.8s linear infinite; }
+.tool-spinner { width: 12px; height: 12px; flex-shrink: 0; border: 1.5px solid var(--border-strong); border-top-color: var(--blue-hover); border-radius: var(--radius-round); animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .tool-body { border-top: 1px solid var(--border); max-height: 360px; overflow: auto; }
-.tool-body pre { margin: 0; padding: 10px 12px; font-family: 'Cascadia Code', 'JetBrains Mono', Consolas, monospace; font-size: 12px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text); }
+.tool-body pre { margin: 0; padding: 10px 12px; font-family: var(--font-mono); font-size: var(--fs-sm); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text); }
 .tool-body pre + pre, .diff + pre, .diff + .diff { border-top: 1px solid var(--border); }
-.diff-path { padding: 6px 12px; font-size: 11.5px; color: var(--text-muted); background: var(--bg3); font-family: 'Cascadia Code', 'JetBrains Mono', Consolas, monospace; }
+.diff-path { padding: 6px 12px; font-size: var(--fs-sm); color: var(--text-muted); background: var(--bg3); font-family: var(--font-mono); }
 .diff pre { padding: 6px 0; }
 .diff span { display: block; padding: 0 12px; }
-.diff .del { background: var(--danger-soft); color: #ffa198; }
-.diff .add { background: var(--accent-soft); color: #7ee787; }
+.diff .del { background: var(--danger-soft); color: var(--syntax-removed); }
+.diff .add { background: var(--accent-soft); color: var(--syntax-tag); }
 .diff .ctx { color: var(--text-faint); }
 </style>

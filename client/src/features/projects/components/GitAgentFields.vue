@@ -2,7 +2,7 @@
   <div class="git-agent">
     <div class="ga-head">
       <span class="ga-label">{{ kind === 'review' ? 'Агент для ревью' : kind === 'conflict' ? 'Агент для конфликтов' : 'Агент для коммитов и МР' }}</span>
-      <button v-if="own" type="button" class="ga-link" :title="'Вернуть ' + inheritedName" @click="reset">сбросить</button>
+      <AppButton v-if="own" variant="link" size="xs" :title="'Вернуть ' + inheritedName" @click="reset">сбросить</AppButton>
     </div>
     <div class="ga-row">
       <AppSelect :model-value="agentId" :options="agentOptions" size="sm" @update:model-value="setAgent" />
@@ -20,8 +20,9 @@
 
 <script setup lang="ts">
 import { computed, watch } from 'vue'
-import type { ProjectGitSettings } from '@core/models'
+import type { ProjectGitSettings } from '@contracts'
 import AppSelect from '@shared/ui/AppSelect.vue'
+import AppButton from '@shared/ui/AppButton.vue'
 import { useAgentsStore } from '@features/agents'
 import { useChatStore, modelAndEffort } from '@features/agent-chat'
 
@@ -63,9 +64,7 @@ function reset() {
 <style scoped>
 .git-agent { display: flex; flex-direction: column; gap: 6px; }
 .ga-head { display: flex; align-items: center; gap: 8px; min-height: 18px; }
-.ga-label { font-size: 12.5px; font-weight: 500; color: var(--text); }
-.ga-link { padding: 0; font: inherit; font-size: 11.5px; color: var(--text-faint); background: none; border: none; cursor: pointer; }
-.ga-link:hover { color: var(--blue-hover); }
+.ga-label { font-size: var(--fs-md); font-weight: 500; color: var(--text); }
 .ga-row { display: flex; flex-wrap: wrap; gap: 6px; }
-.ga-hint { font-size: 11px; line-height: 1.45; color: var(--text-faint); }
+.ga-hint { font-size: var(--fs-xs); line-height: 1.45; color: var(--text-faint); }
 </style>

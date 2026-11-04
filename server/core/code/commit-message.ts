@@ -1,11 +1,7 @@
 ﻿import type { GitSettings } from '../projects/git-settings';
 
-export interface Coauthor { name: string; email: string }
-export interface CommitMessageInput {
-  title: string; body?: string; includeDescription?: boolean;
-  includeCoauthors?: boolean; coauthors?: Coauthor[];
-}
-export interface CommitViolation { kind: 'forbidden' | 'format'; severity: 'error' | 'warning'; line: number; text: string; pattern: string }
+import type { Coauthor, CommitMessageInput, CommitViolation } from '@contracts';
+export type { Coauthor, CommitMessageInput, CommitViolation } from '@contracts';
 const trailer = /^\s*co-authored-by\s*:/i;
 function removeCoauthorTrailers(text: string): string {
   const lines = text.replace(/\r\n?/g, '\n').split('\n');

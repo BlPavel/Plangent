@@ -1,3 +1,5 @@
+import type { CodeFile, TreeEntry } from '@contracts';
+export type { CodeFile, TreeEntry } from '@contracts';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { resolveProjectPath } from '../projects/files';
@@ -22,10 +24,7 @@ export const imageTypes: Record<string, string> = {
   '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
   '.svg': 'image/svg+xml', '.gif': 'image/gif', '.webp': 'image/webp',
 };
-export interface CodeFile {
-  path: string; size: number; kind: 'text' | 'image' | 'binary' | 'too-large';
-  content?: string; mime?: string;
-}
+
 
 /** Bounded read, even if the file grows after stat. */
 export async function readBytes(root: string, file: string): Promise<{ size: number; bytes?: Buffer }> {
@@ -65,10 +64,7 @@ export async function readCodeFile(root: string, file: string): Promise<CodeFile
   return { path: rel, size, kind: 'text', content: bytes.toString('utf8') };
 }
 
-export interface TreeEntry {
-  name: string; path: string; directory: boolean; ignored: boolean;
-  status?: GitChange['status']; changes: number;
-}
+
 
 /** Only the requested directory is returned; children are loaded on expansion. */
 export async function fileTree(root: string, directory = '', includeIgnored = false): Promise<TreeEntry[]> {

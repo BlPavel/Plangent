@@ -1,6 +1,8 @@
 import { computed, onScopeDispose, ref } from 'vue'
+import { useDraftsStore } from '@core/stores/drafts'
 import { defineStore } from 'pinia'
-import { onServerEvent, subscribeCodeProject } from '@core/api/events'
+import { onServerEvent } from '@core/api/events'
+import { subscribeCodeProject } from '../events'
 import { codeApi, codeReviewsApi } from '../api'
 import { countUnresolved, screenState } from '../utils/screen-state'
 import type { CodeFile, TreeEntry, RepositoryInfo, GitChange, LineStat, CurrentReview, ReviewDetail, ReviewHistory, ReviewDraft, DraftPatch, DiffOptions, SearchOptions, SearchEvent, BaseChanges } from '../types'
@@ -248,7 +250,7 @@ export const useCodeStore = defineStore('code', () => {
   }
   const addDraft = (data: ReviewDraft, origin: 'project' | 'task' = 'project', originId?: string) => mutate(p => codeReviewsApi.addDraft(p, data, origin, originId ?? p, workspaceId.value))
   const updateDraft = (r: string, i: string, data: DraftPatch) => mutate(p => codeReviewsApi.updateDraft(p, r, i, data, workspaceId.value))
-  const removeItem = (r: string, i: string) => mutate(p => codeReviewsApi.removeItem(p, r, i, workspaceId.value))
+  const removeItem = (r: string, i: string) => mutate(async p => { const result = await codeReviewsApi.removeItem(p, r, i, workspaceId.value); useDraftsStore().clearPrefix(`code-review:${r}:item:${i}:`); useDraftsStore().clearPrefix(`code-review:${r}:composer:item-edit:${i}:`); return result })
   const makeGeneral = (r: string, i: string) => mutate(p => codeReviewsApi.makeGeneral(p, r, i, workspaceId.value))
   const addMessage = (r: string, i: string, data: { kind: 'text' | 'implement'; text: string; choice?: number }) => mutate(p => codeReviewsApi.addMessage(p, r, i, data, workspaceId.value))
   const removeMessage = (r: string, i: string, m: string) => mutate(p => codeReviewsApi.removeMessage(p, r, i, m, workspaceId.value))
@@ -260,6 +262,7 @@ export const useCodeStore = defineStore('code', () => {
   const removeReview = (r: string) => mutate(async p => {
     const active = lifecycle
     await codeReviewsApi.removeReview(p, r, workspaceId.value)
+    useDraftsStore().clearPrefix(`code-review:${r}:`)
     if (lifecycle === active && openedReviewId.value === r) await openReview(null)
   })
   function diff(path: string, options: DiffOptions = {}, signal?: AbortSignal) {
@@ -272,4 +275,3 @@ export const useCodeStore = defineStore('code', () => {
     matches, searchSummary, searching, searchError, start, stop, refresh, loadTree, selectFile, openReview, loadHistory, setIncludeIgnored, search, cancelSearch, clearSearch, diff,
     messages, addDraft, updateDraft, removeItem, makeGeneral, addMessage, removeMessage, closeItem, sendRound, stopAgent, finish, removeReview }
 })
-

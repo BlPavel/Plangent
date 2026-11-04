@@ -2,12 +2,12 @@
   <div class="sp">
     <div class="sp-form">
       <div class="sp-row">
-        <input ref="input" v-model="query" class="sp-input" placeholder="Поиск по проекту" spellcheck="false" @keydown.enter.prevent="runNow" @keydown.esc="query = ''" />
-        <button type="button" class="sp-opt" :class="{ on: caseSensitive }" title="Учитывать регистр" @click="caseSensitive = !caseSensitive">Aa</button>
-        <button type="button" class="sp-opt" :class="{ on: wholeWord }" title="Слово целиком" @click="wholeWord = !wholeWord">ab</button>
-        <button type="button" class="sp-opt" :class="{ on: regex }" title="Регулярное выражение" @click="regex = !regex">.*</button>
+        <AppInput ref="input" v-model="query" placeholder="Поиск по проекту" spellcheck="false" @keydown.enter.prevent="runNow" @keydown.esc="query = ''" />
+        <AppButton variant="subtle" size="xs" :pressed="caseSensitive" title="Учитывать регистр" @click="caseSensitive = !caseSensitive">Aa</AppButton>
+        <AppButton variant="subtle" size="xs" :pressed="wholeWord" title="Слово целиком" @click="wholeWord = !wholeWord">ab</AppButton>
+        <AppButton variant="subtle" size="xs" :pressed="regex" title="Регулярное выражение" @click="regex = !regex">.*</AppButton>
       </div>
-      <input v-model="mask" class="sp-input" placeholder="Маска файлов: *.ts, server/**" spellcheck="false" />
+      <AppInput v-model="mask" class="sp-input" placeholder="Маска файлов: *.ts, server/**" spellcheck="false" />
     </div>
 
     <div class="sp-status">
@@ -29,26 +29,26 @@
         <div class="sp-window" :style="{ transform: `translateY(${first * ROW}px)` }">
           <template v-for="index in visible" :key="rows[index].key">
             <div v-if="rows[index].kind === 'heading'" class="sp-heading">{{ rows[index].label }}</div>
-            <button v-else-if="rows[index].kind === 'path'" type="button" class="sp-file sp-path" :title="rows[index].path" @click="emit('open', rows[index].path)">
+            <AppButton v-else-if="rows[index].kind === 'path'" variant="subtle" size="xs" block :title="rows[index].path" @click="emit('open', rows[index].path)">
               <!-- eslint-disable-next-line vue/no-v-html -- bundled icon set, not user input -->
               <span class="sp-icon" v-html="iconSvg(fileIconName(rows[index].path.split('/').pop() ?? ''))" />
               <!-- eslint-disable-next-line vue/no-v-html -- escaped text with <mark> only -->
               <span class="sp-file-name" v-html="rows[index].html" />
               <span class="sp-file-dir">{{ dirOf(rows[index].path) }}</span>
-            </button>
-            <button v-else-if="rows[index].kind === 'file'" type="button" class="sp-file" :title="rows[index].path" @click="toggle(rows[index].path)">
+            </AppButton>
+            <AppButton v-else-if="rows[index].kind === 'file'" variant="subtle" size="xs" block :title="rows[index].path" @click="toggle(rows[index].path)">
               <span class="sp-chevron" :class="{ open: !collapsed.has(rows[index].path) }">›</span>
               <!-- eslint-disable-next-line vue/no-v-html -- bundled icon set, not user input -->
               <span class="sp-icon" v-html="iconSvg(fileIconName(rows[index].path.split('/').pop() ?? ''))" />
               <span class="sp-file-name">{{ rows[index].path.split('/').pop() }}</span>
               <span class="sp-file-dir">{{ dirOf(rows[index].path) }}</span>
               <span class="sp-count">{{ rows[index].count }}</span>
-            </button>
-            <button v-else type="button" class="sp-match" @click="emit('open', rows[index].path, rows[index].line)">
+            </AppButton>
+            <AppButton v-else variant="subtle" size="xs" block @click="emit('open', rows[index].path, rows[index].line)">
               <span class="sp-line">{{ rows[index].line }}</span>
               <!-- eslint-disable-next-line vue/no-v-html -- escaped text with <mark> only -->
               <span class="sp-text" v-html="rows[index].html" />
-            </button>
+            </AppButton>
           </template>
         </div>
       </div>
@@ -57,6 +57,8 @@
 </template>
 
 <script setup lang="ts">
+import AppInput from '@shared/ui/AppInput.vue'
+import AppButton from '@shared/ui/AppButton.vue'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { fileIconName, findInLine, findPattern, iconSvg, markHtml } from '@shared/code-viewer'
 import { useCodeStore } from '../stores/code'
@@ -68,7 +70,7 @@ const MAX_TEXT = 240
 const MAX_PATHS = 50
 const emit = defineEmits<{ open: [path: string, line?: number] }>()
 const store = useCodeStore()
-const input = ref<HTMLInputElement>()
+const input = ref<InstanceType<typeof AppInput>>()
 const scroller = ref<HTMLElement>()
 const query = ref('')
 const mask = ref('')
@@ -174,30 +176,30 @@ defineExpose({ focus })
 .sp { display: flex; flex-direction: column; min-height: 0; height: 100%; }
 .sp-form { display: flex; flex-direction: column; gap: 4px; padding: 8px; border-bottom: 1px solid var(--border); }
 .sp-row { display: flex; align-items: center; gap: 2px; }
-.sp-input { flex: 1; min-width: 0; padding: 3px 8px; font: inherit; font-size: 12px; color: var(--text); background: var(--bg); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); }
-.sp-opt { min-width: 24px; padding: 1px 4px; font-size: 12px; color: var(--text-muted); background: none; border: 1px solid transparent; border-radius: var(--radius-sm); cursor: pointer; }
+.sp-input { flex: 1; }
+.sp-opt { min-width: 24px; padding: 1px 4px; font-size: var(--fs-sm); color: var(--text-muted); background: none; border: 1px solid transparent; border-radius: var(--radius-sm); cursor: pointer; }
 .sp-opt:hover { color: var(--text); border-color: var(--border-strong); }
 .sp-opt.on { color: var(--text); background: var(--blue-soft); border-color: var(--blue); }
-.sp-status { padding: 6px 10px; font-size: 12px; color: var(--text-muted); flex-shrink: 0; }
+.sp-status { padding: 6px 10px; font-size: var(--fs-sm); color: var(--text-muted); flex-shrink: 0; }
 .sp-warn { color: var(--warning-text); }
 .sp-list { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
 .sp-body { position: relative; }
 .sp-window { position: absolute; top: 0; left: 0; right: 0; }
-.sp-file, .sp-match { display: flex; align-items: center; gap: 6px; width: 100%; height: 22px; padding: 0 8px; font: inherit; font-size: 12px; text-align: left; color: var(--text); background: none; border: none; cursor: pointer; overflow: hidden; }
+.sp-file, .sp-match { display: flex; align-items: center; gap: 6px; width: 100%; height: 22px; padding: 0 8px; font: inherit; font-size: var(--fs-sm); text-align: left; color: var(--text); background: none; border: none; cursor: pointer; overflow: hidden; }
 .sp-file:hover, .sp-match:hover { background: var(--bg3); }
 .sp-file { font-weight: 600; }
 .sp-path { font-weight: 400; padding-left: 12px; }
-.sp-file-name :deep(mark) { color: inherit; background: rgba(255, 196, 0, 0.35); border-radius: 2px; }
-.sp-heading { display: flex; align-items: center; height: 22px; padding: 0 10px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-faint); }
-.sp-chevron { width: 10px; flex-shrink: 0; color: var(--text-muted); transition: transform 0.1s; }
+.sp-file-name :deep(mark) { color: inherit; background: var(--highlight); border-radius: var(--radius-xs); }
+.sp-heading { display: flex; align-items: center; height: 22px; padding: 0 10px; font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-faint); }
+.sp-chevron { width: 10px; flex-shrink: 0; color: var(--text-muted); transition: transform var(--motion-instant); }
 .sp-chevron.open { transform: rotate(90deg); }
 .sp-icon { display: inline-flex; flex-shrink: 0; }
 .sp-icon :deep(svg) { width: 14px; height: 14px; }
 .sp-file-name { flex-shrink: 0; }
 .sp-file-dir { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 400; color: var(--text-faint); }
-.sp-count { flex-shrink: 0; min-width: 18px; padding: 0 5px; font-size: 10px; text-align: center; border-radius: var(--radius-pill); background: var(--bg3); color: var(--text-muted); }
-.sp-match { padding-left: 24px; font-family: 'Cascadia Code', 'JetBrains Mono', Consolas, monospace; }
+.sp-count { flex-shrink: 0; min-width: 18px; padding: 0 5px; font-size: var(--fs-xs); text-align: center; border-radius: var(--radius-pill); background: var(--bg3); color: var(--text-muted); }
+.sp-match { padding-left: 24px; font-family: var(--font-mono); }
 .sp-line { flex-shrink: 0; min-width: 4ch; text-align: right; color: var(--text-faint); }
 .sp-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: pre; }
-.sp-text :deep(mark) { color: inherit; background: rgba(255, 196, 0, 0.35); border-radius: 2px; }
+.sp-text :deep(mark) { color: inherit; background: var(--highlight); border-radius: var(--radius-xs); }
 </style>

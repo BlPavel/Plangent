@@ -31,7 +31,7 @@
         :initial-text="DEFAULT_NOTE" :send-label="`Отправить ${setupCount}`" :busy="agent.sending" :error="agent.error"
         @start="agent.start(projectId, $event, DEFAULT_NOTE)"
       >
-        <template #actions><button type="button" class="rp-link" @click="agent.setup = null">Отмена</button></template>
+        <template #actions><AppButton variant="link" size="xs" type="button"  @click="agent.setup = null">Отмена</AppButton></template>
       </NewChatPanel>
       <div v-else class="rp-actions">
         <AppButton size="xs" variant="ghost" :disabled="readOnly || composing" title="Замечание не к конкретной строке: структура, несколько файлов, общее впечатление" @click="composing = true">+ Общее</AppButton>
@@ -40,10 +40,10 @@
           :title="agent.busy ? 'Агент работает: дождитесь конца хода' : pending ? 'Отправить агенту новые пункты и ваши ответы в обсуждениях' : 'Нечего отправлять'"
           @click="agent.send()"
         >{{ agent.sending ? 'Отправка…' : `Отправить${pending ? ' ' + pending : ''}` }}</AppButton>
-        <button
-          v-if="agent.work && !readOnly && pending && !agent.busy && !agent.sending" type="button" class="rp-link"
+        <AppButton variant="link" size="xs"
+          v-if="agent.work && !readOnly && pending && !agent.busy && !agent.sending" type="button" 
           title="Отдать замечания другому агенту или модели: он продолжит в папке этой работы" @click="agent.setup = { ids: null }"
-        >другому агенту…</button>
+        >другому агенту…</AppButton>
         <FinishReview v-if="store.liveReview && !readOnly" class="rp-finish" />
       </div>
       <div v-if="agent.error && !agent.setup" class="rp-error">{{ agent.error }}</div>
@@ -60,12 +60,7 @@
         </div>
       </div>
 
-      <div v-if="items.length" class="rp-filters" role="tablist" aria-label="Какие пункты показать">
-        <button
-          v-for="f in filters" :key="f.id" type="button" role="tab" class="rp-filter" :class="{ on: filter === f.id, warn: f.id === 'waiting' && f.count }"
-          :aria-selected="filter === f.id" @click="filter = f.id"
-        >{{ f.label }}<span class="rp-filter-count">{{ f.count }}</span></button>
-      </div>
+      <AppTabs v-if="items.length" :model-value="filter" :items="filters.map(f => ({ value: f.id, label: f.label, count: f.count }))" label="Какие пункты показать" @update:model-value="filter = $event as typeof filter" />
       <div class="rp-meta">
         <template v-if="review">Ревью #{{ review.number }}<template v-if="rounds"> · отправок {{ rounds }}</template></template>
         <span v-if="readOnly" class="rp-ro" title="Это ревью другой ветки или завершено: только чтение">только чтение</span>
@@ -96,8 +91,11 @@
 </template>
 
 <script setup lang="ts">
+import { useDraft } from '@core/composables/useDraft'
+import { useDraftsStore } from '@core/stores/drafts'
 import { computed, ref } from 'vue'
 import AppButton from '@shared/ui/AppButton.vue'
+import AppTabs from '@shared/ui/AppTabs.vue'
 import { useAppStore } from '@core/stores/app'
 import { useAgentsStore } from '@features/agents'
 import { ChatView, NewChatPanel, UsageMeter, statusLabel, type UsageInfo } from '@features/agent-chat'
@@ -121,7 +119,7 @@ const store = useCodeStore()
 const agent = useReviewAgentStore()
 const agents = useAgentsStore()
 const app = useAppStore()
-const composing = ref(false)
+const composing = useDraft(() => `code-review:${store.review?.id ?? store.projectId}:general-composing`, () => false)
 const journal = ref(false)
 const busy = ref(false)
 const error = ref('')
@@ -161,7 +159,9 @@ const loosePermissions = computed(() => (agent.focusItem && items.value.some(i =
 async function saveGeneral(value: { kind: 'fix' | 'question'; text: string; refs: string[] }) {
   busy.value = true; error.value = ''
   try {
+    const owner = store.review?.id ?? store.projectId
     await store.addDraft({ scope: 'general', ...value }, props.origin.type, props.origin.id)
+    useDraftsStore().clearPrefix(`code-review:${owner}:composer:Общее замечание:`)
     composing.value = false
   } catch (cause) { error.value = cause instanceof Error ? cause.message : 'Не удалось сохранить'; app.toast(error.value, 'error') }
   finally { busy.value = false }
@@ -170,13 +170,13 @@ async function saveGeneral(value: { kind: 'fix' | 'question'; text: string; refs
 
 <style scoped>
 .rp { display: flex; flex-direction: column; min-height: 0; height: 100%; }
-.rp-agent { display: flex; align-items: center; gap: 6px; flex-shrink: 0; min-height: 36px; padding: 0 8px 0 12px; border-bottom: 1px solid var(--border); font-size: 12px; }
-.rp-agent-usage { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 2px 8px 4px 12px; border-bottom: 1px solid var(--border); color: var(--text-muted); font-size: 11px; flex-shrink: 0; }
+.rp-agent { display: flex; align-items: center; gap: 6px; flex-shrink: 0; min-height: 36px; padding: 0 8px 0 12px; border-bottom: 1px solid var(--border); font-size: var(--fs-sm); }
+.rp-agent-usage { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 2px 8px 4px 12px; border-bottom: 1px solid var(--border); color: var(--text-muted); font-size: var(--fs-xs); flex-shrink: 0; }
 .rp-agent-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rp-agent-status { color: var(--text-muted); white-space: nowrap; }
 .rp-spacer { flex: 1; }
 .rp-muted { color: var(--text-muted); }
-.rp-dot { width: 7px; height: 7px; flex-shrink: 0; border-radius: 50%; background: var(--border-strong); }
+.rp-dot { width: 7px; height: 7px; flex-shrink: 0; border-radius: var(--radius-round); background: var(--border-strong); }
 .rp-dot.thinking, .rp-dot.starting { background: var(--blue-hover); animation: rp-pulse 1.4s ease-in-out infinite; }
 .rp-dot.waiting { background: var(--warning-text); }
 .rp-dot.complete, .rp-dot.ready { background: var(--accent-hover); }
@@ -184,23 +184,23 @@ async function saveGeneral(value: { kind: 'fix' | 'question'; text: string; refs
 @keyframes rp-pulse { 50% { opacity: 0.35; } }
 .rp-journal { flex: 1; min-height: 0; }
 .rp-setup { flex-shrink: 0; border-bottom: 1px solid var(--border); background: var(--bg2); }
-.rp-link { padding: 0; font: inherit; font-size: 12px; font-weight: 400; color: var(--blue-hover); background: none; border: none; cursor: pointer; }
+.rp-link { padding: 0; font: inherit; font-size: var(--fs-sm); font-weight: 400; color: var(--blue-hover); background: none; border: none; cursor: pointer; }
 .rp-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; padding: 8px 12px 4px; }
 .rp-finish { margin-left: auto; }
-.rp-error { margin: 0 12px 4px; font-size: 12px; color: var(--danger-hover); }
-.rp-permission { margin: 4px 12px; padding: 6px 8px; font-size: 12px; border: 1px solid var(--blue); border-radius: var(--radius-sm); background: var(--blue-soft); }
-.rp-permission-head { font-size: 11px; font-weight: 600; color: var(--text-muted); }
-.rp-permission-title { margin: 2px 0 6px; font-family: monospace; font-size: 11.5px; overflow-wrap: anywhere; }
+.rp-error { margin: 0 12px 4px; font-size: var(--fs-sm); color: var(--danger-hover); }
+.rp-permission { margin: 4px 12px; padding: 6px 8px; font-size: var(--fs-sm); border: 1px solid var(--blue); border-radius: var(--radius-sm); background: var(--blue-soft); }
+.rp-permission-head { font-size: var(--fs-xs); font-weight: 600; color: var(--text-muted); }
+.rp-permission-title { margin: 2px 0 6px; font-family: var(--font-mono); font-size: var(--fs-sm); overflow-wrap: anywhere; }
 .rp-permission-actions { display: flex; flex-wrap: wrap; gap: 4px; }
 .rp-filters { display: flex; flex-wrap: wrap; gap: 4px; flex-shrink: 0; padding: 4px 12px; }
-.rp-filter { display: inline-flex; align-items: center; gap: 5px; padding: 1px 8px; font: inherit; font-size: 11px; color: var(--text-muted); background: none; border: 1px solid var(--border-strong); border-radius: var(--radius-pill); cursor: pointer; }
+.rp-filter { display: inline-flex; align-items: center; gap: 5px; padding: 1px 8px; font: inherit; font-size: var(--fs-xs); color: var(--text-muted); background: none; border: 1px solid var(--border-strong); border-radius: var(--radius-pill); cursor: pointer; }
 .rp-filter:hover { color: var(--text); }
 .rp-filter.on { color: var(--text); border-color: var(--blue); background: var(--blue-soft); }
 .rp-filter.warn .rp-filter-count { background: var(--warning-text); color: var(--bg); }
-.rp-filter-count { min-width: 14px; padding: 0 4px; font-size: 10px; font-weight: 600; text-align: center; border-radius: var(--radius-pill); background: var(--bg3); }
-.rp-meta { display: flex; align-items: center; gap: 8px; flex-shrink: 0; min-height: 20px; padding: 0 12px 4px; font-size: 11px; color: var(--text-muted); }
-.rp-ro { padding: 0 6px; font-size: 10px; border-radius: var(--radius-pill); background: var(--bg3); color: var(--warning-text); }
+.rp-filter-count { min-width: 14px; padding: 0 4px; font-size: var(--fs-xs); font-weight: 600; text-align: center; border-radius: var(--radius-pill); background: var(--bg3); }
+.rp-meta { display: flex; align-items: center; gap: 8px; flex-shrink: 0; min-height: 20px; padding: 0 12px 4px; font-size: var(--fs-xs); color: var(--text-muted); }
+.rp-ro { padding: 0 6px; font-size: var(--fs-xs); border-radius: var(--radius-pill); background: var(--bg3); color: var(--warning-text); }
 .rp-list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding: 0 12px 12px; }
-.rp-empty { font-size: 12px; color: var(--text-muted); line-height: 1.5; }
-.rp-section { margin-top: 6px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-faint); }
+.rp-empty { font-size: var(--fs-sm); color: var(--text-muted); line-height: 1.5; }
+.rp-section { margin-top: 6px; font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-faint); }
 </style>

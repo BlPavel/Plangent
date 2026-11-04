@@ -12,7 +12,7 @@
 </template>
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import type { Task, Workspace } from '@core/models'
+import type { Task, Workspace } from '@contracts'
 import { useAppStore } from '@core/stores/app'
 import { useGitStore } from '@features/code'
 import { FinishPanel } from '@features/finish'
@@ -40,9 +40,9 @@ async function closeWork() {
 <style scoped>
 .work-finish { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .finish-body { flex: 1; min-height: 0; overflow: auto; max-width: 960px; width: 100%; margin: 0 auto; padding: 8px 16px; }
-.finish-note { padding: 12px 16px; color: var(--text-muted); font-size: 12.5px; }
+.finish-note { padding: 12px 16px; color: var(--text-muted); font-size: var(--fs-md); }
 .finish-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 14px; padding: 12px 0; border-top: 1px solid var(--border); }
-.finish-hint { font-size: 12px; color: var(--text-muted); }
+.finish-hint { font-size: var(--fs-sm); color: var(--text-muted); }
 @media (max-width: 640px) {
   .finish-body { padding: 8px 0; }
   .finish-footer { flex-wrap: wrap; }

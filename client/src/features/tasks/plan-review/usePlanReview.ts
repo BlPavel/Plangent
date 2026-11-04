@@ -1,4 +1,4 @@
-﻿import { computed, onScopeDispose, ref, watch, type Ref } from 'vue'
+import { computed, onScopeDispose, ref, watch, type Ref } from 'vue'
 import { onServerEvent } from '@core/api/events'
 import { errorText } from '@shared/utils/errorText'
 import { planReviewApi as api } from './api'

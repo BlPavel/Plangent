@@ -24,9 +24,11 @@
 </template>
 
 <script setup lang="ts">
+import { branchReviewEndpoints } from '@features/branch-review'
+import { projectsEndpoints } from '../api'
+
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { api } from '@core/api'
-import type { ProjectGitSettings } from '@core/models'
+import type { ProjectGitSettings } from '@contracts'
 import { useAppStore } from '@core/stores/app'
 import SaveStatus, { type SaveState } from '@shared/ui/SaveStatus.vue'
 import { errorText } from '@shared/utils/errorText'
@@ -54,20 +56,20 @@ watch(() => [props.projectId, props.section], async () => {
   if (!p) return
   try {
     const group = p.group_id
-    const data = await api.get<{ values: ProjectGitSettings; sources: Record<string, string> }>(group ? '/projects/' + encodeURIComponent(group) + '/git-settings' : '/projects/git-defaults')
+    const data = await (group ? projectsEndpoints.gitSettings({ params: { id: group } }) : projectsEndpoints.getProjectsGitDefaults({ params: {} }))
     if (p.id !== props.projectId) return
     inherited.value = data.values
     // The group's own values come back from its endpoint as «project».
     inheritedSources.value = Object.fromEntries(Object.entries(data.sources).map(([key, source]) => [key, source === 'project' ? 'group' : source]))
     // Only a project has a repository to list branches from.
     if (props.section === 'branches' && p.kind === 'project') {
-      const list = await api.get<{ branches: { name: string }[] }>('/projects/' + encodeURIComponent(p.id) + '/branch-review/branches')
+      const list = await branchReviewEndpoints.getProjectsByProjectIdBranchReviewBranches({ params: { projectId: p.id } })
       if (p.id === props.projectId) branchNames.value = [...new Set(list.branches.map(b => b.name))]
     }
     // Reviewers are picked from the people the code host knows for this repository; without a host they are typed.
     if (props.section === 'mr' && p.kind === 'project') {
       try {
-        const list = await api.get<typeof members.value>('/projects/' + encodeURIComponent(p.id) + '/host-members')
+        const list = await projectsEndpoints.getProjectsByIdHostMembers({ params: { id: p.id } })
         if (p.id === props.projectId) { members.value = list; membersNote.value = '' }
       } catch (cause) { if (p.id === props.projectId) { members.value = []; membersNote.value = 'Список участников недоступен (' + errorText(cause) + ') — введите логин или ID вручную, Enter — добавить.' } }
     }
@@ -95,5 +97,5 @@ onBeforeUnmount(() => { void flush() })
 
 <style scoped>
 .git-panel { display: flex; flex-direction: column; gap: 12px; max-width: 720px; }
-.git-error { font-size: 12px; color: var(--danger-hover); }
+.git-error { font-size: var(--fs-sm); color: var(--danger-hover); }
 </style>

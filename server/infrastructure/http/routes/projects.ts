@@ -1,3 +1,5 @@
+import type { ErrorResponse } from '../typed-route';
+import { typedRoutes } from '../typed-route';
 import { resolveGitSettings } from '../../../core/projects/git-settings';
 import { resolveCodeHost } from '../../../core/code-hosts';
 import { localOrigin } from '../local-origin';
@@ -18,43 +20,35 @@ import { IntegrationError } from '../../../core/integrations';
 import { Project } from '../../../models';
 
 export const projectsRouter = Router();
+const projectsRouterRoutes = typedRoutes(projectsRouter, '/api/projects');
 projectsRouter.use(localOrigin);
 projectsRouter.use('/:id/docs', docsRouter);
 
-const guard = (handler: (req: Request, res: Response) => unknown) => (req: Request, res: Response, next: NextFunction) => {
 
-  Promise.resolve().then(() => handler(req, res)).catch(e => {
-    if (e instanceof ProjectError || e instanceof DocsSourceError) return res.status(400).json({ error: e.message, ...(e instanceof ExistingCloneError ? { code: e.code } : {}) });
-    if (e instanceof IntegrationError) return res.status(e.status).json({ error: e.message, code: e.code });
-    if (e instanceof GitOperationError) return res.status(e.status).json({ error: e.message, output: e.output, code: e.code });
-    res.status(500).json({ error: 'Project operation failed' });
-  });
 
-};
-
-projectsRouter.get('/', (_req: Request, res: Response) => {
+projectsRouterRoutes.json('GET /api/projects', (_req, res) => {
   // Open tasks per project, for the sidebar's «hide projects without active tasks».
   const active = new Map((getDb().prepare(`SELECT project_id, COUNT(*) AS n FROM tasks WHERE status <> 'done' GROUP BY project_id`).all() as { project_id: string; n: number }[])
     .map(r => [r.project_id, r.n]));
   res.json(listProjects().map(p => ({ ...p, active_tasks: active.get(p.id) ?? 0 })));
 });
 
-projectsRouter.post('/git-preview', guard(async (req, res) => res.json(await inspectProjectGit(req.body?.repo_path))));
+projectsRouterRoutes.json('POST /api/projects/git-preview', async (req, res) => { try { return res.json(await inspectProjectGit(req.body?.repo_path ?? '')); } catch (routeError) { return handleRouteError(routeError, res); } });
 
 // The app-wide level: what a project without a group inherits; `own` is what «Настройки» set.
 const gitDefaults = () => ({ ...resolveGitSettings({}, {}, globalGitSettings()), own: globalGitSettings() });
-projectsRouter.get('/git-defaults', (_req, res) => res.json(gitDefaults()));
-projectsRouter.put('/git-defaults', guard((req, res) => { saveGlobalGitSettings(req.body); res.json(gitDefaults()); }));
-projectsRouter.get('/:id', (req: Request, res: Response) => {
+projectsRouterRoutes.json('GET /api/projects/git-defaults', (_req, res) => res.json(gitDefaults()));
+projectsRouterRoutes.json('PUT /api/projects/git-defaults', async (req, res) => { try {  saveGlobalGitSettings(req.body); res.json(gitDefaults());  } catch (routeError) { return handleRouteError(routeError, res); } });
+projectsRouterRoutes.json('GET /api/projects/:id', (req, res) => {
   const p = getProject(req.params.id);
   if (!p) return res.status(404).json({ error: 'Not found' });
   res.json(p);
 });
 
-projectsRouter.get('/:id/host-members', guard(async (req, res) => res.json(await (await resolveCodeHost(req.params.id)).host.listMembers())));
-projectsRouter.get('/:id/git-settings', guard((req, res) => res.json(effectiveGitSettings(req.params.id))));
+projectsRouterRoutes.json('GET /api/projects/:id/host-members', async (req, res) => { try { return res.json(await (await resolveCodeHost(req.params.id)).host.listMembers()); } catch (routeError) { return handleRouteError(routeError, res); } });
+projectsRouterRoutes.json('GET /api/projects/:id/git-settings', async (req, res) => { try { return res.json(effectiveGitSettings(req.params.id)); } catch (routeError) { return handleRouteError(routeError, res); } });
 
-projectsRouter.get('/:id/files', async (req: Request, res: Response) => {
+projectsRouterRoutes.json('GET /api/projects/:id/files', async (req, res) => {
   const p = getProject(req.params.id);
   if (!p) return res.status(404).json({ error: 'Not found' });
   try { res.json(await searchFiles(p.repo_path, typeof req.query.q === 'string' ? req.query.q : '')); }
@@ -68,7 +62,7 @@ interface Mention { path: string; dir: boolean; uri: string; ref?: boolean; sect
  * projects, by key) at the end. `key/…` searches inside that source. A group has no files of its own, so its
  * projects come first instead.
  */
-projectsRouter.get('/:id/mentions', async (req: Request, res: Response) => {
+projectsRouterRoutes.json('GET /api/projects/:id/mentions', async (req, res) => {
   const project = getProject(req.params.id);
   if (!project) return res.status(404).json({ error: 'Not found' });
   const q = (typeof req.query.q === 'string' ? req.query.q : '').replace(/\\/g, '/');
@@ -94,12 +88,12 @@ projectsRouter.get('/:id/mentions', async (req: Request, res: Response) => {
 });
 
 const clones = new Map<string, AbortController>();
-projectsRouter.post('/clone-cancel', guard((req, res) => {
-  const controller = clones.get(req.body?.operationId);
+projectsRouterRoutes.empty('POST /api/projects/clone-cancel', async (req, res) => { try { 
+  const controller = clones.get(req.body?.operationId ?? '');
   if (!controller) return res.status(404).json({ error: 'Clone not found' });
   controller.abort(); res.status(204).end();
-}));
-projectsRouter.post('/', guard(async (req: Request, res: Response) => {
+ } catch (routeError) { return handleRouteError(routeError, res); } });
+projectsRouterRoutes.json('POST /api/projects', async (req, res) => { try { 
   if (req.body?.creation_mode !== undefined && !['folder', 'clone'].includes(req.body.creation_mode)) throw new ProjectError('Invalid creation mode');
   const operationId = req.body?.operationId ?? randomUUID();
   if (typeof operationId !== 'string' || !/^[a-zA-Z0-9-]{1,100}$/.test(operationId) || clones.has(operationId)) throw new ProjectError('Invalid operation ID');
@@ -115,17 +109,17 @@ projectsRouter.post('/', guard(async (req: Request, res: Response) => {
 
   if (p.group_id) resyncAfterRegroup({ ...p, group_id: null }, p);
   res.status(201).json(p);
-}));
+ } catch (routeError) { return handleRouteError(routeError, res); } });
 
-projectsRouter.patch('/:id', guard((req: Request, res: Response) => {
+projectsRouterRoutes.json('PATCH /api/projects/:id', async (req, res) => { try { 
   const before = getProject(req.params.id);
   const p = updateProject(req.params.id, req.body);
   if (!before || !p) return res.status(404).json({ error: 'Not found' });
   try { resyncAfterRegroup(before, p); } catch (e) { console.error('[library] resync error:', e); }
   res.json(p);
-}));
+ } catch (routeError) { return handleRouteError(routeError, res); } });
 
-projectsRouter.delete('/:id', guard(async (req: Request, res: Response) => {
+projectsRouterRoutes.empty('DELETE /api/projects/:id', async (req, res) => { try { 
   await cancelDocsSync(req.params.id);
   const p = getProject(req.params.id);
   if (!p) return res.status(404).json({ error: 'Not found' });
@@ -137,4 +131,11 @@ projectsRouter.delete('/:id', guard(async (req: Request, res: Response) => {
   }
   deleteProject(p.id);
   res.status(204).end();
-}));
+ } catch (routeError) { return handleRouteError(routeError, res); } });
+
+function handleRouteError(e: unknown, res: ErrorResponse) {
+    if (e instanceof ProjectError || e instanceof DocsSourceError) return res.status(400).json({ error: e.message, ...(e instanceof ExistingCloneError ? { code: e.code } : {}) });
+    if (e instanceof IntegrationError) return res.status(e.status).json({ error: e.message, code: e.code });
+    if (e instanceof GitOperationError) return res.status(e.status).json({ error: e.message, output: e.output, code: e.code });
+    res.status(500).json({ error: 'Project operation failed' });
+  }

@@ -1,21 +1,10 @@
+import type { UpdateState } from '@contracts';
 import { app, BrowserWindow, net, shell } from 'electron';
 import { autoUpdater, type UpdateInfo } from 'electron-updater';
 import { execFileSync, spawn } from 'child_process';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
-
-// Keep in sync with UpdateState in client/src/core/platform/types.ts.
-export type UpdateState =
-  | { status: 'idle' }
-  | { status: 'checking' }
-  | { status: 'up-to-date' }
-  | { status: 'downloading'; version: string; percent: number }
-  | { status: 'ready'; version: string }
-  // The update cannot be installed in place (an unsigned mac app running outside /Applications,
-  // a failed download…): the developer downloads it from the release page.
-  | { status: 'manual'; version: string; url: string }
-  | { status: 'error'; message: string };
 
 const CHECK_DELAY_MS = 10_000;
 const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;

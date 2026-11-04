@@ -1,6 +1,7 @@
+﻿import type { ElectronAPI, UpdateState } from '@contracts';
 import { contextBridge, webUtils, ipcRenderer } from 'electron';
 
-contextBridge.exposeInMainWorld('electronAPI', {
+const electronAPI = {
   notify: (title: string, body: string, target?: string) => ipcRenderer.send('agent:notify', { title, body, target }),
   onNotificationClick: (handler: (target: string) => void) => { ipcRenderer.on('notification:click', (_event, target: string) => handler(target)); },
   isElectron: true,
@@ -15,8 +16,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   pickFolder: (defaultPath?: string): Promise<string | null> => ipcRenderer.invoke('dialog:pick-folder', defaultPath),
   updates: {
     getState: () => ipcRenderer.invoke('update:get-state'),
-    onState: (handler: (state: unknown) => void) => { ipcRenderer.on('update:state', (_event, state) => handler(state)); },
+    onState: (handler: (state: UpdateState) => void) => { ipcRenderer.on('update:state', (_event, state) => handler(state)); },
     install: () => ipcRenderer.invoke('update:install'),
     openRelease: () => ipcRenderer.send('update:open-release'),
   },
-});
+} satisfies ElectronAPI<File>;
+
+contextBridge.exposeInMainWorld('electronAPI', electronAPI);
+

@@ -6,12 +6,14 @@ const Module = require('node:module')
 const { parseHTML } = require('linkedom')
 const { window } = parseHTML('<html><body><div id="app"></div></body></html>')
 for (const key of ['window', 'document', 'HTMLElement', 'SVGElement', 'Element', 'Node', 'Document', 'ShadowRoot']) global[key] = window[key]
+Object.defineProperty(window.HTMLElement.prototype, Symbol.toStringTag, { value: 'HTMLElement' })
 global.requestAnimationFrame = callback => setTimeout(callback, 0)
 global.cancelAnimationFrame = clearTimeout
 global.getComputedStyle = () => ({ transitionDelay: '0s', transitionDuration: '0s', animationDelay: '0s', animationDuration: '0s' })
 window.getComputedStyle = global.getComputedStyle
 const { createApp, h, reactive, nextTick } = require('vue')
 const { createPinia, setActivePinia } = require('pinia')
+require('node:test').beforeEach(() => setActivePinia(createPinia()))
 window.HTMLElement.prototype.scrollIntoView = () => {}
 // Native textarea.value is independent of its child text; emulate that in linkedom.
 Object.defineProperty(window.HTMLTextAreaElement.prototype, 'value', { configurable: true, get() { return this.testValue ?? '' }, set(value) { this.testValue = String(value) } })
@@ -61,7 +63,7 @@ test('review card shows textual suggestions, closes all reply kinds and submits 
   const app = createApp({ render: () => h(Card, { ...props, onClose: value => { events.push(['close', value]); props.item.closed = true; props.state = 'closed' }, onReply: (...args) => events.push(['reply', ...args]) }) })
   app.mount('#app')
   try {
-    document.querySelector('.it-line').dispatchEvent(new window.Event('click', { bubbles: true }))
+    document.querySelector('button[aria-expanded]').dispatchEvent(new window.Event('click', { bubbles: true }))
     await nextTick()
     assert.equal(document.querySelectorAll('input[type=radio], [role=radiogroup]').length, 0)
     assert.deepEqual([...document.querySelectorAll('.it-msg.agent ol li')].map(li => li.textContent), ['Use A (рекомендую)', 'Use B'])
@@ -74,8 +76,8 @@ test('review card shows textual suggestions, closes all reply kinds and submits 
       await click('Закрыть')
       assert.deepEqual(events.at(-1), ['close', resolution])
       assert.equal(document.querySelector('.it-body'), null, 'closing an item collapses its discussion')
-      assert.equal(document.querySelector('.it-line').getAttribute('aria-expanded'), 'false')
-      document.querySelector('.it-line').dispatchEvent(new window.Event('click', { bubbles: true }))
+      assert.equal(document.querySelector('button[aria-expanded]').getAttribute('aria-expanded'), 'false')
+      document.querySelector('button[aria-expanded]').dispatchEvent(new window.Event('click', { bubbles: true }))
       await nextTick()
       assert.ok(document.querySelector('.it-body'), 'the closed discussion can be expanded again')
       assert.equal(buttons().includes('Закрыть'), false)
@@ -124,7 +126,7 @@ test('file and line review composers use chat mentions and preserve references w
         input.value = 'Check @other'; input.setSelectionRange(input.value.length, input.value.length)
         input.dispatchEvent(new window.Event('input', { bubbles: true }))
         await new Promise(resolve => setTimeout(resolve, 100)); await nextTick()
-        assert.ok(document.querySelector('.suggest-item'), where)
+        assert.ok(document.querySelector('[role="listbox"] button'), where)
         const key = new window.Event('keydown', { bubbles: true, cancelable: true }); key.key = 'Enter'
         input.dispatchEvent(key); await nextTick(); await nextTick()
         assert.equal(input.value, 'Check @src/other.ts ')
@@ -154,13 +156,13 @@ test('shared usage meter shows session context and account limits with details b
   app.mount('#app')
   try {
     assert.ok(document.querySelector('.usage-below'))
-    assert.match(document.querySelector('.usage').textContent, /25%/)
-    await click(document.querySelector('.usage-trigger').textContent.trim())
+    assert.match(document.querySelector('[aria-label="Контекст и лимиты агента"]').textContent, /25%/)
+    document.querySelector('[aria-label="Контекст и лимиты агента"]').click(); await nextTick(); await nextTick()
     assert.match(document.querySelector('.usage-pop').textContent, /250/)
     assert.match(document.querySelector('.usage-pop').textContent, /40%/)
     props.usage = { used: 750, size: 1000 }
     await nextTick()
-    assert.match(document.querySelector('.usage-trigger').textContent, /75%/)
+    assert.match(document.querySelector('[aria-label="Контекст и лимиты агента"]').textContent, /75%/)
   } finally { app.unmount() }
 })
 
@@ -203,7 +205,7 @@ test('interview menu displays both Plangent and agent commands and preserves the
   app.mount('#app')
   try {
     assert.deepEqual([...document.querySelectorAll('.suggest-label')].map(el => el.textContent), ['/interview (plangent)', '/interview'])
-    const rows = document.querySelectorAll('.suggest-item')
+    const rows = document.querySelectorAll('[role="listbox"] button')
     rows[0].click(); rows[1].click()
     assert.deepEqual(picks, ['interview', 'agent:interview'])
   } finally { app.unmount() }
@@ -228,8 +230,8 @@ test('mention menu escapes clipping containers, fits the window and follows the 
   app.mount('#app')
   try {
     await nextTick()
-    const menu = document.querySelector('.suggest')
-    assert.equal(menu.parentElement, document.body, 'overflow on the code viewer cannot clip a teleported menu')
+    const menu = document.querySelector('[role="listbox"]')
+    assert.ok(menu.parentElement === document.body, 'overflow on the code viewer cannot clip a teleported menu')
     assert.equal(menu.style.position, 'fixed')
     assert.equal(menu.style.top, '126px', 'an input near the top opens downward')
     assert.equal(menu.style.left, '756px')
@@ -247,7 +249,7 @@ test('mention menu escapes clipping containers, fits the window and follows the 
     assert.equal(menu.style.left, '8px')
     assert.equal(menu.style.width, '304px')
     assert.equal(menu.style.maxHeight, '266px', 'the full popup stays in the available window space')
-    const row = menu.querySelector('.suggest-item')
+    const row = menu.querySelector('button')
     row.dispatchEvent(new window.Event('pointerdown', { bubbles: true }))
     row.dispatchEvent(new window.Event('click', { bubbles: true }))
     await nextTick()

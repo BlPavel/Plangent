@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="task-view">
     <WorkHeader v-if="task" :task="task" :state="entry?.state ?? null" :branch="workspace?.branch ?? task.branch_name" :main-folder="inMainFolder" :menu="menuItems" @back="goBack" />
     <WorkStages v-if="task" :task="task" :state="entry?.state ?? null" :has-plan="!!plan" :active="activeTab" :tabs="tabs" :stages="task.kind === 'errand' ? [] : stages" :exec-done="execDone" :locked="!!analysisLockedReason" @select="activeTab = $event as Tab" @complete="completeStage" @skip="skipStage" />
@@ -56,7 +56,6 @@
         :queue-frozen="queue.frozen.value"
         :plan="plan"
         :readonly="taskDone"
-        :planning-message="planningMessage"
         :project-id="pid ?? ''"
         :default-agent-id="defaultAgentId"
         :planning-open="planningOpen"
@@ -68,19 +67,21 @@
         :planning-error="planningError"
         :editing-plan="editingPlan"
         :plan-content="planContent"
+        :stale-draft="stalePlanDraft"
+        @reload-draft="reloadPlanDraft"
         :checkbox-line-previews="checkboxLinePreviews"
         :done-count="doneCount"
         :progress-pct="progressPct"
         @approve-plan="approvePlan"
         @open-planning="planningOpen = true; planningError = ''"
-        @close-planning="planningOpen = false; planningMessage = ''"
+        @close-planning="planningOpen = false"
         @select-planning-chat="selectedPlanningChat = $event"
         @remove-planning-chat="removeChat"
         @launch-planning="launchPlanning"
         @start-manual-edit="startManualEdit"
         @toggle-plan-edit="togglePlanEdit"
         @save-plan="savePlan"
-        @cancel-edit="editingPlan = false"
+        @cancel-edit="cancelPlanDraft"
         @update:plan-content="planContent = $event"
       />
     </div>
@@ -121,19 +122,22 @@
 </template>
 
 <script setup lang="ts">
+import { tasksEndpoints } from '../api'
+import { agentChatEndpoints } from '@features/agent-chat'
+
+import { useDocumentDraft } from '@core/composables/useDraft'
 import { ref, computed, onMounted, onUnmounted, watch, provide, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '@core/stores/app'
 import { useAgentsStore } from '@features/agents'
 import { useProjectsStore } from '@features/projects'
 import { useTaskSessionStore } from '../stores/taskSession'
-import { api } from '@core/api'
 import { onServerEvent } from '@core/api/events'
 import { platform } from '@core/platform'
-import type { Task, Plan, AnalysisSection, PlanStep, OrchestratorEvent, Material, MaterialType, PreparationStage, StageSummary } from '@core/models'
+import type { Task, Plan, AnalysisSection, PlanStep, OrchestratorEvent, Material, MaterialType, PreparationStage, StageSummary } from '@contracts'
 import AnalysisPanel from '../components/AnalysisPanel.vue'
 import { useAgentChatLaunch } from '../composables/useAgentChatLaunch'
-import { DocumentLinksKey } from '@shared/composables/documentLinks'
+import { DocumentLinksKey } from '@shared/markdown'
 import { resolveDocumentTarget } from '../utils/document-target'
 import { AnalysisNavigationKey } from '../composables/analysisNavigation'
 import PlanPanel from '../components/PlanPanel.vue'
@@ -203,7 +207,7 @@ async function saveTitle() {
   }
   savingTitle.value = true
   try {
-    const updated = await api.patch<Task>(`/projects/${current.project_id}/tasks/${current.id}`, { title, external_key: number || null })
+    const updated = await tasksEndpoints.patchProjectsByProjectIdTasksByTaskId({ params: { projectId: current.project_id, taskId: current.id }, body: { title, external_key: number || null } })
     if (task.value?.id !== current.id) return
     task.value = { ...task.value, title: updated.title, external_key: updated.external_key }
     appStore.currentTask = task.value
@@ -215,8 +219,7 @@ async function saveTitle() {
 }
 const plan = ref<Plan | null>(null)
 const agents = computed(() => agentsStore.agents)
-const editingPlan = ref(false)
-const planContent = ref('')
+const { active: editingPlan, text: planContent, stale: stalePlanDraft, start: startPlanDraft, reload: reloadPlanDraft, cancel: cancelPlanDraft } = useDocumentDraft(() => `task:${tid.value}:plan-edit`, () => ({ text: plan.value?.content ?? '', version: plan.value?.version ?? 0 }))
 
 type Tab = 'chat' | 'analysis' | 'architecture' | 'qa' | 'plan' | 'exec' | 'check' | 'finish'
 const activeTab = ref<Tab>('plan')
@@ -249,7 +252,6 @@ async function runReview() {
 
 // Planning view: the plan next to the task's planning chats.
 const planningOpen = ref(false)
-const planningMessage = ref('')
 
 const pid = computed(() => appStore.currentProject?.id)
 const projectsStore = useProjectsStore()
@@ -307,7 +309,7 @@ async function loadAnalysis(actor?: string) {
   if (!pid.value || !tid.value) return
   const version = ++analysisLoadVersion
   try {
-    const sections = await api.get<AnalysisSection[]>(`/projects/${pid.value}/tasks/${tid.value}/analysis`)
+    const sections = await tasksEndpoints.getProjectsByProjectIdTasksByTaskIdAnalysis({ params: { projectId: pid.value, taskId: tid.value } })
     if (version !== analysisLoadVersion) return
     if (actor === 'agent') {
       analysisHighlights.value = sections.filter(s => {
@@ -332,6 +334,8 @@ async function openAnalysis(target: string) {
 }
 provide(AnalysisNavigationKey, { sections: analysisSections, open: openAnalysis })
 provide(DocumentLinksKey, {
+  openLabel: 'Открыть анализ',
+  missingLabel: 'Раздел или файл не найден',
   exists: target => !!resolveDocumentTarget(target, analysisSections.value, materials.value),
   open: async target => {
     const resolved = resolveDocumentTarget(target, analysisSections.value, materials.value)
@@ -574,14 +578,14 @@ async function handleEvent(event: OrchestratorEvent) {
 async function loadTask() {
   const taskId = route.params.id as string
   if (!pid.value) return
-  task.value = await api.get<Task>(`/projects/${pid.value}/tasks/${taskId}`)
+  task.value = await tasksEndpoints.getProjectsByProjectIdTasksByTaskId({ params: { projectId: pid.value, taskId: taskId } })
   appStore.currentTask = task.value
 }
 
 async function loadPlan() {
   if (!pid.value || !tid.value) return
   try {
-    plan.value = await api.get<Plan>(`/projects/${pid.value}/tasks/${tid.value}/plans/latest`)
+    plan.value = await tasksEndpoints.getProjectsByProjectIdTasksByTaskIdPlansLatest({ params: { projectId: pid.value, taskId: tid.value } })
   } catch { plan.value = null }
 }
 
@@ -649,7 +653,6 @@ async function launchPlanning(request: NewChatRequest) {
   chatInitials.value[result.session_id] = result.content
   await chatStore.load(result.session_id).catch(() => {}) // so the new tab is there right away
   selectedPlanningChat.value = result.session_id
-  planningMessage.value = ''
   activeTab.value = 'plan'
 }
 
@@ -658,9 +661,8 @@ async function launchPlanning(request: NewChatRequest) {
 // It is the same action as «Завершить и перейти к …» on the plan stage: earlier unfinished stages become skipped.
 async function approvePlan() {
   if (!(await markStage('plan', 'ready'))) return
-  await Promise.all(planningChats.value.map(c => api.post(`/agent-sessions/${c.id}/close`, {}).catch(() => { /* already stopped */ })))
+  await Promise.all(planningChats.value.map(c => agentChatEndpoints.postAgentSessionsByIdByAction({ params: { id: c.id, action: "close" } }).catch(() => { /* already stopped */ })))
   planningOpen.value = false
-  planningMessage.value = ''
   await loadPlan()
   appStore.toast('План утверждён', 'success')
   goToNext('plan')
@@ -672,7 +674,7 @@ async function markDoneTask() {
   if (!pid.value || !tid.value) return
   if (!(await appStore.confirm('Отметить задачу выполненной? Плановый файл будет удалён.', { confirmLabel: 'Отметить выполненной', danger: false }))) return
   try {
-    await api.post(`/projects/${pid.value}/tasks/${tid.value}/done`, {})
+    await tasksEndpoints.postProjectsByProjectIdTasksByTaskIdDone({ params: { projectId: pid.value, taskId: tid.value } })
     appStore.toast('Задача завершена', 'success')
     await loadTask()
   } catch (e: unknown) { appStore.toast(String(e), 'error') }
@@ -695,30 +697,22 @@ async function deleteCurrentTask() {
 // ——— Plan editing ———
 
 function startManualEdit() {
-  planContent.value = plan.value?.content ?? ''
-  editingPlan.value = true
+  startPlanDraft()
 }
 
 function togglePlanEdit() {
-  editingPlan.value = !editingPlan.value
-  if (editingPlan.value) planContent.value = plan.value?.content ?? ''
+  if (editingPlan.value) cancelPlanDraft(); else startManualEdit()
 }
 
 async function savePlan() {
   if (!pid.value || !tid.value) return
   try {
     if (plan.value) {
-      plan.value = await api.patch<Plan>(
-        `/projects/${pid.value}/tasks/${tid.value}/plans/${plan.value.id}`,
-        { content: planContent.value },
-      )
+      plan.value = await tasksEndpoints.patchProjectsByProjectIdTasksByTaskIdPlansByPlanId({ params: { projectId: pid.value, taskId: tid.value, planId: plan.value.id }, body: { content: planContent.value } })
     } else {
-      plan.value = await api.post<Plan>(
-        `/projects/${pid.value}/tasks/${tid.value}/plans`,
-        { content: planContent.value },
-      )
+      plan.value = await tasksEndpoints.postProjectsByProjectIdTasksByTaskIdPlans({ params: { projectId: pid.value, taskId: tid.value }, body: { content: planContent.value } })
     }
-    editingPlan.value = false
+    cancelPlanDraft()
     appStore.toast('План сохранён', 'success')
   } catch (e: unknown) { appStore.toast(String(e), 'error') }
 }
@@ -737,8 +731,8 @@ async function savePlan() {
 }
 .task-edit-fields { display: flex; flex-direction: column; gap: var(--sp-3); }
 .task-title-block { flex: 1; min-width: 0; display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
-.task-key { font-size: 13px; color: var(--text-muted); font-family: 'Cascadia Code', 'JetBrains Mono', monospace; }
-.task-name { font-size: 16px; font-weight: 700; letter-spacing: -0.01em; }
+.task-key { font-size: var(--fs-md); color: var(--text-muted); font-family: var(--font-mono); }
+.task-name { font-size: var(--fs-lg); font-weight: 700; letter-spacing: -0.01em; }
 
 /* Tab bodies */
 .tab-body {
@@ -749,6 +743,6 @@ async function savePlan() {
   min-height: 0;
 }
 
-.exec-no-plan { font-size: 13px; color: var(--text-muted); padding: 16px 20px; }
-.check-note { font-size: 12px; color: var(--blue-hover); white-space: nowrap; }
+.exec-no-plan { font-size: var(--fs-md); color: var(--text-muted); padding: 16px 20px; }
+.check-note { font-size: var(--fs-sm); color: var(--blue-hover); white-space: nowrap; }
 </style>

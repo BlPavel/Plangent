@@ -1,24 +1,12 @@
 <template>
   <div class="terminals">
-    <div v-if="terminals.length" class="strip">
-      <div ref="tabsEl" class="tabs" role="tablist" @wheel="onWheel">
-        <div
-          v-for="t in terminals"
-          :key="t.id"
-          :data-id="t.id"
-          class="tab"
-          :class="{ active: selected === t.id, exited: t.exitCode !== undefined }"
-          role="tab"
-          :aria-selected="selected === t.id"
-          :title="t.exitCode === undefined ? t.title : `${t.title} — процесс завершён (код ${t.exitCode})`"
-          @mousedown.middle.prevent="close(t.id)"
-          @click="selected = t.id"
-          @dblclick="startRename(t.id)"
-          @contextmenu.prevent="openMenu($event, { kind: 'tab', id: t.id })"
-        >
-          <span class="dot" />
-          <input
-            v-if="renameId === t.id"
+    <div v-if="terminals.length" class="strip" :class="{ compact }">
+      <div ref="tabsEl" class="terminal-tabs" @wheel="onWheel">
+        <AppTabs v-model="selected" rich :items="terminalTabItems" label="Терминалы" @tab-middle="close" @tab-dblclick="startRename" @tab-contextmenu="(id, event) => openMenu(event, { kind: 'tab', id })">
+        <template #item="{ item }">
+          <span class="dot" :class="{ exited: terminals.find(t => t.id === item.value)?.exitCode !== undefined }" />
+          <AppInput
+            v-if="renameId === item.value"
             ref="renameEl"
             v-model="title"
             class="rename"
@@ -28,19 +16,20 @@
             @keydown.esc.prevent="renameId = ''"
             @blur="commitRename"
           />
-          <span v-else class="tab-title">{{ t.title }}</span>
-          <button class="tab-close" title="Закрыть (средняя кнопка мыши)" @click.stop="close(t.id)">
+          <span v-else class="tab-title">{{ item.label }}</span>
+          <AppButton variant="subtle" size="xs" icon title="Закрыть (средняя кнопка мыши)" aria-label="Закрыть терминал" @click.stop="close(item.value)">
             <svg viewBox="0 0 16 16" fill="none"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" /></svg>
-          </button>
-        </div>
+          </AppButton>
+        </template>
+        </AppTabs>
       </div>
       <div class="new" :class="{ split: shells.length > 1 }">
-        <button class="new-btn" :disabled="creating" :title="`Новый терминал: ${shells[0]?.label ?? ''} (Ctrl+Shift+\`)`" @click="create()">
+        <AppButton variant="subtle" size="xs" icon :disabled="creating" :title="`Новый терминал: ${shells[0]?.label ?? ''} (Ctrl+Shift+\`)`" @click="create()">
           <svg viewBox="0 0 16 16" fill="none"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" /></svg>
-        </button>
-        <button v-if="shells.length > 1" class="new-btn more" :disabled="creating" title="Выбрать оболочку" @click.stop="openMenu($event, { kind: 'shells' })">
-          <svg viewBox="0 0 16 16" fill="none"><path d="M4.5 6.5L8 10l3.5-3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
-        </button>
+        </AppButton>
+        <AppButton v-if="shells.length > 1" variant="subtle" size="xs" icon :disabled="creating" title="Выбрать оболочку" @click.stop="openMenu($event, { kind: 'shells' })">
+          <UIIconChevron />
+        </AppButton>
       </div>
     </div>
 
@@ -48,62 +37,71 @@
       <template v-if="current">
         <div v-if="current.exitCode !== undefined" class="exited-bar">
           <span>Процесс завершён · код {{ current.exitCode }}</span>
-          <button class="btn btn-ghost btn-xs" @click="action(current.id, 'restart')">Перезапустить</button>
-          <button class="btn btn-subtle btn-xs" @click="close(current.id)">Закрыть</button>
+          <AppButton size="xs" @click="action(current.id, 'restart')">Перезапустить</AppButton>
+          <AppButton variant="subtle" size="xs" @click="close(current.id)">Закрыть</AppButton>
         </div>
         <TerminalPane :key="current.id + generation" :session-id="current.id" :show-header="false" :visible="visible" />
       </template>
       <div v-else-if="loaded" class="empty">
         <div class="open">
-          <button class="btn btn-primary open-main" :disabled="creating" @click="create()">
-            <svg viewBox="0 0 16 16" fill="none"><path d="M3 4.5L6.5 8 3 11.5M8 11.5h5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
+          <AppButton variant="primary" :join="shells.length > 1 ? 'start' : undefined" :disabled="creating" @click="create()">
+            <UIIconTerminal />
             Открыть терминал
-          </button>
-          <button v-if="shells.length > 1" class="btn btn-primary btn-icon open-more" :disabled="creating" title="Выбрать оболочку" @click.stop="openMenu($event, { kind: 'shells' })">
-            <svg viewBox="0 0 16 16" fill="none"><path d="M4.5 6.5L8 10l3.5-3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
-          </button>
+          </AppButton>
+          <AppButton v-if="shells.length > 1" variant="primary" join="end" icon :disabled="creating" title="Выбрать оболочку" @click.stop="openMenu($event, { kind: 'shells' })">
+            <UIIconChevron />
+          </AppButton>
         </div>
         <p class="empty-hint">{{ shells[0]?.label }}<template v-if="shells[0]"> · </template><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>`</kbd></p>
       </div>
     </main>
 
-    <div v-if="menu" class="menu" :style="{ left: menu.x + 'px', top: menu.y + 'px' }" @pointerdown.stop>
+    <AppPopover :model-value="!!menu" :at="menu" :min-width="190" role="menu" focus-on-open @update:model-value="!$event && (menu = null)">
+      <template v-if="menu">
       <template v-if="menu.kind === 'shells'">
         <div class="menu-label">Новый терминал</div>
-        <button v-for="(s, i) in shells" :key="s.id" class="menu-item" @click="create(s.id)">
+        <AppButton v-for="(s, i) in shells" :key="s.id" variant="subtle" size="sm" block role="menuitem" @click="create(s.id)">
           {{ s.label }}<span v-if="i === 0" class="menu-note">по умолчанию</span>
-        </button>
+        </AppButton>
       </template>
       <template v-else>
-        <button class="menu-item" @click="startRename(menu.id)">Переименовать</button>
-        <button class="menu-item" @click="action(menu.id, 'restart')">Перезапустить</button>
-        <button class="menu-item" @click="action(menu.id, 'clear')">Очистить</button>
+        <AppButton variant="subtle" size="sm" block role="menuitem" @click="startRename(menu.id)">Переименовать</AppButton>
+        <AppButton variant="subtle" size="sm" block role="menuitem" @click="action(menu.id, 'restart')">Перезапустить</AppButton>
+        <AppButton variant="subtle" size="sm" block role="menuitem" @click="action(menu.id, 'clear')">Очистить</AppButton>
         <div class="menu-sep" />
-        <button class="menu-item" :disabled="terminals.length < 2" @click="closeOthers(menu.id)">Закрыть остальные</button>
-        <button class="menu-item danger" @click="close(menu.id)">Закрыть</button>
+        <AppButton variant="subtle" size="sm" block role="menuitem" :disabled="terminals.length < 2" @click="closeOthers(menu.id)">Закрыть остальные</AppButton>
+        <AppButton variant="danger-link" size="sm" block role="menuitem" @click="close(menu.id)">Закрыть</AppButton>
       </template>
-    </div>
+      </template>
+    </AppPopover>
   </div>
 </template>
 
 <script setup lang="ts">
+import AppButton from '@shared/ui/AppButton.vue'
+import AppInput from '@shared/ui/AppInput.vue'
+import AppPopover from '@shared/ui/AppPopover.vue'
+import AppTabs from '@shared/ui/AppTabs.vue'
+import { IconChevron as UIIconChevron, IconTerminal as UIIconTerminal } from '@shared/ui/icons'
+import { terminalEndpoints } from '../api'
+
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
-import { api } from '@core/api'
 import { useAppStore } from '@core/stores/app'
 import TerminalPane from './TerminalPane.vue'
 
-type Terminal = { id: string; title: string; exitCode?: number }
+import type { Terminal, TerminalShell } from '@contracts'
 type Menu = { x: number; y: number } & ({ kind: 'shells' } | { kind: 'tab'; id: string })
 
-const props = defineProps<{ projectId: string; visible: boolean; /** Workspace whose folder new terminals open in and whose terminals are listed; null — the main place. */ workspaceId?: string | null }>()
+const props = defineProps<{ projectId: string; visible: boolean; compact?: boolean; /** Workspace whose folder new terminals open in and whose terminals are listed; null — the main place. */ workspaceId?: string | null }>()
 const app = useAppStore()
 const terminals = ref<Terminal[]>([])
-const shells = ref<{ id: string; label: string }[]>([])
+const shells = ref<TerminalShell[]>([])
 const selected = ref(''), creating = ref(false), generation = ref(0), loaded = ref(false)
 const renameId = ref(''), title = ref('')
 const menu = ref<Menu | null>(null)
-const tabsEl = ref<HTMLElement>(), renameEl = ref<HTMLInputElement[]>()
+const tabsEl = ref<HTMLElement>(), renameEl = ref<InstanceType<typeof AppInput>>()
 const current = computed(() => terminals.value.find(t => t.id === selected.value))
+const terminalTabItems = computed(() => terminals.value.map(t => ({ value: t.id, label: t.title, title: t.exitCode === undefined ? t.title : `${t.title} — процесс завершён (код ${t.exitCode})` })))
 let timer: ReturnType<typeof setInterval>
 
 function fail(e: unknown) { app.toast(String(e), 'error') }
@@ -111,7 +109,7 @@ function fail(e: unknown) { app.toast(String(e), 'error') }
 async function load() {
   try {
     const id = props.projectId
-    const rows = await api.get<Terminal[]>(`/terminals?projectId=${id}&workspace=${encodeURIComponent(props.workspaceId ?? '')}`)
+    const rows = await terminalEndpoints.getTerminals({ params: {  }, query: Object.fromEntries(new URLSearchParams("projectId=" + id + "&workspace=" + encodeURIComponent(props.workspaceId ?? ''))) })
     if (props.projectId !== id) return
     terminals.value = rows
     loaded.value = true
@@ -135,7 +133,7 @@ async function create(shell?: string) {
   if (creating.value) return
   creating.value = true
   try {
-    const t = await api.post<Terminal>('/terminals', { projectId: props.projectId, shell, workspaceId: props.workspaceId ?? null })
+    const t = await terminalEndpoints.postTerminals({ params: {  }, body: { projectId: props.projectId, shell, workspaceId: props.workspaceId ?? null } })
     terminals.value.push(t)
     selected.value = t.id
   } catch (e) { fail(e) } finally { creating.value = false }
@@ -143,7 +141,7 @@ async function create(shell?: string) {
 
 async function action(id: string, name: 'restart' | 'clear') {
   menu.value = null
-  try { await api.post(`/terminals/${id}/${name}`); if (id === selected.value) generation.value++; await load() } catch (e) { fail(e) }
+  try { await terminalEndpoints.postTerminalsByIdByAction({ params: { id: id, action: name } }); if (id === selected.value) generation.value++; await load() } catch (e) { fail(e) }
 }
 
 // Closing is optimistic: the neighbour to the right (or left) takes focus right away.
@@ -153,7 +151,7 @@ async function close(id: string) {
   if (i === -1) return
   terminals.value.splice(i, 1)
   if (selected.value === id) selected.value = (terminals.value[i] ?? terminals.value[i - 1])?.id ?? ''
-  try { await api.delete(`/terminals/${id}`) } catch (e) { fail(e); await load() }
+  try { await terminalEndpoints.deleteTerminalsById({ params: { id: id } }) } catch (e) { fail(e); await load() }
 }
 async function closeOthers(id: string) {
   for (const t of terminals.value.filter(t => t.id !== id)) await close(t.id)
@@ -165,7 +163,7 @@ function startRename(id: string) {
   menu.value = null
   if (!t) return
   renameId.value = t.id; title.value = t.title
-  void nextTick(() => { renameEl.value?.[0]?.focus(); renameEl.value?.[0]?.select() })
+  void nextTick(() => { renameEl.value?.focus(); renameEl.value?.select() })
 }
 async function commitRename() {
   const id = renameId.value, value = title.value.trim()
@@ -173,7 +171,7 @@ async function commitRename() {
   const t = terminals.value.find(t => t.id === id)
   if (!t || !value || value === t.title) return
   t.title = value
-  try { await api.patch(`/terminals/${id}`, { title: value }) } catch (e) { fail(e); await load() }
+  try { await terminalEndpoints.patchTerminalsById({ params: { id: id }, body: { title: value } }) } catch (e) { fail(e); await load() }
 }
 
 function openMenu(e: MouseEvent, m: { kind: 'shells' } | { kind: 'tab'; id: string }) {
@@ -196,16 +194,14 @@ function onKey(e: KeyboardEvent) {
 function onPointerDown() { menu.value = null }
 
 onMounted(async () => {
-  try { shells.value = await api.get('/terminals/shells') } catch (e) { fail(e) }
+  try { shells.value = await terminalEndpoints.getTerminalsShells({ params: {  } }) } catch (e) { fail(e) }
   timer = setInterval(load, 3000)
   window.addEventListener('keydown', onKey)
-  window.addEventListener('pointerdown', onPointerDown)
   window.addEventListener('blur', onPointerDown)
 })
 onBeforeUnmount(() => {
   clearInterval(timer)
   window.removeEventListener('keydown', onKey)
-  window.removeEventListener('pointerdown', onPointerDown)
   window.removeEventListener('blur', onPointerDown)
 })
 </script>
@@ -215,28 +211,29 @@ onBeforeUnmount(() => {
 
 /* Chip strip */
 .strip { display: flex; align-items: center; gap: var(--sp-2); height: 44px; padding: 0 var(--sp-3); border-bottom: 1px solid var(--border); flex-shrink: 0; }
-.tabs { display: flex; align-items: center; gap: 4px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
-.tabs::-webkit-scrollbar { display: none; }
+.strip.compact { height: 36px; }
+.terminal-tabs { min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.terminal-tabs::-webkit-scrollbar { display: none; }
 
-.tab { display: flex; align-items: center; gap: 8px; height: var(--size-sm); max-width: 220px; padding: 0 4px 0 10px; flex-shrink: 0; border: 1px solid transparent; border-radius: var(--radius); color: var(--text-muted); font-size: 12.5px; font-weight: 500; cursor: pointer; user-select: none; transition: background 0.1s, color 0.1s, border-color 0.1s; }
+.tab { display: flex; align-items: center; gap: 8px; height: var(--size-sm); max-width: 220px; padding: 0 4px 0 10px; flex-shrink: 0; border: 1px solid transparent; border-radius: var(--radius); color: var(--text-muted); font-size: var(--fs-md); font-weight: 500; cursor: pointer; user-select: none; transition: background var(--motion-instant), color var(--motion-instant), border-color var(--motion-instant); }
 .tab:hover { background: var(--bg2); color: var(--text); }
 .tab.active { background: var(--bg3); border-color: var(--border-strong); color: var(--text); }
 .tab-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tab.exited .tab-title { color: var(--text-faint); }
 
-.dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; background: var(--accent-hover); }
-.tab.exited .dot { background: transparent; box-shadow: inset 0 0 0 1.5px var(--text-faint); }
+.dot { width: 7px; height: 7px; border-radius: var(--radius-round); flex-shrink: 0; background: var(--accent-hover); }
+.dot.exited { background: transparent; box-shadow: inset 0 0 0 1.5px var(--text-faint); }
 
-.tab-close { width: 20px; height: 20px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; background: none; border: none; border-radius: 5px; color: var(--text-faint); cursor: pointer; opacity: 0; transition: opacity 0.1s, background 0.1s, color 0.1s; }
+.tab-close { width: 20px; height: 20px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; background: none; border: none; border-radius: var(--radius-5); color: var(--text-faint); cursor: pointer; opacity: 0; transition: opacity var(--motion-instant), background var(--motion-instant), color var(--motion-instant); }
 .tab-close svg { width: 12px; height: 12px; }
 .tab:hover .tab-close, .tab.active .tab-close { opacity: 1; }
 .tab-close:hover { background: var(--bg-hover); color: var(--text); }
 
-.rename { width: 130px; height: 20px; padding: 0 6px; background: var(--bg); border: 1px solid var(--blue); border-radius: 5px; color: var(--text); font: inherit; outline: none; }
+.rename { flex: 0 0 130px; }
 
 /* "+" with an optional "˅" shell picker, joined like a split button */
 .new { display: flex; flex-shrink: 0; }
-.new-btn { height: var(--size-sm); width: var(--size-sm); display: inline-flex; align-items: center; justify-content: center; background: none; border: 1px solid transparent; border-radius: var(--radius); color: var(--text-muted); cursor: pointer; transition: background 0.1s, color 0.1s; }
+.new-btn { height: var(--size-sm); width: var(--size-sm); display: inline-flex; align-items: center; justify-content: center; background: none; border: 1px solid transparent; border-radius: var(--radius); color: var(--text-muted); cursor: pointer; transition: background var(--motion-instant), color var(--motion-instant); }
 .new-btn svg { width: 15px; height: 15px; }
 .new-btn:not(:disabled):hover { background: var(--bg3); color: var(--text); }
 .new-btn:disabled { opacity: 0.45; cursor: default; }
@@ -246,24 +243,24 @@ onBeforeUnmount(() => {
 
 /* Body */
 .body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.exited-bar { display: flex; align-items: center; gap: var(--sp-2); padding: 6px var(--sp-4); background: var(--warning-soft); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--warning-text); flex-shrink: 0; }
+.exited-bar { display: flex; align-items: center; gap: var(--sp-2); padding: 6px var(--sp-4); background: var(--warning-soft); border-bottom: 1px solid var(--border); font-size: var(--fs-sm); color: var(--warning-text); flex-shrink: 0; }
 .exited-bar span { margin-right: auto; }
 
 .empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--sp-2); text-align: center; }
 .open { display: flex; }
 .open-main:has(+ .open-more) { border-top-right-radius: 0; border-bottom-right-radius: 0; }
-.open-more { width: 30px; border-top-left-radius: 0; border-bottom-left-radius: 0; border-left-color: rgba(255, 255, 255, 0.25); }
-.open-more:not(:disabled):hover { border-left-color: rgba(255, 255, 255, 0.25); }
-.empty-hint { font-size: 11.5px; color: var(--text-faint); }
-kbd { padding: 1px 5px; border: 1px solid var(--border-strong); border-radius: 4px; background: var(--bg2); font-family: inherit; font-size: 11px; }
+.open-more { width: 30px; border-top-left-radius: 0; border-bottom-left-radius: 0; border-left-color: var(--divider-light); }
+.open-more:not(:disabled):hover { border-left-color: var(--divider-light); }
+.empty-hint { font-size: var(--fs-sm); color: var(--text-faint); }
+kbd { padding: 1px 5px; border: 1px solid var(--border-strong); border-radius: var(--radius-4); background: var(--bg2); font-family: inherit; font-size: var(--fs-xs); }
 
 /* Popup menu (tab context menu / shell picker) */
-.menu { position: fixed; z-index: 100; min-width: 190px; padding: 4px; background: var(--bg2); border: 1px solid var(--border-strong); border-radius: var(--radius); box-shadow: var(--shadow-md); display: flex; flex-direction: column; }
-.menu-label { padding: 6px 10px 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-faint); }
-.menu-item { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); height: 30px; padding: 0 10px; background: none; border: none; border-radius: var(--radius-sm); color: var(--text); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.menu { position: fixed; z-index: var(--z-modal); min-width: 190px; padding: 4px; background: var(--bg2); border: 1px solid var(--border-strong); border-radius: var(--radius); box-shadow: var(--shadow-md); display: flex; flex-direction: column; }
+.menu-label { padding: 6px 10px 4px; font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-faint); }
+.menu-item { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); height: 30px; padding: 0 10px; background: none; border: none; border-radius: var(--radius-sm); color: var(--text); font: inherit; font-size: var(--fs-md); text-align: left; cursor: pointer; }
 .menu-item:not(:disabled):hover { background: var(--bg-hover); }
 .menu-item:disabled { opacity: 0.4; cursor: default; }
 .menu-item.danger { color: var(--danger-hover); }
-.menu-note { font-size: 11px; color: var(--text-faint); }
+.menu-note { font-size: var(--fs-xs); color: var(--text-faint); }
 .menu-sep { height: 1px; margin: 4px 2px; background: var(--border); }
 </style>

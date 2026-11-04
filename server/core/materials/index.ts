@@ -1,3 +1,5 @@
+import type { MaterialType, Material } from '@contracts';
+export type { MaterialType, Material } from '@contracts';
 import { v4 as uuid } from 'uuid';
 import { getDb } from '../../infrastructure/db/schema';
 import { getTask } from '../tasks';
@@ -7,11 +9,8 @@ import { materializeMaterial } from '../orchestration/task-files';
 import { broadcast } from '../shared/events';
 import { emitMaterialSaved } from './events';
 
-export type MaterialType = 'architecture' | 'qa';
-export interface Material {
-  id: string; task_id: string; type: MaterialType; content: string; version: number;
-  author: 'developer' | 'agent'; session_id: string | null; created_at: string;
-}
+
+
 export class MaterialConflict extends Error { status = 409; }
 export function isMaterialType(value: unknown): value is MaterialType {
   return value === 'architecture' || value === 'qa';

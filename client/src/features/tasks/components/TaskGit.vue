@@ -1,10 +1,10 @@
 <template>
   <section class="task-git">
     <div class="tg-line">
-      <button type="button" class="tg-toggle" :aria-expanded="open" title="Подробности: текущая ветка, точка отсчёта изменений" @click="open = !open">
-        <svg :class="{ open }" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
+      <AppButton variant="subtle" size="xs" :aria-expanded="open" title="Подробности: текущая ветка, точка отсчёта изменений" @click="open = !open">
+        <UIIconChevronRight :class="{ open }" />
         <span class="section-label">Ветка</span>
-      </button>
+      </AppButton>
       <code class="tg-branch" :class="{ none: !task.branch_name }">{{ task.branch_name || current || 'не выбрана' }}</code>
       <span v-if="task.base_commit" class="muted" :title="'Изменения задачи считаются от ' + task.base_commit">от <code>{{ task.base_commit.slice(0, 7) }}</code></span>
       <span v-if="frozen" class="muted">· очередь выполняется</span>
@@ -14,7 +14,7 @@
         <span v-if="branchMissing" class="tg-warning" :title="'Ветки ' + task.branch_name + ' нет в репозитории'">⚠ ветки нет в репозитории</span>
         <template v-else-if="mismatch">
           <span class="tg-warning" :title="'Вы на ветке ' + (current || 'HEAD отделён') + ', задача на ' + task.branch_name">⚠ вы на {{ current || 'HEAD' }}</span>
-          <button type="button" class="btn btn-ghost btn-sm" :disabled="busy || frozen || !!git.writeBlocked" :title="frozen ? 'Остановите очередь, чтобы сменить ветку' : git.writeBlocked || 'Переключиться на ветку задачи'" @click="switchToTask">Переключиться</button>
+          <AppButton variant="ghost" size="sm" type="button"  :disabled="busy || frozen || !!git.writeBlocked" :title="frozen ? 'Остановите очередь, чтобы сменить ветку' : git.writeBlocked || 'Переключиться на ветку задачи'" @click="switchToTask">Переключиться</AppButton>
         </template>
         <div class="tg-picker">
           <AppButton type="button" size="xs" :disabled="busy || frozen || !!git.writeBlocked || !git.repository" :title="frozen ? 'Остановите очередь, чтобы сменить ветку' : git.writeBlocked || 'Переключить ветку или создать новую; она станет веткой задачи'" @click="picker = !picker">Сменить</AppButton>
@@ -31,7 +31,7 @@
         <div class="tg-base">
           <span v-if="task.base_commit">Изменения задачи считаются от <code :title="task.base_commit">{{ task.base_commit.slice(0, 7) }}</code></span>
           <span v-else class="muted">Точка отсчёта — коммит HEAD в момент первого запуска очереди. Что уже лежит в дереве незакоммиченным, попадёт в изменения задачи.</span>
-          <button type="button" class="btn btn-ghost btn-sm" :disabled="busy || frozen || !!git.writeBlocked || !git.repository?.head" :title="frozen ? 'Пока очередь выполняется, точку отсчёта менять нельзя' : git.writeBlocked || 'Ревью задачи будет видеть только изменения после текущего коммита'" @click="resetBaseCommit">Считать от текущего коммита</button>
+          <AppButton variant="ghost" size="sm" type="button"  :disabled="busy || frozen || !!git.writeBlocked || !git.repository?.head" :title="frozen ? 'Пока очередь выполняется, точку отсчёта менять нельзя' : git.writeBlocked || 'Ревью задачи будет видеть только изменения после текущего коммита'" @click="resetBaseCommit">Считать от текущего коммита</AppButton>
         </div>
       </template>
       <p v-if="frozen" class="muted">Очередь выполняется: ветку и точку отсчёта менять нельзя. Остановите очередь, если нужно.</p>
@@ -41,12 +41,14 @@
   </section>
 </template>
 <script setup lang="ts">
+import { IconChevronRight as UIIconChevronRight } from '@shared/ui/icons'
+import { tasksEndpoints } from '../api'
+
 import { ref, computed, watch, onBeforeUnmount } from 'vue'
-import { api } from '@core/api'
 import { BranchPicker, useGitStore } from '@features/code'
 import { errorText } from '@shared/utils/errorText'
 import { useAppStore } from '@core/stores/app'
-import type { Task } from '@core/models'
+import type { Task } from '@contracts'
 import AppButton from '@shared/ui/AppButton.vue'
 
 const props = defineProps<{ projectId: string; task: Task; frozen?: boolean }>()
@@ -65,7 +67,7 @@ async function saveBranch(branch: string) {
   const projectId = props.projectId, taskId = props.task.id
   busy.value = true
   try {
-    const task = await api.patch<Task>('/projects/' + encodeURIComponent(projectId) + '/tasks/' + encodeURIComponent(taskId), { branch_name: branch })
+    const task = await tasksEndpoints.patchProjectsByProjectIdTasksByTaskId({ params: { projectId: projectId, taskId: taskId }, body: { branch_name: branch } })
     if (projectId === props.projectId && taskId === props.task.id) emit('updated', task)
   } finally { busy.value = false }
 }
@@ -85,25 +87,25 @@ async function resetBaseCommit() {
   const projectId = props.projectId, taskId = props.task.id
   busy.value = true; error.value = ''
   try {
-    const task = await api.post<Task>('/projects/' + encodeURIComponent(projectId) + '/tasks/' + encodeURIComponent(taskId) + '/base-commit', {})
+    const task = await tasksEndpoints.postProjectsByProjectIdTasksByTaskIdBaseCommit({ params: { projectId: projectId, taskId: taskId } })
     if (projectId === props.projectId && taskId === props.task.id) emit('updated', task)
   } catch (cause) { error.value = errorText(cause) }
   finally { busy.value = false }
 }
 </script>
 <style scoped>
-.task-git { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg2); font-size: 12px; }
+.task-git { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg2); font-size: var(--fs-sm); }
 .tg-line { display: flex; align-items: center; gap: 8px; min-height: var(--size-xs); flex-wrap: wrap; }
 .tg-toggle { display: inline-flex; align-items: center; gap: 4px; padding: 0; background: none; border: none; color: var(--text-muted); font-family: inherit; cursor: pointer; }
 .tg-toggle:hover { color: var(--text); }
-.tg-toggle svg { width: 14px; height: 14px; transition: transform 0.15s; }
+.tg-toggle svg { width: 14px; height: 14px; transition: transform var(--motion-modal); }
 .tg-toggle svg.open { transform: rotate(90deg); }
 .tg-branch { font-weight: 600; min-width: 0; max-width: min(45%, 320px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tg-branch.none { font-weight: 400; color: var(--text-muted); }
 .tg-details { display: flex; flex-direction: column; gap: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
 .tg-base { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
 .spacer { flex: 1; }
-.section-label { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; }
+.section-label { font-size: var(--fs-xs); font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; }
 .tg-picker { position: relative; }
 .tg-picker :deep(.branches) { left: auto; right: 0; max-width: calc(100vw - 48px); }
 .tg-warning { color: var(--warning-text); }

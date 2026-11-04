@@ -1,6 +1,7 @@
+
+import { tasksEndpoints } from '../api'
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { api } from '@core/api'
 import { onServerEvent } from '@core/api/events'
 
 export interface BlockedQueue { projectId: string; taskId: string; taskKey: string; reason: string }
@@ -15,7 +16,7 @@ export const useBlockedQueuesStore = defineStore('blockedQueues', () => {
   let started = false
 
   async function load() {
-    try { items.value = await api.get<BlockedQueue[]>('/queues/blocked') } catch { /* keep the last known state */ }
+    try { items.value = await tasksEndpoints.getQueuesBlocked({ params: {  } }) } catch { /* keep the last known state */ }
   }
 
   function start() {

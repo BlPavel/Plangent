@@ -1,10 +1,12 @@
+import { typedRoutes } from '../typed-route';
 import { Router, Request, Response } from 'express';
 import { execSync } from 'child_process';
 
 export const clipboardRouter = Router();
+const clipboardRouterRoutes = typedRoutes(clipboardRouter, '/api/clipboard');
 
 // Returns real filesystem paths from macOS NSPasteboard (files copied in Finder)
-clipboardRouter.get('/paths', (_req: Request, res: Response) => {
+clipboardRouterRoutes.json('GET /api/clipboard/paths', (_req, res) => {
   try {
     const script = [
       'set out to {}',

@@ -1,32 +1,5 @@
-﻿export interface GitSettings {
-  commit_pattern: string;
-  workspace_copy_files: string[];
-  workspace_setup_command: string;
-  /** Agent review runs by itself when a task's queue or an errand's turn ends; off unless turned on. */
-  auto_review: boolean;
-  forbidden_patterns: string[];
-  include_description: boolean;
-  finish_scenario: 'nothing' | 'commits' | 'push' | 'full';
-  branch_prefixes: string[];
-  base_branch: string;
-  mr_description_prompt: string;
-  mr_remove_branch: boolean;
-  mr_squash: boolean;
-  mr_reviewers: string[];
-  mr_assignees: string[];
-  /** The agent that writes commit messages, splits commits and describes MRs; empty — the project's agent. */
-  git_agent_id: string;
-  git_agent_model: string;
-  git_agent_effort: string;
-  /** The agent that reviews merge requests and branches together with the developer; empty — the project's agent. */
-  review_agent_id: string;
-  review_agent_model: string;
-  review_agent_effort: string;
-  /** The agent that resolves merge/rebase conflicts; empty — the git agent, then the project's. */
-  conflict_agent_id: string;
-  conflict_agent_model: string;
-  conflict_agent_effort: string;
-}
+﻿import type { GitSettings } from '@contracts';
+export type { GitSettings } from '@contracts';
 
 export const defaultGitSettings: GitSettings = {
   workspace_copy_files: [], workspace_setup_command: '', auto_review: false,

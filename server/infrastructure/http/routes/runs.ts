@@ -1,3 +1,4 @@
+import { typedRoutes } from '../typed-route';
 import { createPlannerSession } from '../../../core/orchestration/planner-session';
 import { getPlanFilePath } from '../../../core/orchestration/task-files';
 import { Router, Request, Response } from 'express';
@@ -13,21 +14,22 @@ import { sendPrompt, closeSession, startSession } from '../../../core/agent-sess
 import { materializePlanFile, watchPlanFile, watchPlanDirForCreate } from '../../../core/orchestration/plan-file';
 
 export const runsRouter = Router({ mergeParams: true });
+const runsRouterRoutes = typedRoutes(runsRouter, '/api/projects/:projectId/tasks/:taskId/runs');
 
-runsRouter.get('/', (req: Request, res: Response) => {
+runsRouterRoutes.json('GET /api/projects/:projectId/tasks/:taskId/runs', (req, res) => {
   const t = getTask(req.params.taskId);
   if (!t) return res.status(404).json({ error: 'Task not found' });
   res.json(listRuns(t.id));
 });
 
-runsRouter.get('/:runId', (req: Request, res: Response) => {
+runsRouterRoutes.json('GET /api/projects/:projectId/tasks/:taskId/runs/:runId', (req, res) => {
   const r = getRun(req.params.runId);
   if (!r) return res.status(404).json({ error: 'Not found' });
   res.json(r);
 });
 
 // POST — start new agent run (direct, without orchestrator)
-runsRouter.post('/', async (req: Request, res: Response) => {
+runsRouterRoutes.json('POST /api/projects/:projectId/tasks/:taskId/runs', async (req, res) => {
   const { projectId, taskId } = req.params;
 
   const project = getProject(projectId);
@@ -103,13 +105,13 @@ runsRouter.post('/', async (req: Request, res: Response) => {
   }
 });
 
-runsRouter.patch('/:runId', (req: Request, res: Response) => {
+runsRouterRoutes.json('PATCH /api/projects/:projectId/tasks/:taskId/runs/:runId', (req, res) => {
   const r = updateRun(req.params.runId, req.body);
   if (!r) return res.status(404).json({ error: 'Not found' });
   res.json(r);
 });
 
-runsRouter.post('/:runId/step', (req: Request, res: Response) => {
+runsRouterRoutes.json('POST /api/projects/:projectId/tasks/:taskId/runs/:runId/step', (req, res) => {
   const { step } = req.body;
   if (!step) return res.status(400).json({ error: 'step required' });
   const r = addCompletedStep(req.params.runId, step);
@@ -117,7 +119,7 @@ runsRouter.post('/:runId/step', (req: Request, res: Response) => {
   res.json(r);
 });
 
-runsRouter.post('/:runId/finish', async (req: Request, res: Response) => {
+runsRouterRoutes.json('POST /api/projects/:projectId/tasks/:taskId/runs/:runId/finish', async (req, res) => {
   const { status, notes } = req.body;
   if (!status) return res.status(400).json({ error: 'status required' });
   const r = finishRun(req.params.runId, status, notes);
@@ -126,16 +128,16 @@ runsRouter.post('/:runId/finish', async (req: Request, res: Response) => {
 });
 
 // Persistent ACP sessions can be reattached after navigating away.
-runsRouter.get('/:runId/session', (req: Request, res: Response) => {
+runsRouterRoutes.json('GET /api/projects/:projectId/tasks/:taskId/runs/:runId/session', (req, res) => {
   const chat = listChats(req.params.projectId).find(s => s.run_id === req.params.runId);
   res.json(chat ? { running: true, session_id: chat.id, mode: 'acp', output: '' } : { running: false });
 });
-runsRouter.post('/:runId/input', async (req: Request, res: Response) => {
+runsRouterRoutes.json('POST /api/projects/:projectId/tasks/:taskId/runs/:runId/input', async (req, res) => {
   try { const chat = listChats(req.params.projectId).find(s => s.run_id === req.params.runId); if (!chat) return res.status(404).end();
-    await sendPrompt(chat.id, [{ type: 'text', text: req.body.text }]); res.json({ ok: true });
+    await sendPrompt(chat.id, [{ type: 'text', text: req.body.text ?? '' }]); res.json({ ok: true });
   } catch (e) { res.status(400).json({ error: String(e) }); }
 });
-runsRouter.post('/:runId/kill', async (req: Request, res: Response) => {
+runsRouterRoutes.json('POST /api/projects/:projectId/tasks/:taskId/runs/:runId/kill', async (req, res) => {
   const chat = listChats(req.params.projectId).find(s => s.run_id === req.params.runId);
   if (chat) await closeSession(chat.id);
   finishRun(req.params.runId, 'interrupted', 'Прерван пользователем'); res.json({ ok: true });

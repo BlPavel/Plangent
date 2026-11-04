@@ -6,17 +6,17 @@
         <span v-else-if="git.error" role="alert">{{ labelOf(git.lastAction) }}: {{ git.error }}</span>
         <span v-else>{{ labelOf(git.lastAction) }}: готово</span>
         <span class="bb-spacer" />
-        <button v-if="git.operationId && git.lastAction !== 'fetch'" type="button" class="btn btn-ghost btn-xs" @click="git.cancel()">Отменить</button>
-        <button v-else-if="!git.operationId" type="button" class="btn btn-subtle btn-xs" aria-label="Скрыть" title="Скрыть" @click="git.dismiss()">✕</button>
+        <AppButton variant="ghost" size="xs" v-if="git.operationId && git.lastAction !== 'fetch'" type="button"  @click="git.cancel()">Отменить</AppButton>
+        <AppButton variant="subtle" size="xs" v-else-if="!git.operationId" type="button"  aria-label="Скрыть" title="Скрыть" @click="git.dismiss()">✕</AppButton>
       </div>
       <details v-if="git.output" class="bb-log" @toggle="logOpen = ($event.target as HTMLDetailsElement).open"><summary>Вывод git</summary><pre aria-label="Вывод git">{{ git.output }}</pre></details>
     </div>
     <div class="bb-row">
       <div class="bb-branch">
-        <button
-          type="button" class="bb-name" :disabled="!!git.writeBlocked" :aria-expanded="choosing"
+        <AppButton
+          variant="subtle" size="sm" :disabled="!!git.writeBlocked" :aria-expanded="choosing"
           :title="git.writeBlocked || 'Переключить ветку или создать новую'" @click="choosing = !choosing"
-        ><span class="bb-icon">⎇</span>{{ branchName }}<span class="bb-caret">▾</span></button>
+        ><span class="bb-icon">⎇</span>{{ branchName }}<span class="bb-caret">▾</span></AppButton>
         <BranchPicker v-if="choosing" :task="task" up @close="choosing = false" />
       </div>
       <span v-if="git.repository.upstream" class="bb-sync" :title="`Относительно ${git.repository.upstream}: ↑ не отправлено, ↓ ещё не подтянуто`">
@@ -32,6 +32,7 @@
 </template>
 
 <script setup lang="ts">
+import AppButton from '@shared/ui/AppButton.vue'
 import { computed, ref, watch, onBeforeUnmount } from 'vue'
 import SplitButton from '@shared/ui/SplitButton.vue'
 import type { MenuItem } from '@shared/ui/AppMenu.vue'
@@ -83,14 +84,14 @@ async function run(action: string) { try { await git.run(action) } catch { /* sh
 </script>
 
 <style scoped>
-.branch-bar { flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; padding: 6px 10px; border-top: 1px solid var(--border); font-size: 12px; }
+.branch-bar { flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; padding: 6px 10px; border-top: 1px solid var(--border); font-size: var(--fs-sm); }
 .bb-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .bb-branch { position: relative; min-width: 0; }
 .bb-name { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; padding: 2px 4px; font: inherit; font-weight: 600; color: var(--text); background: none; border: none; border-radius: var(--radius-sm); cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bb-name:hover:not(:disabled) { background: var(--bg3); }
 .bb-name:disabled { cursor: default; color: var(--text-muted); }
 .bb-icon, .bb-caret { flex-shrink: 0; font-weight: 400; color: var(--text-muted); }
-.bb-caret { font-size: 10px; }
+.bb-caret { font-size: var(--fs-xs); }
 .bb-sync { flex-shrink: 0; color: var(--text-faint); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .bb-sync .on { color: var(--warning-text); font-weight: 600; }
 .bb-spacer { flex: 1; }
@@ -98,6 +99,6 @@ async function run(action: string) { try { await git.run(action) } catch { /* sh
 .bb-feedback.failed { background: var(--danger-soft); color: var(--danger-hover); }
 .bb-feedback-head { display: flex; align-items: center; gap: 8px; overflow-wrap: anywhere; }
 .bb-log { margin-top: 4px; }
-.bb-log summary { cursor: pointer; font-size: 11.5px; color: var(--text-muted); }
-.bb-feedback pre { margin-top: 6px; max-height: 140px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11.5px; color: var(--text-muted); }
+.bb-log summary { cursor: pointer; font-size: var(--fs-sm); color: var(--text-muted); }
+.bb-feedback pre { margin-top: 6px; max-height: 140px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--fs-sm); color: var(--text-muted); }
 </style>

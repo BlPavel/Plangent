@@ -23,7 +23,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import type { Project } from '@core/models'
+import type { Project } from '@contracts'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '@core/stores/app'
 import AppButton from '@shared/ui/AppButton.vue'
@@ -66,8 +66,8 @@ const addMenu = computed<MenuItem[]>(() => loose.value.map(p => ({ label: `📁 
 <style scoped>
 .group-projects { display: flex; flex-direction: column; gap: 8px; padding: var(--sp-4); overflow-y: auto; }
 .gp-actions { display: flex; align-items: center; gap: 6px; }
-.gp-hint { font-size: 12px; color: var(--text-faint); }
-.gp-empty { padding: 20px 0; font-size: 13px; color: var(--text-faint); }
+.gp-hint { font-size: var(--fs-sm); color: var(--text-faint); }
+.gp-empty { padding: 20px 0; font-size: var(--fs-md); color: var(--text-faint); }
 .gp-card {
   display: flex;
   align-items: center;
@@ -79,12 +79,12 @@ const addMenu = computed<MenuItem[]>(() => loose.value.map(p => ({ label: `📁 
   cursor: pointer;
 }
 .gp-card:hover { border-color: var(--border-strong); background: var(--bg3); }
-.gp-icon { font-size: 16px; }
+.gp-icon { font-size: var(--fs-lg); }
 .gp-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.gp-name { font-size: 14px; font-weight: 500; }
-.gp-key { margin-left: 6px; font-size: 11px; color: var(--text-faint); }
-.gp-path { font-size: 11.5px; color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.gp-active { min-width: 18px; height: 18px; padding: 0 5px; border-radius: var(--radius-pill); background: var(--blue-soft); color: var(--blue-hover); font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; }
-.gp-menu { opacity: 0; transition: opacity 0.12s; }
+.gp-name { font-size: var(--fs-base); font-weight: 500; }
+.gp-key { margin-left: 6px; font-size: var(--fs-xs); color: var(--text-faint); }
+.gp-path { font-size: var(--fs-sm); color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gp-active { min-width: 18px; height: 18px; padding: 0 5px; border-radius: var(--radius-pill); background: var(--blue-soft); color: var(--blue-hover); font-size: var(--fs-xs); font-weight: 600; display: inline-flex; align-items: center; justify-content: center; }
+.gp-menu { opacity: 0; transition: opacity var(--motion-fast); }
 .gp-card:hover .gp-menu, .gp-menu:has(.menu.open) { opacity: 1; }
 </style>

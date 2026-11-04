@@ -1,3 +1,4 @@
+import { typedRoutes } from '../typed-route';
 import { Router, Request, Response } from 'express';
 import { listAgents, getAgent, createAgent, updateAgent, deleteAgent, updateAgentCli, type AgentInput } from '../../../core/agents';
 import { agentLimits } from '../../../core/agents/limits';
@@ -5,27 +6,28 @@ import { agentPresets } from '../../../core/agents/presets';
 import { agentOptions, cachedAgentOptions } from '../../../core/agent-sessions/acp-host';
 
 export const agentsRouter = Router();
+const agentsRouterRoutes = typedRoutes(agentsRouter, '/api/agents');
 
-agentsRouter.get('/', (_req: Request, res: Response) => {
+agentsRouterRoutes.json('GET /api/agents', (_req, res) => {
   res.json(listAgents());
 });
 
-agentsRouter.get('/presets', (_req: Request, res: Response) => {
+agentsRouterRoutes.json('GET /api/agents/presets', (_req, res) => {
   res.json(agentPresets);
 });
 
-agentsRouter.get('/:id', (req: Request, res: Response) => {
+agentsRouterRoutes.json('GET /api/agents/:id', (req, res) => {
   const a = getAgent(req.params.id);
   if (!a) return res.status(404).json({ error: 'Not found' });
   res.json(a);
 });
 
-agentsRouter.get('/:id/limits', async (req: Request, res: Response) => {
+agentsRouterRoutes.json('GET /api/agents/:id/limits', async (req, res) => {
   try { res.json(await agentLimits(req.params.id, req.query.refresh === '1')); }
   catch (e) { res.status(404).json({ error: String(e) }); }
 });
 
-agentsRouter.get('/:id/acp-options', async (req: Request, res: Response) => {
+agentsRouterRoutes.json('GET /api/agents/:id/acp-options', async (req, res) => {
   if (req.query.cached === '1') return res.json(cachedAgentOptions(req.params.id));
   try { res.json(await agentOptions(req.params.id, req.query.refresh === '1')); }
   catch (e) { res.status(502).json({ error: e instanceof Error ? e.message : String(e) }); }
@@ -34,7 +36,7 @@ agentsRouter.get('/:id/acp-options', async (req: Request, res: Response) => {
 const FIELDS = ['name', 'acp_command', 'acp_args', 'env', 'command', 'update_command', 'layout_profile', 'model', 'reasoning_effort', 'active'] as const;
 const pick = (body: Record<string, unknown>) => Object.fromEntries(FIELDS.filter(f => body[f] !== undefined).map(f => [f, body[f]])) as Partial<AgentInput>;
 
-agentsRouter.post('/',(req: Request, res: Response) => {
+agentsRouterRoutes.json('POST /api/agents', (req, res) => {
   const data = pick(req.body);
   if (!data.name?.trim()) return res.status(400).json({ error: 'Укажите название агента' });
   if (!data.acp_command?.trim()) return res.status(400).json({ error: 'Укажите команду ACP-адаптера' });
@@ -42,13 +44,13 @@ agentsRouter.post('/',(req: Request, res: Response) => {
   catch (e) { res.status(400).json({ error: /UNIQUE/.test(String(e)) ? 'Агент с таким названием уже есть' : String(e) }); }
 });
 
-agentsRouter.patch('/:id', (req: Request, res: Response) => {
+agentsRouterRoutes.json('PATCH /api/agents/:id', (req, res) => {
   const a = updateAgent(req.params.id, pick(req.body));
   if (!a) return res.status(404).json({ error: 'Not found' });
   res.json(a);
 });
 
-agentsRouter.post('/:id/update', async (req: Request, res: Response) => {
+agentsRouterRoutes.json('POST /api/agents/:id/update', async (req, res) => {
   try {
     res.json(await updateAgentCli(req.params.id));
   } catch (error: unknown) {
@@ -56,7 +58,7 @@ agentsRouter.post('/:id/update', async (req: Request, res: Response) => {
   }
 });
 
-agentsRouter.delete('/:id', (req: Request, res: Response) => {
+agentsRouterRoutes.empty('DELETE /api/agents/:id', (req, res) => {
   try {
     const ok = deleteAgent(req.params.id);
     if (!ok) return res.status(404).json({ error: 'Not found' });

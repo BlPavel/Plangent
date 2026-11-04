@@ -4,9 +4,9 @@
     <div v-else class="cl-list" role="listbox" tabindex="0" @keydown="onKey">
       <template v-for="group in groups" :key="group.id">
         <div v-if="group.title" class="cl-group">
-          <input
-            v-if="stageable" type="checkbox" class="cl-check" :checked="group.items.every(staged)" :indeterminate.prop="group.items.some(staged) && !group.items.every(staged)"
-            :disabled="!!stageDisabled" :title="stageDisabled || 'Все к коммиту'" :aria-label="'К коммиту: ' + group.title" @change="emit('stage-many', group.items, !group.items.every(staged))"
+          <AppCheckbox
+            v-if="stageable" :model-value="group.items.every(staged)" :indeterminate="group.items.some(staged) && !group.items.every(staged)"
+            :disabled="!!stageDisabled" :title="stageDisabled || 'Все к коммиту'" :aria-label="'К коммиту: ' + group.title" @update:model-value="emit('stage-many', group.items, $event)"
           />
           <span class="cl-group-title">{{ group.title }}</span>
           <span class="cl-count">{{ group.items.length }}</span>
@@ -15,7 +15,7 @@
           v-for="change in group.items" :key="change.path" class="cl-row" :class="{ selected: change.path === selected }" role="option"
           :aria-selected="change.path === selected" :title="change.originalPath ? `${change.originalPath} → ${change.path}` : change.path" @click="emit('open', change)" @contextmenu.prevent="openMenu($event, change)"
         >
-          <input v-if="stageable" type="checkbox" class="cl-check" :checked="staged(change)" :disabled="!!stageDisabled" :title="stageDisabled || 'К коммиту'" :aria-label="'К коммиту: ' + change.path" @click.stop @change="emit('toggle-stage', change)" />
+          <AppCheckbox v-if="stageable" :model-value="staged(change)" :disabled="!!stageDisabled" :title="stageDisabled || 'К коммиту'" :aria-label="'К коммиту: ' + change.path" @click.stop @update:model-value="emit('toggle-stage', change)" />
           <!-- eslint-disable-next-line vue/no-v-html -- bundled icon set, not user input -->
           <span class="cl-icon" v-html="iconSvg(fileIconName(nameOf(change.path)))" />
           <span class="cl-name" :class="{ deleted: change.status === 'D' }">{{ nameOf(change.path) }}</span>
@@ -33,6 +33,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import AppCheckbox from '@shared/ui/AppCheckbox.vue'
 import { fileIconName, iconSvg } from '@shared/code-viewer'
 import ContextMenu from '@shared/ui/ContextMenu.vue'
 import type { MenuItem } from '@shared/ui/AppMenu.vue'
@@ -104,27 +105,27 @@ function onKey(event: KeyboardEvent) {
 
 <style scoped>
 .cl { display: flex; flex-direction: column; min-height: 0; height: 100%; }
-.cl-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 16px 12px; font-size: 13px; text-align: center; color: var(--text-muted); }
+.cl-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 16px 12px; font-size: var(--fs-md); text-align: center; color: var(--text-muted); }
 .cl-list { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 6px; outline: none; }
-.cl-group { display: flex; align-items: center; gap: 6px; padding: 8px 10px 3px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-faint); }
+.cl-group { display: flex; align-items: center; gap: 6px; padding: 8px 10px 3px; font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-faint); }
 .cl-group-title { flex: 1; }
 .cl-count { font-weight: 500; }
-.cl-row { display: flex; align-items: center; gap: 6px; width: 100%; padding: 3px 10px; font: inherit; font-size: 13px; text-align: left; color: var(--text); background: none; border: none; cursor: pointer; }
+.cl-row { display: flex; align-items: center; gap: 6px; width: 100%; padding: 3px 10px; font: inherit; font-size: var(--fs-md); text-align: left; color: var(--text); background: none; border: none; cursor: pointer; }
 .cl-row:hover { background: var(--bg3); }
 .cl-row.selected { background: var(--blue-soft); }
 .cl-check { flex-shrink: 0; margin: 0; cursor: pointer; accent-color: var(--blue); }
-.cl-status { width: 14px; flex-shrink: 0; font-size: 11px; font-weight: 600; text-align: center; }
+.cl-status { width: 14px; flex-shrink: 0; font-size: var(--fs-xs); font-weight: 600; text-align: center; }
 .st-M { color: var(--warning); }
-.st-A { color: var(--diff-add, #3fb950); }
-.st-D { color: var(--diff-del, #f85149); }
-.st-R { color: var(--diff-mod, #388bfd); }
-.st-U { color: var(--diff-del, #f85149); }
+.st-A { color: var(--diff-add, var(--syntax-added)); }
+.st-D { color: var(--diff-del, var(--danger-hover)); }
+.st-R { color: var(--diff-mod, var(--blue-hover)); }
+.st-U { color: var(--diff-del, var(--danger-hover)); }
 .cl-icon { display: inline-flex; flex-shrink: 0; }
 .cl-icon :deep(svg) { width: 16px; height: 16px; }
 .cl-name { flex-shrink: 0; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cl-name.deleted { text-decoration: line-through; color: var(--text-muted); }
-.cl-dir { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--text-faint); }
-.cl-stat { flex-shrink: 0; font-size: 11px; color: var(--text-muted); white-space: nowrap; }
-.plus { color: var(--diff-add, #3fb950); }
-.minus { color: var(--diff-del, #f85149); }
+.cl-dir { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-xs); color: var(--text-faint); }
+.cl-stat { flex-shrink: 0; font-size: var(--fs-xs); color: var(--text-muted); white-space: nowrap; }
+.plus { color: var(--diff-add, var(--syntax-added)); }
+.minus { color: var(--diff-del, var(--danger-hover)); }
 </style>

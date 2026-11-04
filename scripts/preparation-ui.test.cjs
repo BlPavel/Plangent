@@ -14,6 +14,7 @@ Object.defineProperty(window.HTMLTextAreaElement.prototype, 'value', {
   configurable: true, get() { return this.testValue ?? '' }, set(value) { this.testValue = String(value) },
 })
 const { createApp, h, reactive, nextTick } = require('vue')
+const { createPinia } = require('pinia')
 const { build } = require('esbuild')
 const { parse, compileScript, compileTemplate } = require('@vue/compiler-sfc')
 const compiled = (async () => {
@@ -22,17 +23,18 @@ const compiled = (async () => {
       export { default as WorkStages } from './client/src/features/tasks/components/WorkStages.vue'
       export { default as MaterialPanel } from './client/src/features/tasks/components/MaterialPanel.vue'
       export { default as AnalysisLinks } from './client/src/features/tasks/components/AnalysisLinks.vue'
+      export { default as MessageMarkdown } from './client/src/shared/markdown/MessageMarkdown.vue'
       export * from './client/src/features/tasks/utils/work-state'
       export * from './client/src/features/tasks/utils/document-target'
-      export { DocumentLinksKey } from './client/src/shared/composables/documentLinks'
+      export { DocumentLinksKey } from './client/src/shared/markdown/documentLinks'
       export { computeWorkState } from './server/core/work/state'
     `, resolveDir: process.cwd(), loader: 'ts' },
-    bundle: true, write: false, platform: 'node', format: 'cjs', external: ['vue'], loader: { '.css': 'empty' },
+    bundle: true, write: false, platform: 'node', format: 'cjs', external: ['vue', 'pinia'], loader: { '.css': 'empty' },
     alias: { '@shared': path.resolve('client/src/shared'), '@core': path.resolve('client/src/core'), '@features': path.resolve('client/src/features') },
     plugins: [{ name: 'vue-test', setup(build) {
       // Agent launch and review have their own suites; keep the real document renderer and API.
       build.onLoad({ filter: /features[\\/]agent-chat[\\/]index\.ts$/ }, () => ({
-        contents: "export { default as MessageMarkdown } from '../../shared/ui/MessageMarkdown.vue'; export const NewChatPanel = { render: () => null }", loader: 'ts', resolveDir: path.resolve('client/src/features/agent-chat'),
+        contents: "export { default as MessageMarkdown } from '../../shared/markdown/MessageMarkdown.vue'; export const NewChatPanel = { render: () => null }", loader: 'ts', resolveDir: path.resolve('client/src/features/agent-chat'),
       }))
       build.onLoad({ filter: /\.vue$/ }, args => {
         if (['TaskChats.vue', 'PlanReviewPanel.vue'].includes(path.basename(args.path))) return { contents: 'export default { render: () => null }', loader: 'ts' }
@@ -50,6 +52,22 @@ const compiled = (async () => {
   return mod.exports
 })()
 const flush = async () => { await new Promise(resolve => setImmediate(resolve)); await nextTick() }
+test('markdown document links open valid targets and use safe configurable labels', async () => {
+  const { MessageMarkdown, DocumentLinksKey } = await compiled
+  const opened = []
+  const view = mount(MessageMarkdown, { text: '[[valid]] [[missing]]' }, app => app.provide(DocumentLinksKey, {
+    exists: target => target === 'valid', open: target => opened.push(target), openLabel: 'Open "document"',
+  }))
+  try {
+    const buttons = [...document.querySelectorAll('button[data-document-target]')]
+    assert.equal(buttons.length, 2)
+    assert.equal(buttons[0].title, 'Open "document"')
+    assert.equal(buttons[1].title, 'Документ не найден')
+    assert.equal(buttons[1].disabled, true)
+    buttons[0].click(); buttons[1].click()
+    assert.deepEqual(opened, ['valid'])
+  } finally { view.unmount() }
+})
 function mount(Component, initial, provide) {
   const props = reactive(initial), events = []
   const listeners = {}
@@ -57,7 +75,7 @@ function mount(Component, initial, provide) {
     listeners['on' + event[0].toUpperCase() + event.slice(1)] = (...args) => events.push([event, ...args])
   }
   const app = createApp({ render: () => h(Component, { ...props, ...listeners }) })
-  provide?.(app); app.mount('#app')
+  app.use(createPinia()); provide?.(app); app.mount('#app')
   return { props, events, unmount: () => app.unmount() }
 }
 const button = text => {
@@ -154,8 +172,8 @@ test('MaterialPanel preserves rejected edits, reloads a new version and retries 
     assert.equal(requests[0].method, 'PUT'); assert.deepEqual(view.events, [['reload']])
     view.props.material = material('**Q3** New server version', 2); await flush()
     assert.equal(document.querySelector('textarea').value, '**Q3** My draft')
-    assert.match(document.body.textContent, /Документ изменился, пока вы его правили/)
-    await click('Перезагрузить документ'); assert.equal(document.querySelector('textarea').value, '**Q3** New server version')
+    assert.match(document.body.textContent, /Документ изменился/)
+    await click('Взять актуальный'); assert.equal(document.querySelector('textarea').value, '**Q3** New server version')
     await click('Вернуть мой текст'); assert.equal(document.querySelector('textarea').value, '**Q3** My draft')
     view.props.lockedReason = 'Агент работает'; await flush()
     assert.equal(button('Сохранить').disabled, true)

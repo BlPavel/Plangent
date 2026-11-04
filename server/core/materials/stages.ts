@@ -17,7 +17,7 @@ function revision(value: ReturnType<typeof source>): string {
   // Includes file bytes and plan edits in place, which do not increment plan.version.
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
 }
-export function getPreparationStages(taskId: string) {
+export function getPreparationStages(taskId: string): import('@contracts').StageSummary[] {
   const marks = getDb().prepare('SELECT * FROM preparation_marks WHERE task_id=?').all(taskId) as Mark[];
   return preparationStages.map(stage => {
     const value = source(taskId, stage);

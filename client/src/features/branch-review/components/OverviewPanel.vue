@@ -4,7 +4,7 @@
       <div class="op-label">Описание МР</div>
       <MessageMarkdown v-if="info.mr.description.trim()" class="op-md op-description" :class="{ open: descriptionOpen }" :text="info.mr.description" />
       <span v-else class="op-muted">Автор не написал описание.</span>
-      <button v-if="info.mr.description.length > 400" type="button" class="op-link" @click="descriptionOpen = !descriptionOpen">{{ descriptionOpen ? 'Свернуть' : 'Показать полностью' }}</button>
+      <AppButton variant="link" size="xs" v-if="info.mr.description.length > 400" type="button"  @click="descriptionOpen = !descriptionOpen">{{ descriptionOpen ? 'Свернуть' : 'Показать полностью' }}</AppButton>
     </section>
 
     <!-- Before the review: what the agent should know. After the start none of it can change, only «Новое ревью». -->
@@ -12,18 +12,18 @@
       <div class="op-label">Ревью агентом</div>
       <label class="op-field">Скилл ревью
         <span class="op-row">
-          <PlainSelect :model-value="currentSkill" :options="skillOptions" small label="Скилл ревью" @update:model-value="save({ skill_id: $event || null })" />
-          <button type="button" class="op-link" title="Скиллы ревью пишутся во вкладке «Инструкции» → «Ревью», в том числе вместе с агентом" @click="emit('open-instructions')">Скиллы ревью…</button>
+          <AppSelect :model-value="currentSkill" :options="skillOptions" small label="Скилл ревью" @update:model-value="save({ skill_id: $event || null })" />
+          <AppButton variant="link" size="xs" type="button"  title="Скиллы ревью пишутся во вкладке «Инструкции» → «Ревью», в том числе вместе с агентом" @click="emit('open-instructions')">Скиллы ревью…</AppButton>
         </span>
       </label>
       <label class="op-field">Задача
-        <PlainSelect :model-value="detail.review.task_id ?? ''" :options="taskOptions" small label="Задача" empty-label="Задач нет" @update:model-value="save({ task_id: $event || null })" />
+        <AppSelect :model-value="detail.review.task_id ?? ''" :options="taskOptions" small label="Задача" empty-label="Задач нет" @update:model-value="save({ task_id: $event || null })" />
       </label>
       <label class="op-field">Что ещё знать агенту
-        <textarea v-model="context" class="control op-text" rows="4" placeholder="Например: это первый шаг миграции на новый API, обратная совместимость не нужна" spellcheck="false" @blur="saveContext" />
+        <AppTextarea v-model="context" block rows="4" placeholder="Например: это первый шаг миграции на новый API, обратная совместимость не нужна" spellcheck="false" @blur="saveContext" />
       </label>
       <label class="op-field">На что смотреть особенно
-        <input v-model="note" class="control control-sm" placeholder="Необязательно: например, только архитектура" spellcheck="false" @keydown.enter.prevent="start" />
+        <AppInput v-model="note"  placeholder="Необязательно: например, только архитектура" spellcheck="false" @keydown.enter.prevent="start" />
       </label>
       <div class="op-row">
         <AppButton size="sm" variant="blue" :disabled="sending || busy" :title="busy ? 'Агент отвечает на вопросы: дождитесь конца ответа' : 'Агент из настроек проекта напишет сводку и черновики замечаний'" @click="start">{{ sending ? 'Запуск…' : 'Начать ревью' }}</AppButton>
@@ -41,9 +41,9 @@
       <dl class="op-launch">
         <template v-for="row in launchRows" :key="row[0]"><dt>{{ row[0] }}</dt><dd>{{ row[1] }}</dd></template>
       </dl>
-      <button v-if="stage !== 'running' && agentRemarks" type="button" class="op-link" @click="emit('open-remarks')">
+      <AppButton variant="link" size="xs" v-if="stage !== 'running' && agentRemarks" type="button"  @click="emit('open-remarks')">
         Агент предложил {{ agentRemarks }} {{ plural(agentRemarks, 'замечание', 'замечания', 'замечаний') }} → к замечаниям
-      </button>
+      </AppButton>
     </section>
     <p v-if="error" role="alert" class="op-error">{{ error }}</p>
 
@@ -51,7 +51,7 @@
       <span>Автор добавил {{ detail.round_commits }} {{ plural(detail.round_commits, 'коммит', 'коммита', 'коммитов') }} после ваших замечаний, {{ changedCount }} {{ plural(changedCount, 'файл изменён', 'файла изменено', 'файлов изменено') }}.</span>
       <div class="op-row">
         <AppButton size="sm" variant="blue" :disabled="busy || sending" :title="busy ? 'Агент отвечает: дождитесь конца ответа' : 'Агент сверит ваши опубликованные замечания с новыми коммитами и ответит во вкладке «Агент»'" @click="checkFixes">Проверить исправления</AppButton>
-        <button type="button" class="op-link" @click="screen.onlyChanged = !screen.onlyChanged">{{ screen.onlyChanged ? 'Показать все файлы' : 'Только изменённые' }}</button>
+        <AppButton variant="link" size="xs" type="button"  @click="screen.onlyChanged = !screen.onlyChanged">{{ screen.onlyChanged ? 'Показать все файлы' : 'Только изменённые' }}</AppButton>
       </div>
     </section>
 
@@ -64,15 +64,18 @@
   </div>
 </template>
 <script setup lang="ts">
+import AppTextarea from '@shared/ui/AppTextarea.vue'
+import AppInput from '@shared/ui/AppInput.vue'
+import { useDraft } from '@core/composables/useDraft'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { api } from '@core/api'
-import type { Task } from '@core/models'
+import { tasksEndpoints } from '@features/tasks'
+import type { Task } from '@contracts'
 import { useAppStore } from '@core/stores/app'
 import { useChatStore } from '@features/agent-chat'
 import { useAgentsStore } from '@features/agents'
 import AppButton from '@shared/ui/AppButton.vue'
-import MessageMarkdown from '@shared/ui/MessageMarkdown.vue'
-import PlainSelect from '@shared/ui/PlainSelect.vue'
+import { MessageMarkdown } from '@shared/markdown'
+import AppSelect from '@shared/ui/AppSelect.vue'
 import { errorText } from '@shared/utils/errorText'
 import { branchReviewApi } from '../api'
 import type { BranchReview, MrInfo, ReviewSkill } from '../types'
@@ -80,13 +83,13 @@ import { useReviewAgent } from '../composables/useReviewAgent'
 import { plural } from '../utils'
 
 /** The review by the agent in stages: setup, the agent working, its report. Starting over is «Новое ревью». */
-const props = defineProps<{ screenKey: string; scope: string; detail: BranchReview; info: MrInfo | null; tasksUrl: string }>()
+const props = defineProps<{ screenKey: string; scope: string; detail: BranchReview; info: MrInfo | null; tasksProjectId: string; includeMembers: boolean }>()
 const emit = defineEmits<{ 'open-instructions': []; 'open-remarks': []; asked: [] }>()
 const { screen, busy } = useReviewAgent(props.screenKey, computed(() => props.detail.review.head))
 const app = useAppStore(), chats = useChatStore(), agents = useAgentsStore()
 const skills = ref<ReviewSkill[]>([]), tasks = ref<Task[]>([])
-const context = ref(props.detail.review.context), note = ref(''), error = ref(''), sending = ref(false), restarting = ref(false), descriptionOpen = ref(false)
-watch(() => props.detail.review.context, value => { context.value = value })
+const context = useDraft(() => `branch-review:${props.detail.review.id}:overview:context`, () => props.detail.review.context), note = useDraft(() => `branch-review:${props.detail.review.id}:overview:note`, () => ''), error = ref(''), sending = ref(false), restarting = ref(false), descriptionOpen = ref(false)
+watch(() => props.detail.review.context, (value, previous) => { if (context.value === previous) context.value = value })
 
 const origin = { direct: 'проект', group: 'группа', global: 'везде' }
 const skillOptions = computed(() => skills.value.length
@@ -138,7 +141,7 @@ const launchRows = computed(() => {
 })
 
 async function load() {
-  try { [skills.value, tasks.value] = await Promise.all([branchReviewApi.skills(props.scope), api.get<Task[]>(props.tasksUrl)]) }
+  try { [skills.value, tasks.value] = await Promise.all([branchReviewApi.skills(props.scope), tasksEndpoints.listTasks({ params: { projectId: props.tasksProjectId }, query: { members: props.includeMembers ? '1' : undefined } })]) }
   catch (cause) { error.value = errorText(cause) }
 }
 watch(() => props.scope, load, { immediate: true })
@@ -181,23 +184,22 @@ async function restart() {
 }
 </script>
 <style scoped>
-.op { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 4px; padding: 6px 10px 12px; font-size: 12px; }
+.op { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 4px; padding: 6px 10px 12px; font-size: var(--fs-sm); }
 .op-section { flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; padding: 8px 0; border-bottom: 1px solid var(--border); }
 .op-section:last-child { border-bottom: none; }
-.op-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
+.op-label { font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
 .op-field { display: flex; flex-direction: column; gap: 4px; color: var(--text-muted); }
 .op-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.op-text { width: 100%; min-height: 95px; flex-shrink: 0; padding: 6px 10px; line-height: 1.45; resize: vertical; font: inherit; color: var(--text); }
 .op-muted { color: var(--text-muted); line-height: 1.45; }
 .op-warn { color: var(--warning-text); line-height: 1.45; }
-.op-link { padding: 0; font: inherit; font-size: 11.5px; color: var(--blue-hover); background: none; border: none; cursor: pointer; align-self: flex-start; text-align: left; }
-.op-md { font-size: 12.5px; line-height: 1.55; }
+.op-link { padding: 0; font: inherit; font-size: var(--fs-sm); color: var(--blue-hover); background: none; border: none; cursor: pointer; align-self: flex-start; text-align: left; }
+.op-md { font-size: var(--fs-md); line-height: 1.55; }
 .op-description:not(.open) { max-height: 140px; overflow: hidden; }
 .op-error { padding: 4px 0; color: var(--danger-hover); overflow-wrap: anywhere; }
 .op-round { color: var(--warning-text); }
 .op-phase { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; margin: 0; padding: 8px 12px; border-radius: var(--radius-sm); font-weight: 600; background: var(--bg3); color: var(--text-muted); }
-.op-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
-.op-phase-running { background: rgba(210, 153, 34, 0.15); color: var(--warning-text); }
+.op-dot { width: 8px; height: 8px; border-radius: var(--radius-round); background: currentColor; flex-shrink: 0; }
+.op-phase-running { background: var(--warning-soft); color: var(--warning-text); }
 .op-phase-running .op-dot { animation: op-pulse 1.2s ease-in-out infinite; }
 .op-phase-done { background: var(--accent-soft); color: var(--accent-hover); }
 .op-phase-stopped, .op-phase-failed { background: var(--danger-soft); color: var(--danger-hover); }

@@ -1,16 +1,18 @@
+import { typedRoutes } from '../typed-route';
 import { Router, Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
 
 export const uploadRouter = Router();
+const uploadRouterRoutes = typedRoutes(uploadRouter, '/api/upload-temp');
 
 const UPLOAD_DIR = path.join(os.tmpdir(), 'plangent-uploads');
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 // POST /api/upload-temp — accepts { data: base64, name: string }
 // Saves to temp dir and returns { path }
-uploadRouter.post('/', (req: Request, res: Response) => {
+uploadRouterRoutes.json('POST /api/upload-temp', (req, res) => {
   const { data, name } = req.body as { data?: string; name?: string };
   if (!data || !name) return res.status(400).json({ error: 'data and name required' });
 

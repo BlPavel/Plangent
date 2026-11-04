@@ -1,11 +1,11 @@
 <template>
   <nav class="stage-nav" aria-label="Этапы работы">
-    <ol class="work-stages">
-      <li v-for="(s, i) in tabs" :key="s.id" :class="mark(s.id).tone">
-        <button type="button" :class="{ selected: active === s.id }" :aria-current="active === s.id ? 'page' : undefined" @click="$emit('select', s.id)"><StageMark :state="mark(s.id).state" :live="s.live" :label="mark(s.id).label" />{{ s.label }}<span v-if="s.count" class="stage-count" :title="s.countTitle">{{ s.count }}</span></button>
-        <span v-if="i < tabs.length - 1" class="line" aria-hidden="true" />
-      </li>
-    </ol>
+    <AppTabs :model-value="active" :items="tabs.map(s => ({ value: s.id, label: s.label, count: s.count, title: s.countTitle }))" rich label="Этапы работы" @update:model-value="$emit('select', $event)">
+      <template #item="{ item }">
+        <StageMark :state="mark(item.value).state" :live="tabs.find(s => s.id === item.value)?.live" :label="mark(item.value).label" />{{ item.label }}
+        <AppCount v-if="item.count" :value="item.count" tone="warning" :title="item.title" />
+      </template>
+    </AppTabs>
     <div v-if="next" class="stage-actions">
       <SplitButton v-if="summary" variant="blue" :items="menu" :disabled="primaryDisabled" :title="primaryTitle" menu-title="Другие действия этапа" :menu-disabled="!menu.length" @click="primary">{{ primaryLabel }}</SplitButton>
       <AppButton v-else size="sm" variant="blue" @click="$emit('select', next.id)">{{ next.label }} →</AppButton>
@@ -15,10 +15,11 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import AppButton from '@shared/ui/AppButton.vue'
+import { AppCount, AppTabs } from '@shared/ui'
 import SplitButton from '@shared/ui/SplitButton.vue'
 import StageMark from '@shared/ui/StageMark.vue'
 import type { MenuItem } from '@shared/ui/AppMenu.vue'
-import type { StageSummary, Task, WorkState } from '@core/models'
+import type { StageSummary, Task, WorkState } from '@contracts'
 import { workStageIndex, workStagesOf } from '../utils/work-state'
 
 const props = defineProps<{
@@ -73,13 +74,13 @@ function primary() {
 </script>
 <style scoped>
 .stage-nav { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 20px; padding: 8px var(--sp-5); border-bottom: 1px solid var(--border); flex-shrink: 0; }
-.work-stages { display: flex; align-items: center; margin: 0; padding: 0; list-style: none; font-size: 12.5px; overflow-x: auto; }
+.work-stages { display: flex; align-items: center; margin: 0; padding: 0; list-style: none; font-size: var(--fs-md); overflow-x: auto; }
 .work-stages li { display: flex; align-items: center; white-space: nowrap; }
 .work-stages button { display: inline-flex; gap: 7px; align-items: center; min-height: 30px; padding: 4px 8px; background: none; border: 1px solid transparent; border-radius: var(--radius-sm); color: var(--text-muted); cursor: pointer; font: inherit; }
 .work-stages button:hover { background: var(--bg3); }
 .work-stages button.selected { color: var(--text); background: var(--blue-soft); border-color: var(--blue); }
 .stage-actions { display: flex; gap: 8px; margin-left: auto; }
-.stage-count { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: var(--radius-pill); background: var(--warning); color: var(--bg); font-size: 11px; font-weight: 600; }
+.stage-count { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: var(--radius-pill); background: var(--warning); color: var(--bg); font-size: var(--fs-xs); font-weight: 600; }
 .work-stages .done button { color: var(--accent-hover); }
 .work-stages .current button { color: var(--text); font-weight: 600; }
 .line { width: 28px; height: 1px; margin: 0 6px; background: var(--border-strong); }

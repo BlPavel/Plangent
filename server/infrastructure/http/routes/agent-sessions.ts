@@ -1,3 +1,4 @@
+import { typedRoutes } from '../typed-route';
 import { Router } from 'express';
 import type { ContentBlock } from '@agentclientprotocol/sdk';
 import { createSession, listSessions, getSession, updateSession, deleteSession, history, findings } from '../../../core/agent-sessions/sessions';
@@ -11,17 +12,18 @@ import { getRun, finishRun } from '../../../core/runs';
 import { broadcast } from '../../../core/shared/events';
 
 export const agentSessionsRouter = Router();
-agentSessionsRouter.get('/', (req, res) => res.json(listSessions(typeof req.query.projectId === 'string' ? req.query.projectId : undefined)));
-agentSessionsRouter.post('/', async (req, res) => {
+const agentSessionsRouterRoutes = typedRoutes(agentSessionsRouter, '/api/agent-sessions');
+agentSessionsRouterRoutes.json('GET /api/agent-sessions', (req, res) => res.json(listSessions(typeof req.query.projectId === 'string' ? req.query.projectId : undefined)));
+agentSessionsRouterRoutes.json('POST /api/agent-sessions', async (req, res) => {
   try {
     const { project_id, agent_id, model, mode, config } = req.body;
     const role = req.body.role ?? 'chat';
-    if (!['chat', 'librarian', 'code-fixer'].includes(role)) return res.status(400).json({ error: 'Invalid session role' });
+    if (role !== 'chat' && role !== 'librarian' && role !== 'code-fixer') return res.status(400).json({ error: 'Invalid session role' });
     if (role === 'code-fixer' && getProject(project_id)?.kind !== 'project') return res.status(400).json({ error: 'Choose a project for the code fixer' });
     if (role === 'librarian' && getProject(project_id)?.kind === 'source') return res.status(400).json({ error: 'Choose a project or group for the librarian' });
     const workspaceId = req.body.workspace_id ?? req.body.workspace;
     if (workspaceId !== undefined) rootForWorkspace(project_id, workspaceId);
-    const policy = role === 'librarian' ? 'read-only' : ['ask', 'allow-edits', 'allow-all', 'read-only'].includes(req.body.policy) ? req.body.policy : 'ask';
+    const policy = role === 'librarian' ? 'read-only' : ['ask', 'allow-edits', 'allow-all', 'read-only'].includes(req.body.policy ?? '') ? req.body.policy! : 'ask';
     if (!getProject(project_id) || !getAgent(agent_id)) return res.status(400).json({ error: 'Проект или агент не найден' });
     // No pick (the agent's options were not loaded yet) → the default from the agent's settings.
     const session = createSession({ project_id, agent_id, model: model || getAgent(agent_id)!.model, role, policy, metadata: { ...(workspaceId ? { workspace_id: workspaceId } : {}), ...(typeof mode === 'string' && mode ? { preferredMode: mode } : {}), ...(config && typeof config === 'object' ? { preferredConfig: Object.fromEntries(Object.entries(config).map(([k, v]) => [k, String(v)])) } : {}) } });
@@ -29,15 +31,15 @@ agentSessionsRouter.post('/', async (req, res) => {
     void startSession(session.id).catch(() => {});
   } catch (e) { res.status(400).json({ error: String(e) }); }
 });
-agentSessionsRouter.get('/:id', (req, res) => {
+agentSessionsRouterRoutes.json('GET /api/agent-sessions/:id', (req, res) => {
   try { res.json({ ...snapshot(req.params.id), events: history(req.params.id) }); }
   catch (e) { res.status(404).json({ error: String(e) }); }
 });
-agentSessionsRouter.get('/:id/findings', (req, res) => {
+agentSessionsRouterRoutes.json('GET /api/agent-sessions/:id/findings', (req, res) => {
   try { res.json(findings(req.params.id)); }
   catch (e) { res.status(404).json({ error: String(e) }); }
 });
-agentSessionsRouter.post('/:id/:action', async (req, res) => {
+agentSessionsRouterRoutes.json('POST /api/agent-sessions/:id/:action', async (req, res) => {
   try {
     const id = req.params.id;
     const session = getSession(id);
@@ -45,7 +47,7 @@ agentSessionsRouter.post('/:id/:action', async (req, res) => {
       return res.status(409).json({ error: 'Завершённая задача доступна только для чтения' });
     switch (req.params.action) {
       case 'prompt': {
-        const content: ContentBlock[] = req.body.content ?? [{ type: 'text', text: req.body.text }];
+        const content: ContentBlock[] = req.body.content ?? [{ type: 'text', text: req.body.text ?? '' }];
         if (!Array.isArray(content) || !content.length || JSON.stringify(content).length > 20_000_000 ||
             content.some(c => !c || !['text', 'image', 'resource', 'resource_link'].includes(c.type))) throw new Error('Некорректное сообщение');
         await sendPrompt(id, content); break;
@@ -53,8 +55,8 @@ agentSessionsRouter.post('/:id/:action', async (req, res) => {
       case 'cancel': await cancelSession(id); break;
       case 'close': await closeSession(id); updateSession(id, { status: 'ready', reason: '' }); break;
       case 'retry': await closeSession(id); await startSession(id); break;
-      case 'permission': answerPermission(id, req.body.permissionId, req.body.optionId); break;
-      case 'model': await setModel(id, req.body.model); break;
+      case 'permission': answerPermission(id, req.body.permissionId ?? '', req.body.optionId ?? ''); break;
+      case 'model': await setModel(id, req.body.model ?? ''); break;
       case 'mode': await setMode(id, String(req.body.mode)); break;
       case 'config': await setConfig(id, String(req.body.configId), String(req.body.value)); break;
       case 'context': {
@@ -69,7 +71,7 @@ agentSessionsRouter.post('/:id/:action', async (req, res) => {
     res.json(snapshot(id));
   } catch (e) { res.status(400).json({ error: String(e) }); }
 });
-agentSessionsRouter.delete('/:id', async (req, res) => {
+agentSessionsRouterRoutes.empty('DELETE /api/agent-sessions/:id', async (req, res) => {
   try {
     const session = getSession(req.params.id);
     await closeSession(req.params.id).catch(() => {});
@@ -78,7 +80,7 @@ agentSessionsRouter.delete('/:id', async (req, res) => {
     res.status(204).end();
   } catch (e) { res.status(404).json({ error: String(e) }); }
 });
-agentSessionsRouter.patch('/:id', async (req, res) => {
+agentSessionsRouterRoutes.json('PATCH /api/agent-sessions/:id', async (req, res) => {
   try {
     const { title, policy } = req.body;
     if (policy && !['ask', 'allow-edits', 'allow-all', 'read-only'].includes(policy)) throw new Error('Неизвестная политика');
@@ -87,7 +89,7 @@ agentSessionsRouter.patch('/:id', async (req, res) => {
     res.json(updateSession(req.params.id, { ...(typeof title === 'string' ? { title: title.slice(0, 120), metadata: { ...session.metadata, titleSource: 'manual' } } : {}), ...(policy ? { policy } : {}) }));
   } catch (e) { res.status(400).json({ error: String(e) }); }
 });
-agentSessionsRouter.patch('/:id/queue/:promptId', (req, res) => {
+agentSessionsRouterRoutes.json('PATCH /api/agent-sessions/:id/queue/:promptId', (req, res) => {
   try {
     getSession(req.params.id);
     if (typeof req.body.text !== 'string' || !req.body.text.trim()) throw new Error('Пустое сообщение');
@@ -95,6 +97,6 @@ agentSessionsRouter.patch('/:id/queue/:promptId', (req, res) => {
     broadcast({ type: 'agent_queue', sessionId: req.params.id }); res.json({ ok: true });
   } catch (e) { res.status(400).json({ error: String(e) }); }
 });
-agentSessionsRouter.delete('/:id/queue/:promptId', (req, res) => {
+agentSessionsRouterRoutes.empty('DELETE /api/agent-sessions/:id/queue/:promptId', (req, res) => {
   editQueued(req.params.id, req.params.promptId); broadcast({ type: 'agent_queue', sessionId: req.params.id }); res.status(204).end();
 });

@@ -1,3 +1,5 @@
+import type { ErrandPlace, ErrandInput } from '@contracts';
+export type { ErrandPlace, ErrandInput } from '@contracts';
 import { createTask, getTask, updateTask } from '../tasks';
 import { getProject, effectiveGitSettings } from '../projects';
 import { getAgent } from '../agents';
@@ -15,15 +17,8 @@ import { mainFolderWork } from './main-folder';
  * Where the errand works: `new` — its own folder on a new branch from `base_branch`; `existing` — its own folder
  * on the developer's `branch` (or the main folder when that branch is open there); `main` — the project's main folder.
  */
-export type ErrandPlace = 'new' | 'existing' | 'main';
-export interface ErrandInput {
-  /** Описание: what the developer sees in the list; the details go to the chat. */
-  title?: string; external_key?: string;
-  /** A ready request (e.g. «Поручение по этой работе»): sent to the agent right away. */
-  text?: string;
-  agent_id?: string; model?: string; policy?: string; mode?: string; config?: Record<string, string>; auto_review?: boolean;
-  place?: ErrandPlace; base_branch?: string; branch_name?: string; branch?: string;
-}
+
+
 const BRIEFING = 'Выполни поручение пользователя. Плана шагов нет. После выполнения вызови complete_step с отчётом. Замечания и дальнейшие доработки приходят в этот же чат. Если сообщение сообщает о раунде ревью, вызови get_review и отвечай в замечаниях через reply_review_item.\n'
   + 'Если, изучив код, ты решишь, что работа слишком большая для поручения и ей нужен план, до первых правок один раз предложи пользователю превратить поручение в задачу с планом (меню «⋯» на странице поручения — «Добавить план»). Если пользователь отказался или ты уже начал вносить правки, больше это не предлагай.';
 const optional = (value: unknown, name: string) => {

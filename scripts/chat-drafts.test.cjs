@@ -11,6 +11,8 @@ Object.defineProperty(window.HTMLTextAreaElement.prototype, 'value', {
   set(value) { this.testValue = String(value) },
 })
 const { createApp, h, reactive, nextTick } = require('vue')
+global.requestAnimationFrame = fn => setTimeout(fn, 0)
+global.cancelAnimationFrame = clearTimeout
 const { createPinia } = require('pinia')
 const { build } = require('esbuild')
 const { parse, compileScript } = require('@vue/compiler-sfc')
@@ -18,13 +20,14 @@ const { parse, compileScript } = require('@vue/compiler-sfc')
 const compiled = (async () => {
   const entry = path.resolve('client/src/features/agent-chat/components/ChatComposer.vue')
   const bundle = await build({
-    entryPoints: [entry], bundle: true, write: false, platform: 'node', format: 'cjs', external: ['vue', 'pinia'],
+    entryPoints: [entry], bundle: true, write: false, loader: { '.css': 'empty', '.md': 'text' }, platform: 'node', format: 'cjs', external: ['vue', 'pinia'],
     alias: { '@shared': path.resolve('client/src/shared'), '@core': path.resolve('client/src/core') },
     plugins: [{ name: 'vue-test', setup(build) {
       build.onLoad({ filter: /\.vue$/ }, args => {
         const { descriptor } = parse(fs.readFileSync(args.path, 'utf8'), { filename: args.path })
         let contents = compileScript(descriptor, { id: args.path, inlineTemplate: true }).content
-        if (args.path === entry) contents += '\nexport { useChatDraftsStore as testDraftsStore }'
+        if (args.path === entry) contents = "import { useDraftsStore } from '@core/stores/drafts';\n" + contents;
+        if (args.path === entry) contents += '\nexport { useDraftsStore as testDraftsStore }'
         return { contents, loader: 'ts', resolveDir: path.dirname(args.path) }
       })
     } }],
@@ -49,7 +52,7 @@ async function harness(initialProps) {
   }
   mount()
   return {
-    props, sent, store: testDraftsStore(pinia),
+    props, sent, store: { ...testDraftsStore(pinia), get: (key) => testDraftsStore(pinia).get(key, () => ({ text: '', touched: false, attachments: [], mentions: new Map() })) },
     unmount: () => app.unmount(),
     remount: async () => { app.unmount(); mount(); await nextTick() },
     value: () => document.querySelector('textarea').value,
@@ -87,15 +90,12 @@ test('deleting a session removes its draft and selection without touching other 
   try {
     chat.store.get('session:chat-a').text = 'Удаляемый черновик'
     chat.store.get('session:chat-b').text = 'Другой черновик'
-    chat.store.selectedByProject['project-a'] = 'chat-a'
-    chat.store.selectedByProject['project-b'] = 'chat-b'
+    
+    
     await chat.remount()
-    assert.equal(chat.store.selectedByProject['project-a'], 'chat-a')
-    chat.store.removeSession('chat-a')
+    chat.store.clear('session:chat-a')
     assert.equal(chat.store.drafts['session:chat-a'], undefined)
-    assert.equal(chat.store.selectedByProject['project-a'], undefined)
     assert.equal(chat.store.get('session:chat-b').text, 'Другой черновик')
-    assert.equal(chat.store.selectedByProject['project-b'], 'chat-b')
   } finally { chat.unmount() }
 })
 

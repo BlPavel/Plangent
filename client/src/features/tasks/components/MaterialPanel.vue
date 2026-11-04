@@ -29,7 +29,7 @@
           <template #end>
             <TaskChats class="chat-pane" :label="L.chat" :chats="chats" :selected="selectedChat" :initials="initials" @select="$emit('selectChat', $event)" @remove="(id, name) => $emit('removeChat', id, name)">
               <template #new>
-                <NewChatPanel
+                <NewChatPanel :draft-key="`task:${taskId}:material-chat:${type}`"
                   :project-id="projectId" :default-agent-id="defaultAgentId" :title="L.chatTitle" :text="material ? L.chatTextWith : L.chatTextEmpty"
                   :placeholder="material ? L.placeholderWith : L.placeholderEmpty" fixed-policy="read-only" :initial-text="material ? '' : L.draft"
                   :busy="launching" :error="launchError" @start="$emit('launch', $event)"
@@ -49,15 +49,12 @@
             <AppButton variant="ghost" size="sm" :disabled="saving" @click="cancelEdit">Отмена</AppButton>
           </div>
         </header>
-        <div v-if="stale" class="banner warn" role="alert">
-          <span>Документ изменился, пока вы его правили (агент или другая вкладка). Ваш текст сохранён в поле — он не потерян. Перезагрузите документ, чтобы продолжить с новой версии.</span>
-          <AppButton size="xs" variant="ghost" @click="reloadDocument">Перезагрузить документ</AppButton>
-        </div>
+        <StaleDraftNote v-if="stale" @reload="reloadDocument" />
         <div v-if="stash" class="banner subtle"><span>Загружена новая версия документа.</span><AppButton size="xs" variant="ghost" @click="restoreStash">Вернуть мой текст</AppButton></div>
         <div v-if="error" class="banner danger" role="alert"><span>{{ error }}</span></div>
         <SplitPane :storage-key="'plangent.material.' + type + '.editShare'">
           <template #start>
-            <textarea v-model="draft" class="control material-editor" :aria-label="'Текст документа: ' + L.title" :placeholder="L.editorPlaceholder" spellcheck="false" />
+            <AppTextarea v-model="draft" mono block class="material-editor" :aria-label="'Текст документа: ' + L.title" :placeholder="L.editorPlaceholder" spellcheck="false" />
           </template>
           <template #end>
             <section class="material-pane"><MessageMarkdown v-if="draft.trim()" class="material-doc" :text="draft" /><p v-else class="muted">Предпросмотр появится, когда вы начнёте писать. Схемы — блоки <code>```mermaid</code>.</p></section>
@@ -85,7 +82,7 @@
           <span class="material-meta">Версия {{ material.version }} · {{ material.author === 'agent' ? 'агент' : 'разработчик' }}</span>
           <div v-if="!done" class="material-actions">
             <AppButton variant="blue" size="sm" :disabled="!!lockedReason" @click="agentOpen = true">▸ Изменить с агентом</AppButton>
-            <AppButton variant="ghost" size="sm" :class="{ on: reviewOpen }" :title="'Показать или скрыть ' + L.review.toLowerCase() + ' справа: агент проверит документ, замечания разбираете вы'" @click="reviewOpen = !reviewOpen">{{ L.review }}{{ attention ? ` (${attention})` : '' }}</AppButton>
+            <AppButton variant="ghost" size="sm" :pressed="reviewOpen" :title="'Показать или скрыть ' + L.review.toLowerCase() + ' справа: агент проверит документ, замечания разбираете вы'" @click="reviewOpen = !reviewOpen">{{ L.review }}{{ attention ? ` (${attention})` : '' }}</AppButton>
             <AppButton variant="subtle" size="sm" :disabled="!!lockedReason" @click="startEdit">Редактировать вручную</AppButton>
           </div>
         </div>
@@ -96,13 +93,16 @@
   </div>
 </template>
 <script setup lang="ts">
+import AppTextarea from '@shared/ui/AppTextarea.vue'
+import { useDraft } from '@core/composables/useDraft'
+import StaleDraftNote from '@shared/ui/StaleDraftNote.vue'
 import { computed, nextTick, ref, watch } from 'vue'
 import PlanReviewPanel from './plan-review/PlanReviewPanel.vue'
 import TaskChats from './TaskChats.vue'
 import { NewChatPanel, MessageMarkdown, type NewChatRequest, type ContentBlock } from '@features/agent-chat'
 import AppButton from '@shared/ui/AppButton.vue'
 import SplitPane from '@shared/ui/SplitPane.vue'
-import type { Material, MaterialType, StageSummary } from '@core/models'
+import type { Material, MaterialType, StageSummary } from '@contracts'
 import { preparationApi } from '../api'
 
 const props = defineProps<{
@@ -151,15 +151,19 @@ const L = computed(() => texts[props.type])
 
 // ——— Modes: view, chat with an agent, manual editing ———
 const agentOpen = ref(false)
-const editing = ref(false), draft = ref(''), baseVersion = ref(0), saving = ref(false), error = ref(''), stash = ref('')
+const documentDraft = useDraft(() => `task:${props.taskId}:material:${props.type}`, () => ({ active: false, text: '', version: 0, stash: '' }))
+const editing = computed({ get: () => documentDraft.value.active, set: value => { documentDraft.value.active = value } })
+const draft = computed({ get: () => documentDraft.value.text, set: value => { documentDraft.value.text = value } })
+const baseVersion = computed({ get: () => documentDraft.value.version, set: value => { documentDraft.value.version = value } })
+const stash = computed({ get: () => documentDraft.value.stash, set: value => { documentDraft.value.stash = value } })
+const saving = ref(false), error = ref('')
 const stale = computed(() => editing.value && (props.material?.version ?? 0) !== baseVersion.value)
 function startEdit() {
-  draft.value = props.material?.content ?? ''
-  baseVersion.value = props.material?.version ?? 0
+  if (!editing.value) { draft.value = props.material?.content ?? ''; baseVersion.value = props.material?.version ?? 0 }
   error.value = ''; stash.value = ''
   editing.value = true
 }
-function cancelEdit() { editing.value = false; error.value = ''; stash.value = '' }
+function cancelEdit() { editing.value = false; draft.value = ''; error.value = ''; stash.value = '' }
 function reloadDocument() {
   stash.value = draft.value
   draft.value = props.material?.content ?? ''
@@ -206,17 +210,17 @@ function openAuthorChat(id: string) { agentOpen.value = true; emit('selectChat',
 .material-tab { flex: 1; overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
 .material-tab.with-review { flex-direction: row; }
 .material-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
-.banner { display: flex; align-items: center; gap: 8px; flex-shrink: 0; margin: 12px 20px 0; font-size: 12px; line-height: 1.45; padding: 8px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--bg2); color: var(--text-muted); }
+.banner { display: flex; align-items: center; gap: 8px; flex-shrink: 0; margin: 12px 20px 0; font-size: var(--fs-sm); line-height: 1.45; padding: 8px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--bg2); color: var(--text-muted); }
 .banner > span { flex: 1; }
 .banner.warn { border-color: var(--warning); background: var(--warning-soft); color: var(--warning-text); }
 .banner.subtle { border-style: dashed; }
 .banner.danger { border-color: var(--danger); background: var(--danger-soft); color: var(--danger-hover); }
 
 .material-bar { display: flex; align-items: center; gap: 12px; padding: 8px 20px; border-bottom: 1px solid var(--border); background: var(--bg); flex-shrink: 0; margin-top: 12px; }
-.material-status { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--text-muted); }
-.material-status.live { color: #e3b341; }
-.material-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border-strong); }
-.live .material-dot { background: #e3b341; animation: material-pulse 1.2s ease-in-out infinite; }
+.material-status { display: flex; align-items: center; gap: 8px; font-size: var(--fs-md); font-weight: 600; color: var(--text-muted); }
+.material-status.live { color: var(--warning-text); }
+.material-dot { width: 8px; height: 8px; border-radius: var(--radius-round); background: var(--border-strong); }
+.live .material-dot { background: var(--warning-text); animation: material-pulse 1.2s ease-in-out infinite; }
 @keyframes material-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 .material-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .material-actions .on { background: var(--bg3); color: var(--text); }
@@ -224,16 +228,15 @@ function openAuthorChat(id: string) { agentOpen.value = true; emit('selectChat',
 .material-pane { flex: 1; min-width: 0; overflow-y: auto; padding: 20px 24px; display: flex; flex-direction: column; }
 .material-content { flex: 1; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 12px; }
 .material-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.material-meta { font-size: 12px; color: var(--text-muted); }
+.material-meta { font-size: var(--fs-sm); color: var(--text-muted); }
 .material-header .material-actions { margin-left: 0; }
-.material-waiting { flex: 1; display: flex; align-items: center; justify-content: center; text-align: center; color: var(--text-muted); font-size: 13px; min-height: 120px; }
+.material-waiting { flex: 1; display: flex; align-items: center; justify-content: center; text-align: center; color: var(--text-muted); font-size: var(--fs-md); min-height: 120px; }
 .chat-pane { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
-.material-editor { flex: 1; width: 100%; height: auto; min-height: 200px; padding: 12px 16px; border: 0; border-radius: 0; resize: none; font-family: 'Cascadia Code', 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.5; }
-.material-editor:focus { outline: none; }
-.material-doc :deep(.material-hl) { background: var(--blue-soft); box-shadow: 0 0 0 2px var(--blue-soft); border-radius: 3px; }
-.material-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 28px 24px; border: 1px dashed var(--border-strong); border-radius: var(--radius); text-align: center; font-size: 12.5px; line-height: 1.5; color: var(--text-muted); }
+.material-editor { flex: 1; }
+.material-doc :deep(.material-hl) { background: var(--blue-soft); box-shadow: 0 0 0 2px var(--blue-soft); border-radius: var(--radius-3); }
+.material-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 28px 24px; border: 1px dashed var(--border-strong); border-radius: var(--radius); text-align: center; font-size: var(--fs-md); line-height: 1.5; color: var(--text-muted); }
 .material-empty p { max-width: 460px; }
 .material-empty .material-actions { margin: 6px 0 0; justify-content: center; }
-.empty-title { font-size: 14px; font-weight: 600; color: var(--text); }
-.muted { color: var(--text-muted); font-size: 12.5px; }
+.empty-title { font-size: var(--fs-base); font-weight: 600; color: var(--text); }
+.muted { color: var(--text-muted); font-size: var(--fs-md); }
 </style>

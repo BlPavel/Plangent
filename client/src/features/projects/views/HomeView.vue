@@ -1,8 +1,8 @@
 <template>
   <div class="home">
-    <div v-if="!currentProject" class="empty-state">
+    <AppEmptyState v-if="!currentProject">
       <p>Выберите проект или создайте новый</p>
-    </div>
+    </AppEmptyState>
 
     <!-- The store copy: sync status and statistics arrive there over server events. -->
     <SourceView v-else-if="currentProject.kind === 'source'" :source="projectsStore.byId(currentProject.id) ?? currentProject" @edit="showProjectModal = true" @delete="deleteProject" />
@@ -16,7 +16,7 @@
             {{ members.length ? `Проекты: ${members.map(m => m.name).join(', ')}` : 'В группе пока нет проектов — добавьте их на вкладке «Проекты»' }}
           </span>
           <span v-else class="repo-path">
-            <button v-if="group" class="crumb app-no-drag" title="Открыть группу" @click="appStore.currentProject = group">🗂 {{ group.name }} ›</button>
+            <AppButton v-if="group" variant="link" size="xs" class="app-no-drag" title="Открыть группу" @click="appStore.currentProject = group">🗂 {{ group.name }} ›</AppButton>
             <code class="project-key">@{{ currentProject.key }}</code> {{ currentProject.repo_path }}
           </span>
         </div>
@@ -26,16 +26,7 @@
       </div>
 
       <!-- Tab bar -->
-      <div class="tab-bar">
-        <button
-          v-for="t in tabs"
-          :key="t.id"
-          class="tab-btn"
-          :class="{ active: activeTab === t.id, disabled: t.disabled }"
-          :disabled="t.disabled"
-          @click="activeTab = t.id"
-        >{{ t.label }}<span v-if="t.count" class="tab-count warn" :title="t.countTitle">{{ t.count }}</span></button>
-      </div>
+      <AppTabs :model-value="activeTab" :items="tabs.map(t => ({ value: t.id, label: t.label, disabled: t.disabled, count: t.count || undefined, title: t.countTitle }))" @update:model-value="activeTab = $event as HomeTab" />
 
       <div v-show="activeTab === 'agents'" class="tab-content"><AgentChats :project-id="currentProject.id" :default-agent-id="projectsStore.agentFor(currentProject)" /></div>
       <div v-if="isGroup" v-show="activeTab === 'projects'" class="tab-content"><GroupProjects :group="currentProject" /></div>
@@ -71,6 +62,7 @@ const lastTab: { projectId: string | null; tab: HomeTab } = { projectId: null, t
 </script>
 
 <script setup lang="ts">
+import { tasksEndpoints } from '@features/tasks'
 import { AgentChats } from '@features/agent-chat'
 import { CodeTab, useCodeAttentionStore } from '@features/code'
 import { BranchReviewTab } from '@features/branch-review'
@@ -79,10 +71,11 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '@core/stores/app'
 import { useProjectsStore } from '../stores/projects'
 import { useAgentsStore } from '@features/agents'
-import { api } from '@core/api'
-import type { Task } from '@core/models'
+import type { Task } from '@contracts'
 import { type MenuItem } from '@shared/ui/AppMenu.vue'
 import AppButton from '@shared/ui/AppButton.vue'
+import AppTabs from '@shared/ui/AppTabs.vue'
+import AppEmptyState from '@shared/ui/AppEmptyState.vue'
 import { InstructionsWorkspace } from '@features/library'
 import ProjectFormModal from '../components/ProjectFormModal.vue'
 import ProjectSettingsTab from '../components/ProjectSettingsTab.vue'
@@ -172,7 +165,7 @@ watch(() => currentProject.value?.id, id => {
 async function loadTasks() {
   const p = currentProject.value
   if (!p || p.kind === 'source') { tasks.value = []; return }
-  tasks.value = await api.get<Task[]>(`/projects/${p.id}/tasks${p.kind === 'group' ? '?members=1' : ''}`)
+  tasks.value = await tasksEndpoints.listTasks({ params: { projectId: p.id }, query: { members: p.kind === 'group' ? '1' : undefined } })
 }
 
 async function deleteProject() {
@@ -220,7 +213,7 @@ function moveMenu(t: Task): MenuItem[] {
 }
 async function moveTask(t: Task, targetId: string) {
   try {
-    const moved = await api.post<Task>(`/projects/${t.project_id}/tasks/${t.id}/move`, { project_id: targetId })
+    const moved = await tasksEndpoints.moveTask({ params: { projectId: t.project_id, taskId: t.id }, body: { project_id: targetId } })
     if (isGroup.value) tasks.value = tasks.value.map(x => x.id === t.id ? moved : x)
     else tasks.value = tasks.value.filter(x => x.id !== t.id)
     void useWorkStore().load()
@@ -249,12 +242,12 @@ async function moveTask(t: Task, targetId: string) {
 .crumb { background: none; border: none; padding: 0; margin-right: 6px; color: var(--text-muted); font: inherit; cursor: pointer; }
 .crumb:hover { color: var(--blue-hover); }
 .project-key { margin-right: 6px; color: var(--text); }
-.project-header h1 { font-size: 18px; font-weight: 700; letter-spacing: -0.01em; margin-bottom: 2px; }
+.project-header h1 { font-size: var(--fs-xl); font-weight: 700; letter-spacing: -0.01em; margin-bottom: 2px; }
 .repo-path {
   display: block;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: var(--text-muted);
-  font-family: 'Cascadia Code', 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -275,13 +268,13 @@ async function moveTask(t: Task, targetId: string) {
   color: var(--text-muted);
   padding: 11px 14px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--fs-md);
   font-weight: 500;
-  transition: color 0.12s, border-color 0.12s;
+  transition: color var(--motion-fast), border-color var(--motion-fast);
   margin-bottom: -1px;
 }
-.tab-count { min-width: 18px; height: 18px; margin-left: 6px; padding: 0 5px; border-radius: var(--radius-pill); font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
-.tab-count.warn { background: var(--warning); color: #0d1117; }
+.tab-count { min-width: 18px; height: 18px; margin-left: 6px; padding: 0 5px; border-radius: var(--radius-pill); font-size: var(--fs-xs); font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
+.tab-count.warn { background: var(--warning); color: var(--bg); }
 .tab-btn:hover:not(:disabled) { color: var(--text); }
 .tab-btn.active { color: var(--text); border-bottom-color: var(--blue); }
 .tab-btn.disabled, .tab-btn:disabled { opacity: 0.35; cursor: default; }
@@ -317,7 +310,7 @@ async function moveTask(t: Task, targetId: string) {
 }
 .minimized-label {
   flex: 1;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -334,7 +327,7 @@ async function moveTask(t: Task, targetId: string) {
   align-items: center;
   justify-content: center;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: var(--fs-md);
 }
 
 .terminal-slot { flex: 1; overflow: hidden; }
@@ -369,25 +362,25 @@ async function moveTask(t: Task, targetId: string) {
   display: flex;
   align-items: center;
   gap: var(--sp-3);
-  transition: border-color 0.12s, background 0.12s;
+  transition: border-color var(--motion-fast), background var(--motion-fast);
 }
 .task-card:hover { border-color: var(--border-strong); background: var(--bg3); }
 .task-key {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: var(--text-muted);
-  font-family: 'Cascadia Code', 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   min-width: 88px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .task-title { flex: 1; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.task-owner { flex-shrink: 0; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 2px 8px; border-radius: var(--radius-pill); background: var(--bg3); border: 1px solid var(--border); font-size: 11px; color: var(--text-muted); }
+.task-owner { flex-shrink: 0; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 2px 8px; border-radius: var(--radius-pill); background: var(--bg3); border: 1px solid var(--border); font-size: var(--fs-xs); color: var(--text-muted); }
 .task-owner.own { color: var(--blue-hover); border-color: var(--blue-soft); }
-.task-menu { opacity: 0; transition: opacity 0.12s; }
+.task-menu { opacity: 0; transition: opacity var(--motion-fast); }
 .task-card:hover .task-menu, .task-menu:has(.menu.open) { opacity: 1; }
 .task-filter { width: 190px; }
-.task-search { width: 200px; height: var(--size-md); padding: 0 10px; background: var(--bg3); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); color: var(--text); font: inherit; font-size: 13px; }
+.task-search { width: 200px; height: var(--size-md); padding: 0 10px; background: var(--bg3); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); color: var(--text); font: inherit; font-size: var(--fs-md); }
 .task-search:focus { outline: none; border-color: var(--blue); }
 
 .task-act {
@@ -401,7 +394,7 @@ async function moveTask(t: Task, targetId: string) {
   cursor: pointer;
   border-radius: var(--radius-sm);
   opacity: 0;
-  transition: opacity 0.12s, background 0.12s;
+  transition: opacity var(--motion-fast), background var(--motion-fast);
 }
 .task-act svg { width: 16px; height: 16px; }
 .task-card:hover .task-act { opacity: 0.75; }
@@ -417,5 +410,5 @@ async function moveTask(t: Task, targetId: string) {
 .instructions-tab { overflow: hidden; }
 
 .form-field { display: flex; flex-direction: column; gap: 4px; }
-label { font-size: 12px; color: var(--text-muted); }
+label { font-size: var(--fs-sm); color: var(--text-muted); }
 </style>

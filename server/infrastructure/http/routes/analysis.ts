@@ -1,3 +1,5 @@
+import type { ErrorResponse } from '../typed-route';
+import { typedRoutes } from '../typed-route';
 import { Router, Request, Response, NextFunction, json } from 'express';
 import {
   listAnalysisSections, getAnalysisSection, createAnalysisSection, updateAnalysisSection,
@@ -9,6 +11,7 @@ import { getLatestPlan, parsePlanSteps } from '../../../core/orchestration/plans
 import type { AnalysisFile, AnalysisSection } from '../../../models';
 
 export const analysisRouter = Router({ mergeParams: true });
+const analysisRouterRoutes = typedRoutes(analysisRouter, '/api/projects/:projectId/tasks/:taskId/analysis');
 // A 25 MB binary file occupies about 34 MB in base64 JSON.
 analysisRouter.use(json({ limit: '35mb' }));
 
@@ -57,7 +60,7 @@ function references(taskId: string, slug: string, name?: string) {
     return links.some(link => name ? link === slug + '/' + name : link === slug || link.startsWith(slug + '/'));
   });
 }
-function confirmDeletion(req: Request, res: Response, value: AnalysisSection, name?: string): boolean {
+function confirmDeletion(req: Request, res: ErrorResponse, value: AnalysisSection, name?: string): boolean {
   const steps = references(req.params.taskId, value.slug, name);
   if (steps.length && req.query.confirm !== 'true') {
     res.status(409).json({ error: 'Plan steps reference this item', confirmation_required: true, references: steps });
@@ -70,30 +73,30 @@ analysisRouter.use((req: Request, _res: Response, next: NextFunction) => {
   if (!task || task.project_id !== req.params.projectId) return next(new HttpError(404, 'Task not found'));
   next();
 });
-analysisRouter.get('/', (req: Request, res: Response) => {
+analysisRouterRoutes.json('GET /api/projects/:projectId/tasks/:taskId/analysis', (req, res) => {
   res.json(listAnalysisSections(req.params.taskId).map(value => ({
     ...value, files: listAnalysisFiles(value.id).map(metadata),
   })));
 });
-analysisRouter.post('/', (req: Request, res: Response) => {
+analysisRouterRoutes.json('POST /api/projects/:projectId/tasks/:taskId/analysis', (req, res) => {
   editable(req);
   const data = fields(body(req), true);
   res.status(201).json(createAnalysisSection({
     task_id: req.params.taskId, title: data.title, description: data.description, kind: data.kind, author: 'developer',
   }));
 });
-analysisRouter.post('/reorder', (req: Request, res: Response) => {
+analysisRouterRoutes.json('POST /api/projects/:projectId/tasks/:taskId/analysis/reorder', (req, res) => {
   editable(req);
   const ids = body(req).ids;
   if (!Array.isArray(ids) || ids.some(id => typeof id !== 'string')) throw new HttpError(400, 'ids must be a string array');
   reorderAnalysisSections(req.params.taskId, ids);
   res.json(listAnalysisSections(req.params.taskId));
 });
-analysisRouter.get('/:sectionId', (req: Request, res: Response) => {
+analysisRouterRoutes.json('GET /api/projects/:projectId/tasks/:taskId/analysis/:sectionId', (req, res) => {
   const value = section(req);
   res.json({ ...value, files: listAnalysisFiles(value.id).map(metadata) });
 });
-analysisRouter.patch('/:sectionId', (req: Request, res: Response) => {
+analysisRouterRoutes.json('PATCH /api/projects/:projectId/tasks/:taskId/analysis/:sectionId', (req, res) => {
   const value = section(req);
   editable(req);
   const data = fields(body(req));
@@ -101,17 +104,17 @@ analysisRouter.patch('/:sectionId', (req: Request, res: Response) => {
     title: data.title, description: data.description, kind: data.kind,
   }));
 });
-analysisRouter.delete('/:sectionId', (req: Request, res: Response) => {
+analysisRouterRoutes.empty('DELETE /api/projects/:projectId/tasks/:taskId/analysis/:sectionId', (req, res) => {
   const value = section(req);
   editable(req);
   if (!confirmDeletion(req, res, value)) return;
   deleteAnalysisSection(value.id);
-  res.sendStatus(204);
+  res.status(204).end();
 });
-analysisRouter.get('/:sectionId/files', (req: Request, res: Response) => {
+analysisRouterRoutes.json('GET /api/projects/:projectId/tasks/:taskId/analysis/:sectionId/files', (req, res) => {
   res.json(listAnalysisFiles(section(req).id).map(metadata));
 });
-analysisRouter.post('/:sectionId/files', (req: Request, res: Response) => {
+analysisRouterRoutes.json('POST /api/projects/:projectId/tasks/:taskId/analysis/:sectionId/files', (req, res) => {
   const value = section(req);
   editable(req);
   const data = body(req);
@@ -135,7 +138,7 @@ analysisRouter.post('/:sectionId/files', (req: Request, res: Response) => {
     name: data.name, mime: mime as string | undefined, content,
   })));
 });
-analysisRouter.get('/:sectionId/files/:fileId', (req: Request, res: Response) => {
+analysisRouterRoutes.file('GET /api/projects/:projectId/tasks/:taskId/analysis/:sectionId/files/:fileId', (req, res) => {
   const value = file(req);
   res.setHeader('Content-Type', value.mime);
   res.setHeader('Content-Length', value.size);
@@ -146,12 +149,12 @@ analysisRouter.get('/:sectionId/files/:fileId', (req: Request, res: Response) =>
   res.setHeader('Content-Disposition', disposition + "; filename*=UTF-8''" + encodeURIComponent(value.name).replace(/['()*]/g, c => '%' + c.charCodeAt(0).toString(16)));
   res.send(value.content);
 });
-analysisRouter.delete('/:sectionId/files/:fileId', (req: Request, res: Response) => {
+analysisRouterRoutes.empty('DELETE /api/projects/:projectId/tasks/:taskId/analysis/:sectionId/files/:fileId', (req, res) => {
   const value = file(req);
   editable(req);
   if (!confirmDeletion(req, res, section(req), value.name)) return;
   deleteAnalysisFile(value.id);
-  res.sendStatus(204);
+  res.status(204).end();
 });
 analysisRouter.use((error: Error & { status?: number; type?: string }, _req: Request, res: Response, _next: NextFunction) => {
   res.status(error.status ?? 400).json({ error: error.message });

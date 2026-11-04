@@ -3,18 +3,7 @@
     <!-- Type selector — drives the rest of the form -->
     <div class="form-field">
       <label>Тип</label>
-      <div class="type-tabs">
-        <button
-          v-for="t in availableTypes"
-          :key="t.value"
-          type="button"
-          class="type-tab"
-          :class="{ active: form.type === t.value }"
-          :disabled="isTypeDisabled(t.value)"
-          :title="t.value === 'main' && mainBlocked ? 'Главный файл уже создан' : ''"
-          @click="selectType(t.value)"
-        >{{ t.label }}</button>
-      </div>
+      <AppTabs :model-value="form.type" :items="availableTypes.map(t => ({ ...t, disabled: isTypeDisabled(t.value), title: t.value === 'main' && mainBlocked ? 'Главный файл уже создан' : '' }))" label="Тип" @update:model-value="selectType($event as LibraryItemType)" />
       <span class="hint">{{ typeHint }}</span>
     </div>
 
@@ -27,7 +16,7 @@
     <!-- Title — name in the list / source for the file name (skills & commands) -->
     <div v-if="form.type !== 'main'" class="form-field" :class="{ invalid: err.title }">
       <label>Название <span class="req">*</span></label>
-      <input v-model="form.title" :placeholder="form.type === 'command' ? 'code_review' : isReviewSkill ? 'Архитектура' : 'db_migrations'" @input="clearErr('title')" />
+      <AppInput v-model="form.title" :invalid="!!err.title" :placeholder="form.type === 'command' ? 'code_review' : isReviewSkill ? 'Архитектура' : 'db_migrations'" @input="clearErr('title')" />
       <span v-if="form.type === 'command' && form.title.trim()" class="hint">Будет вызываться как <code>/{{ slugPreview }}</code></span>
       <span v-else-if="form.type === 'review-skill'" class="hint">Так скилл называется в выборе перед разбором МР.</span>
       <span v-else-if="form.type === 'plan-review-skill'" class="hint">Так скилл называется в выборе перед ревью плана.</span>
@@ -39,16 +28,13 @@
     <!-- Description — optional; empty means "apply always" (goes into frontmatter) -->
     <div v-if="form.type !== 'main'" class="form-field">
       <label>{{ isReviewSkill ? 'Описание' : 'Когда применять' }}</label>
-      <input v-model="form.description" :placeholder="descPlaceholder" />
+      <AppInput v-model="form.description" :placeholder="descPlaceholder" />
       <span class="hint">{{ descHint }}</span>
     </div>
 
     <!-- Manual-only invocation — only skills can be downgraded to manual -->
     <div v-if="form.type === 'skill'" class="form-field">
-      <label class="checkbox-label">
-        <input type="checkbox" v-model="form.disableModelInvocation" />
-        Только ручной вызов (как команда)
-      </label>
+      <AppCheckbox v-model="form.disableModelInvocation">Только ручной вызов (как команда)</AppCheckbox>
       <span class="hint">Агент не подключит скилл сам — его нужно вызвать вручную через /slash.</span>
     </div>
 
@@ -56,14 +42,12 @@
     <div v-if="!form.type.endsWith('-template') && !isReviewSkill" class="form-field">
       <label>Для каких агентов</label>
       <div v-if="agents.length" class="agent-picker">
-        <button
+        <AppButton
           v-for="a in agents"
           :key="a.id"
-          type="button"
-          class="agent-chip"
-          :class="{ active: form.agent_filter.includes(a.id) }"
+          variant="subtle" size="sm" :pressed="form.agent_filter.includes(a.id)"
           @click="toggleAgent(a.id)"
-        >{{ a.name }}</button>
+        >{{ a.name }}</AppButton>
       </div>
       <span v-else class="hint">Агентов пока нет. Создайте их в Настройках → Агенты.</span>
       <span class="hint">{{ form.agent_filter.length ? 'Применится только к выбранным.' : 'Ничего не выбрано — применится ко всем агентам.' }}</span>
@@ -72,21 +56,24 @@
     <!-- Content -->
     <div class="form-field" :class="{ invalid: err.content }">
       <label>{{ contentLabel }} <span class="req">*</span></label>
-      <textarea v-model="form.content" class="content-editor" rows="14" :placeholder="contentPlaceholder" @input="clearErr('content')" />
+      <AppTextarea mono block v-model="form.content" :invalid="!!err.content" rows="14" :placeholder="contentPlaceholder" @input="clearErr('content')" />
       <span v-if="err.content" class="error">{{ err.content }}</span>
     </div>
 
     <div v-if="form.type === 'plan-template'" class="form-field">
       <label>Протокол Plangent</label>
-      <textarea class="content-editor protocol-editor" :value="lockedPlanProtocol" rows="9" readonly />
+      <AppTextarea mono block :model-value="lockedPlanProtocol" rows="9" readonly />
       <span class="hint">Это контракт движка Plangent. Структуру плана меняйте выше. Шаги должны оставаться чекбоксами <code>- [ ]</code>, иначе Plangent не увидит их для очереди выполнения.</span>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import AppInput from '@shared/ui/AppInput.vue'
+import AppTextarea from '@shared/ui/AppTextarea.vue'
+import { AppButton, AppCheckbox, AppTabs } from '@shared/ui'
 import { computed, reactive } from 'vue'
-import type { Agent, LibraryItemType } from '@core/models'
+import type { Agent, LibraryItemType } from '@contracts'
 
 export interface LibraryFormModel {
   type: LibraryItemType
@@ -226,50 +213,19 @@ function toggleAgent(id: string) {
 <style scoped>
 .lif { display: flex; flex-direction: column; gap: 14px; }
 .form-field { display: flex; flex-direction: column; gap: 5px; }
-label { font-size: 12px; color: var(--text-muted); }
-.req { color: var(--red, #e5484d); }
-.hint { font-size: 11px; color: var(--text-muted); opacity: 0.75; line-height: 1.4; }
-.hint code { font-family: 'Cascadia Code', monospace; background: var(--bg3); padding: 0 4px; border-radius: 3px; }
-.error { font-size: 11px; color: var(--red, #e5484d); }
-.checkbox-label { flex-direction: row; align-items: center; gap: 6px; cursor: pointer; font-size: 13px; color: var(--text); }
+label { font-size: var(--fs-sm); color: var(--text-muted); }
+.req { color: var(--danger); }
+.hint { font-size: var(--fs-xs); color: var(--text-muted); opacity: 0.75; line-height: 1.4; }
+.hint code { font-family: var(--font-mono); background: var(--bg3); padding: 0 4px; border-radius: var(--radius-3); }
+.error { font-size: var(--fs-xs); color: var(--danger); }
+.checkbox-label { flex-direction: row; align-items: center; gap: 6px; cursor: pointer; font-size: var(--fs-md); color: var(--text); }
 
 .notice {
-  font-size: 12px; color: var(--text); background: var(--bg3);
-  border: 1px solid var(--border); border-left: 3px solid var(--red, #e5484d);
+  font-size: var(--fs-sm); color: var(--text); background: var(--bg3);
+  border: 1px solid var(--border); border-left: 3px solid var(--danger);
   border-radius: var(--radius); padding: 8px 12px; line-height: 1.4;
 }
 
-input:not([type="checkbox"]) {
-  background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius);
-  color: var(--text); padding: 6px 10px; font-size: 13px;
-}
-input:focus { outline: none; border-color: var(--blue); }
-input:disabled { opacity: 0.5; }
-.invalid input:not([type="checkbox"]), .invalid .content-editor { border-color: var(--red, #e5484d); }
-
-.type-tabs { display: flex; gap: 6px; }
-.type-tab {
-  flex: 1; background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius);
-  color: var(--text-muted); padding: 7px 10px; cursor: pointer; font-size: 13px; transition: all 0.1s;
-}
-.type-tab:hover:not(:disabled) { color: var(--text); }
-.type-tab.active { background: var(--blue); color: #fff; border-color: var(--blue); }
-.type-tab:disabled { opacity: 0.4; cursor: not-allowed; }
-
 .agent-picker { display: flex; flex-wrap: wrap; gap: 6px; }
-.agent-chip {
-  background: var(--bg3); border: 1px solid var(--border); border-radius: 999px;
-  color: var(--text-muted); padding: 4px 12px; cursor: pointer; font-size: 12px; transition: all 0.1s;
-}
-.agent-chip:hover { color: var(--text); }
-.agent-chip.active { background: var(--blue); color: #fff; border-color: var(--blue); }
-
-.content-editor {
-  background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius);
-  color: var(--text); font-family: 'Cascadia Code', 'JetBrains Mono', monospace;
-  font-size: 12px; padding: 10px; resize: vertical; min-height: 200px;
-}
-.content-editor:focus { outline: none; border-color: var(--blue); }
 .template-toolbar { display: flex; justify-content: flex-end; margin-bottom: 2px; }
-.protocol-editor { opacity: 0.78; resize: none; }
 </style>

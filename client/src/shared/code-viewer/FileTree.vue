@@ -1,14 +1,12 @@
 <template>
   <div class="file-tree">
     <div class="tree-toolbar">
-      <label class="tree-toggle" title="Показать файлы, которые игнорирует git">
-        <input type="checkbox" :checked="showIgnored" @change="emit('update:showIgnored', ($event.target as HTMLInputElement).checked)" />
-        Показать игнорируемые
-      </label>
+      <AppCheckbox :model-value="showIgnored" title="Показать файлы, которые игнорирует git" @update:model-value="emit('update:showIgnored', $event)">Показать игнорируемые
+      </AppCheckbox>
     </div>
     <div ref="list" class="tree-list" role="tree" tabindex="0" @keydown="onKey">
       <div v-if="!trees['']" class="tree-note">Загрузка…</div>
-      <div v-else-if="!rows.length" class="tree-note">Файлов нет</div>
+      <AppEmptyState v-else-if="!rows.length" small description="Файлов нет" />
       <template v-for="row in rows" :key="row.key">
         <div v-if="row.kind === 'loading'" class="tree-note" :style="indent(row.depth)">Загрузка…</div>
         <div
@@ -37,6 +35,8 @@
 </template>
 
 <script setup lang="ts">
+import AppCheckbox from '@shared/ui/AppCheckbox.vue'
+import AppEmptyState from '@shared/ui/AppEmptyState.vue'
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { fileIconName, folderIconName, iconSvg } from './file-icons'
 import type { ChangeStatus, TreeNode } from './types'
@@ -159,11 +159,11 @@ defineExpose({ reveal, collapseAll: () => expanded.clear() })
 </script>
 
 <style scoped>
-.file-tree { display: flex; flex-direction: column; min-height: 0; height: 100%; font-size: 13px; }
+.file-tree { display: flex; flex-direction: column; min-height: 0; height: 100%; font-size: var(--fs-md); }
 .tree-toolbar { flex-shrink: 0; padding: 6px 10px; border-bottom: 1px solid var(--border); }
-.tree-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted); cursor: pointer; user-select: none; }
+.tree-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-sm); color: var(--text-muted); cursor: pointer; user-select: none; }
 .tree-list { flex: 1; min-height: 0; overflow: auto; padding: 4px 0; outline: none; }
-.tree-note { padding: 6px 12px; color: var(--text-faint); font-size: 12px; }
+.tree-note { padding: 6px 12px; color: var(--text-faint); font-size: var(--fs-sm); }
 .tree-row {
   display: flex; align-items: center; gap: 4px; height: 24px; padding-right: 8px;
   color: var(--text); cursor: pointer; white-space: nowrap; user-select: none;
@@ -172,13 +172,13 @@ defineExpose({ reveal, collapseAll: () => expanded.clear() })
 .tree-row.selected { background: var(--blue-soft); }
 .tree-list:focus-visible .tree-row.focused { outline: 1px solid var(--blue); outline-offset: -1px; }
 .tree-row.ignored { opacity: 0.55; }
-.tree-chevron { width: 12px; flex-shrink: 0; text-align: center; color: var(--text-faint); transition: transform 0.1s; }
+.tree-chevron { width: 12px; flex-shrink: 0; text-align: center; color: var(--text-faint); transition: transform var(--motion-instant); }
 .tree-chevron.open { transform: rotate(90deg); }
 .tree-icon { display: inline-flex; flex-shrink: 0; }
 .tree-icon :deep(svg) { width: 16px; height: 16px; }
 .tree-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.tree-status, .tree-count { flex-shrink: 0; font-size: 11px; font-weight: 600; }
-.tree-marks { flex-shrink: 0; font-size: 10px; color: var(--text-muted); }
+.tree-status, .tree-count { flex-shrink: 0; font-size: var(--fs-xs); font-weight: var(--fw-semibold); }
+.tree-marks { flex-shrink: 0; font-size: var(--fs-xs); color: var(--text-muted); }
 .tree-count { min-width: 16px; padding: 0 5px; text-align: center; border-radius: var(--radius-pill); background: var(--bg3); }
 .st-M { color: var(--warning-text); }
 .st-A { color: var(--accent-hover); }

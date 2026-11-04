@@ -1,7 +1,7 @@
 <template>
   <section class="execution-branch" aria-label="Ветка выполнения">
     <header class="branch-heading">
-      <svg class="branch-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M6 6v8m8-8v2a3 3 0 01-3 3H6" stroke="currentColor" stroke-width="1.5" /><circle cx="6" cy="4" r="2" stroke="currentColor" stroke-width="1.5" /><circle cx="6" cy="16" r="2" stroke="currentColor" stroke-width="1.5" /><circle cx="14" cy="4" r="2" stroke="currentColor" stroke-width="1.5" /></svg>
+      <UIIconGitBranch class="branch-icon" />
       <div class="branch-summary">
         <h3>Ветка выполнения</h3>
         <code :title="branch">{{ branch }}</code>
@@ -21,8 +21,9 @@
 </template>
 
 <script setup lang="ts">
+import { IconGitBranch as UIIconGitBranch } from '@shared/ui/icons'
 import { computed, nextTick, ref } from 'vue'
-import type { Task, Workspace } from '@core/models'
+import type { Task, Workspace } from '@contracts'
 import AppButton from '@shared/ui/AppButton.vue'
 import WhereToWork, { type WorkPlace } from './WhereToWork.vue'
 import { useWorkStore } from '../stores/work'
@@ -54,11 +55,11 @@ async function finish() {
 .branch-heading { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .branch-icon { width: 14px; height: 14px; flex-shrink: 0; color: var(--text-muted); }
 .branch-summary { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; }
-.branch-summary h3 { flex-shrink: 0; font-size: 11px; font-weight: 500; color: var(--text-muted); }
-.branch-summary code { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--text); }
-.branch-caption { margin-top: 10px; font-size: 12px; line-height: 1.5; color: var(--text-muted); overflow-wrap: anywhere; }
-.branch-fixed { font-size: 11px; color: var(--text-muted); }
+.branch-summary h3 { flex-shrink: 0; font-size: var(--fs-xs); font-weight: 500; color: var(--text-muted); }
+.branch-summary code { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); color: var(--text); }
+.branch-caption { margin-top: 10px; font-size: var(--fs-sm); line-height: 1.5; color: var(--text-muted); overflow-wrap: anywhere; }
+.branch-fixed { font-size: var(--fs-xs); color: var(--text-muted); }
 .branch-editor { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
 .branch-editor-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; }
-.branch-editor-footer span { font-size: 11.5px; color: var(--text-muted); }
+.branch-editor-footer span { font-size: var(--fs-sm); color: var(--text-muted); }
 </style>

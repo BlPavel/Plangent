@@ -1,4 +1,4 @@
-﻿export { codeApi, codeReviewsApi } from './api'
+export { codeApi, codeReviewsApi } from './api'
 export { useCodeStore } from './stores/code'
 export { useCodeAttentionStore } from './stores/attention'
 export { codeTarget } from './navigation'
@@ -18,3 +18,5 @@ export { default as ItemCard } from './components/ItemCard.vue'
 export { default as ExternalThreadCard } from './components/ExternalThreadCard.vue'
 export { threadState } from './utils/thread'
 export type { ThreadState } from './utils/thread'
+
+export { codeEndpoints } from './api'

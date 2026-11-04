@@ -9,8 +9,8 @@
     <div v-if="props.showHeader" class="terminal-header">
       <span class="session-label">{{ label || sessionId }}</span>
       <div class="actions">
-        <button class="btn btn-ghost btn-sm terminal-action-btn" @click="$emit('detach')">Свернуть</button>
-        <button class="btn btn-danger btn-sm" @click="$emit('kill')">Завершить</button>
+        <AppButton size="sm" class="terminal-action-btn" @click="$emit('detach')">Свернуть</AppButton>
+        <AppButton variant="danger" size="sm" @click="$emit('kill')">Завершить</AppButton>
       </div>
     </div>
 
@@ -27,6 +27,8 @@
 </template>
 
 <script setup lang="ts">
+import { AppButton } from '@shared/ui'
+import { projectsEndpoints } from '@features/projects'
 import { ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
@@ -424,16 +426,7 @@ async function uploadImageAndInsert(file: File) {
 }
 
 async function uploadImageDataAndInsert(data: string, ext = 'png') {
-  const res = await fetch('/api/upload-temp', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ data, name: `screenshot.${ext}` }),
-  })
-  const payload = await res.json() as { path?: string; error?: string }
-  if (!res.ok || !payload.path) {
-    throw new Error(payload.error || `Image upload failed (${res.status})`)
-  }
-  const { path } = payload
+  const { path } = await projectsEndpoints.postUploadTemp({ params: {}, body: { data, name: `screenshot.${ext}` } })
   insertPaths([path])
 }
 
@@ -511,7 +504,7 @@ watch(() => props.visible, (v) => {
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: #0d1117;
+  background: var(--bg);
   position: relative;
 }
 
@@ -526,12 +519,11 @@ watch(() => props.visible, (v) => {
   flex-shrink: 0;
 }
 .terminal-action-btn {
-  width: 96px;
   flex: 0 0 96px;
 }
 .session-label {
-  font-family: monospace;
-  font-size: 11px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
   color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -553,15 +545,15 @@ watch(() => props.visible, (v) => {
 .drop-overlay {
   position: absolute;
   inset: 0;
-  background: rgba(31, 111, 235, 0.18);
+  background: var(--blue-soft);
   border: 2px dashed var(--blue);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
+  font-size: var(--fs-base);
   color: var(--blue);
   pointer-events: none;
-  border-radius: 4px;
+  border-radius: var(--radius-4);
 }
 
 .upload-status {
@@ -573,7 +565,10 @@ watch(() => props.visible, (v) => {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 4px 12px;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: var(--text-muted);
 }
+
+/* Local layout for action groups. */
+.actions { display: flex; gap: var(--sp-2); align-items: center; }
 </style>

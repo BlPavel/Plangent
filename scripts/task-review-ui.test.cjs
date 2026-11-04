@@ -7,11 +7,14 @@ const Module = require('node:module');
 const { parseHTML } = require('linkedom');
 const { window } = parseHTML('<html><body></body></html>');
 for (const key of ['window', 'document', 'HTMLElement', 'SVGElement', 'Element', 'Node']) global[key] = window[key];
+Object.defineProperty(window.HTMLElement.prototype, Symbol.toStringTag, { value: 'HTMLElement' });
 global.requestAnimationFrame = callback => setTimeout(callback, 0);
 global.cancelAnimationFrame = clearTimeout;
 global.getComputedStyle = window.getComputedStyle = () => ({ transitionDelay: '0s', transitionDuration: '0s', animationDelay: '0s', animationDuration: '0s' });
 window.HTMLElement.prototype.getBoundingClientRect = () => ({ left: 0, right: 300, top: 10, bottom: 30, width: 300, height: 20 });
 const { createApp, h, ref, nextTick } = require('vue');
+const { createPinia, setActivePinia } = require('pinia');
+require('node:test').beforeEach(() => setActivePinia(createPinia()));
 const { build } = require('esbuild');
 const { parse, compileScript } = require('@vue/compiler-sfc');
 const ts = require('typescript');
@@ -23,19 +26,26 @@ global.__reviewApi = {
   post: async (url, body) => { calls.push({ url, body }); return global.__reviewQueue.queue.value; },
 };
 global.__reviewRoutes = routes;
-const source = ts.transpileModule(fs.readFileSync('client/src/features/tasks/composables/useTaskQueue.ts', 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
-const exportsQueue = {};
-vm.runInNewContext(source, { exports: exportsQueue, crypto: global.crypto, require: name => name === '@core/api' ? { api: global.__reviewApi }
-  : name === '@core/stores/app' ? { useAppStore: () => global.__reviewApp } : require(name) });
+const exportsQueue = require('./client-test-loader.cjs').loader({
+  '../api': { tasksEndpoints: {
+    saveQueue: ({params, body}) => global.__reviewApi.put('/projects/' + params.projectId + '/tasks/' + params.taskId + '/queue', body),
+    getQueue: () => global.__reviewQueue.queue.value,
+  } },
+  '@core/stores/app': { useAppStore: () => global.__reviewApp },
+}, { crypto: global.crypto })('client/src/features/tasks/composables/useTaskQueue.ts');
+
 global.__reviewQueueKey = exportsQueue.TaskQueueKey;
 
 async function component(file) {
-  const bundled = await build({ entryPoints: [path.resolve(file)], bundle: true, write: false, platform: 'node', format: 'cjs', external: ['vue'], loader: { '.css': 'empty' },
+  const bundled = await build({ entryPoints: [path.resolve(file)], bundle: true, write: false, platform: 'node', format: 'cjs', external: ['vue', 'pinia'], loader: { '.css': 'empty', '.md': 'text' },
     alias: { '@core': path.resolve('client/src/core'), '@shared': path.resolve('client/src/shared') },
     plugins: [{ name: 'vue-test', setup(build) {
+      build.onResolve({ filter: /^@features\/projects$/ }, () => ({ path: path.resolve('client/src/features/projects/api.ts') }));
+      build.onResolve({ filter: /^@features\/branch-review$/ }, () => ({ path: '@features/branch-review', namespace: 'mock' }));
       build.onResolve({ filter: /^(?:@core\/api|@core\/stores\/app|@features\/(?:agent-chat|code)|vue-router)$|composables\/useTaskQueue$/ }, args => ({ path: args.path, namespace: 'mock' }));
       build.onLoad({ filter: /.*/, namespace: 'mock' }, args => ({ contents:
-        args.path === '@core/api' ? 'export const api = globalThis.__reviewApi;'
+        args.path === '@features/branch-review' ? 'export const branchReviewEndpoints = { getProjectsByProjectIdBranchReviewSkills: () => globalThis.__reviewApi.get("/skills") };'
+        : args.path === '@core/api' ? 'export const api = globalThis.__reviewApi;'
         : args.path === '@core/stores/app' ? 'export const useAppStore = () => globalThis.__reviewApp;'
         : args.path === 'vue-router' ? 'export const useRouter = () => ({ push: target => globalThis.__reviewRoutes.push(target) });'
         : args.path === '@features/code' ? 'export const codeTarget = (project, task) => ({ project, task });'
@@ -64,7 +74,7 @@ test('review queue UI adds, groups, configures and opens results; Code labels an
   const app = createApp({ render: () => h(Queue, { agents: [{ id: 'agent', name: 'Agent' }], steps: [{ id: 'p1', text: 'Implement', done: false }], selectedId: null, taskDone: false }) });
   app.provide(exportsQueue.TaskQueueKey, queue); app.mount(root);
   try {
-    button('+ Ревью').click(); await flush();
+    button('+ Ревью в конце очереди').click(); await flush();
     assert.equal(queue.stages.value.length, 2);
     let review = queue.stages.value[1].sessions[0]; assert.equal(review.kind, 'review'); assert.equal(review.points, undefined);
     const card = root.querySelectorAll('.session')[1];
@@ -72,12 +82,12 @@ test('review queue UI adds, groups, configures and opens results; Code labels an
     card.dispatchEvent(drag); await flush();
     root.querySelector('.stage').dispatchEvent(new window.Event('drop', { bubbles: true, cancelable: true })); await flush();
     assert.equal(queue.stages.value.length, 1); assert.equal(queue.stages.value[0].sessions.length, 2);
-    root.querySelectorAll('.session')[1].querySelector('button[title="Настройки шага"]').click(); await flush();
+    if (!root.querySelector('.review-settings')) { root.querySelectorAll('.session')[1].querySelector('button[title="Настройки шага"]').click(); await flush(); }
     const settings = root.querySelector('.review-settings'); assert.ok(settings);
     const labels = [...settings.querySelectorAll('label')].map(l => l.querySelector('span').textContent);
     assert.deepEqual(labels, ['Агент', 'Модель', 'Рассуждения', 'Скилл ревью']);
     const skillLabel = [...settings.querySelectorAll('label')].find(l => l.textContent.includes('Скилл ревью'));
-    skillLabel.querySelector('button').click(); await flush(); document.querySelector('.select-option').click(); await flush();
+    skillLabel.querySelector('button').click(); await flush(); document.querySelector('[role=option]').click(); await flush();
     review = queue.stages.value[0].sessions[1]; assert.equal(review.skillId, 'skill');
     review.status = 'complete'; review.remarks = 3; review.reviewId = 'review'; await flush();
     assert.match(root.textContent, /Ревью: 3 замечания/);
@@ -91,7 +101,7 @@ test('review queue UI adds, groups, configures and opens results; Code labels an
   itemApp.mount(cardRoot);
   try {
     assert.match(cardRoot.textContent, /агент/); assert.match(cardRoot.textContent, /ревью задачи TASK-1/);
-    cardRoot.querySelector('.it-line').click(); await flush(); button('Удалить', cardRoot).click(); await flush(); assert.equal(removed, true);
+    cardRoot.querySelector('button[aria-expanded]').click(); await flush(); button('Удалить', cardRoot).click(); await flush(); assert.equal(removed, true);
   } finally { itemApp.unmount(); cardRoot.remove(); }
 });
 

@@ -2,22 +2,22 @@
   <article class="remark" :class="{ selected, rejected: remark.status === 'rejected' }">
     <header>
       <strong>{{ number }} · {{ remarkKinds[remark.kind] }}</strong>
-      <button type="button" class="link" :title="L.highlight" @click="$emit('highlight', remark.steps.filter(s => !s.deleted).map(s => s.id))">
+      <AppButton variant="link" size="md" type="button"  :title="L.highlight" @click="$emit('highlight', remark.steps.filter(s => !s.deleted).map(s => s.id))">
         {{ remark.steps.length ? remark.steps.map(s => s.id + (s.deleted ? ' (удалён)' : '')).join(', ') : remark.quote ? 'Цитата' : L.whole }}
-      </button>
+      </AppButton>
     </header>
     <blockquote v-if="remark.quote" class="quote">{{ remark.quote }}</blockquote>
     <details :open="!['accepted', 'rejected', 'applied'].includes(remark.status)">
       <summary>
-        <span class="badge" :class="['st-' + remark.status, { live }]">{{ statuses[remark.status] }}</span>
+        <AppBadge :tone="['accepted', 'applied'].includes(remark.status) ? 'done' : ['discussing', 'sent'].includes(remark.status) ? 'open' : remark.status === 'answered' ? 'warning' : remark.status === 'rejected' ? 'danger' : 'neutral'" :pulse="live">{{ statuses[remark.status] }}</AppBadge>
         <span v-if="hint" class="hint">{{ hint }}</span>
       </summary>
       <form v-if="editing" class="edit" @submit.prevent="saveEdit">
-        <label>Замечание<textarea v-model="editText" class="control" rows="5" :disabled="busy" /></label>
-        <label>Предложение (необязательно)<textarea v-model="editSuggestion" class="control" rows="3" :disabled="busy" /></label>
+        <label>Замечание<AppTextarea block v-model="editText"  rows="5" :disabled="busy" /></label>
+        <label>Предложение (необязательно)<AppTextarea block v-model="editSuggestion"  rows="3" :disabled="busy" /></label>
         <div class="actions form-actions">
           <AppButton size="sm" variant="blue" :disabled="busy || !editText.trim()" type="submit">Сохранить текст</AppButton>
-          <AppButton type="button" size="sm" variant="ghost" :disabled="busy" @click="editing = false">Отмена</AppButton>
+          <AppButton type="button" size="sm" variant="ghost" :disabled="busy" @click="editing = false; editText = ''; editSuggestion = ''">Отмена</AppButton>
         </div>
       </form>
       <template v-else>
@@ -35,7 +35,7 @@
       </div>
       <p v-if="remark.status === 'sent' && planner" class="note" :class="{ attention: planner === 'waiting' || planner === 'idle' || planner === 'missing' }">
         {{ plannerNotes[planner] }}
-        <button v-if="planner !== 'missing'" type="button" class="link" @click="$emit('open-planner')">Открыть {{ L.recipientChat }}</button>
+        <AppButton variant="link" size="md" v-if="planner !== 'missing'" type="button"  @click="$emit('open-planner')">Открыть {{ L.recipientChat }}</AppButton>
       </p>
       <template v-if="!readonly">
         <div v-if="!['sent', 'applied', 'accepted', 'rejected'].includes(remark.status)" class="actions">
@@ -49,7 +49,7 @@
         </div>
         <form v-if="mode" @submit.prevent="submit">
           <label>{{ mode === 'accepted' ? `Уточнение для ${L.recipientGen} (необязательно)` : 'Вопрос или возражение ревьюеру' }}
-            <textarea v-model="draft" class="control" rows="3" :disabled="busy" />
+            <AppTextarea block v-model="draft"  rows="3" :disabled="busy" />
           </label>
           <div class="actions form-actions">
             <AppButton size="sm" :variant="mode === 'accepted' ? 'primary' : 'blue'" :disabled="busy || (mode === 'discussing' && !draft.trim())" type="submit">{{ mode === 'accepted' ? 'Принять' : 'Добавить в обсуждение' }}</AppButton>
@@ -61,18 +61,21 @@
   </article>
 </template>
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import AppBadge from '@shared/ui/AppBadge.vue'
+import AppTextarea from '@shared/ui/AppTextarea.vue'
+import { useDraft } from '@core/composables/useDraft'
+import { computed } from 'vue'
 import AppButton from '@shared/ui/AppButton.vue'
-import MessageMarkdown from '@shared/ui/MessageMarkdown.vue'
+import { MessageMarkdown } from '@shared/markdown'
 import type { Remark, ReviewTarget } from '../../plan-review/types'
 import { remarkKinds, reviewLabels } from '../../plan-review/labels'
-const props = withDefaults(defineProps<{ remark: Remark; target?: ReviewTarget; number: number; readonly: boolean; busy: boolean; selected: boolean; planner?: 'working' | 'waiting' | 'idle' | 'missing' | ''; reviewerWorking?: boolean }>(), { target: 'plan' })
+const props = withDefaults(defineProps<{ taskId: string; remark: Remark; target?: ReviewTarget; number: number; readonly: boolean; busy: boolean; selected: boolean; planner?: 'working' | 'waiting' | 'idle' | 'missing' | ''; reviewerWorking?: boolean }>(), { target: 'plan' })
 const L = computed(() => reviewLabels[props.target])
 const emit = defineEmits<{ highlight: [ids: string[]]; decision: [status: Remark['status'], comment: string]; 'open-planner': []; edit: [text: string, suggestion: string] }>()
-const mode = ref<'accepted' | 'discussing' | null>(null), draft = ref('')
-const editing = ref(false), editText = ref(''), editSuggestion = ref('')
-function startEdit() { editText.value = props.remark.text; editSuggestion.value = props.remark.suggestion; mode.value = null; editing.value = true }
-function saveEdit() { emit('edit', editText.value, editSuggestion.value); editing.value = false }
+const mode = useDraft<'accepted' | 'discussing' | null>(() => `task:${props.taskId}:plan-remark:${props.remark.id}:mode`, () => null), draft = useDraft(() => `task:${props.taskId}:plan-remark:${props.remark.id}:draft`, () => '')
+const editing = useDraft(() => `task:${props.taskId}:plan-remark:${props.remark.id}:editing`, () => false), editText = useDraft(() => `task:${props.taskId}:plan-remark:${props.remark.id}:editText`, () => ''), editSuggestion = useDraft(() => `task:${props.taskId}:plan-remark:${props.remark.id}:editSuggestion`, () => '')
+function startEdit() { if (editing.value) return; editText.value = props.remark.text; editSuggestion.value = props.remark.suggestion; mode.value = null; editing.value = true }
+function saveEdit() { emit('edit', editText.value, editSuggestion.value); editing.value = false; editText.value = ''; editSuggestion.value = '' }
 // Rejecting needs no reason: the card is just closed.
 function reject() { mode.value = null; draft.value = ''; emit('decision', 'rejected', '') }
 const hints = computed<Partial<Record<Remark['status'], string>>>(() => ({
@@ -118,15 +121,15 @@ header, .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center
 .actions { margin-top: 14px; }
 .form-actions { margin-top: 10px; }
 summary { cursor: pointer; margin: 10px 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.quote { margin: 8px 0; padding: 4px 10px; border-left: 2px solid var(--border-strong); color: var(--text-muted); font-size: 12px; }
-.was { margin: 8px 0; font-size: 12px; color: var(--text-muted); }
+.quote { margin: 8px 0; padding: 4px 10px; border-left: 2px solid var(--border-strong); color: var(--text-muted); font-size: var(--fs-sm); }
+.was { margin: 8px 0; font-size: var(--fs-sm); color: var(--text-muted); }
 .was summary { margin: 0; }
 .was > :not(summary) { padding-left: 10px; border-left: 2px solid var(--border); }
-.hint { color: var(--text-muted); font-size: 12px; }
-.badge { padding: 2px 9px; border-radius: var(--radius-pill); font-size: 11.5px; font-weight: 600; background: var(--bg3); color: var(--text-muted); border: 1px solid var(--border-strong); }
+.hint { color: var(--text-muted); font-size: var(--fs-sm); }
+.badge { padding: 2px 9px; border-radius: var(--radius-pill); font-size: var(--fs-sm); font-weight: 600; background: var(--bg3); color: var(--text-muted); border: 1px solid var(--border-strong); }
 .st-accepted, .st-applied { background: var(--accent-soft); color: var(--accent-hover); border-color: transparent; }
 .st-discussing, .st-sent { background: var(--blue-soft); color: var(--blue-hover); border-color: transparent; }
-.st-answered { background: var(--warning); color: #0d1117; border-color: transparent; }
+.st-answered { background: var(--warning); color: var(--bg); border-color: transparent; }
 .badge.live { animation: badge-pulse 1.2s ease-in-out infinite; }
 @keyframes badge-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
 .st-rejected { background: var(--danger-soft); color: var(--danger-hover); border-color: transparent; }
@@ -136,5 +139,4 @@ summary { cursor: pointer; margin: 10px 0; display: flex; align-items: center; g
 .note.attention { color: var(--warning-text); }
 small { color: var(--text-muted); }
 label { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
-textarea { width: 100%; padding: 8px 10px; line-height: 1.45; resize: vertical; }
 </style>

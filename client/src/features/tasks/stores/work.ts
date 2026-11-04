@@ -1,7 +1,8 @@
 import { ref } from 'vue'
 import { defineStore } from 'pinia'
-import { onWorkEvent, onWorkspaceEvent, onServerEvent } from '@core/api/events'
-import type { WorkEntry } from '@core/models'
+import { onServerEvent } from '@core/api/events'
+import { onWorkEvent, onWorkspaceEvent } from '../events'
+import type { WorkEntry } from '@contracts'
 import { workApi } from '../api'
 
 /** Work list of the open project (a group page also lists its members' work). Refreshed on server events. */

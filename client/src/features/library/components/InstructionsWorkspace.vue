@@ -1,18 +1,8 @@
 <template>
   <div class="workspace" :class="{ split: panelOpen }">
     <section class="list-pane" :class="{ 'skills-pane': view === 'items' || view === 'review' || view === 'plan-review' || view === 'architecture-review' || view === 'qa-review' }">
-      <div class="views">
-        <button type="button" class="view" :class="{ active: view === 'items' }" @click="view = 'items'">Элементы</button>
-        <button type="button" class="view" :class="{ active: view === 'guide' }" @click="view = 'guide'">Руководство для агента</button>
-        <button type="button" class="view" :class="{ active: view === 'fixer' }" @click="view = 'fixer'">Агент доработки</button>
-        <button type="button" class="view" :class="{ active: view === 'review' }" @click="view = 'review'">Ревью МР</button>
-        <button type="button" class="view" :class="{ active: view === 'plan-review' }" @click="view = 'plan-review'">Ревью плана</button>
-        <button type="button" class="view" :class="{ active: view === 'architecture-review' }" @click="view = 'architecture-review'">Ревью архитектуры</button>
-        <button type="button" class="view" :class="{ active: view === 'qa-review' }" @click="view = 'qa-review'">Ревью QA</button>
-        <button type="button" class="view" :class="{ active: view === 'commits' }" @click="view = 'commits'">Коммиты</button>
-        <button type="button" class="view" :class="{ active: view === 'branches' }" @click="view = 'branches'">Ветки</button>
-        <button type="button" class="view" :class="{ active: view === 'mr' }" @click="view = 'mr'">Merge request</button>
-      </div>
+      <div class="view-navigation"><AppTabs :model-value="view" :items="[{'value':'items','label':'Элементы'},{'value':'guide','label':'Руководство для агента'},{'value':'fixer','label':'Агент доработки'},{'value':'review','label':'Ревью МР'},{'value':'plan-review','label':'Ревью плана'},{'value':'architecture-review','label':'Ревью архитектуры'},{'value':'qa-review','label':'Ревью QA'},{'value':'commits','label':'Коммиты'},{'value':'branches','label':'Ветки'},{'value':'mr','label':'Merge request'}]" variant="side" label="Инструкции" @update:model-value="view = $event as typeof view" /></div>
+      <div class="view-content">
       <SkillsManager v-if="view === 'items'" class="skills" scope="project" :project-id="projectId">
         <template #actions>
           <AppButton v-if="!panelOpen" variant="subtle" size="sm" title="Описать, что нужно, а агент предложит скилл, правку главного файла или команду" @click="panelOpen = true">
@@ -50,12 +40,14 @@
         <CommitSettings :project-id="projectId" />
         <CodeFixerInstructionEditor scope="project" type="commit-rules" :project-id="projectId" />
       </template>
+      </div>
     </section>
     <LibrarianPanel v-if="panelOpen" class="panel" :project-id="projectId" :default-agent-id="defaultAgentId" @close="panelOpen = false" />
   </div>
 </template>
 
 <script setup lang="ts">
+import AppTabs from '@shared/ui/AppTabs.vue'
 import { computed, ref, watch } from 'vue'
 import AppButton from '@shared/ui/AppButton.vue'
 import { ProjectGitPanel } from '@features/projects'
@@ -84,7 +76,9 @@ watch(() => props.requested?.at, () => { if (props.requested) view.value = props
 
 <style scoped>
 .workspace { display: flex; height: 100%; min-height: 0; }
-.list-pane { flex: 1; min-width: 0; overflow-y: auto; padding: var(--sp-5) var(--sp-6); display: flex; flex-direction: column; gap: 12px; }
+.list-pane { flex: 1; min-width: 0; overflow: hidden; padding: var(--sp-5) var(--sp-6); display: flex; gap: 12px; }
+.view-navigation { flex: 0 0 200px; overflow-y: auto; }
+.view-content { flex: 1; min-width: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
 .skills-pane { min-height: 0; overflow: hidden; }
 .skills { flex: 1; min-height: 0; height: auto; }
 .skills-pane > .hint { flex-shrink: 0; }
@@ -92,11 +86,11 @@ watch(() => props.requested?.at, () => { if (props.requested) view.value = props
 .panel { flex: 1 1 54%; min-width: 420px; border-left: 1px solid var(--border); }
 
 .views { display: flex; gap: 2px; border-bottom: 1px solid var(--border); flex-shrink: 0; overflow-x: auto; }
-.view { background: none; border: none; border-bottom: 2px solid transparent; margin-bottom: -1px; padding: 6px 10px; color: var(--text-muted); font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; }
+.view { background: none; border: none; border-bottom: 2px solid transparent; margin-bottom: -1px; padding: 6px 10px; color: var(--text-muted); font: inherit; font-size: var(--fs-md); font-weight: 500; cursor: pointer; }
 .view:hover { color: var(--text); }
 .view { flex-shrink: 0; }
 .view.active { color: var(--text); border-bottom-color: var(--blue); }
 
-.hint { margin: 0; font-size: 12.5px; color: var(--text-muted); }
-.pending { margin-left: 4px; font-size: 10px; font-weight: 600; min-width: 16px; padding: 0 5px; border-radius: var(--radius-pill); background: var(--blue); color: #fff; }
+.hint { margin: 0; font-size: var(--fs-md); color: var(--text-muted); }
+.pending { margin-left: 4px; font-size: var(--fs-xs); font-weight: 600; min-width: 16px; padding: 0 5px; border-radius: var(--radius-pill); background: var(--blue); color: var(--on-accent); }
 </style>

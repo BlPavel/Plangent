@@ -1,0 +1,184 @@
+import type { Task } from './index';
+export interface Workspace {
+    id: string;
+    project_id: string;
+    task_id: string;
+    branch: string;
+    base_branch: string;
+    path: string;
+    status: 'preparing' | 'ready' | 'failed' | 'removed';
+    error: string;
+    setup_log: string;
+    created_at: string;
+    removed_at: string | null;
+}
+export type WorkGroup = 'attention' | 'working' | 'preparation' | 'done';
+export type WorkStage = 'plan' | 'execution' | 'check' | 'finish' | 'done';
+export interface WorkState {
+    stage: WorkStage;
+    status: 'draft' | 'preparing' | 'waiting' | 'running' | 'reviewing' | 'ready' | 'fixes' | 'finishing' | 'failed' | 'closed';
+    group: WorkGroup;
+    icon: '○' | '◌' | '❗' | '✓' | '✎' | '⇪' | '✔' | '🤖';
+    text: string;
+    action: 'plan' | 'queue' | 'chat' | 'check' | 'finish' | 'recreate' | 'reopen' | 'errand';
+    actionLabel: string;
+    hasBranch: boolean;
+    agentWorking: boolean;
+    counts: {
+        steps: number;
+        completed: number;
+        remarks: number;
+        waiting: number;
+        agents: number;
+    };
+}
+export interface WorkEntry {
+    task: Task;
+    workspace: Workspace | null;
+    state: WorkState;
+}
+export type ErrandPlace = 'new' | 'existing' | 'main';
+export interface ErrandInput {
+    /** Описание: what the developer sees in the list; the details go to the chat. */
+    title?: string;
+    external_key?: string;
+    /** A ready request (e.g. «Поручение по этой работе»): sent to the agent right away. */
+    text?: string;
+    agent_id?: string;
+    model?: string;
+    policy?: string;
+    mode?: string;
+    config?: Record<string, string>;
+    auto_review?: boolean;
+    place?: ErrandPlace;
+    base_branch?: string;
+    branch_name?: string;
+    branch?: string;
+}
+// HTTP endpoint map: full mounted paths, including the /api prefix.
+import type * as C from "./index";
+import type { Endpoint, JsonValue } from "./endpoint";
+export type WorkspacesPUTViewingResponse = {
+    "workspace": null | C.Workspace;
+    "warnings": {
+        "agentWorking": boolean;
+        "terminals": ({
+            "processes": ({
+                "pid": number;
+                "name": string;
+            })[];
+            "id": string;
+            "projectId": string;
+            "title": string;
+            "shell": string;
+            "cwd": string;
+            "workspaceId": null | string;
+        })[];
+    };
+};
+export type WorkspacesPUTViewingBody = {
+    workspaceId?: string | null;
+    confirmed?: boolean;
+};
+export type WorkspacesPOSTIdRecreateBody = {
+    discard?: boolean;
+};
+export type WorkPOSTErrandsResponse = {
+    task: C.Task;
+};
+export type WorkPOSTErrandsBody = C.ErrandInput;
+export type WorkPOSTTasksTaskIdChatBody = {
+    agent_id?: string;
+};
+export type WorkPOSTTasksTaskIdReviewBody = {
+    agent_id?: string;
+    model?: string;
+    skill_id?: string;
+};
+export type WorkCheck = {
+    "changes": ({
+        "file": string;
+        "diff": string;
+    })[];
+    "workspace_id": undefined | string;
+    "reviewers": (C.AgentSession)[];
+    "repository": null | C.RepositoryInfo;
+    "review": null | C.CodeReview;
+    "items": (C.CodeReviewItem)[];
+    "messages": (C.CodeReviewMessage)[];
+    "rounds": (C.CodeReviewRound)[];
+    "summary": null | {
+        "head_start": string;
+        "head_current": null | string;
+        "commits": null | number;
+        "rounds": number;
+        "items": number;
+        "unresolved": number;
+    };
+    "file_views": ({
+        "invalidated": boolean;
+        "current_hash": string;
+        "viewed": boolean;
+        "changed_after_view": boolean;
+        "review_id": string;
+        "path": string;
+        "content_hash": string;
+        "viewed_at": string;
+    })[];
+    "other_reviews": (C.CodeReview)[];
+    "running_other_reviews": (C.CodeReview)[];
+    "agent_working": boolean;
+    "attention": number;
+    "head_changed": boolean;
+};
+export type WorkGETTasksTaskIdCheckFileResponse = C.CodeFile | {
+    "path": string;
+    "kind": "text";
+    "content": string;
+    "size": number;
+};
+export type WorkPOSTTasksTaskIdCheckSendBody = {
+    agent_id?: string;
+    item_ids: string[];
+};
+export type WorkGETAttentionResponse = ({
+    "projectId": string;
+    "count": number;
+})[];
+export type WorkGETWorkResponse = ({
+    "task": C.Task;
+    "workspace": null | C.Workspace;
+    "state": C.WorkState;
+})[];
+export type WorkPOSTTasksTaskIdCloseBody = {
+    discard?: boolean;
+};
+export type WorkPOSTTasksTaskIdCancelBody = {
+    mode: 'discard' | 'keep';
+};
+export type WorkPOSTTasksTaskIdErrandResponse = {
+    task: C.Task;
+    session: C.AgentSession;
+};
+export type WorkPOSTTasksTaskIdErrandBody = C.ErrandInput;
+export interface WorkEndpoints {
+    "GET /api/projects/:projectId/workspaces": Endpoint<"GET /api/projects/:projectId/workspaces", never, (C.Workspace)[], Record<string, never>, "json", never>;
+    "GET /api/projects/:projectId/workspaces/viewing": Endpoint<"GET /api/projects/:projectId/workspaces/viewing", never, null | C.Workspace, Record<string, never>, "json", never>;
+    "PUT /api/projects/:projectId/workspaces/viewing": Endpoint<"PUT /api/projects/:projectId/workspaces/viewing", WorkspacesPUTViewingBody, WorkspacesPUTViewingResponse, Record<string, never>, "json", never>;
+    "POST /api/projects/:projectId/workspaces/:id/recreate": Endpoint<"POST /api/projects/:projectId/workspaces/:id/recreate", WorkspacesPOSTIdRecreateBody, C.Workspace, Record<string, never>, "json", never>;
+    "POST /api/projects/:projectId/errands": Endpoint<"POST /api/projects/:projectId/errands", WorkPOSTErrandsBody, WorkPOSTErrandsResponse, Record<string, never>, "json", never>;
+    "POST /api/projects/:projectId/tasks/:taskId/chat": Endpoint<"POST /api/projects/:projectId/tasks/:taskId/chat", WorkPOSTTasksTaskIdChatBody, C.AgentSession, Record<string, never>, "json", never>;
+    "POST /api/projects/:projectId/tasks/:taskId/review": Endpoint<"POST /api/projects/:projectId/tasks/:taskId/review", WorkPOSTTasksTaskIdReviewBody, C.AgentSession, Record<string, never>, "json", never>;
+    "GET /api/projects/:projectId/tasks/:taskId/check": Endpoint<"GET /api/projects/:projectId/tasks/:taskId/check", never, WorkCheck, Record<string, never>, "json", never>;
+    "GET /api/projects/:projectId/tasks/:taskId/check/file": Endpoint<"GET /api/projects/:projectId/tasks/:taskId/check/file", never, WorkGETTasksTaskIdCheckFileResponse, {
+        "file"?: string;
+    }, "json", never>;
+    "POST /api/projects/:projectId/tasks/:taskId/check/send": Endpoint<"POST /api/projects/:projectId/tasks/:taskId/check/send", WorkPOSTTasksTaskIdCheckSendBody, C.AgentSession, Record<string, never>, "json", never>;
+    "GET /api/work/attention": Endpoint<"GET /api/work/attention", never, WorkGETAttentionResponse, Record<string, never>, "json", never>;
+    "GET /api/projects/:projectId/work": Endpoint<"GET /api/projects/:projectId/work", never, WorkGETWorkResponse, Record<string, never>, "json", never>;
+    "POST /api/projects/:projectId/tasks/:taskId/close": Endpoint<"POST /api/projects/:projectId/tasks/:taskId/close", WorkPOSTTasksTaskIdCloseBody, C.Task, Record<string, never>, "json", never>;
+    "POST /api/projects/:projectId/tasks/:taskId/cancel": Endpoint<"POST /api/projects/:projectId/tasks/:taskId/cancel", WorkPOSTTasksTaskIdCancelBody, C.Task, Record<string, never>, "json", never>;
+    "POST /api/projects/:projectId/tasks/:taskId/add-plan": Endpoint<"POST /api/projects/:projectId/tasks/:taskId/add-plan", never, C.Task, Record<string, never>, "json", never>;
+    "POST /api/projects/:projectId/tasks/:taskId/errand": Endpoint<"POST /api/projects/:projectId/tasks/:taskId/errand", WorkPOSTTasksTaskIdErrandBody, WorkPOSTTasksTaskIdErrandResponse, Record<string, never>, "json", never>;
+    "POST /api/projects/:projectId/tasks/:taskId/reopen": Endpoint<"POST /api/projects/:projectId/tasks/:taskId/reopen", never, C.Task, Record<string, never>, "json", never>;
+}

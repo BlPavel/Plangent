@@ -1,6 +1,8 @@
+
+import { tasksEndpoints } from '@features/tasks'
+import { agentChatEndpoints } from '@features/agent-chat'
 import { computed, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
-import { api } from '@core/api'
 import { useChatStore, type ChatSession, type NewChatRequest } from '@features/agent-chat'
 import { useCodeStore } from './code'
 import { threadState } from '../utils/thread'
@@ -67,7 +69,7 @@ export const useReviewAgentStore = defineStore('code-review-agent', () => {
     try {
       let id = sessionId.value
       if (!id && work.value) {
-        const chat = await api.post<ChatSession>(`/projects/${work.value.projectId}/tasks/${work.value.taskId}/chat`, {})
+        const chat = await tasksEndpoints.postProjectsByProjectIdTasksByTaskIdChat({ params: { projectId: work.value.projectId, taskId: work.value.taskId }, body: {} })
         chats.put(chat); id = chat.id
       }
       const role = chats.sessions.find(s => s.id === id)?.role
@@ -86,7 +88,7 @@ export const useReviewAgentStore = defineStore('code-review-agent', () => {
     sending.value = true
     let created: ChatSession | null = null
     try {
-      created = await api.post<ChatSession>('/agent-sessions', { project_id: projectId, role: 'code-fixer', ...options, ...(work.value?.workspaceId ? { workspace_id: work.value.workspaceId } : {}) })
+      created = await agentChatEndpoints.postAgentSessions({ params: {  }, body: { project_id: projectId, role: 'code-fixer', ...options, ...(work.value?.workspaceId ? { workspace_id: work.value.workspaceId } : {}) } })
       chats.put(created)
       // The status «Подключается» is visible at once: connecting to the agent takes a while.
       starting.value = created.id
@@ -105,7 +107,7 @@ export const useReviewAgentStore = defineStore('code-review-agent', () => {
   async function answerPermission(permissionId: string, optionId: string) {
     const id = sessionId.value
     if (!id) return
-    try { await api.post(`/agent-sessions/${id}/permission`, { permissionId, optionId }); await chats.load(id) }
+    try { await agentChatEndpoints.postAgentSessionsByIdByAction({ params: { id: id, action: "permission" }, body: { permissionId, optionId } }); await chats.load(id) }
     catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause) }
   }
 

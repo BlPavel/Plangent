@@ -8,8 +8,8 @@ import { APP_VERSION } from '../shared/app-version';
 // Subscription limits read straight from the agent CLI's own account endpoints. These are account
 // reads (what `/usage` and `/status` show), not model calls, so polling costs no tokens or quota.
 
-export interface LimitWindow { id: string; label: string; percent: number; resetsAt: number | null }
-export interface AgentLimits { agentId: string; at: number; windows: LimitWindow[]; error?: string }
+import type { LimitWindow, AgentLimits } from '@contracts';
+export type { LimitWindow, AgentLimits } from '@contracts';
 
 // Each read starts a full agent CLI (~200 MB), so background polls reuse a 5-minute-old value;
 // only the refresh after a finished turn (`force`) reads sooner.

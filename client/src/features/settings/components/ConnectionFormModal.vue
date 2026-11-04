@@ -48,14 +48,14 @@
       </div>
       <div v-if="isGitHub" class="gitlab">
         <div class="gitlab-row">
-          <a class="btn btn-ghost btn-sm" href="https://github.com/settings/tokens/new?description=Plangent&amp;scopes=repo" target="_blank" rel="noopener noreferrer">Создать токен ↗</a>
+          <AppButton as="a" size="sm" href="https://github.com/settings/tokens/new?description=Plangent&amp;scopes=repo" target="_blank" rel="noopener noreferrer">Создать токен ↗</AppButton>
         </div>
         <p class="hint">{{ CONNECTION.githubToken }}</p>
         <p class="hint">{{ CONNECTION.gitlabGit }}</p>
       </div>
       <div v-if="isGitLab" class="gitlab">
         <div class="gitlab-row">
-          <a v-if="origin" class="btn btn-ghost btn-sm" :href="origin + '/-/user_settings/personal_access_tokens?name=Plangent&amp;scopes=api'" target="_blank" rel="noopener noreferrer">Создать токен ↗</a>
+          <AppButton v-if="origin" as="a" size="sm" :href="origin + '/-/user_settings/personal_access_tokens?name=Plangent&amp;scopes=api'" target="_blank" rel="noopener noreferrer">Создать токен ↗</AppButton>
           <span v-else class="hint">Укажите адрес GitLab, чтобы создать токен.</span>
           <span class="gitlab-spacer" />
           <AppButton v-if="connection" type="button" size="sm" :disabled="busy" @click="checkSaved">{{ busy ? 'Проверка…' : 'Проверить' }}</AppButton>
@@ -100,10 +100,11 @@
 </template>
 
 <script setup lang="ts">
-import ConnectionsGuide from '@shared/ui/ConnectionsGuide.vue'
+import { settingsEndpoints } from '../api'
+
+import ConnectionsGuide from './ConnectionsGuide.vue'
 import { computed, ref, watch } from 'vue'
-import { api } from '@core/api'
-import type { Connection, ConnectionCheck, Credential, IntegrationPreset, Organization } from '@core/models/integrations'
+import type { Connection, ConnectionCheck, Credential, IntegrationPreset, Organization } from '@contracts'
 import AppModal from '@shared/ui/AppModal.vue'
 import AppButton from '@shared/ui/AppButton.vue'
 import FormField from '@shared/ui/FormField.vue'
@@ -122,7 +123,7 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ 'update:modelValue': [open: boolean]; saved: [id: string, passwordChanged: boolean] }>()
 
-const blank = () => ({ code_host: null as string | null, name: '', base_url: '', organization_id: '', credential_mode: 'own', credential_id: '', username: '', auth_strategy: 'basic', auth_config: { expect_json: true } as Record<string, unknown> })
+const blank = () => ({ code_host: null as string | null, name: '', base_url: '', organization_id: '', credential_mode: 'own' as import('@contracts').CredentialMode, credential_id: '', username: '', auth_strategy: 'basic', auth_config: { expect_json: true } as Record<string, unknown> })
 const form = ref(blank())
 const isGitHub = computed(() => form.value.code_host === 'github')
 const isGitLab = computed(() => form.value.auth_strategy === 'token' && form.value.auth_config.check_path === '/api/v4/user')
@@ -132,7 +133,7 @@ async function checkSaved() {
   const id = await saveSettings(false)
   if (!id) return
   busy.value = true
-  try { checkResult.value = await api.post<ConnectionCheck>('/integrations/connections/' + id + '/check') }
+  try { checkResult.value = await settingsEndpoints.postIntegrationsConnectionsByIdCheck({ params: { id: id } }) }
   catch (cause) { error.value = errorText(cause, ERRORS) } finally { busy.value = false }
 }
 // Saved settings are copies: editing the form must not touch the list or the preset.
@@ -147,12 +148,12 @@ watch(() => props.modelValue, async open => {
   const c = props.connection
   form.value = c
     ? { ...blank(), code_host: c.code_host || null, name: c.name, base_url: c.base_url, organization_id: c.organization_id || '', credential_mode: c.credential_mode, credential_id: c.credential_id || '', auth_strategy: c.auth_strategy, auth_config: clone(c.auth_config) }
-    : { ...blank(), organization_id: props.organizationId || '', credential_mode: props.organizationId ? 'inherit' : 'own' }
+    : { ...blank(), organization_id: props.organizationId || '', credential_mode: (props.organizationId ? 'inherit' : 'own') as import('@contracts').CredentialMode }
   // An unknown service starts from the manual settings; a known one from «Заполнить как».
   authOpen.value = !c && !props.presets.length
   if (c?.credential_mode === 'own') {
     try {
-      const account = await api.get<Credential | null>('/integrations/connections/' + c.id + '/credential')
+      const account = await settingsEndpoints.getIntegrationsConnectionsByIdCredential({ params: { id: c.id } })
       if (props.connection?.id === c.id) { form.value.username = account?.username || ''; ownHasSecret.value = !!account?.hasSecret }
     } catch (e) { error.value = errorText(e, ERRORS) }
   }
@@ -248,18 +249,18 @@ async function saveSettings(close = true) {
   busy.value = true
   try {
     const f = form.value
-    const normalized = await api.post<{ base_url: string }>('/integrations/normalize-url', { base_url: f.base_url.trim() })
-    const data = {
+    const normalized = await settingsEndpoints.postIntegrationsNormalizeUrl({ params: {  }, body: { base_url: f.base_url.trim() } })
+    const data: import('@contracts').IntegrationsPOSTConnectionsBody = {
       code_host: f.code_host, name: f.name.trim(), base_url: normalized.base_url, organization_id: f.organization_id || null,
       credential_mode: f.credential_mode, credential_id: f.credential_id || null,
-      own_credential: { username: f.auth_strategy === 'token' ? 'token' : f.username.trim() }, auth_strategy: f.auth_strategy, auth_config: f.auth_config,
+      own_credential: { username: f.auth_strategy === 'token' ? 'token' : f.username.trim() }, auth_strategy: f.auth_strategy as import('@contracts').AuthStrategy, auth_config: f.auth_config,
     }
     const saved = props.connection
-      ? await api.patch<Connection>('/integrations/connections/' + props.connection.id, data)
-      : await api.post<Connection>('/integrations/connections', data)
+      ? await settingsEndpoints.patchIntegrationsConnectionsById({ params: { id: props.connection.id }, body: data })
+      : await settingsEndpoints.postIntegrationsConnections({ params: {  }, body: data })
     const passwordChanged = f.credential_mode === 'own' && !!password.value
     // The password is a separate write-only request; it never travels with the settings.
-    if (passwordChanged) { await api.put('/integrations/connections/' + saved.id + '/password', { password: password.value }); ownHasSecret.value = true }
+    if (passwordChanged) { await settingsEndpoints.putIntegrationsConnectionsByIdPassword({ params: { id: saved.id }, body: { password: password.value } }); ownHasSecret.value = true }
     password.value = ''
     if (close) emit('saved', saved.id, passwordChanged)
     if (close) emit('update:modelValue', false)
@@ -274,31 +275,31 @@ async function save() { await saveSettings() }
 
 <style scoped>
 .group { border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 14px 14px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
-.group legend { font-size: 12px; font-weight: 600; color: var(--text-muted); padding: 0 6px; text-transform: uppercase; letter-spacing: 0.04em; }
+.group legend { font-size: var(--fs-sm); font-weight: 600; color: var(--text-muted); padding: 0 6px; text-transform: uppercase; letter-spacing: 0.04em; }
 .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .stack { display: flex; flex-direction: column; gap: 6px; }
-.hint { font-size: 12px; line-height: 1.5; color: var(--text-muted); }
-.field-error, .form-error { font-size: 12px; color: var(--danger-hover); }
+.hint { font-size: var(--fs-sm); line-height: 1.5; color: var(--text-muted); }
+.field-error, .form-error { font-size: var(--fs-sm); color: var(--danger-hover); }
 .form-error { padding: 8px 12px; background: var(--danger-soft); border-radius: var(--radius-sm); }
-.suggest { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 10px; background: var(--blue-soft); border-radius: var(--radius-sm); font-size: 12px; color: var(--text); overflow-wrap: anywhere; }
+.suggest { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 10px; background: var(--blue-soft); border-radius: var(--radius-sm); font-size: var(--fs-sm); color: var(--text); overflow-wrap: anywhere; }
 .suggest span { flex: 1; min-width: 200px; }
-.notice { font-size: 12px; padding: 7px 10px; border-radius: var(--radius-sm); background: var(--bg3); color: var(--text-muted); }
+.notice { font-size: var(--fs-sm); padding: 7px 10px; border-radius: var(--radius-sm); background: var(--bg3); color: var(--text-muted); }
 .notice.warn { background: var(--warning-soft); color: var(--warning-text); }
-.find summary, .json summary { font-size: 11.5px; color: var(--blue-hover); cursor: pointer; width: fit-content; }
-.find p { margin-top: 4px; padding: 6px 10px; border-left: 2px solid var(--border-strong); font-size: 11.5px; line-height: 1.5; color: var(--text-muted); }
+.find summary, .json summary { font-size: var(--fs-sm); color: var(--blue-hover); cursor: pointer; width: fit-content; }
+.find p { margin-top: 4px; padding: 6px 10px; border-left: 2px solid var(--border-strong); font-size: var(--fs-sm); line-height: 1.5; color: var(--text-muted); }
 .auth { display: block; padding-top: 12px; }
 .auth > summary { cursor: pointer; display: flex; flex-direction: column; gap: 2px; list-style: none; }
 .auth > summary::-webkit-details-marker { display: none; }
-.auth-title { font-size: 13px; font-weight: 600; }
-.auth-sub { font-size: 11.5px; color: var(--text-faint); overflow-wrap: anywhere; padding-left: 16px; }
+.auth-title { font-size: var(--fs-md); font-weight: 600; }
+.auth-sub { font-size: var(--fs-sm); color: var(--text-faint); overflow-wrap: anywhere; padding-left: 16px; }
 .auth-body { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
-h4 { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-faint); margin-top: 6px; padding-top: 10px; border-top: 1px solid var(--border); }
+h4 { font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-faint); margin-top: 6px; padding-top: 10px; border-top: 1px solid var(--border); }
 .json { display: flex; flex-direction: column; gap: 6px; }
 .gitlab { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; background: var(--bg3); border-radius: var(--radius-sm); }
 .gitlab-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .gitlab-row a.btn { text-decoration: none; }
 .gitlab-spacer { flex: 1; }
-.check { display: flex; flex-direction: column; gap: 2px; padding: 6px 10px; font-size: 12px; border-radius: var(--radius-sm); color: var(--accent-hover); background: var(--accent-soft); }
+.check { display: flex; flex-direction: column; gap: 2px; padding: 6px 10px; font-size: var(--fs-sm); border-radius: var(--radius-sm); color: var(--accent-hover); background: var(--accent-soft); }
 .check.failed { color: var(--danger-hover); background: var(--danger-soft); }
 .check-meta { color: var(--text-muted); }
 </style>

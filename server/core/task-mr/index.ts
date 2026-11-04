@@ -11,7 +11,8 @@ import { assertRepositoryIdle } from '../code/git-busy';
 import { CodeError } from '../code/files';
 import { oneShot } from '../agent-sessions/one-shot';
 import type { CreateMergeRequest, MergeRequest } from '../../models/code-host';
-export interface MrPreview extends CreateMergeRequest { head: string; task_id?: string; connection_id: string; project_path: string }
+import type { MrPreview } from '@contracts';
+export type { MrPreview } from '@contracts';
 interface Link { iid: number; url: string; state: string; connection_id: string; project_path: string }
 export function createTaskMrService(resolve = resolveCodeHost, generate = oneShot) {
   function context(projectId: string, taskId?: string) {

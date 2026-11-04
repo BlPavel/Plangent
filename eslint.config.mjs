@@ -2,18 +2,7 @@ import js from '@eslint/js'
 import vue from 'eslint-plugin-vue'
 import tseslint from 'typescript-eslint'
 import vueParser from 'vue-eslint-parser'
-
-const featureBoundaryRule = [
-  'error',
-  {
-    patterns: [
-      {
-        group: ['@features/*/*'],
-        message: 'Import from a feature public API (@features/<name>) or move reusable code to shared.',
-      },
-    ],
-  },
-]
+import layers from './scripts/eslint-layers.mjs'
 
 const existingVueFormatRules = {
   'vue/attributes-order': 'off',
@@ -25,6 +14,16 @@ const existingVueFormatRules = {
 }
 
 export default [
+  { plugins: { local: { rules: { layers } } } },
+  { files: ['client/src/**/*.{ts,vue}'], rules: { 'local/layers': 'error' } },
+  {
+    files: ['client/src/**/*.vue'],
+    ignores: ['client/src/shared/ui/**'],
+    rules: {
+      'vue/no-restricted-html-elements': ['error', { element: ['button', 'input', 'textarea', 'select'], message: 'Use shared/ui controls. See docs/client/ui-components.md.' }],
+      'vue/no-restricted-class': ['error', 'btn', 'control'],
+    },
+  },
   {
     ignores: ['**/dist/**', 'node_modules/**'],
   },
@@ -42,7 +41,6 @@ export default [
     },
     rules: {
       'no-empty': 'off',
-      'no-restricted-imports': featureBoundaryRule,
       'no-undef': 'off',
       'no-useless-assignment': 'off',
       ...existingVueFormatRules,
@@ -61,27 +59,10 @@ export default [
     },
     rules: {
       'no-empty': 'off',
-      'no-restricted-imports': featureBoundaryRule,
       'no-undef': 'off',
       'no-useless-assignment': 'off',
       ...existingVueFormatRules,
       'vue/multi-word-component-names': 'off',
-    },
-  },
-  {
-    files: ['client/src/shared/**/*.{ts,vue}'],
-    rules: {
-      'no-restricted-imports': [
-        'error',
-        {
-          patterns: [
-            {
-              group: ['@features/*'],
-              message: 'shared cannot depend on features.',
-            },
-          ],
-        },
-      ],
     },
   },
 ]

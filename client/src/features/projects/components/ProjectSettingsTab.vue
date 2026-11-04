@@ -65,14 +65,16 @@
 </template>
 
 <script setup lang="ts">
+import { settingsEndpoints } from '@features/settings'
+import { projectsEndpoints } from '../api'
+
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { api } from '@core/api'
-import type { Project } from '@core/models'
+import type { Project } from '@contracts'
 import { useAppStore } from '@core/stores/app'
 import { useAgentsStore } from '@features/agents'
 import SaveStatus, { type SaveState } from '@shared/ui/SaveStatus.vue'
 import FormField from '@shared/ui/FormField.vue'
-import FolderPicker from '@shared/ui/FolderPicker.vue'
+import FolderPicker from './FolderPicker.vue'
 import { errorText } from '@shared/utils/errorText'
 import { useProjectsStore } from '../stores/projects'
 import ProjectGitPanel from './ProjectGitPanel.vue'
@@ -132,8 +134,8 @@ watch(() => props.project.id, () => {
   saveState.value = 'idle'
   void agentsStore.load()
   if (isProject.value) {
-    void api.get<typeof connections.value>('/integrations/connections').then(value => connections.value = value).catch(() => {})
-    void api.get<typeof organizations.value>('/integrations/organizations').then(value => organizations.value = value).catch(() => {})
+    void settingsEndpoints.getIntegrationsConnections({ params: {  } }).then(value => connections.value = value).catch(() => {})
+    void settingsEndpoints.getIntegrationsOrganizations({ params: {  } }).then(value => organizations.value = value).catch(() => {})
   }
 }, { immediate: true })
 watch([form, cloneUrl, hostPath, connectionId], () => {
@@ -150,7 +152,7 @@ watch(() => props.project.id, async id => {
   actualOrigin.value = ''; gitError.value = ''
   if (!isProject.value) return
   try {
-    const data = await api.post<{ clone_url: string }>('/projects/git-preview', { repo_path: props.project.repo_path })
+    const data = await projectsEndpoints.postProjectsGitPreview({ params: {  }, body: { repo_path: props.project.repo_path } })
     if (props.project.id === id) actualOrigin.value = data.clone_url
   } catch (cause) { if (props.project.id === id) gitError.value = errorText(cause) }
 }, { immediate: true })
@@ -170,10 +172,10 @@ async function save(id: string, data: NonNullable<ReturnType<typeof payload>>) {
 .settings-tab { flex: 1; overflow-y: auto; padding: var(--sp-5) var(--sp-6); }
 .settings-form { display: flex; flex-direction: column; gap: 16px; max-width: 720px; }
 .block { display: flex; flex-direction: column; gap: 12px; }
-h3 { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
+h3 { font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
 .form-field { display: flex; flex-direction: column; gap: 4px; }
-label { font-size: 12px; color: var(--text-muted); }
-.git-origin { font-size: 12px; color: var(--text-muted); overflow-wrap: anywhere; }
-.git-error { font-size: 12px; color: var(--danger-hover); }
+label { font-size: var(--fs-sm); color: var(--text-muted); }
+.git-origin { font-size: var(--fs-sm); color: var(--text-muted); overflow-wrap: anywhere; }
+.git-error { font-size: var(--fs-sm); color: var(--danger-hover); }
 .actions { display: flex; justify-content: flex-end; min-height: 18px; }
 </style>

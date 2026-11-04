@@ -2,21 +2,21 @@
   <div class="update-status app-no-drag">
     <div class="version-line">
       <span>{{ version ? `v${version}` : '' }}</span>
-      <button
+      <AppButton
         v-if="card && hidden && state.status !== 'downloading'"
-        class="version-update"
+        variant="link" size="xs"
         title="Доступно обновление — показать"
         @click="dismissedKey = null"
-      >Обновление {{ card.version }}</button>
+      >Обновление {{ card.version }}</AppButton>
     </div>
 
     <!-- Floats over the sidebar corner so it never shifts the navigation. -->
     <Teleport to="body">
       <Transition name="update-popup" mode="out-in">
         <div v-if="card && !hidden" :key="state.status" class="update-popup app-no-drag" :class="card.tone" role="status">
-          <button class="update-close" :title="closeTitle" aria-label="Скрыть" @click="dismissedKey = cardKey">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8" /></svg>
-          </button>
+          <AppButton variant="subtle" size="xs" icon class="update-close" :title="closeTitle" aria-label="Скрыть" @click="dismissedKey = cardKey">
+            <UIIconClose />
+          </AppButton>
 
           <div class="update-head">
             <span class="update-icon">
@@ -36,14 +36,14 @@
             v-else-if="state.status === 'ready'"
             variant="primary"
             size="sm"
-            class="update-action"
+            block
             @click="store.install()"
           >Обновить сейчас</AppButton>
           <AppButton
             v-else-if="state.status === 'manual'"
             variant="ghost"
             size="sm"
-            class="update-action"
+            block
             @click="store.openRelease()"
           >Скачать вручную</AppButton>
         </div>
@@ -55,6 +55,7 @@
 </template>
 
 <script setup lang="ts">
+import { IconClose as UIIconClose } from '@shared/ui/icons'
 import { computed, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import AppButton from '@shared/ui/AppButton.vue'
@@ -95,22 +96,9 @@ const closeTitle = computed(() => state.value.status === 'ready'
   gap: var(--sp-2);
   min-height: 20px;
   padding: 0 6px;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: var(--text-faint);
 }
-.version-update {
-  height: 20px;
-  padding: 0 8px;
-  border: 1px solid rgba(46, 160, 67, 0.4);
-  border-radius: var(--radius-pill);
-  background: var(--accent-soft);
-  color: var(--accent-hover);
-  font-size: 11px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.12s, border-color 0.12s;
-}
-.version-update:hover { background: rgba(46, 160, 67, 0.25); border-color: var(--accent-hover); }
 
 .update-popup {
   --tone: var(--blue-hover);
@@ -118,7 +106,7 @@ const closeTitle = computed(() => state.value.status === 'ready'
   position: fixed;
   left: var(--sp-3);
   bottom: var(--sp-3);
-  z-index: 150;
+  z-index: var(--z-update);
   /* Exactly the sidebar's inner width, so it reads as part of the sidebar. */
   width: calc(236px - 2 * var(--sp-3));
   padding: 10px;
@@ -130,28 +118,14 @@ const closeTitle = computed(() => state.value.status === 'ready'
   background: var(--bg2);
   box-shadow: var(--shadow-md);
 }
-.update-popup.ready { --tone: var(--accent-hover); --tone-soft: var(--accent-soft); border-color: rgba(46, 160, 67, 0.45); }
+.update-popup.ready { --tone: var(--accent-hover); --tone-soft: var(--accent-soft); border-color: var(--accent-hover); }
 .update-popup.manual { --tone: var(--warning-text); --tone-soft: var(--warning-soft); }
 
 .update-close {
   position: absolute;
   top: 6px;
   right: 6px;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-faint);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: background 0.12s, color 0.12s;
 }
-.update-close:hover { background: var(--bg3); color: var(--text); }
-.update-close svg { width: 12px; height: 12px; }
 
 .update-head { display: flex; align-items: center; gap: 8px; min-width: 0; padding-right: 18px; }
 .update-icon {
@@ -167,13 +141,12 @@ const closeTitle = computed(() => state.value.status === 'ready'
 }
 .update-icon svg { width: 14px; height: 14px; }
 .update-text { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.update-title { font-size: 12.5px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.update-sub { font-size: 11px; line-height: 1.35; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.update-title { font-size: var(--fs-md); font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.update-sub { font-size: var(--fs-xs); line-height: 1.35; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 .update-progress { height: 4px; border-radius: var(--radius-pill); background: var(--bg3); overflow: hidden; }
-.update-progress-fill { height: 100%; border-radius: inherit; background: var(--tone); transition: width 0.3s ease; }
+.update-progress-fill { height: 100%; border-radius: inherit; background: var(--tone); transition: width var(--motion-slow) ease; }
 
-.update-action { width: 100%; }
 
 .update-popup-enter-active, .update-popup-leave-active { transition: opacity 0.2s ease, transform 0.2s ease; }
 .update-popup-enter-from, .update-popup-leave-to { opacity: 0; transform: translateY(8px); }

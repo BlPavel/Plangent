@@ -24,7 +24,7 @@
             <div class="chat-item-title">{{ session.title }}</div>
             <div class="chat-item-meta">{{ agentName(session.agent_id) }}<template v-if="session.updated_at"> · {{ ago(session.updated_at) }}</template></div>
           </div>
-          <button class="chat-item-delete" title="Удалить чат" @click.stop="remove(session)"><IconTrash /></button>
+          <AppButton variant="danger-ghost" size="xs" icon title="Удалить чат" aria-label="Удалить чат" @click.stop="remove(session)"><IconTrash /></AppButton>
         </div>
       </div>
     </aside>
@@ -57,9 +57,11 @@
 </template>
 
 <script setup lang="ts">
+import { tasksEndpoints } from '@features/tasks'
+import { agentChatEndpoints } from '../api'
+
 import { ref, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { api } from '@core/api'
 import { useAgentsStore } from '@features/agents'
 import { useAppStore } from '@core/stores/app'
 import AppButton from '@shared/ui/AppButton.vue'
@@ -94,7 +96,7 @@ watch(selected, id => { if (initial.value && initial.value.id !== id) initial.va
 async function makeErrand(text: string) {
   const agentId = store.sessions.find(s => s.id === selected.value)?.agent_id
   try {
-    const { task } = await api.post<{ task: { id: string } }>(`/projects/${props.projectId}/errands`, { text, agent_id: agentId })
+    const { task } = await tasksEndpoints.postProjectsByProjectIdErrands({ params: { projectId: props.projectId }, body: { text, agent_id: agentId } })
     app.toast('Поручение запущено', 'success')
     void router.push(`/task/${task.id}?project=${props.projectId}`)
   } catch (e) { app.toast(String(e), 'error') }
@@ -104,7 +106,7 @@ async function create({ content, ...options }: NewChatRequest) {
   creating.value = true
   error.value = ''
   try {
-    const session = await api.post<ChatSession>('/agent-sessions', { project_id: props.projectId, ...options })
+    const session = await agentChatEndpoints.postAgentSessions({ params: {  }, body: { project_id: props.projectId, ...options } })
     store.put(session)
     initial.value = { id: session.id, content }
     selected.value = session.id
@@ -112,7 +114,7 @@ async function create({ content, ...options }: NewChatRequest) {
   finally { creating.value = false }
 }
 function startRename(session: ChatSession) { renameId.value = session.id; title.value = session.title }
-async function rename() { store.put(await api.patch<ChatSession>(`/agent-sessions/${renameId.value}`, { title: title.value })); renameId.value = '' }
+async function rename() { store.put(await agentChatEndpoints.patchAgentSessionsById({ params: { id: renameId.value }, body: { title: title.value } })); renameId.value = '' }
 async function remove(session: ChatSession) {
   if (!(await app.confirm(`Удалить чат "${session.title}"?`))) return
   try { await store.remove(session.id); if (selected.value === session.id) selected.value = '' }
@@ -134,22 +136,22 @@ function ago(timestamp: string) {
 
 .sidebar { width: 260px; flex-shrink: 0; display: flex; flex-direction: column; border-right: 1px solid var(--border); background: var(--bg); }
 .sidebar-head { display: flex; align-items: center; justify-content: space-between; height: 48px; padding: 0 var(--sp-3) 0 var(--sp-4); border-bottom: 1px solid var(--border); flex-shrink: 0; }
-.sidebar-title { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
+.sidebar-title { font-size: var(--fs-sm); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
 .sidebar-list { flex: 1; overflow-y: auto; padding: var(--sp-2); display: flex; flex-direction: column; gap: 2px; }
-.sidebar-empty { padding: var(--sp-4) var(--sp-2); font-size: 12px; color: var(--text-faint); text-align: center; }
+.sidebar-empty { padding: var(--sp-4) var(--sp-2); font-size: var(--fs-sm); color: var(--text-faint); text-align: center; }
 
-.chat-item { display: flex; align-items: center; gap: 10px; padding: 8px 6px 8px 10px; border-radius: var(--radius); cursor: pointer; transition: background 0.1s; }
+.chat-item { display: flex; align-items: center; gap: 10px; padding: 8px 6px 8px 10px; border-radius: var(--radius); cursor: pointer; transition: background var(--motion-instant); }
 .chat-item:hover { background: var(--bg2); }
 .chat-item.active { background: var(--bg3); }
 .chat-item-body { flex: 1; min-width: 0; }
-.chat-item-title { font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chat-item-meta { font-size: 11.5px; color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chat-item-delete { width: 24px; height: 24px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; background: none; border: none; border-radius: var(--radius-sm); color: var(--text-faint); cursor: pointer; opacity: 0; transition: opacity 0.1s, color 0.1s, background 0.1s; }
+.chat-item-title { font-size: var(--fs-md); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-item-meta { font-size: var(--fs-sm); color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-item-delete { width: 24px; height: 24px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; background: none; border: none; border-radius: var(--radius-sm); color: var(--text-faint); cursor: pointer; opacity: 0; transition: opacity var(--motion-instant), color var(--motion-instant), background var(--motion-instant); }
 .chat-item-delete svg { width: 14px; height: 14px; }
 .chat-item:hover .chat-item-delete { opacity: 1; }
 .chat-item-delete:hover { color: var(--danger-hover); background: var(--danger-soft); }
 
-.chat-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: var(--border-strong); }
+.chat-dot { width: 8px; height: 8px; border-radius: var(--radius-round); flex-shrink: 0; background: var(--border-strong); }
 .chat-dot.thinking, .chat-dot.starting { background: var(--blue-hover); animation: pulse 1.4s ease-in-out infinite; }
 .chat-dot.waiting { background: var(--warning-text); box-shadow: 0 0 0 3px var(--warning-soft); }
 .chat-dot.complete, .chat-dot.ready { background: var(--accent-hover); }

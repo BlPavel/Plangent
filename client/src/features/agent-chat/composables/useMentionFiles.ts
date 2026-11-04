@@ -1,5 +1,6 @@
+
+import { projectsEndpoints } from '@features/projects'
 import { computed, onScopeDispose, ref, watch } from 'vue'
-import { api } from '@core/api'
 import type { SuggestItem } from '../components/SuggestMenu.vue'
 
 export interface MentionFile { path: string; dir: boolean; uri: string; ref?: boolean; section?: SuggestItem['section']; detail?: string }
@@ -29,7 +30,7 @@ export function useMentionFiles(projectId: () => string | null) {
     loading.value = true
     timer = setTimeout(async () => {
       try {
-        const rows = await api.get<MentionFile[]>('/projects/' + project + '/mentions?q=' + encodeURIComponent(query))
+        const rows = await projectsEndpoints.getProjectsByIdMentions({ params: { id: project }, query: Object.fromEntries(new URLSearchParams("q=" + encodeURIComponent(query))) })
         if (revision === request && project === projectId()) files.value = rows
       } catch { if (revision === request) files.value = [] }
       finally { if (revision === request) loading.value = false }

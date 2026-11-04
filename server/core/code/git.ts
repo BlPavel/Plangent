@@ -1,3 +1,5 @@
+import type { RepositoryInfo, GitChange, DiffOptions, LineStat, GitBranch, GitOperationState } from '@contracts';
+export type { RepositoryInfo, GitChange, DiffOptions, LineStat, GitBranch, GitOperationState } from '@contracts';
 import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -35,7 +37,7 @@ export async function reviewCommitCount(root: string, start: string, end: string
   return Number((await run(root, ['rev-list', '--count', start + '..' + end, '--'])).trim());
 }
 
-export interface RepositoryInfo { branch: string | null; head: string | null; message: string | null; detached: boolean }
+
 
 /** Do not treat a non-repository project nested in another repo as a repository. */
 export async function isRepository(root: string): Promise<boolean> {
@@ -81,10 +83,7 @@ export async function listFiles(root: string, includeIgnored = false): Promise<s
   return [...new Set(files)].sort();
 }
 
-export interface GitChange {
-  path: string; originalPath?: string; status: 'M' | 'A' | 'D' | 'R' | 'C' | 'U' | '?';
-  indexStatus: string; worktreeStatus: string;
-}
+
 
 export function parseStatus(output: string): GitChange[] {
   const records = output.split('\0');
@@ -155,7 +154,7 @@ export async function taskWorktreeChanges(root: string, base: string) {
   })));
 }
 
-export interface DiffOptions { base?: string; end?: string; ignoreWhitespace?: boolean; originalPath?: string }
+
 
 export async function diffFile(root: string, file: string, options: DiffOptions = {}): Promise<string> {
   const rel = filePath(root, file);
@@ -192,7 +191,7 @@ export async function snapshot(root: string): Promise<string | null> {
     return (await run(root, ['write-tree'], env)).trim();
   } finally { await fs.rm(temp, { recursive: true, force: true }); }
 }
-export interface LineStat { added: number; deleted: number; binary?: boolean }
+
 
 /** `--numstat -z` of the working tree against HEAD (the empty tree before the first commit), keyed by the new path. */
 export async function trackedStats(root: string): Promise<Record<string, LineStat>> {
@@ -242,7 +241,7 @@ export async function treeChanges(root: string, base: string, end: string): Prom
   return { changes, stats: parseNumstat(numbers) };
 }
 
-export interface GitBranch { name: string; ref: string; remote: boolean }
+
 export async function branches(root: string): Promise<GitBranch[]> {
   const output = await run(root, ['for-each-ref', '--format=%(refname)', 'refs/heads/', 'refs/remotes/origin/']);
   return output.split('\n').map(ref => ref.trim()).filter(ref => ref && ref !== 'refs/remotes/origin/HEAD').map(ref => ({
@@ -263,19 +262,7 @@ export async function trackingInfo(root: string) {
   return { ...info, upstream, ahead: counts[0], behind: counts[1], origin: origin ? publicRemoteUrl(origin) : null, detachedBranches };
 }
 /** A merge, rebase, cherry-pick or revert the developer started and has not finished yet. */
-export interface GitOperationState {
-  kind: 'merge' | 'rebase' | 'cherry-pick' | 'revert';
-  /** The same while one operation goes on: a rebase keeps it across all its stops. */
-  id: string;
-  /** The branch being rebased, or the branch HEAD is on. */
-  branch: string | null;
-  /** rebase: the commit being replayed; cherry-pick/revert: the picked commit; merge: the merged-in commit. */
-  commit: { sha: string; subject: string; name: string | null } | null;
-  /** rebase: what the branch is replayed onto. */
-  onto: { sha: string; name: string | null } | null;
-  /** rebase: which commit of how many. */
-  step: { done: number; total: number } | null;
-}
+
 async function gitFile(file: string): Promise<string | null> {
   return fs.readFile(file, 'utf8').then(text => text.trim(), () => null);
 }

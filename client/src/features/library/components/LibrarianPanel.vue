@@ -2,20 +2,17 @@
   <aside class="librarian">
     <header class="head">
       <span class="head-title">Запись с агентом</span>
-      <nav class="tabs" aria-label="Чаты с библиотекарем">
-        <button
-          v-for="session in sessions" :key="session.id" type="button" class="tab" :class="{ active: selected === session.id }"
-          :title="session.title" @click="selected = session.id"
-        ><span class="dot" :class="session.status" />{{ session.title }}<span v-if="pendingIn(session.id)" class="count">{{ pendingIn(session.id) }}</span></button>
-      </nav>
-      <AppButton variant="subtle" size="xs" :class="{ active: !selected }" title="Новый чат с библиотекарем" @click="selected = ''">+ Новый</AppButton>
+      <AppTabs :model-value="selected" :items="sessions.map(session => ({ value: session.id, label: session.title, title: session.title }))" rich label="Чаты с библиотекарем" @update:model-value="selected = $event">
+        <template #item="{ item }"><span class="dot" :class="sessions.find(session => session.id === item.value)?.status" />{{ item.label }}<AppCount v-if="pendingIn(item.value)" :value="pendingIn(item.value)" /></template>
+      </AppTabs>
+      <AppButton variant="subtle" size="xs" :pressed="!selected" title="Новый чат с библиотекарем" @click="selected = ''">+ Новый</AppButton>
       <AppButton v-if="selected" variant="danger-ghost" size="xs" icon title="Удалить чат" @click="remove"><IconTrash /></AppButton>
-      <AppButton variant="ghost" size="xs" icon title="Скрыть панель" @click="$emit('close')">×</AppButton>
+      <AppButton variant="ghost" size="xs" icon title="Скрыть панель" @click="$emit('close')"><UIIconClose /></AppButton>
     </header>
 
     <div v-if="selected && noProposalYet" class="nudge">
       Агент пока ничего не предложил. Библиотека меняется только через карточку предложения.
-      <button type="button" class="link" @click="chat?.setText('Оформи это предложением изменения библиотеки.')">Попросить оформить</button>
+      <AppButton variant="link" size="md" type="button"  @click="chat?.setText('Оформи это предложением изменения библиотеки.')">Попросить оформить</AppButton>
     </div>
 
     <div class="body">
@@ -32,7 +29,7 @@
         <div class="empty-text">Добавьте агента в настройках, чтобы записывать инструкции вместе с ним.</div>
         <AppButton size="sm" @click="router.push('/settings')">Открыть настройки</AppButton>
       </div>
-      <NewChatPanel
+      <NewChatPanel :draft-key="`project:${projectId}:librarian-chat`"
         v-else
         :project-id="projectId"
         :default-agent-id="defaultAgentId"
@@ -49,12 +46,15 @@
 </template>
 
 <script setup lang="ts">
+import { AppCount, AppTabs } from '@shared/ui'
+import { IconClose as UIIconClose } from '@shared/ui/icons'
+import { agentChatEndpoints } from '@features/agent-chat'
+
 import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { api } from '@core/api'
 import { useAppStore } from '@core/stores/app'
 import { useAgentsStore } from '@features/agents'
-import { ChatView, NewChatPanel, useChatStore, type ChatSession, type NewChatRequest, type ContentBlock } from '@features/agent-chat'
+import { ChatView, NewChatPanel, useChatStore, type NewChatRequest, type ContentBlock } from '@features/agent-chat'
 import AppButton from '@shared/ui/AppButton.vue'
 import IconTrash from '@shared/ui/IconTrash.vue'
 import { useLibraryStore } from '../stores/library'
@@ -85,7 +85,7 @@ async function create({ content, ...options }: NewChatRequest) {
   creating.value = true
   error.value = ''
   try {
-    const session = await api.post<ChatSession>('/agent-sessions', { project_id: props.projectId, role: 'librarian', ...options })
+    const session = await agentChatEndpoints.postAgentSessions({ params: {  }, body: { project_id: props.projectId, role: 'librarian', ...options } })
     chats.put(session)
     initial.value = { id: session.id, content }
     selected.value = session.id
@@ -104,27 +104,27 @@ async function remove() {
 <style scoped>
 .librarian { display: flex; flex-direction: column; min-height: 0; min-width: 0; height: 100%; background: var(--bg); }
 .head { display: flex; align-items: center; gap: 6px; height: 44px; padding: 0 var(--sp-3); border-bottom: 1px solid var(--border); flex-shrink: 0; }
-.head-title { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); white-space: nowrap; margin-right: 4px; }
+.head-title { font-size: var(--fs-sm); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); white-space: nowrap; margin-right: 4px; }
 .tabs { flex: 1; min-width: 0; display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; align-self: stretch; }
-.tab { flex-shrink: 0; max-width: 180px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; margin-bottom: -1px; background: none; border: none; border-bottom: 2px solid transparent; color: var(--text-muted); font: inherit; font-size: 12px; font-weight: 500; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tab { flex-shrink: 0; max-width: 180px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; margin-bottom: -1px; background: none; border: none; border-bottom: 2px solid transparent; color: var(--text-muted); font: inherit; font-size: var(--fs-sm); font-weight: 500; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tab:hover { color: var(--text); }
 .tab.active { color: var(--text); border-bottom-color: var(--blue); }
-.count { font-size: 10px; font-weight: 600; min-width: 16px; padding: 0 5px; border-radius: var(--radius-pill); background: var(--blue-soft); color: var(--blue-hover); text-align: center; }
+.count { font-size: var(--fs-xs); font-weight: 600; min-width: 16px; padding: 0 5px; border-radius: var(--radius-pill); background: var(--blue-soft); color: var(--blue-hover); text-align: center; }
 .active { color: var(--blue-hover); }
 
-.dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; background: var(--border-strong); }
+.dot { width: 7px; height: 7px; border-radius: var(--radius-round); flex-shrink: 0; background: var(--border-strong); }
 .dot.thinking, .dot.starting { background: var(--blue-hover); animation: pulse 1.4s ease-in-out infinite; }
 .dot.waiting { background: var(--warning-text); }
 .dot.complete, .dot.ready { background: var(--accent-hover); }
 .dot.error { background: var(--danger-hover); }
 @keyframes pulse { 50% { opacity: 0.35; } }
 
-.nudge { padding: 8px var(--sp-4); font-size: 12px; color: var(--text-muted); background: var(--bg2); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.nudge { padding: 8px var(--sp-4); font-size: var(--fs-sm); color: var(--text-muted); background: var(--bg2); border-bottom: 1px solid var(--border); flex-shrink: 0; }
 .link { background: none; border: none; padding: 0; margin-left: 4px; font: inherit; color: var(--blue-hover); cursor: pointer; }
 .link:hover { text-decoration: underline; }
 
 .body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .empty { margin: auto; max-width: 340px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: var(--sp-6); }
-.empty-title { font-size: 16px; font-weight: 600; }
-.empty-text { font-size: 13px; color: var(--text-muted); }
+.empty-title { font-size: var(--fs-lg); font-weight: 600; }
+.empty-text { font-size: var(--fs-md); color: var(--text-muted); }
 </style>

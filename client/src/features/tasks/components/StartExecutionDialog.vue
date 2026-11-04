@@ -19,7 +19,7 @@
       </label>
     </template>
     <p v-else class="note">{{ workspace ? 'Работа продолжится в своём рабочем месте на ветке ' + workspace.branch + '.' : group ? 'Работа пойдёт в основных папках проектов группы.' : 'Работа продолжится в основной папке проекта.' }}</p>
-    <label class="check"><input v-model="review" type="checkbox" :disabled="busy" /> Ревью агентом: авто (в конце очереди)</label>
+    <AppCheckbox v-model="review" :disabled="busy">Ревью агентом: авто (в конце очереди)</AppCheckbox>
     <div v-if="failed || error" class="failure" role="alert">
       <strong>Не удалось подготовить рабочее место.</strong>
       <p v-if="error">{{ error }}</p>
@@ -31,8 +31,9 @@
 </template>
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import type { Task, Workspace } from '@core/models'
+import type { Task, Workspace } from '@contracts'
 import AppModal from '@shared/ui/AppModal.vue'
+import AppCheckbox from '@shared/ui/AppCheckbox.vue'
 import BranchNameInput from '@shared/ui/BranchNameInput.vue'
 import BranchSelect from '@shared/ui/BranchSelect.vue'
 import { slug } from '@shared/utils/slug'
@@ -77,13 +78,13 @@ function submit() {
 </script>
 <style scoped>
 .place-heading { display: flex; flex-direction: column; gap: 4px; }
-.place-heading strong { font-size: 13px; font-weight: 500; }
-.place-heading span { font-size: 12px; color: var(--text-muted); }
+.place-heading strong { font-size: var(--fs-md); font-weight: 500; }
+.place-heading span { font-size: var(--fs-sm); color: var(--text-muted); }
 .place-picker { min-width: 0; padding: 0; border: 0; }
 .place-picker:disabled { opacity: .6; pointer-events: none; }
 .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
-.field small, .note { font-size: 11.5px; color: var(--text-muted); }
+.field small, .note { font-size: var(--fs-sm); color: var(--text-muted); }
 .check { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
-.failure { margin-top: 12px; padding: 10px; border: 1px solid var(--danger-hover); border-radius: var(--radius-sm); font-size: 12.5px; }
-.failure pre { max-height: 200px; overflow: auto; margin: 8px 0; padding: 8px; background: var(--bg3); font-size: 11.5px; white-space: pre-wrap; }
+.failure { margin-top: 12px; padding: 10px; border: 1px solid var(--danger-hover); border-radius: var(--radius-sm); font-size: var(--fs-md); }
+.failure pre { max-height: 200px; overflow: auto; margin: 8px 0; padding: 8px; background: var(--bg3); font-size: var(--fs-sm); white-space: pre-wrap; }
 </style>

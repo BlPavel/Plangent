@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, watch } from 'vue'
-import type { Project, Task } from '@core/models'
+import type { Project, Task } from '@contracts'
 
 export interface ToastAction { label: string; run: () => void }
 

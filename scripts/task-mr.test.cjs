@@ -40,11 +40,11 @@ async function component(file) {
 /** Opens the target branch dropdown and returns what it offers. */
 async function targetOptions(label = 'Целевая ветка') {
   document.querySelector('input[aria-label="' + label + '"]').dispatchEvent(new window.Event('focus')); await flush();
-  return [...document.querySelectorAll('.bsel-item')].map(b => b.textContent);
+  return [...document.querySelectorAll('[role=option]')].map(b => b.textContent);
 }
 async function pickTarget(text) {
   await targetOptions();
-  [...document.querySelectorAll('.bsel-item')].find(b => b.textContent === text).dispatchEvent(new window.Event('click', { bubbles: true })); await flush();
+  [...document.querySelectorAll('[role=option]')].find(b => b.textContent === text).dispatchEvent(new window.Event('click', { bubbles: true })); await flush();
 }
 async function flush() { await new Promise(r => setTimeout(r, 10)); await nextTick(); }
 function button(text) { const b = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === text); assert.ok(b, 'button '+text); return b; }
@@ -83,7 +83,7 @@ test('task MR UI edits agent draft and target, confirms publication, refreshes s
  assert.equal(offered.includes('local-only'),false);
  await click('✨ Предложить');assert.equal(document.querySelector('textarea').value,'Agent description');assert.equal(calls.filter(c=>c.url.endsWith('/create')).length,0);
  await set('Заголовок','PROJ-123 Human title');await set('Описание','Human edited description');await pickTarget('origin/release');
- assert.match(document.querySelector('.tm-tags').textContent,/Анна/,'reviewers from the settings are shown by name');await click('+ Добавить');await click('Борис@boris');
+ assert.match(document.querySelector('.tm-tags').textContent,/Анна/,'reviewers from the settings are shown by name');await click('+ Добавить');await click('Борисboris');
  document.querySelector('form').dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true}));await flush();assert.ok(pinia._s.get('app').confirmState);assert.match(pinia._s.get('app').confirmState.message,/release/);assert.equal(calls.filter(c=>c.url.endsWith('/create')).length,0);
  pinia._s.get('app').resolveConfirm(false);await flush();assert.ok(document.querySelector('form'));assert.equal(calls.filter(c=>c.url.endsWith('/create')).length,0);
  document.querySelector('form').dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true}));await flush();pinia._s.get('app').resolveConfirm(true);await flush();await flush();assert.equal(calls.filter(c=>c.url.endsWith('/create')).length,1);assert.equal(document.querySelector('form'),null);

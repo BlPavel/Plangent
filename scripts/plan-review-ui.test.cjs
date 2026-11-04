@@ -22,12 +22,14 @@ global.WebSocket = class {
   close() {}
 };
 const { createApp, h, ref, nextTick } = require('vue');
+const { createPinia, setActivePinia } = require('pinia');
+require('node:test').beforeEach(() => setActivePinia(createPinia()));
 const { build } = require('esbuild');
 const { parse, compileScript } = require('@vue/compiler-sfc');
 async function component(file) {
   const bundle = await build({
     entryPoints: [path.resolve(file)], bundle: true, write: false, platform: 'node', format: 'cjs',
-    external: ['vue'], loader: { '.css': 'empty' }, alias: { '@core': path.resolve('client/src/core'), '@shared': path.resolve('client/src/shared') },
+    external: ['vue', 'pinia'], loader: { '.css': 'empty' }, alias: { '@core': path.resolve('client/src/core'), '@shared': path.resolve('client/src/shared') },
     plugins: [{ name: 'vue-test', setup(build) {
       build.onResolve({ filter: /^@features\/(agents|agent-chat)$/ }, args => ({ path: args.path, namespace: 'mock' }));
       build.onLoad({ filter: /.*/, namespace: 'mock' }, () => ({ contents: `

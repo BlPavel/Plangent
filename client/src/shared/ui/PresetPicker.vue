@@ -1,5 +1,5 @@
 <template>
-  <div v-if="presets.length" class="preset-picker">
+  <AppCard v-if="presets.length" padding="sm" class="preset-picker">
     <div class="presets">
       <span class="presets-label">Заполнить как:</span>
       <AppButton
@@ -13,28 +13,36 @@
       <li v-for="p in presets.filter(p => !applied || p.id === applied)" :key="p.id"><b>{{ p.name }}</b> — {{ p.description }}</li>
     </ul>
     <p v-if="note" class="note">{{ note }}</p>
-  </div>
+  </AppCard>
 </template>
 
 <script setup lang="ts">
-import AppButton from './AppButton.vue'
-
+import AppCard from './AppCard.vue';
+import AppButton from './AppButton.vue';
 /** "Fill as:" row: ready-made settings copied into a form, each with what it suits. */
 defineProps<{
-  presets: { id: string; name: string; description: string }[]
-  /** Id of the preset applied in this form, if any. */
-  applied?: string
-  note?: string
-}>()
-defineEmits<{ apply: [id: string] }>()
+    presets: {
+        id: string;
+        name: string;
+        description: string;
+    }[];
+    /** Id of the preset applied in this form, if any. */
+    applied?: string;
+    note?: string;
+}>();
+defineEmits<{
+    apply: [
+        id: string
+    ];
+}>();
 </script>
 
 <style scoped>
-.preset-picker { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); }
+.preset-picker { display: flex; flex-direction: column; gap: var(--sp-1); }
 .presets { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.presets-label { font-size: 12px; color: var(--text-muted); }
+.presets-label { font-size: var(--fs-sm); color: var(--text-muted); }
 .descriptions { list-style: none; display: flex; flex-direction: column; gap: 2px; }
-.descriptions li, .note { font-size: 11.5px; line-height: 1.5; color: var(--text-muted); }
-.descriptions b { color: var(--text); font-weight: 600; }
+.descriptions li, .note { font-size: var(--fs-sm); line-height: var(--lh-normal); color: var(--text-muted); }
+.descriptions b { color: var(--text); font-weight: var(--fw-semibold); }
 .note { color: var(--text-faint); }
 </style>

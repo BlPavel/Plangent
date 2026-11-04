@@ -1,3 +1,5 @@
+import type { ErrorResponse } from '../typed-route';
+﻿import { typedRoutes } from '../typed-route';
 import { Router, Request, Response } from 'express';
 import { prepareWork, withWorkStart } from '../../../core/work/start';
 import { randomUUID } from 'node:crypto';
@@ -15,36 +17,31 @@ import { getLatestPlan, parsePlanSteps } from '../../../core/orchestration/plans
 import { broadcast } from '../../../core/shared/events';
 
 export const orchestratorRouter = Router({ mergeParams: true });
+const orchestratorRouterRoutes = typedRoutes(orchestratorRouter, '/api/projects/:projectId/tasks/:taskId');
 
 // GET /api/queues/blocked — executing queues (of every project) that wait for the developer
 export const queuesRouter = Router();
-queuesRouter.get('/blocked', (_req: Request, res: Response) => res.json(blockedQueues()));
+const queuesRouterRoutes = typedRoutes(queuesRouter, '/api/queues');
+queuesRouterRoutes.json('GET /api/queues/blocked', (_req, res) => res.json(blockedQueues()));
 // GET /api/queues/active — executing queues (of every project); a restart would stop them
-queuesRouter.get('/active', (_req: Request, res: Response) => res.json(activeQueues()));
+queuesRouterRoutes.json('GET /api/queues/active', (_req, res) => res.json(activeQueues()));
 
-function taskQueue(req: Request, res: Response) {
+function taskQueue(req: Request, res: ErrorResponse) {
   const { projectId, taskId } = req.params;
   if (!getProject(projectId) || getTask(taskId)?.project_id !== projectId) { res.status(404).json({ error: 'Task not found' }); return null; }
   return getOrchestrator(taskId)?.queue ?? getQueue(taskId, projectId);
 }
 
-function withOrchestrator(action: (orch: Orchestrator, req: Request) => Promise<unknown> | unknown) {
-  return async (req: Request, res: Response) => {
-    const orch = getOrchestrator(req.params.taskId);
-    if (!orch) return res.status(409).json({ error: 'Очередь не запущена' });
-    try { await action(orch, req); res.json(orch.queue); }
-    catch (e) { res.status(400).json({ error: String(e instanceof Error ? e.message : e) }); }
-  };
-}
+
 
 // GET /projects/:projectId/tasks/:taskId/queue
-orchestratorRouter.get('/queue', (req: Request, res: Response) => {
+orchestratorRouterRoutes.json('GET /api/projects/:projectId/tasks/:taskId/queue', (req, res) => {
   const queue = taskQueue(req, res);
   if (queue) res.json(queue);
 });
 
 // PUT /projects/:projectId/tasks/:taskId/queue — replace the stages (only while not running)
-orchestratorRouter.put('/queue', (req: Request, res: Response) => {
+orchestratorRouterRoutes.json('PUT /api/projects/:projectId/tasks/:taskId/queue', (req, res) => {
   const queue = taskQueue(req, res);
   if (!queue) return;
   if (isFrozen(queue)) return res.status(409).json({ error: 'Очередь выполняется — остановите её, чтобы изменить' });
@@ -57,7 +54,7 @@ orchestratorRouter.put('/queue', (req: Request, res: Response) => {
 });
 
 // POST /projects/:projectId/tasks/:taskId/queue/start — (re)launch from the first unfinished stage
-orchestratorRouter.post('/queue/start', async (req: Request, res: Response) => {
+orchestratorRouterRoutes.json('POST /api/projects/:projectId/tasks/:taskId/queue/start', async (req, res) => {
   const queue = taskQueue(req, res);
   if (!queue) return;
   if (getTask(req.params.taskId)?.status === 'done') return res.status(409).json({ error: 'Завершённая задача доступна только для чтения' });
@@ -67,8 +64,8 @@ orchestratorRouter.post('/queue/start', async (req: Request, res: Response) => {
     await withWorkStart(queue.taskId, async () => {
       const options = req.body ?? {};
       if (options.auto_review !== undefined && typeof options.auto_review !== 'boolean') throw new Error('Invalid auto_review');
-      for (const field of ['base_branch', 'branch_name', 'branch', 'place']) if (options[field] !== undefined && typeof options[field] !== 'string') throw new Error('Invalid ' + field);
-      await prepareWork(queue.taskId, options);
+      for (const field of (['base_branch', 'branch_name', 'branch', 'place'] as const)) if (options[field] !== undefined && typeof options[field] !== 'string') throw new Error('Invalid ' + field);
+      await prepareWork(queue.taskId, { ...options, place: options.place === 'main' ? undefined : options.place });
       if (options.auto_review !== undefined) updateTask(queue.taskId, { auto_review: options.auto_review });
       const task = getTask(queue.taskId)!;
       if (task.auto_review && !queue.stages.some(stage => stage.sessions.some(s => s.kind === 'review' && s.status !== 'complete'))) {
@@ -83,24 +80,20 @@ orchestratorRouter.post('/queue/start', async (req: Request, res: Response) => {
 });
 
 // POST /projects/:projectId/tasks/:taskId/queue/clear-history — forget earlier runs
-orchestratorRouter.post('/queue/clear-history', (req: Request, res: Response) => {
+orchestratorRouterRoutes.json('POST /api/projects/:projectId/tasks/:taskId/queue/clear-history', (req, res) => {
   const queue = taskQueue(req, res);
   if (!queue) return;
   queue.history = [];
   res.json(saveQueue(queue));
 });
 
-orchestratorRouter.post('/queue/stop',withOrchestrator(orch => orch.stop()));
-orchestratorRouter.post('/queue/pause', withOrchestrator((orch, req) => orch.requestPause(req.body?.on !== false)));
-orchestratorRouter.post('/queue/resume', withOrchestrator(orch => orch.resume()));
-
-// Per-session actions of a running queue.
-// complete: accept as done although the agent did not report it; execute: preflight → execution;
-// skip: stop this session and go on; restart: start it again with a fresh agent.
-orchestratorRouter.post('/queue/sessions/:sessionId/complete', withOrchestrator((orch, req) => orch.manualComplete(req.params.sessionId)));
-orchestratorRouter.post('/queue/sessions/:sessionId/execute', withOrchestrator((orch, req) => orch.executeReadySession(req.params.sessionId)));
-orchestratorRouter.post('/queue/sessions/:sessionId/skip', withOrchestrator((orch, req) => orch.skipSession(req.params.sessionId)));
-orchestratorRouter.post('/queue/sessions/:sessionId/restart', async (req: Request, res: Response) => {
+orchestratorRouterRoutes.json('POST /api/projects/:projectId/tasks/:taskId/queue/stop', async (req, res) => { const orch = getOrchestrator(req.params.taskId); if (!orch) return res.status(409).json({ error: 'Очередь не запущена' }); try { await ((orch: Orchestrator) => orch.stop())(orch); res.json(orch.queue); } catch (error) { res.status(400).json({ error: error instanceof Error ? error.message : String(error) }); } });
+orchestratorRouterRoutes.json('POST /api/projects/:projectId/tasks/:taskId/queue/pause', async (req, res) => { const orch = getOrchestrator(req.params.taskId); if (!orch) return res.status(409).json({ error: 'Очередь не запущена' }); try { await orch.requestPause(req.body?.on !== false); res.json(orch.queue); } catch (error) { res.status(400).json({ error: error instanceof Error ? error.message : String(error) }); } });
+orchestratorRouterRoutes.json('POST /api/projects/:projectId/tasks/:taskId/queue/resume', async (req, res) => { const orch = getOrchestrator(req.params.taskId); if (!orch) return res.status(409).json({ error: 'Очередь не запущена' }); try { await ((orch: Orchestrator) => orch.resume())(orch); res.json(orch.queue); } catch (error) { res.status(400).json({ error: error instanceof Error ? error.message : String(error) }); } });
+orchestratorRouterRoutes.json('POST /api/projects/:projectId/tasks/:taskId/queue/sessions/:sessionId/complete', async (req, res) => { const orch = getOrchestrator(req.params.taskId); if (!orch) return res.status(409).json({ error: 'Очередь не запущена' }); try { await orch.manualComplete(req.params.sessionId); res.json(orch.queue); } catch (error) { res.status(400).json({ error: error instanceof Error ? error.message : String(error) }); } });
+orchestratorRouterRoutes.json('POST /api/projects/:projectId/tasks/:taskId/queue/sessions/:sessionId/execute', async (req, res) => { const orch = getOrchestrator(req.params.taskId); if (!orch) return res.status(409).json({ error: 'Очередь не запущена' }); try { await orch.executeReadySession(req.params.sessionId); res.json(orch.queue); } catch (error) { res.status(400).json({ error: error instanceof Error ? error.message : String(error) }); } });
+orchestratorRouterRoutes.json('POST /api/projects/:projectId/tasks/:taskId/queue/sessions/:sessionId/skip', async (req, res) => { const orch = getOrchestrator(req.params.taskId); if (!orch) return res.status(409).json({ error: 'Очередь не запущена' }); try { await orch.skipSession(req.params.sessionId); res.json(orch.queue); } catch (error) { res.status(400).json({ error: error instanceof Error ? error.message : String(error) }); } });
+orchestratorRouterRoutes.json('POST /api/projects/:projectId/tasks/:taskId/queue/sessions/:sessionId/restart', async (req, res) => {
   const queue = taskQueue(req, res);
   if (!queue) return;
   if (getTask(req.params.taskId)?.status === 'done') return res.status(409).json({ error: 'Задача завершена' });
@@ -114,7 +107,7 @@ orchestratorRouter.post('/queue/sessions/:sessionId/restart', async (req: Reques
 
 // POST /projects/:projectId/tasks/:taskId/done
 // Mark task done — delete plan file, keep DB records
-orchestratorRouter.post('/done', async (req: Request, res: Response) => {
+orchestratorRouterRoutes.json('POST /api/projects/:projectId/tasks/:taskId/done', async (req, res) => {
   const { projectId, taskId } = req.params;
   const project = getProject(projectId);
   const task = getTask(taskId);
@@ -131,24 +124,6 @@ orchestratorRouter.post('/done', async (req: Request, res: Response) => {
 
   const updated = updateTask(taskId, { status: 'done' });
   broadcast({ type: 'task_status', taskId, status: 'done' });
-  res.json(updated);
+  if (!updated) return res.status(404).json({ error: 'Task not found' }); res.json(updated);
 });
 
-// POST /projects/:projectId/tasks/:taskId/reopen
-// Back to work after /done: the plan (with its checked steps) is still in the DB, so put its file back.
-orchestratorRouter.post('/reopen', (req: Request, res: Response) => {
-  const { projectId, taskId } = req.params;
-  const project = getProject(projectId);
-  const task = getTask(taskId);
-  if (!project || !task || task.project_id !== projectId) return res.status(404).json({ error: 'Not found' });
-  if (task.status !== 'done') return res.json(task);
-
-  const plan = getLatestPlan(taskId);
-  if (plan?.content.trim()) materializePlanFile(task, plan, project.repo_path);
-
-  const status = plan && parsePlanSteps(plan.content).some(s => s.done) ? 'in_progress' : 'open';
-  const updated = updateTask(taskId, { status });
-  materializeTaskAnalysis(taskId);
-  broadcast({ type: 'task_status', taskId, status });
-  res.json(updated);
-});

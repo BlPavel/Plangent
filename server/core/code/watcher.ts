@@ -3,7 +3,8 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { invalidateFileCache } from '../projects/files';
 
-export interface CodeChangeEvent { type: 'code:changed'; projectId: string; workspaceId?: string }
+import type { CodeChangeEvent } from '@contracts';
+export type { CodeChangeEvent } from '@contracts';
 interface Subscription { workspaceId?: string; projectId: string; notify: (event: CodeChangeEvent) => void }
 interface Entry { watchers: fs.FSWatcher[]; subscriptions: Set<Subscription>; timer?: NodeJS.Timeout }
 const entries = new Map<string, Entry>();

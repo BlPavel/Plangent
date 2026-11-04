@@ -1,3 +1,4 @@
+import { typedRoutes } from '../typed-route';
 import { Router, type Request } from 'express';
 import { listWorkspaces, getWorkspace, recreateWorkspace, WorkspaceRemovalError } from '../../../core/workspaces';
 import { viewing, setViewing } from '../../../core/workspaces/viewing';
@@ -6,12 +7,13 @@ import { viewingTerminalWarnings } from './terminals';
 import { CodeError } from '../../../core/code/files';
 export function createWorkspacesRouter(terminalWarnings = viewingTerminalWarnings) {
 const workspacesRouter = Router({ mergeParams: true });
-workspacesRouter.get('/', (req: Request, res) => res.json(listWorkspaces(req.params.projectId)));
-workspacesRouter.get('/viewing', (req: Request, res) => {
+const workspacesRouterRoutes = typedRoutes(workspacesRouter, '/api/projects/:projectId/workspaces');
+workspacesRouterRoutes.json('GET /api/projects/:projectId/workspaces', (req, res) => res.json(listWorkspaces(req.params.projectId)));
+workspacesRouterRoutes.json('GET /api/projects/:projectId/workspaces/viewing', (req, res) => {
   try { res.json(viewing(req.params.projectId)); }
   catch (error) { res.status(error instanceof CodeError ? error.status : 400).json({ error: String(error) }); }
 });
-workspacesRouter.put('/viewing', async (req: Request, res) => {
+workspacesRouterRoutes.json('PUT /api/projects/:projectId/workspaces/viewing', async (req, res) => {
   try {
     const id = req.body?.workspaceId;
     if (id !== null && typeof id !== 'string') throw new CodeError('workspaceId is required');
@@ -24,7 +26,7 @@ workspacesRouter.put('/viewing', async (req: Request, res) => {
     res.json({ workspace: setViewing(req.params.projectId, id), warnings });
   } catch (error) { res.status(error instanceof CodeError ? error.status : 400).json({ error: error instanceof Error ? error.message : String(error) }); }
 });
-workspacesRouter.post('/:id/recreate', async (req: Request, res) => {
+workspacesRouterRoutes.json('POST /api/projects/:projectId/workspaces/:id/recreate', async (req, res) => {
   try {
     const workspace = getWorkspace(req.params.id);
     if (workspace.project_id !== req.params.projectId) throw new CodeError('Workspace not found', 404);

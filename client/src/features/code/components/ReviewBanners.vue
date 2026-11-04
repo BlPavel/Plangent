@@ -93,7 +93,7 @@ async function finishAbandoned() {
 
 <style scoped>
 .rb { display: flex; flex-direction: column; flex-shrink: 0; }
-.rb-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 14px; font-size: 12px; border-bottom: 1px solid var(--border); background: var(--bg2); }
+.rb-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 14px; font-size: var(--fs-sm); border-bottom: 1px solid var(--border); background: var(--bg2); }
 .rb-row.warn { background: var(--warning-bg, var(--bg2)); box-shadow: inset 3px 0 0 var(--warning); }
 .rb-row.info { box-shadow: inset 3px 0 0 var(--blue); }
 .rb-text { flex: 1 1 320px; min-width: 0; color: var(--text); }

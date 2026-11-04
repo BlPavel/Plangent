@@ -22,7 +22,7 @@ export interface ReviewRow {
   /** Head of the branch when the developer last published remarks: the next round starts there. */
   published_head: string;
   /** The agent's review: '' before it, running, done, stopped (by the developer) or failed. */
-  analysis_status: string; analysis_session: string;
+  analysis_status: import('@contracts').BranchReview['review']['analysis_status']; analysis_session: string;
   /** The developer's wish for the review, shown with the report. */
   analysis_note: string;
 }

@@ -15,7 +15,7 @@
             <AppButton v-if="type !== 'plan-template' && item" variant="ghost" size="sm" :disabled="saving" @click="reset">Вернуть предустановленное</AppButton>
           </div>
         </div>
-        <textarea
+        <AppTextarea block mono
           v-model="content"
           class="template-editor"
           spellcheck="false"
@@ -30,18 +30,21 @@
             <p>Plangent добавляет этот блок к инструкции автоматически. Он не сохраняется в пользовательский шаблон.</p>
           </div>
         </div>
-        <textarea class="template-editor protocol readonly" :value="defaults.lockedProtocol" spellcheck="false" readonly />
+        <AppTextarea mono block rows="9" :model-value="defaults.lockedProtocol" spellcheck="false" readonly />
       </section>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import AppTextarea from '@shared/ui/AppTextarea.vue'
+import { libraryEndpoints, libraryDefaults } from '../api'
+
 import { computed, onMounted, ref, watch } from 'vue'
-import { api } from '@core/api'
+
 import { useAppStore } from '@core/stores/app'
 import AppButton from '@shared/ui/AppButton.vue'
-import type { LibraryItem, LibraryScope } from '@core/models'
+import type { LibraryItem, LibraryScope } from '@contracts'
 
 const props = withDefaults(defineProps<{
   scope: LibraryScope
@@ -70,10 +73,10 @@ async function load() {
     defaults.value = await loadDefaults()
     const params = new URLSearchParams({ type: props.type, scope: props.scope })
     if (props.scope === 'project' && props.projectId) params.set('projectId', props.projectId)
-    const items = await api.get<LibraryItem[]>(`/library?${params.toString()}`)
+    const items = await libraryEndpoints.getLibrary({ params: {  }, query: Object.fromEntries(new URLSearchParams(params.toString())) })
     item.value = items[0] ?? null
     if (item.value) {
-      const full = await api.get<LibraryItem>(`/library/${item.value.id}`)
+      const full = await libraryEndpoints.getLibraryById({ params: { id: item.value.id } })
       content.value = full.content ?? ''
       savedContent.value = content.value
     } else {
@@ -95,16 +98,16 @@ async function save() {
   saving.value = true
   try {
     if (item.value) {
-      item.value = await api.put<LibraryItem>(`/library/${item.value.id}`, {
+      item.value = await libraryEndpoints.putLibraryById({ params: { id: item.value.id }, body: {
         content: content.value,
         title: title.value,
         slug: item.value.slug,
         type: props.type,
         scope: props.scope,
         project_id: props.scope === 'project' ? (props.projectId ?? null) : null,
-      })
+      } })
     } else {
-      item.value = await api.post<LibraryItem>('/library', {
+      item.value = await libraryEndpoints.postLibrary({ params: {  }, body: {
         type: props.type,
         slug: props.type.replaceAll('-', '_'),
         title: title.value,
@@ -112,7 +115,7 @@ async function save() {
         scope: props.scope,
         project_id: props.scope === 'project' ? (props.projectId ?? null) : null,
         content: content.value,
-      })
+      } })
     }
     savedContent.value = content.value
     appStore.toast('Шаблон сохранён', 'success')
@@ -126,12 +129,12 @@ async function save() {
 async function reset() {
   if (!item.value) return
   saving.value = true
-  try { await api.delete(`/library/${item.value.id}`); await load() }
+  try { await libraryEndpoints.deleteLibraryById({ params: { id: item.value.id } }); await load() }
   catch (e) { appStore.toast(String(e), 'error') }
   finally { saving.value = false }
 }
 async function loadDefaults(): Promise<{ lockedProtocol: string; content: string }> {
-  return api.get(`/library/${props.type}/defaults`)
+  return libraryDefaults(props.type)
 }
 </script>
 
@@ -171,13 +174,13 @@ async function loadDefaults(): Promise<{ lockedProtocol: string; content: string
 
 h3 {
   margin: 0 0 3px;
-  font-size: 14px;
+  font-size: var(--fs-base);
 }
 
 p {
   margin: 0;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: var(--fs-sm);
   line-height: 1.45;
 }
 
@@ -187,27 +190,5 @@ p {
   flex-shrink: 0;
 }
 
-.template-editor {
-  width: 100%;
-  flex: 1;
-  min-height: 0;
-  background: var(--bg3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--text);
-  font-family: 'Cascadia Code', 'JetBrains Mono', monospace;
-  font-size: 12px;
-  line-height: 1.5;
-  padding: 12px;
-  resize: none;
-}
-
-.template-editor:focus {
-  outline: none;
-  border-color: var(--blue);
-}
-
-.template-editor.readonly {
-  color: var(--text-muted);
-}
+.editor-flex { flex: 1; }
 </style>

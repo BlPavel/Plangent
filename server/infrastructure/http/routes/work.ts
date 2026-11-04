@@ -1,7 +1,9 @@
 import { listWork, workAttention } from '../../../core/work';
 import { closeWork, reopenWork, cancelErrand, addPlan, errandFromWork } from '../../../core/work/actions';
 import { WorkspaceRemovalError } from '../../../core/workspaces';
-import { Router, type Request } from 'express';
+import { Router } from 'express';
+import { typedRoutes, type JsonHandler } from '../typed-route';
+import type { EndpointKey, Endpoints } from '@contracts';
 import { createErrand } from '../../../core/work/errands';
 import { taskChat } from '../../../core/work/task-chat';
 import { launchIndependentReview } from '../../../core/orchestration/task-review';
@@ -12,24 +14,25 @@ import { repositoryInfo, taskWorktreeChanges } from '../../../core/code/git';
 import { readCodeFile, CodeError } from '../../../core/code/files';
 import { listSessions } from '../../../core/agent-sessions/sessions';
 export const workRouter = Router({ mergeParams: true });
-workRouter.post('/errands', async (req: Request, res) => {
+const work = typedRoutes(workRouter, '/api/projects/:projectId');
+work.json('POST /api/projects/:projectId/errands', async (req, res) => {
   try { await createErrand(req.params.projectId, req.body ?? {}, task => res.status(202).json({ task })); }
   catch (error) { if (!res.headersSent) res.status(400).json({ error: String(error instanceof Error ? error.message : error) }); }
 });
 
-workRouter.post('/tasks/:taskId/chat', async (req: Request, res) => {
+work.json('POST /api/projects/:projectId/tasks/:taskId/chat', async (req, res) => {
   if (getTask(req.params.taskId)?.project_id !== req.params.projectId) return res.status(404).json({ error: 'Task not found' });
   try { res.json(await taskChat(req.params.taskId, req.body?.agent_id)); }
   catch (error) { res.status(400).json({ error: String(error instanceof Error ? error.message : error) }); }
 });
 
-workRouter.post('/tasks/:taskId/review', async (req: Request, res) => {
+work.json('POST /api/projects/:projectId/tasks/:taskId/review', async (req, res) => {
   if (getTask(req.params.taskId)?.project_id !== req.params.projectId) return res.status(404).json({ error: 'Task not found' });
   try { res.status(201).json(await launchIndependentReview(req.params.taskId, req.body ?? {})); }
   catch (error) { res.status(400).json({ error: String(error instanceof Error ? error.message : error) }); }
 });
 
-workRouter.get('/tasks/:taskId/check', async (req: Request, res) => {
+work.json('GET /api/projects/:projectId/tasks/:taskId/check', async (req, res) => {
   const task = getTask(req.params.taskId);
   if (!task || task.project_id !== req.params.projectId) return res.status(404).json({ error: 'Task not found' });
   try {
@@ -41,7 +44,7 @@ workRouter.get('/tasks/:taskId/check', async (req: Request, res) => {
       reviewers: listSessions(task.project_id).filter(s => s.task_id === task.id && s.role === 'task-reviewer') });
   } catch (error) { res.status(400).json({ error: String(error instanceof Error ? error.message : error) }); }
 });
-workRouter.get('/tasks/:taskId/check/file', async (req: Request, res) => {
+work.json('GET /api/projects/:projectId/tasks/:taskId/check/file', async (req, res) => {
   if (getTask(req.params.taskId)?.project_id !== req.params.projectId) return res.status(404).json({ error: 'Task not found' });
   try {
     assertTaskWorkspaceReady(req.params.taskId);
@@ -53,7 +56,7 @@ workRouter.get('/tasks/:taskId/check/file', async (req: Request, res) => {
     }));
   } catch (error) { res.status(400).json({ error: String(error instanceof Error ? error.message : error) }); }
 });
-workRouter.post('/tasks/:taskId/check/send', async (req: Request, res) => {
+work.json('POST /api/projects/:projectId/tasks/:taskId/check/send', async (req, res) => {
   const task = getTask(req.params.taskId);
   if (!task || task.project_id !== req.params.projectId) return res.status(404).json({ error: 'Task not found' });
   try {
@@ -69,22 +72,24 @@ workRouter.post('/tasks/:taskId/check/send', async (req: Request, res) => {
 });
 
 export const workAttentionRouter = Router();
-workAttentionRouter.get('/attention', (_req, res) => res.json(workAttention()));
-workRouter.get('/work', (req: Request, res) => res.json(listWork(req.params.projectId)));
-for (const action of ['close', 'reopen', 'cancel', 'add-plan', 'errand']) {
-  workRouter.post('/tasks/:taskId/' + action, async (req: Request, res) => {
+typedRoutes(workAttentionRouter, '/api/work').json('GET /api/work/attention', (_req, res) => res.json(workAttention()));
+work.json('GET /api/projects/:projectId/work', (req, res) => res.json(listWork(req.params.projectId)));
+type ActionKey = Extract<EndpointKey, `POST /api/projects/:projectId/tasks/:taskId/${'close' | 'reopen' | 'cancel' | 'add-plan' | 'errand'}`>;
+function actionHandler<K extends ActionKey>(action: (id: string, body: Endpoints[K]['body']) => Promise<Endpoints[K]['response']>): JsonHandler<K> {
+  return async (req, res) => {
     if (getTask(req.params.taskId)?.project_id !== req.params.projectId) return res.status(404).json({ error: 'Task not found' });
     try {
       const id = req.params.taskId;
-      const result = action === 'close' ? await closeWork(id, { discard: req.body?.discard === true })
-        : action === 'reopen' ? await reopenWork(id)
-        : action === 'cancel' ? await cancelErrand(id, req.body?.mode)
-        : action === 'add-plan' ? await addPlan(id)
-        : await errandFromWork(id, req.body ?? {});
+      const result = await action(id, req.body);
       res.json(result);
     } catch (error) {
       res.status(error instanceof CodeError ? error.status : 400).json({ error: error instanceof Error ? error.message : String(error),
         ...(error instanceof WorkspaceRemovalError ? { blockers: error.blockers } : {}) });
     }
-  });
+  };
 }
+work.json('POST /api/projects/:projectId/tasks/:taskId/close', actionHandler<'POST /api/projects/:projectId/tasks/:taskId/close'>((id, body) => closeWork(id, { discard: body?.discard === true })));
+work.json('POST /api/projects/:projectId/tasks/:taskId/reopen', actionHandler<'POST /api/projects/:projectId/tasks/:taskId/reopen'>(id => reopenWork(id)));
+work.json('POST /api/projects/:projectId/tasks/:taskId/cancel', actionHandler<'POST /api/projects/:projectId/tasks/:taskId/cancel'>((id, body) => cancelErrand(id, body?.mode)));
+work.json('POST /api/projects/:projectId/tasks/:taskId/add-plan', actionHandler<'POST /api/projects/:projectId/tasks/:taskId/add-plan'>(id => addPlan(id)));
+work.json('POST /api/projects/:projectId/tasks/:taskId/errand', actionHandler<'POST /api/projects/:projectId/tasks/:taskId/errand'>((id, body) => errandFromWork(id, body ?? {})));

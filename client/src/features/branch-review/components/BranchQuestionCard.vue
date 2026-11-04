@@ -1,21 +1,24 @@
 <template>
   <form v-if="editing" class="qc-edit" @submit.prevent="saveEdit">
-    <textarea v-model="draft" class="control qc-text" rows="3" spellcheck="false" @keydown.ctrl.enter.prevent="saveEdit" @keydown.meta.enter.prevent="saveEdit" />
+    <AppTextarea v-model="draft" block rows="3" spellcheck="false" @keydown.ctrl.enter.prevent="saveEdit" @keydown.meta.enter.prevent="saveEdit" />
     <div class="qc-bar">
-      <button type="button" class="btn btn-subtle btn-xs" @click="editing = false">Отмена</button>
-      <button class="btn btn-blue btn-xs" :disabled="!draft.trim() || busy">Сохранить</button>
+      <AppButton variant="subtle" size="xs" type="button"  @click="editing = false; draft = ''">Отмена</AppButton>
+      <AppButton variant="blue" size="xs" type="submit" :disabled="!draft.trim() || busy">Сохранить</AppButton>
     </div>
   </form>
   <div v-else class="qc">
-    <ItemCard
+    <ItemCard :draft-key="`branch-review:${reviewId}:question:${question.id}:reply`"
       :item="item" :thread="thread" :state="state" show-location :busy="busy" :agent-busy="agentBusy" :working="state === 'agent' && agentBusy"
       @edit="startEdit" @remove="removeFirst" @goto="emit('goto')" @send-now="emit('send-now')"
       @reply="reply" @remove-message="removeMessage" @close="close"
     />
-    <button v-if="lastAnswer" type="button" class="qc-remark" title="Открыть черновик замечания с текстом ответа агента — отредактируйте его перед сохранением" @click="emit('to-remark', lastAnswer.text)">→ В замечание</button>
+    <AppButton variant="link" size="xs" v-if="lastAnswer" type="button"  title="Открыть черновик замечания с текстом ответа агента — отредактируйте его перед сохранением" @click="emit('to-remark', lastAnswer.text)">→ В замечание</AppButton>
   </div>
 </template>
 <script setup lang="ts">
+import AppTextarea from '@shared/ui/AppTextarea.vue'
+import AppButton from '@shared/ui/AppButton.vue'
+import { useDraft } from '@core/composables/useDraft'
 import { computed, ref } from 'vue'
 import { ItemCard, threadState, type CodeReviewItem, type CodeReviewMessage } from '@features/code'
 import { useAppStore } from '@core/stores/app'
@@ -29,7 +32,7 @@ const props = defineProps<{ question: BranchQuestion; messages: BranchQuestionMe
 const emit = defineEmits<{ goto: []; 'send-now': []; 'to-remark': [text: string] }>()
 const screen = useBranchReviewStore().of(props.screenKey)
 const app = useAppStore()
-const busy = ref(false), editing = ref(false), draft = ref('')
+const busy = ref(false), editing = useDraft(() => `branch-review:${props.reviewId}:question:${props.question.id}:editing`, () => false), draft = useDraft(() => `branch-review:${props.reviewId}:question:${props.question.id}:draft`, () => '')
 
 const first = computed(() => props.messages[0])
 const last = computed(() => props.messages.at(-1))
@@ -57,7 +60,7 @@ async function run(action: () => Promise<{ questions: BranchQuestion[]; messages
 }
 function startEdit() { draft.value = first.value?.text ?? ''; editing.value = true }
 async function saveEdit() {
-  if (first.value && await run(() => branchReviewApi.editMessage(props.scope, props.reviewId, props.question.id, first.value.id, draft.value))) editing.value = false
+  if (first.value && await run(() => branchReviewApi.editMessage(props.scope, props.reviewId, props.question.id, first.value.id, draft.value))) { editing.value = false; draft.value = '' }
 }
 const removeFirst = () => first.value && run(() => branchReviewApi.removeMessage(props.scope, props.reviewId, props.question.id, first.value.id))
 const reply = (text: string) => run(() => branchReviewApi.reply(props.scope, props.reviewId, props.question.id, text))
@@ -66,8 +69,7 @@ const close = (resolution: string) => run(() => branchReviewApi.closeQuestion(pr
 </script>
 <style scoped>
 .qc { display: flex; flex-direction: column; gap: 2px; }
-.qc-remark { align-self: flex-end; padding: 0 4px; font: inherit; font-size: 11.5px; color: var(--blue-hover); background: none; border: none; cursor: pointer; }
+.qc-remark { align-self: flex-end; padding: 0 4px; font: inherit; font-size: var(--fs-sm); color: var(--blue-hover); background: none; border: none; cursor: pointer; }
 .qc-edit { display: flex; flex-direction: column; gap: 6px; padding: 8px; background: var(--bg2); border: 1px solid var(--blue); border-radius: var(--radius-sm); }
-.qc-text { width: 100%; padding: 8px 10px; line-height: 1.45; resize: vertical; font: inherit; }
 .qc-bar { display: flex; justify-content: flex-end; gap: 6px; }
 </style>

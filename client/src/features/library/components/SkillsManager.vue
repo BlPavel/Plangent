@@ -1,15 +1,7 @@
 <template>
   <div class="lib">
     <div class="lib-header">
-      <div v-if="scope !== 'global' && availableTypeValues.length > 1" class="lib-tabs">
-        <button
-          v-for="t in typeOptions"
-          :key="t.value"
-          class="tab-btn"
-          :class="{ active: filterType === t.value }"
-          @click="filterType = t.value; reload()"
-        >{{ t.label }}</button>
-      </div>
+      <AppTabs v-if="scope !== 'global' && availableTypeValues.length > 1" :model-value="filterType" :items="typeOptions" label="Типы элементов" @update:model-value="filterType = $event as typeof filterType; reload()" />
       <div class="lib-actions">
         <slot name="actions" />
         <AppButton variant="ghost" size="sm" :disabled="syncing" @click="doSync">
@@ -19,8 +11,7 @@
       </div>
     </div>
 
-    <label v-if="scope === 'project' && project?.kind === 'project'" class="git-toggle">
-      <input type="checkbox" :checked="!project.hide_from_git" @change="toggleGitVisibility" />
+    <AppCheckbox v-if="scope === 'project' && project?.kind === 'project'" :model-value="!project.hide_from_git" @update:model-value="toggleGitVisibility">
       <span>
         Включать созданные файлы в git
         <span class="git-hint">
@@ -29,7 +20,7 @@
             : 'Видны в git status.' }}
         </span>
       </span>
-    </label>
+    </AppCheckbox>
 
     <div class="item-list">
       <div v-if="loading" class="muted-msg">Загрузка...</div>
@@ -38,19 +29,16 @@
       </div>
       <div v-for="item in items" :key="item.id" class="item-row" :class="{ fresh: fresh === item.id }">
         <div class="item-main">
-          <label class="toggle" :title="item.enabled ? 'Включён' : 'Выключен'">
-            <input type="checkbox" :checked="item.enabled" @change="toggleEnabled(item)" />
-            <span class="toggle-slider"></span>
-          </label>
+          <AppSwitch :model-value="item.enabled" :title="item.enabled ? 'Включён' : 'Выключен'" :aria-label="item.title" @update:model-value="toggleEnabled(item)" />
           <div class="item-text">
             <span class="item-title">{{ item.title }}</span>
             <span class="item-slug">{{ item.slug }}</span>
             <span v-if="item.description" class="item-desc">{{ item.description }}</span>
           </div>
           <div class="item-badges">
-            <span class="badge">{{ typeLabel(item.type) }}</span>
-            <span v-if="availabilityLabel(item)" class="badge badge-where" :title="availabilityTitle(item)">{{ availabilityLabel(item) }}</span>
-            <span v-if="item.agent_filter.length" class="badge">{{ item.agent_filter.join(', ') }}</span>
+            <AppBadge >{{ typeLabel(item.type) }}</AppBadge>
+            <AppBadge v-if="availabilityLabel(item)"  :title="availabilityTitle(item)">{{ availabilityLabel(item) }}</AppBadge>
+            <AppBadge v-if="item.agent_filter.length" >{{ item.agent_filter.join(', ') }}</AppBadge>
           </div>
         </div>
         <div class="item-btns">
@@ -88,14 +76,17 @@
 </template>
 
 <script setup lang="ts">
+import AppBadge from '@shared/ui/AppBadge.vue'
+import { AppCheckbox, AppSwitch, AppTabs } from '@shared/ui'
+import { libraryEndpoints } from '../api'
+
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
-import { api } from '@core/api'
 import { onServerEvent } from '@core/api/events'
 import { useLibraryStore } from '../stores/library'
 import { useAppStore } from '@core/stores/app'
 import { useAgentsStore } from '@features/agents'
 import { AvailabilityField, useProjectsStore, type Availability } from '@features/projects'
-import type { LibraryItem, LibraryItemType, LibraryScope } from '@core/models'
+import type { LibraryItem, LibraryItemType, LibraryScope } from '@contracts'
 import AppModal from '@shared/ui/AppModal.vue'
 import AppButton from '@shared/ui/AppButton.vue'
 import IconTrash from '@shared/ui/IconTrash.vue'
@@ -155,7 +146,7 @@ async function reload() {
     if (type) params.set('type', type)
     if (scope.value === 'global') params.set('scope', 'global')
     else if (props.projectId) params.set('forProject', props.projectId)
-    const result = await api.get<LibraryItem[]>(`/library?${params}`)
+    const result = await libraryEndpoints.getLibrary({ params: {  }, query: Object.fromEntries(new URLSearchParams(params)) })
     if (revision === loadRevision) items.value = result.filter(item => availableTypeValues.value.includes(item.type))
   } catch (e) {
     if (revision === loadRevision) appStore.toast(String(e), 'error')
@@ -204,9 +195,9 @@ async function doSync() {
   finally { syncing.value = false }
 }
 
-async function toggleGitVisibility(e: Event) {
+async function toggleGitVisibility(checked: boolean) {
   if (!project.value) return
-  const hide = !(e.target as HTMLInputElement).checked
+  const hide = !checked
   try {
     await projectsStore.update(project.value.id, { hide_from_git: hide })
     await store.syncAll()
@@ -346,22 +337,22 @@ async function save() {
   color: var(--text-muted);
   padding: 4px 10px;
   cursor: pointer;
-  font-size: 12px;
-  transition: all 0.1s;
+  font-size: var(--fs-sm);
+  transition: all var(--motion-instant);
 }
 .tab-btn.active { background: var(--bg3); color: var(--text); border-color: var(--blue); }
 
 .git-toggle {
   display: flex; align-items: flex-start; gap: 8px;
-  font-size: 12px; color: var(--text); cursor: pointer;
+  font-size: var(--fs-sm); color: var(--text); cursor: pointer;
   background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius);
   padding: 7px 10px;
 }
 .git-toggle input { margin-top: 2px; }
-.git-hint { display: block; font-size: 10px; color: var(--text-muted); opacity: 0.75; margin-top: 1px; }
+.git-hint { display: block; font-size: var(--fs-xs); color: var(--text-muted); opacity: 0.75; margin-top: 1px; }
 
 .item-list { display: flex; flex-direction: column; gap: 6px; overflow-y: auto; flex: 1; }
-.muted-msg { color: var(--text-muted); font-size: 13px; padding: 8px 0; }
+.muted-msg { color: var(--text-muted); font-size: var(--fs-md); padding: 8px 0; }
 
 .item-row {
   background: var(--bg2);
@@ -372,24 +363,24 @@ async function save() {
   align-items: center;
   gap: 12px;
 }
-.item-row.fresh { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); transition: box-shadow 0.3s, border-color 0.3s; }
+.item-row.fresh { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); transition: box-shadow var(--motion-slow), border-color var(--motion-slow); }
 .item-main { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
 .item-text { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
-.item-title { font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.item-slug { font-size: 11px; color: var(--text-muted); font-family: monospace; }
-.item-desc { font-size: 11px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.item-title { font-weight: 600; font-size: var(--fs-md); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.item-slug { font-size: var(--fs-xs); color: var(--text-muted); font-family: var(--font-mono); }
+.item-desc { font-size: var(--fs-xs); color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .item-badges { display: flex; gap: 4px; flex-shrink: 0; }
 .badge-where { color: var(--blue-hover); }
 .availability { margin-top: 12px; }
-.shared-note { margin: 0 0 12px; padding: 8px 10px; background: var(--blue-soft); border-radius: var(--radius-sm); font-size: 12px; line-height: 1.45; color: var(--text-muted); }
-.badge { font-size: 10px; padding: 2px 6px; background: var(--bg3); border: 1px solid var(--border); border-radius: 4px; color: var(--text-muted); }
+.shared-note { margin: 0 0 12px; padding: 8px 10px; background: var(--blue-soft); border-radius: var(--radius-sm); font-size: var(--fs-sm); line-height: 1.45; color: var(--text-muted); }
+.badge { font-size: var(--fs-xs); padding: 2px 6px; background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius-4); color: var(--text-muted); }
 .item-btns { display: flex; gap: 6px; flex-shrink: 0; }
 
 /* Toggle */
 .toggle { position: relative; display: inline-block; width: 32px; height: 18px; cursor: pointer; flex-shrink: 0; }
 .toggle input { display: none; }
-.toggle-slider { position: absolute; inset: 0; background: var(--border); border-radius: 18px; transition: background 0.2s; }
-.toggle-slider::before { content: ''; position: absolute; width: 12px; height: 12px; left: 3px; top: 3px; background: white; border-radius: 50%; transition: transform 0.2s; }
+.toggle-slider { position: absolute; inset: 0; background: var(--border); border-radius: var(--radius-18); transition: background 0.2s; }
+.toggle-slider::before { content: ''; position: absolute; width: 12px; height: 12px; left: 3px; top: 3px; background: white; border-radius: var(--radius-round); transition: transform 0.2s; }
 .toggle input:checked + .toggle-slider { background: var(--blue); }
 .toggle input:checked + .toggle-slider::before { transform: translateX(14px); }
 </style>

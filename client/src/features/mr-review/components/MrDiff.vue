@@ -9,22 +9,23 @@
       @select="$emit('select',$event)" @marker-click="(line,side)=>$emit('select',{path:file.new_path,side,startLine:line,endLine:line})"
     >
       <template #widget="{line,side}">
-        <DiscussionThread v-for="discussion in at(line,side)" :key="discussion.id" :discussion="discussion" :busy="busy" :reply="reply" />
-        <div v-for="draft in draftsAt(line,side)" :key="draft.id" class="draft" :class="draft.status"><span class="draft-tag">{{ draft.status === 'sent' ? 'Отправлено' : 'Мой черновик' }}</span>{{ draft.body }}</div>
+        <DiscussionThread :review-id="reviewId" v-for="discussion in at(line,side)" :key="discussion.id" :discussion="discussion" :busy="busy" :reply="reply" />
+        <div v-for="draft in draftsAt(line,side)" :key="draft.id" class="draft" :class="draft.status"><AppBadge >{{ draft.status === 'sent' ? 'Отправлено' : 'Мой черновик' }}</AppBadge>{{ draft.body }}</div>
         <slot v-if="selection?.side===side && selection.startLine===line" name="composer" />
       </template>
     </CodeView>
     <div v-if="unplaced.length" class="other-discussions">
       <h4>Обсуждения вне текущего diff</h4>
-      <DiscussionThread v-for="d in unplaced" :key="d.id" :discussion="d" :busy="busy" :reply="reply" :outdated="!!d.notes[0]?.position && d.notes[0].position.head_sha!==head" />
+      <DiscussionThread :review-id="reviewId" v-for="d in unplaced" :key="d.id" :discussion="d" :busy="busy" :reply="reply" :outdated="!!d.notes[0]?.position && d.notes[0].position.head_sha!==head" />
     </div>
   </div>
 </template>
 <script setup lang="ts">
+import AppBadge from '@shared/ui/AppBadge.vue'
 import { computed, ref, watch, onBeforeUnmount } from 'vue';
 import { CodeView, parseUnifiedDiff, type LineSelection, type CodeSide } from '@shared/code-viewer';
 import { mrReviewApi } from '../api';
-import type { MrDiff, HostDiscussion, DiffPosition } from '../host-types';
+import type { MrDiff, HostDiscussion, DiffPosition } from '@contracts';
 import type { MrDraft } from '../types';
 import DiscussionThread from './DiscussionThread.vue';
 const props = defineProps<{
@@ -92,12 +93,12 @@ const unplaced = computed(() => props.discussions.filter(d => {
 <style scoped>
 .mr-diff{height:100%;display:flex;flex-direction:column;min-height:360px}
 .mr-diff :deep(.code-view){flex:1;min-height:320px}
-.state{padding:24px;text-align:center;font-size:12.5px;color:var(--text-muted)}
+.state{padding:24px;text-align:center;font-size: var(--fs-md);color:var(--text-muted)}
 .state.error{color:var(--danger-hover)}
 .other-discussions{flex-shrink:0;max-height:300px;overflow:auto;padding:8px 12px;border-top:1px solid var(--border)}
-.other-discussions h4{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted)}
-.draft{margin:4px 0;padding:6px 8px;font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere;border:1px solid var(--border-strong);border-left:3px solid var(--blue);border-radius:var(--radius-sm);background:var(--bg2)}
+.other-discussions h4{font-size: var(--fs-xs);font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted)}
+.draft{margin:4px 0;padding:6px 8px;font-size: var(--fs-sm);white-space:pre-wrap;overflow-wrap:anywhere;border:1px solid var(--border-strong);border-left:3px solid var(--blue);border-radius:var(--radius-sm);background:var(--bg2)}
 .draft.sent{border-left-color:var(--accent)}
-.draft-tag{display:block;margin-bottom:2px;font-size:10.5px;font-weight:600;color:var(--blue-hover)}
+.draft-tag{display:block;margin-bottom:2px;font-size: var(--fs-xs);font-weight:600;color:var(--blue-hover)}
 .draft.sent .draft-tag{color:var(--accent-hover)}
 </style>

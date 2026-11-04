@@ -10,7 +10,7 @@
 
     <!-- One main action per state: start, wait, answer the agent's questions, or (once everything is handled) ask for a redo. -->
     <form v-if="store.mode === 'start'" class="cp-send" @submit.prevent="send">
-      <input ref="noteInput" v-model="note" class="control control-sm" placeholder="Пожелание агенту (необязательно)" aria-label="Пожелание агенту" />
+      <AppInput ref="noteInput" v-model="note" class="cp-note-input" size="sm" placeholder="Пожелание агенту (необязательно)" aria-label="Пожелание агенту" />
       <AppButton type="submit" variant="blue" size="sm" :disabled="store.busy">Разрешить с агентом</AppButton>
     </form>
     <div v-else-if="store.mode === 'working'" class="cp-status" role="status">
@@ -19,8 +19,8 @@
     </div>
     <template v-else-if="store.mode === 'done'">
       <form v-if="redoing" class="cp-redo" @submit.prevent="send">
-        <textarea
-          ref="redoInput" v-model="note" class="control control-sm cp-reply" rows="3" placeholder="Что сделать иначе" aria-label="Что сделать иначе"
+        <AppTextarea block
+          ref="redoInput" v-model="note" size="sm" rows="3" placeholder="Что сделать иначе" aria-label="Что сделать иначе"
           @keydown.esc="redoing = false" @keydown.enter.ctrl.exact.prevent="note.trim() && send()"
         />
         <div class="cp-redo-actions">
@@ -38,13 +38,13 @@
     <ul v-else class="cp-files">
       <li v-for="file in files" :key="file.path" class="cp-file">
         <div class="cp-row">
-          <button type="button" class="cp-path" :title="'Открыть ' + file.path" @click="emit('open', file.path)">{{ file.path }}</button>
-          <span class="cp-badge" :class="badgeOf(file).tone" :title="CODES[file.code] ?? ''">{{ badgeOf(file).label }}</span>
+          <AppButton variant="link" size="sm" :title="'Открыть ' + file.path" @click="emit('open', file.path)">{{ file.path }}</AppButton>
+          <AppBadge  :tone="badgeOf(file).tone" :title="CODES[file.code] ?? ''">{{ badgeOf(file).label }}</AppBadge>
         </div>
         <p v-if="file.note" class="cp-note">{{ file.note.text }}</p>
         <p v-if="file.note?.answer && file.note.answer_sent" class="cp-answer">Ваш ответ: {{ file.note.answer }}</p>
-        <textarea
-          v-else-if="store.mode === 'answer' && asked.has(file.path)" v-model="drafts[file.path]" class="control control-sm cp-reply" rows="2"
+        <AppTextarea
+          v-else-if="store.mode === 'answer' && asked.has(file.path)" v-model="drafts[file.path]" block rows="2"
           placeholder="Ответ агенту" :aria-label="'Ответ агенту по ' + file.path"
         />
       </li>
@@ -58,6 +58,10 @@
 </template>
 
 <script setup lang="ts">
+import AppBadge from '@shared/ui/AppBadge.vue'
+import AppTextarea from '@shared/ui/AppTextarea.vue'
+import AppInput from '@shared/ui/AppInput.vue'
+import { useDraft } from '@core/composables/useDraft'
 import { computed, nextTick, ref, watch } from 'vue'
 import AppButton from '@shared/ui/AppButton.vue'
 import { useConflictsStore } from '../stores/conflicts'
@@ -70,14 +74,14 @@ const store = useConflictsStore()
 const op = computed(() => store.operation)
 const session = computed(() => store.state?.session ?? null)
 const files = computed(() => store.state?.files ?? [])
-const note = ref(''), noteInput = ref<HTMLInputElement>(), redoInput = ref<HTMLTextAreaElement>(), redoing = ref(false)
+const note = useDraft(() => `project:${store.projectId}:conflict:${op.value?.id ?? "current"}:note`, () => ''), noteInput = ref<InstanceType<typeof AppInput>>(), redoInput = ref<InstanceType<typeof AppTextarea>>(), redoing = ref(false)
 /** «Разрешить с агентом» in the banner only brings the card up: the developer may add a wish before starting. */
 defineExpose({ focus: () => noteInput.value?.focus() })
 async function redo() { redoing.value = true; note.value = ''; await nextTick(); redoInput.value?.focus() }
 watch(() => store.mode, () => { redoing.value = false })
 
 /** Replies to the agent's questions, sent together in one turn. */
-const drafts = ref<Record<string, string>>({})
+const drafts = useDraft<Record<string, string>>(() => `project:${store.projectId}:conflict:${op.value?.id ?? "current"}:drafts`, () => ({}))
 const asked = computed(() => new Set(store.questions.map(f => f.path)))
 const answered = computed(() => store.questions.filter(f => drafts.value[f.path]?.trim()).length)
 
@@ -104,7 +108,7 @@ async function sendAnswers() {
 </script>
 
 <style scoped>
-.cp { display: flex; flex-direction: column; gap: 10px; padding: 10px 12px; font-size: 12.5px; }
+.cp { display: flex; flex-direction: column; gap: 10px; padding: 10px 12px; font-size: var(--fs-md); }
 .cp-head { display: flex; flex-direction: column; gap: 2px; }
 .cp-title { font-weight: 600; color: var(--text); }
 .cp-sub { color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -112,24 +116,22 @@ async function sendAnswers() {
 .cp-status span { flex: 1; min-width: 0; }
 .cp-error { padding: 6px 8px; border-radius: var(--radius-sm); color: var(--danger-hover); background: var(--danger-soft); white-space: pre-wrap; }
 .cp-send { display: flex; gap: 6px; }
-/* `input.control` outranks `.control-sm`: keep the field as tall as the button. */
-.cp-send input { flex: 1; min-width: 0; height: var(--size-sm); }
+.cp-note-input { flex: 1; }
 .cp-files { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .cp-file { display: flex; flex-direction: column; gap: 4px; padding: 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg2); }
 .cp-row { display: flex; align-items: center; gap: 6px; }
 .cp-path { flex: 1; min-width: 0; padding: 0; font: inherit; text-align: left; color: var(--blue-hover); background: none; border: none; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cp-path:hover { text-decoration: underline; }
-.cp-badge { flex-shrink: 0; padding: 1px 6px; font-size: 11px; border-radius: 8px; background: var(--bg3); color: var(--text-muted); }
-.cp-badge.ok { color: var(--diff-add, #3fb950); }
+.cp-badge { flex-shrink: 0; padding: 1px 6px; font-size: var(--fs-xs); border-radius: var(--radius); background: var(--bg3); color: var(--text-muted); }
+.cp-badge.ok { color: var(--diff-add, var(--syntax-added)); }
 .cp-badge.info { color: var(--blue-hover); }
 .cp-badge.warn { color: var(--warning-text); background: var(--warning-soft); }
 .cp-badge.bad { color: var(--danger-hover); }
 .cp-note { margin: 0; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
 .cp-answer { margin: 0; color: var(--text-muted); white-space: pre-wrap; }
 /* `textarea.control` has a fixed one-line height. */
-.cp-reply { height: auto; padding: 6px 10px; resize: vertical; }
 .cp-answers { display: flex; justify-content: flex-end; }
 .cp-redo { display: flex; flex-direction: column; gap: 6px; }
 .cp-redo-actions { display: flex; justify-content: flex-end; gap: 6px; }
-.cp-muted { margin: 0; font-size: 11.5px; color: var(--text-muted); }
+.cp-muted { margin: 0; font-size: var(--fs-sm); color: var(--text-muted); }
 </style>

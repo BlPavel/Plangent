@@ -42,8 +42,8 @@
       <p class="hint">{{ SECTIONS.intro }}</p>
       <div class="add-row">
         <FormField v-model="input" :label="SECTIONS.input" placeholder="https://…/pages/12345 или 12345" />
-        <AppButton variant="blue" type="button" :disabled="!!blocked || busy || !input.trim()" @click="add">{{ busy === 'add' ? 'Поиск…' : SECTIONS.add }}</AppButton>
-        <AppButton variant="ghost" type="button" :disabled="!!blocked || busy || !input.trim()" :title="SECTIONS.probeHint" @click="probe">{{ busy === 'probe' ? 'Запрос…' : SECTIONS.probe }}</AppButton>
+        <AppButton variant="blue" type="button" :disabled="!!blocked || !!busy || !input.trim()" @click="add">{{ busy === 'add' ? 'Поиск…' : SECTIONS.add }}</AppButton>
+        <AppButton variant="ghost" type="button" :disabled="!!blocked || !!busy || !input.trim()" :title="SECTIONS.probeHint" @click="probe">{{ busy === 'probe' ? 'Запрос…' : SECTIONS.probe }}</AppButton>
       </div>
       <p v-if="blocked" class="hint">{{ blocked }}</p>
       <div v-if="error" class="error-box" role="alert">
@@ -80,12 +80,12 @@
           <span class="faint">id {{ s.id }}</span>
           <AppButton size="xs" variant="danger-ghost" type="button" @click="remove(s.id)">{{ SECTIONS.remove }}</AppButton>
         </div>
-        <label class="check"><input type="checkbox" :checked="s.include_descendants" :disabled="!hasChildren" @change="setDescendants(s.id, ($event.target as HTMLInputElement).checked)"> {{ SECTIONS.withChildren }}</label>
+        <AppCheckbox :model-value="s.include_descendants" :disabled="!hasChildren" @update:model-value="setDescendants(s.id, $event)">{{ SECTIONS.withChildren }}</AppCheckbox>
         <p v-if="!hasChildren" class="hint">{{ SECTIONS.noTree }}</p>
         <template v-else-if="s.include_descendants">
           <div v-if="s.excluded_ids?.length" class="chips">
             <span class="faint">{{ SECTIONS.excluded }}:</span>
-            <span v-for="id in s.excluded_ids" :key="id" class="chip">{{ titles[id] || id }} <button type="button" :title="SECTIONS.restore" @click="toggleExcluded(s.id, id)">×</button></span>
+            <AppChip v-for="id in s.excluded_ids" :key="id" removable :remove-label="SECTIONS.restore" @remove="toggleExcluded(s.id, id)">{{ titles[id] || id }}</AppChip>
           </div>
           <AppButton size="xs" variant="subtle" type="button" @click="flipTree(s.id)">{{ trees.has(s.id) ? SECTIONS.hideTree : SECTIONS.showTree }}</AppButton>
           <template v-if="trees.has(s.id)">
@@ -100,11 +100,14 @@
 </template>
 
 <script setup lang="ts">
-import ConnectionsGuide from '@shared/ui/ConnectionsGuide.vue'
+import { AppCheckbox, AppChip } from '@shared/ui'
+import { projectsEndpoints } from '../api'
+import { settingsEndpoints } from '@features/settings'
+
+import { ConnectionsGuide } from '@features/settings'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { api } from '@core/api'
-import type { Connection, DocsForm, DocsNode, DocsPreset, DocsProbe } from '@core/models/integrations'
+import type { Connection, DocsForm, DocsPreset, DocsProbe } from '@contracts'
 import FormField from '@shared/ui/FormField.vue'
 import AppButton from '@shared/ui/AppButton.vue'
 import PresetPicker from '@shared/ui/PresetPicker.vue'
@@ -179,13 +182,13 @@ async function run(kind: 'add' | 'probe', action: () => Promise<void>) {
 async function probe() {
   probeResult.value = null
   await run('probe', async () => {
-    const result = await api.post<Partial<DocsProbe>>('/projects/draft/docs/probe', draft())
-    probeResult.value = { urls: [], fields: {}, missing: [], preview: '', warnings: [], ...result }
+    const result = await projectsEndpoints.postProjectsByIdDocsProbe({ params: { id: "draft" }, body: draft() })
+    probeResult.value = result
   })
 }
 async function add() {
   await run('add', async () => {
-    const node = await api.post<DocsNode>('/projects/draft/docs/resolve', draft())
+    const node = await projectsEndpoints.postProjectsByIdDocsResolve({ params: { id: "draft" }, body: draft() })
     titles.value[node.id] = node.title
     if (!props.modelValue.docs_selection.some(s => s.id === node.id)) update({ docs_selection: [...props.modelValue.docs_selection, { id: node.id, include_descendants: hasChildren.value }] })
     input.value = ''
@@ -207,12 +210,12 @@ function flipTree(id: string) { if (!trees.value.delete(id)) trees.value.add(id)
 
 onMounted(async () => {
   try {
-    [connections.value, presets.value] = await Promise.all([api.get<Connection[]>('/integrations/connections'), api.get<DocsPreset[]>('/projects/draft/docs/presets')])
+    [connections.value, presets.value] = await Promise.all([settingsEndpoints.getIntegrationsConnections({ params: {  } }), projectsEndpoints.getProjectsByIdDocsPresets({ params: { id: "draft" } })])
     loaded.value = true
     // An unknown service starts from the manual settings; a known one from «Заполнить как».
     manualOpen.value = !presets.value.length || (hasConfig.value && !applied.value)
     if (connectionId.value) await Promise.all(props.modelValue.docs_selection.map(async s => {
-      try { const node = await api.post<DocsNode>('/projects/draft/docs/resolve', { connection_id: connectionId.value, config: config.value, input: s.id }); titles.value[s.id] = node.title } catch { /* Keep saved ids usable if the remote service is offline. */ }
+      try { const node = await projectsEndpoints.postProjectsByIdDocsResolve({ params: { id: "draft" }, body: { connection_id: connectionId.value, config: config.value, input: s.id } }); titles.value[s.id] = node.title } catch { /* Keep saved ids usable if the remote service is offline. */ }
     }))
   } catch (e) { error.value = errorText(e, ERRORS) }
 })
@@ -220,33 +223,33 @@ onMounted(async () => {
 
 <style scoped>
 .docs-fields { display: flex; flex-direction: column; gap: 12px; }
-.hint { font-size: 12px; color: var(--text-muted); line-height: 1.5; overflow-wrap: anywhere; }
-.faint { color: var(--text-faint); font-size: 11.5px; }
-.error { color: var(--danger-hover); font-size: 12px; }
-code { padding: 1px 5px; background: var(--bg3); border-radius: 4px; font-size: 11px; overflow-wrap: anywhere; }
-.notice { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12px; line-height: 1.5; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--bg3); color: var(--text-muted); }
+.hint { font-size: var(--fs-sm); color: var(--text-muted); line-height: 1.5; overflow-wrap: anywhere; }
+.faint { color: var(--text-faint); font-size: var(--fs-sm); }
+.error { color: var(--danger-hover); font-size: var(--fs-sm); }
+code { padding: 1px 5px; background: var(--bg3); border-radius: var(--radius-4); font-size: var(--fs-xs); overflow-wrap: anywhere; }
+.notice { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: var(--fs-sm); line-height: 1.5; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--bg3); color: var(--text-muted); }
 .notice span { flex: 1; min-width: 220px; }
 .notice.warn { background: var(--warning-soft); color: var(--warning-text); }
 .group { border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 14px 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-.group legend { font-size: 12px; font-weight: 600; color: var(--text-muted); padding: 0 6px; text-transform: uppercase; letter-spacing: 0.04em; }
+.group legend { font-size: var(--fs-sm); font-weight: 600; color: var(--text-muted); padding: 0 6px; text-transform: uppercase; letter-spacing: 0.04em; }
 .manual { display: block; padding-top: 12px; }
 .manual > summary { cursor: pointer; display: flex; flex-direction: column; gap: 2px; list-style: none; }
 .manual > summary::-webkit-details-marker { display: none; }
-.manual-title { font-size: 13px; font-weight: 600; }
-.manual-sub { font-size: 11.5px; color: var(--text-faint); padding-left: 16px; overflow-wrap: anywhere; }
+.manual-title { font-size: var(--fs-md); font-weight: 600; }
+.manual-sub { font-size: var(--fs-sm); color: var(--text-faint); padding-left: 16px; overflow-wrap: anywhere; }
 .manual-body { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
-h4 { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-faint); margin-top: 6px; padding-top: 10px; border-top: 1px solid var(--border); }
+h4 { font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-faint); margin-top: 6px; padding-top: 10px; border-top: 1px solid var(--border); }
 .json { display: flex; flex-direction: column; gap: 6px; }
-.json summary { font-size: 11.5px; color: var(--blue-hover); cursor: pointer; width: fit-content; }
+.json summary { font-size: var(--fs-sm); color: var(--blue-hover); cursor: pointer; width: fit-content; }
 .add-row { display: flex; align-items: flex-end; gap: 8px; flex-wrap: wrap; }
 .add-row > :first-child { flex: 1; min-width: 240px; }
-.error-box { display: flex; flex-direction: column; gap: 4px; padding: 8px 12px; background: var(--danger-soft); border-radius: var(--radius-sm); font-size: 12px; color: var(--danger-hover); }
-.probe { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 12px; }
+.error-box { display: flex; flex-direction: column; gap: 4px; padding: 8px 12px; background: var(--danger-soft); border-radius: var(--radius-sm); font-size: var(--fs-sm); color: var(--danger-hover); }
+.probe { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: var(--fs-sm); }
 .probe-head { display: flex; align-items: center; gap: 10px; }
 .probe-head > span { flex: 1; }
 .ok { color: var(--accent-hover); }
 .warn { color: var(--warning-text); }
-h5 { font-size: 11px; font-weight: 600; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.04em; margin-top: 4px; }
+h5 { font-size: var(--fs-xs); font-weight: 600; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.04em; margin-top: 4px; }
 .urls { padding-left: 18px; display: flex; flex-direction: column; gap: 2px; }
 table { border-collapse: collapse; width: 100%; }
 td { padding: 3px 8px 3px 0; vertical-align: top; overflow-wrap: anywhere; }
@@ -254,16 +257,16 @@ td:first-child { white-space: nowrap; color: var(--text-muted); }
 td:nth-child(2) code { white-space: nowrap; }
 tr.missing td:last-child { color: var(--danger-hover); }
 .warnings { padding-left: 18px; color: var(--warning-text); }
-pre { max-height: 220px; overflow: auto; padding: 8px 10px; background: var(--bg3); border-radius: var(--radius-sm); font-size: 11.5px; white-space: pre-wrap; overflow-wrap: anywhere; }
-.selection { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 12.5px; }
+pre { max-height: 220px; overflow: auto; padding: 8px 10px; background: var(--bg3); border-radius: var(--radius-sm); font-size: var(--fs-sm); white-space: pre-wrap; overflow-wrap: anywhere; }
+.selection { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: var(--fs-md); }
 .selection > .btn { align-self: flex-start; }
 .selection-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .selection-head b { overflow-wrap: anywhere; }
 .selection-head .btn { margin-left: auto; }
 .check { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 .chips { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.chip { display: inline-flex; align-items: center; gap: 4px; padding: 1px 4px 1px 8px; background: var(--bg3); border: 1px solid var(--border-strong); border-radius: var(--radius-pill); font-size: 11.5px; text-decoration: line-through; color: var(--text-muted); }
-.chip button { border: none; background: none; color: var(--text-muted); cursor: pointer; font-size: 13px; line-height: 1; padding: 0 4px; }
+.chip { display: inline-flex; align-items: center; gap: 4px; padding: 1px 4px 1px 8px; background: var(--bg3); border: 1px solid var(--border-strong); border-radius: var(--radius-pill); font-size: var(--fs-sm); text-decoration: line-through; color: var(--text-muted); }
+.chip button { border: none; background: none; color: var(--text-muted); cursor: pointer; font-size: var(--fs-md); line-height: 1; padding: 0 4px; }
 .chip button:hover { color: var(--text); }
 .empty { font-style: italic; }
 </style>

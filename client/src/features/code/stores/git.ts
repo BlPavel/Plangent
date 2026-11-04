@@ -6,11 +6,6 @@ import type { GitTracking, GitBranch, GitPreferences, Coauthor } from '../git-ty
 
 export const useGitStore = defineStore('code-git', () => {
   const projectId = ref(''), workspaceId = ref<string | undefined>(), repository = ref<GitTracking | null>(null), branches = ref<GitBranch[]>([])
-  const commitDrafts = ref<Record<string, { message: string; coauthors: Coauthor[] }>>({})
-  function getCommitDraft(project: string, workspace?: string) {
-    const key = JSON.stringify([project, workspace ?? null])
-    return commitDrafts.value[key] ??= { message: '', coauthors: [] }
-  }
   const settings = ref<GitPreferences | null>(null), coauthors = ref<Coauthor[]>([])
   /** lastAction lets each panel show the result of its own operation (commit — in the commit panel, the rest — in the header). */
   const operationId = ref(''), output = ref(''), error = ref(''), lastAction = ref('')
@@ -74,7 +69,7 @@ export const useGitStore = defineStore('code-git', () => {
     operationId.value = current; lastAction.value = action; output.value = ''; error.value = ''
     try {
       const result = await gitApi.operation(p, action, { ...input, operationId: current }, workspaceId.value)
-      if (p === projectId.value && current === operationId.value) output.value ||= result.output
+      if (p === projectId.value && current === operationId.value && result) output.value ||= typeof result.output === 'string' ? result.output : result.output == null ? '' : JSON.stringify(result.output)
       return result
     } catch (cause) {
       if (p === projectId.value && current === operationId.value) {
@@ -91,5 +86,5 @@ export const useGitStore = defineStore('code-git', () => {
   }
   /** Hides the result of the finished operation. */
   function dismiss() { if (!operationId.value) { error.value = ''; output.value = ''; lastAction.value = '' } }
-  return { getCommitDraft, projectId, workspaceId, repository, branches, settings, coauthors, operationId, output, error, lastAction, blocked, operationBlock, writeBlocked, baseRef, start, stop, refresh, refreshBranches, run, cancel, dismiss }
+  return { projectId, workspaceId, repository, branches, settings, coauthors, operationId, output, error, lastAction, blocked, operationBlock, writeBlocked, baseRef, start, stop, refresh, refreshBranches, run, cancel, dismiss }
 })

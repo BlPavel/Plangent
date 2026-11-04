@@ -1,14 +1,12 @@
+import type { SearchOptions as importSearchOptions } from '@contracts';
+import type { SearchEvent } from '@contracts';
+export type { SearchEvent } from '@contracts';
 import { spawn } from 'node:child_process';
 import { CodeError, isBinary, readBytes } from './files';
 import { isRepository, listFiles } from './git';
 
-export interface SearchOptions {
-  query: string; caseSensitive?: boolean; wholeWord?: boolean; regex?: boolean; mask?: string;
-  signal?: AbortSignal;
-}
-export type SearchEvent =
-  | { type: 'match'; path: string; line: number; text: string }
-  | { type: 'done'; matches: number; files: number; truncated: boolean };
+export interface SearchOptions extends importSearchOptions { signal?: AbortSignal }
+
 export const MAX_MATCHES = 2000;
 export const MAX_SEARCH_FILES = 200;
 

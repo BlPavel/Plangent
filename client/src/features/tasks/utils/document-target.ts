@@ -1,4 +1,4 @@
-import type { AnalysisSection, Material, MaterialType } from '@core/models'
+import type { AnalysisSection, Material, MaterialType } from '@contracts'
 
 /** Match the server's identifier lines, excluding examples in fenced code. */
 function hasIdentifier(content: string, identifier: string): boolean {

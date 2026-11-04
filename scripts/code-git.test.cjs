@@ -1,29 +1,21 @@
-const { test } = require('node:test')
+const { test, beforeEach } = require('node:test')
 const assert = require('node:assert/strict')
-const fs = require('node:fs')
-const vm = require('node:vm')
-const ts = require('typescript')
 const { parseHTML } = require('linkedom')
 const { window } = parseHTML('<html><body></body></html>')
 for (const key of ['document', 'Document', 'ShadowRoot', 'HTMLElement', 'Element', 'SVGElement', 'Node']) global[key] = window[key]
 global.window = window
+const { createPinia, setActivePinia, getActivePinia } = require('pinia')
+beforeEach(() => setActivePinia(createPinia()))
 const { createApp, reactive, nextTick, h } = require('vue')
-const { parse, compileScript } = require('@vue/compiler-sfc')
 
 function component(file, mocks) {
-  const { descriptor } = parse(fs.readFileSync(file, 'utf8'), { filename: file })
-  const compiled = compileScript(descriptor, { id: file, inlineTemplate: true }).content
-  const exports = {}
-  vm.runInNewContext(ts.transpileModule(compiled, {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-  }).outputText, { exports, require: name => name in mocks ? mocks[name] : require(name), setTimeout, clearTimeout, document, window }, { filename: file })
-  return exports.default
+  return require('./client-test-loader.cjs').loader({ '@core/composables/useDraft': require('./drafts-test-support.cjs'), '@core/stores/drafts': require('./drafts-test-support.cjs'), ...mocks })(file).default
 }
 const settle = async () => { await new Promise(resolve => setTimeout(resolve, 380)); await nextTick() }
 function mount(comp, props = {}) {
   const root = document.createElement('div')
   document.body.appendChild(root)
-  const app = createApp(comp, props); app.mount(root)
+  const app = createApp(comp, props); app.use(getActivePinia()); app.mount(root)
   return { root, close() { app.unmount(); root.remove() } }
 }
 function button(root, text) { return [...root.querySelectorAll('button')].find(b => b.textContent.trim() === text) }
@@ -34,8 +26,6 @@ function toggle(element, checked) { element.checked = checked; element.dispatchE
 const SplitButtonStub = { props: ['disabled', 'items', 'title', 'variant', 'menuDisabled'], emits: ['click'], setup(props, { slots, emit }) { return () => h('button', { disabled: props.disabled, onClick: () => emit('click') }, slots.default?.()) } }
 const CoauthorsStub = { props: ['modelValue', 'known'], emits: ['update:modelValue'], setup(props, { emit }) { return () => h('button', { class: 'pick-peer', onClick: () => emit('update:modelValue', [props.known[0]]) }, 'peer') } }
 function commitBox(git, code, gitApi) {
-  const drafts = reactive({})
-  git.getCommitDraft ??= (project, workspace) => drafts[JSON.stringify([project, workspace ?? null])] ??= { message: '', coauthors: [] }
   return component('client/src/features/code/components/CommitBox.vue', {
     '../stores/git': { useGitStore: () => git }, '../stores/code': { useCodeStore: () => code }, '../api': { gitApi },
     '@shared/ui/SplitButton.vue': { default: SplitButtonStub }, './CoauthorsField.vue': { default: CoauthorsStub },
@@ -64,7 +54,7 @@ test('commit box: the agent suggests a message, the user edits it, adds a coauth
     input(message, 'TASK edited\n\nWhy it changed')
     screen.root.querySelector('[aria-label="Соавторы"]').click(); await nextTick()
     screen.root.querySelector('.pick-peer').click(); await settle()
-    button(screen.root, 'Закоммитить 1').click(); await settle()
+    button(screen.root, 'Коммит · 1').click(); await settle()
     assert.equal(calls.length, 1)
     assert.equal(calls[0].action, 'commit')
     assert.equal(calls[0].data.title, 'TASK edited')
@@ -78,7 +68,7 @@ test('commit box: the agent suggests a message, the user edits it, adds a coauth
     assert.equal(screen.root.querySelector('.cb-cancel'), null)
     assert.match(screen.root.textContent, /prev/, 'the last commit stays visible')
     git.blocked = 'Идёт выполнение'; input(message, 'TASK next'); await nextTick()
-    assert.ok(button(screen.root, 'Закоммитить 1').disabled)
+    assert.ok(button(screen.root, 'Коммит · 1').disabled)
   } finally { screen.close() }
 })
 
@@ -101,7 +91,7 @@ test('commit box: nothing ticked commits everything; a forbidden message needs a
     input(message, 'TASK fix\nDetails\nGenerated with Claude Code'); await settle()
     assert.match(screen.root.textContent, /запрещённый текст/)
     assert.equal(button(screen.root, 'Всё равно'), undefined)
-    button(screen.root, 'Закоммитить всё').click(); await settle()
+    button(screen.root, 'Коммит').click(); await settle()
     assert.deepEqual(calls.map(c => c.action), ['stage', 'commit'])
     assert.deepEqual(calls[0].data.paths, ['new.txt'])
     button(screen.root, 'Всё равно').click(); await settle()
@@ -155,7 +145,7 @@ test('branch picker refreshes origin, switches remote branches, preserves the ch
   const screen = mount(comp, { onClose: () => closed++ })
   try {
     await settle()
-    const remote = [...screen.root.querySelectorAll('.item')].find(b => b.textContent === 'origin/release')
+    const remote = [...screen.root.querySelectorAll('button')].find(b => b.textContent.trim() === 'origin/release')
     assert.ok(remote, 'the remote branch appears after refresh')
     remote.click(); await settle()
     assert.equal(calls[0][0], 'switch'); assert.equal(calls[0][1].branch, 'origin/release')
@@ -180,12 +170,13 @@ test('task branches use the shared picker, bind the current branch, save created
   const refs = [{ name: 'main', ref: 'refs/heads/main', remote: false }]
   const git = reactive({ projectId: 'p', repository: { branch: 'main', head: 'b'.repeat(40) }, branches: refs, settings: { branch_prefixes: [], base_branch: 'main' }, writeBlocked: '',
     start: async () => {}, stop: () => {}, refreshBranches: async () => refs,
-    run: async (action, data) => { calls.push([action, data]); git.repository.branch = data.branch ?? data.name },
+    run: async (action, data) => { calls.push([action, data]); git.repository.branch = data.branch ?? data.name; if (action === 'branch') git.branches.push({ name: data.name, remote: false }) },
   })
   const picker = component('client/src/features/code/components/BranchPicker.vue', {
     '../stores/git': { useGitStore: () => git }, '@shared/ui/BranchNameInput.vue': { default: BranchNameStub }, '@shared/ui/BranchSelect.vue': { default: BranchSelectStub },
   })
   const comp = component('client/src/features/tasks/components/TaskGit.vue', {
+    '@core/stores/app': { useAppStore: () => ({ confirm: async () => true }) },
     '@features/code': { BranchPicker: picker, useGitStore: () => git },
     '@shared/utils/errorText': { errorText: String },
     '@core/api': { api: {
@@ -195,23 +186,24 @@ test('task branches use the shared picker, bind the current branch, save created
   })
   const screen = mount(comp, { projectId: 'p', task, onUpdated: updated => Object.assign(task, updated) })
   try {
-    assert.match(screen.root.textContent, /Вы на ветке main, задача на old/)
-    button(screen.root, 'Выбрать / создать').click(); await settle()
-    screen.root.querySelector('.item').click(); await settle()
+    assert.match(screen.root.textContent, /ветки нет в репозитории/)
+    button(screen.root, 'Сменить').click(); await settle()
+    button(screen.root, 'mainтекущая').click(); await settle()
     assert.equal(task.branch_name, 'main')
     assert.equal(calls.length, 0, 'binding the current branch does not switch again')
     assert.equal(saves[0][0], '/projects/p/tasks/t')
-    button(screen.root, 'Выбрать / создать').click(); await settle()
+    button(screen.root, 'Сменить').click(); await settle()
     input(screen.root.querySelector('[aria-label="Имя новой ветки"]'), 'feature/task'); await nextTick()
     screen.root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await settle()
     assert.equal(calls.at(-1)[0], 'branch')
     assert.equal(task.branch_name, 'feature/task')
     assert.equal(screen.root.querySelector('.tg-warning'), null)
+    screen.root.querySelector('button[aria-expanded]').click(); await nextTick();
     button(screen.root, 'Считать от текущего коммита').click(); await settle()
     assert.equal(task.base_commit, 'b'.repeat(40))
     assert.equal(saves.at(-1)[0], '/projects/p/tasks/t/base-commit')
     git.writeBlocked = 'Идёт rebase'; await nextTick()
-    assert.ok(button(screen.root, 'Выбрать / создать').disabled)
+    assert.ok(button(screen.root, 'Сменить').disabled)
     assert.ok(button(screen.root, 'Считать от текущего коммита').disabled)
   } finally { screen.close() }
 })
@@ -224,9 +216,9 @@ function finishPanel(store, git) {
     '@core/stores/app': { useAppStore: () => ({ confirm: async () => true }) },
     '@features/code': { CommitDiff: { render: () => null }, CoauthorsField: { render: () => null }, GitAgentNote: { render: () => null }, useGitStore: () => git },
     '@shared/ui/BranchNameInput.vue': { default: BranchNameStub }, '@shared/ui/BranchSelect.vue': { default: BranchSelectStub },
-    '@shared/utils/finish-scenarios': { FINISH_SCENARIOS: { commits: { label: 'Только коммиты', hint: '' }, push: { label: 'Коммиты и push', hint: '' }, full: { label: 'Полный цикл', hint: '' } } },
+    '../finish-scenarios': { FINISH_SCENARIOS: { commits: { label: 'Только коммиты', hint: '' }, push: { label: 'Коммиты и push', hint: '' }, full: { label: 'Полный цикл', hint: '' } } },
     '../stores/finish': { useFinishStore: () => store },
-    '../api': { finishApi: { context: async () => ({ changes: [], diffs: {} }) } },
+    '../api': { finishApi: { context: async () => ({ changes: [], diffs: {} }) }, finishEndpoints: { getProjectsByProjectIdFinishTaskByTaskId: async () => null } },
     '../types': { scenarios: { commits: 'Только коммиты' }, stages: { confirmation: 'Подтверждение', done: 'Готово' }, statuses: { waiting: 'Ждёт подтверждения', complete: 'Выполнено' } },
   })
 }
@@ -239,7 +231,7 @@ test('finish form takes its defaults from the git settings and starts with the c
   const screen = mount(finishPanel(store, git), { projectId: 'p', task: { id: 't', key: 'ABC-1' }, branch: 'main' })
   try {
     await settle()
-    assert.equal(screen.root.querySelector('input[value="full"]').checked, true, 'scenario from the settings')
+    assert.equal(screen.root.querySelector('input[value="full"]').getAttribute('checked'), 'true', 'scenario from the settings')
     assert.match(screen.root.textContent, /squash/)
     assert.match(screen.root.textContent, /опубликована в origin/)
     assert.equal(screen.root.querySelector('[aria-label="Имя новой ветки"]').value, 'feature/ABC-1', 'on the target branch a new branch is required')
@@ -252,7 +244,7 @@ test('finish form takes its defaults from the git settings and starts with the c
     assert.equal(started[0].targetBranch, 'main')
     assert.equal(started[0].branchName, 'feature/ABC-1')
     assert.equal(started[0].includeDescription, true)
-    toggle(screen.root.querySelector('.fp-choice input[type="checkbox"]'), false); await nextTick()
+    toggle([...screen.root.querySelectorAll('label')].find(l => l.textContent.includes('Завершить автоматически')).querySelector('input'), false); await nextTick()
     screen.root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await settle()
     assert.equal(started[1].autoContinue, false)
   } finally { screen.close() }
@@ -292,7 +284,6 @@ test('MR threads render with their location', async () => {
  const store = { data: null, loading: false, error: '', pull: async () => { calls.push('pull'); store.data = { mr: { iid: 3, url: 'u', title: 't', state: 'opened' }, threads: [{ id: 'd1', resolved: false, path: 'a.ts', line: 4, side: 'new', notes: [{ id: 1, author: 'Иван', body: 'почему так?' }] }] } },
   reply: async (id, body) => { calls.push(['reply', id, body]) } }
  const card = component('client/src/features/code/components/ExternalThreadCard.vue', {
-  '@shared/ui/AppButton.vue': { render() { return null } },
   '@core/stores/app': { useAppStore: () => ({ confirm: async () => { calls.push('confirm'); return true } }) },
   '../stores/external': { useExternalThreadsStore: () => store },
   '../types': {},

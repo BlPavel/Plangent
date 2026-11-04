@@ -4,21 +4,8 @@
       <h2>Настройки</h2>
     </div>
 
-    <div class="settings-tabs">
-      <button class="stab" :class="{ active: tab === 'agents' }" @click="tab = 'agents'">Агенты</button>
-      <button class="stab" :class="{ active: tab === 'connections' }" @click="tab = 'connections'">Подключения</button>
-      <button class="stab" :class="{ active: tab === 'skills' }" @click="tab = 'skills'">Скиллы</button>
-      <button class="stab" :class="{ active: tab === 'plan-template' }" @click="tab = 'plan-template'">Шаблон плана</button>
-      <button class="stab" :class="{ active: tab === 'instruction-guide' }" @click="tab = 'instruction-guide'">Руководство по инструкциям</button>
-      <button class="stab" :class="{ active: tab === 'code-fixer' }" @click="tab = 'code-fixer'">Агент доработки</button>
-      <button class="stab" :class="{ active: tab === 'review-skills' }" @click="tab = 'review-skills'">Ревью МР</button>
-      <button class="stab" :class="{ active: tab === 'plan-review' }" @click="tab = 'plan-review'">Ревью плана</button>
-      <button class="stab" :class="{ active: tab === 'commit-rules' }" @click="tab = 'commit-rules'">Коммиты</button>
-      <button class="stab" :class="{ active: tab === 'notes' }" @click="tab = 'notes'">Доработки</button>
-      <button class="stab" :class="{ active: tab === 'architecture' }" @click="tab = 'architecture'">Архитектура</button>
-      <button class="stab" :class="{ active: tab === 'qa' }" @click="tab = 'qa'">QA</button>
-      <button class="stab" :class="{ active: tab === 'interview' }" @click="tab = 'interview'">Уточняющее интервью</button>
-    </div>
+    <div class="settings-content">
+    <div class="settings-navigation"><AppTabs :model-value="tab" :items="[{'value':'agents','label':'Агенты'},{'value':'connections','label':'Подключения'},{'value':'skills','label':'Скиллы'},{'value':'plan-template','label':'Шаблон плана'},{'value':'instruction-guide','label':'Руководство по инструкциям'},{'value':'code-fixer','label':'Агент доработки'},{'value':'review-skills','label':'Ревью МР'},{'value':'plan-review','label':'Ревью плана'},{'value':'commit-rules','label':'Коммиты'},{'value':'notes','label':'Доработки'},{'value':'architecture','label':'Архитектура'},{'value':'qa','label':'QA'},{'value':'interview','label':'Уточняющее интервью'}]" variant="side" label="Настройки" @update:model-value="tab = $event as Tab" /></div>
 
     <div v-if="tab === 'connections'" class="tab-body"><ConnectionsSettings :fix="typeof route.query.fix === 'string' ? route.query.fix : undefined" /></div>
     <!-- Agents -->
@@ -30,9 +17,9 @@
       <p class="hint">Агенты подключаются по ACP (Agent Client Protocol). Plangent сам отвечает на их запросы разрешений, поэтому режимы «без подтверждений» агента не нужны.</p>
 
       <div class="agent-list">
-        <div v-if="!agentsStore.agents.length" class="empty-state">
+        <AppEmptyState v-if="!agentsStore.agents.length" >
           Нет агентов. Добавьте первого.
-        </div>
+        </AppEmptyState>
         <div v-for="a in agentsStore.agents" :key="a.id" class="agent-card">
           <div class="agent-top">
             <div>
@@ -137,6 +124,7 @@
       <ImprovementNotes />
     </div>
 
+    </div>
     <!-- Agent create/edit modal -->
     <AppModal
       v-model="showAgentModal"
@@ -190,7 +178,7 @@
           <FormField v-model="agentForm.skills_dir" label="Папка скиллов в проекте" placeholder=".claude/skills" />
           <FormField v-model="agentForm.skills_global" label="Глобальная папка скиллов" placeholder="~/.claude/skills" />
         </div>
-        <label class="check"><input v-model="agentForm.commands_as_skills" type="checkbox" /> Команды класть как скиллы (агент не поддерживает отдельные команды)</label>
+        <AppCheckbox v-model="agentForm.commands_as_skills">Команды класть как скиллы (агент не поддерживает отдельные команды)</AppCheckbox>
         <div v-if="!agentForm.commands_as_skills" class="row">
           <FormField v-model="agentForm.commands_dir" label="Папка команд в проекте" placeholder=".claude/commands" />
           <FormField v-model="agentForm.commands_global" label="Глобальная папка команд" placeholder="~/.claude/commands" />
@@ -209,17 +197,20 @@
 </template>
 
 <script setup lang="ts">
+import AppEmptyState from '@shared/ui/AppEmptyState.vue'
+import { agentsEndpoints } from '@features/agents'
+
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAppStore } from '@core/stores/app'
 import { useAgentsStore } from '@features/agents'
 import { useChatStore, modelAndEffort } from '@features/agent-chat'
-import { api } from '@core/api'
-import type { Agent, AgentPreset, LayoutProfile } from '@core/models'
+import type { Agent, AgentPreset, LayoutProfile } from '@contracts'
 import AppModal from '@shared/ui/AppModal.vue'
 import FormField from '@shared/ui/FormField.vue'
 import AppSelect from '@shared/ui/AppSelect.vue'
 import AppButton from '@shared/ui/AppButton.vue'
+import { AppCheckbox, AppTabs } from '@shared/ui'
 import IconTrash from '@shared/ui/IconTrash.vue'
 import { CodeFixerInstructionEditor, InstructionGuideEditor, PlanTemplateEditor, SkillsManager } from '@features/library'
 import ConnectionsSettings from '../components/ConnectionsSettings.vue'
@@ -373,16 +364,13 @@ const updatingAgentId = ref<string | null>(null)
 const PINNED_PACKAGE = /^(?:@[\w.-]+\/)?[\w.-]+@\d+\.\d+\.\d+(?:-[\w.]+)?$/
 const canUpdate = (a: Agent) => !!a.update_command.trim() || a.acp_args.some(arg => PINNED_PACKAGE.test(arg))
 
-interface AgentUpdateResult {
-  cli: { ok: true; output: string } | { ok: false; error: string } | null
-  adapter: { ok: true; package: string; from: string; to: string } | { ok: false; package: string; error: string } | null
-}
+
 
 async function updateAgent(agent: Agent) {
   if (!canUpdate(agent)) return
   updatingAgentId.value = agent.id
   try {
-    const { cli, adapter } = await api.post<AgentUpdateResult>(`/agents/${agent.id}/update`)
+    const { cli, adapter } = await agentsEndpoints.postAgentsByIdUpdate({ params: { id: agent.id } })
     const adapterBumped = adapter?.ok && adapter.from !== adapter.to
     if (adapterBumped) {
       await agentsStore.load()
@@ -411,7 +399,7 @@ watch(() => agentsStore.agents.map(a => a.id), ids => {
 
 async function loadPresets() {
   loadingPresets.value = true
-  try { presets.value = await api.get<Record<string, AgentPreset>>('/agents/presets') }
+  try { presets.value = await agentsEndpoints.getAgentsPresets({ params: {  } }) }
   catch (e) { appStore.toast(String(e), 'error') }
   finally { loadingPresets.value = false }
 }
@@ -434,7 +422,9 @@ onMounted(() => {
   padding: calc(var(--titlebar-h) + var(--sp-4)) var(--sp-6) 0;
   flex-shrink: 0;
 }
-.settings-header h2 { font-size: 20px; font-weight: 700; letter-spacing: -0.01em; margin-bottom: var(--sp-4); }
+.settings-header h2 { font-size: var(--fs-2xl); font-weight: 700; letter-spacing: -0.01em; margin-bottom: var(--sp-4); }
+.settings-content { display: flex; flex: 1; min-height: 0; }
+.settings-navigation { flex: 0 0 220px; overflow-y: auto; padding: 0 var(--sp-3); }
 
 .settings-tabs {
   display: flex;
@@ -465,9 +455,9 @@ onMounted(() => {
   color: var(--text-muted);
   padding: 9px 14px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--fs-md);
   font-weight: 500;
-  transition: color 0.12s, border-color 0.12s;
+  transition: color var(--motion-fast), border-color var(--motion-fast);
   margin-bottom: -1px;
 }
 .stab:hover { color: var(--text); }
@@ -479,7 +469,7 @@ onMounted(() => {
   align-items: center;
   justify-content: space-between;
 }
-.section-title { font-weight: 600; font-size: 14px; }
+.section-title { font-weight: 600; font-size: var(--fs-base); }
 
 .agent-list { display: flex; flex-direction: column; gap: var(--sp-2); }
 .agent-card {
@@ -490,26 +480,26 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: var(--sp-2);
-  transition: border-color 0.12s;
+  transition: border-color var(--motion-fast);
 }
 .agent-card:hover { border-color: var(--border-strong); }
 .agent-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .agent-name { font-weight: 600; display: block; margin-bottom: 2px; }
-.agent-cmd { font-size: 12px; color: var(--text-muted); display: block; }
-.agent-meta { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--text-muted); }
+.agent-cmd { font-size: var(--fs-sm); color: var(--text-muted); display: block; }
+.agent-meta { display: flex; gap: 16px; flex-wrap: wrap; font-size: var(--fs-sm); color: var(--text-muted); }
 .agent-meta .bad { color: var(--danger-hover); }
 .actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 
-.hint { font-size: 12px; color: var(--text-muted); }
+.hint { font-size: var(--fs-sm); color: var(--text-muted); }
 
 .presets { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.presets-label { font-size: 12px; color: var(--text-muted); }
+.presets-label { font-size: var(--fs-sm); color: var(--text-muted); }
 
 .group { border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 14px 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-.group legend { font-size: 12px; font-weight: 600; color: var(--text-muted); padding: 0 6px; text-transform: uppercase; letter-spacing: 0.04em; }
+.group legend { font-size: var(--fs-sm); font-weight: 600; color: var(--text-muted); padding: 0 6px; text-transform: uppercase; letter-spacing: 0.04em; }
 .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.check { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-muted); }
+.check { display: flex; align-items: center; gap: 8px; font-size: var(--fs-md); color: var(--text-muted); }
 
 .select-field { display: flex; flex-direction: column; gap: 6px; }
-.select-field > label { font-size: 12px; font-weight: 500; color: var(--text-muted); }
+.select-field > label { font-size: var(--fs-sm); font-weight: 500; color: var(--text-muted); }
 </style>

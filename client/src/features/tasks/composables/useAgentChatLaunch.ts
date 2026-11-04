@@ -1,6 +1,7 @@
+
+import { tasksEndpoints } from '../api'
 import { ref, type Ref } from 'vue'
-import { api } from '@core/api'
-import type { RunStartResult } from '@core/models'
+
 import type { NewChatRequest } from '@features/agent-chat'
 
 export function useAgentChatLaunch(projectId: Ref<string | undefined>, taskId: Ref<string | undefined>, purpose: 'plan' | 'analysis' | 'architecture' | 'qa') {
@@ -10,8 +11,7 @@ export function useAgentChatLaunch(projectId: Ref<string | undefined>, taskId: R
     launching.value = true
     error.value = ''
     try {
-      const result = await api.post<RunStartResult>(`/projects/${projectId.value}/tasks/${taskId.value}/runs`,
-        { purpose, agent_id: options.agent_id, model: options.model || undefined, mode: options.mode, config: options.config })
+      const result = await tasksEndpoints.postProjectsByProjectIdTasksByTaskIdRuns({ params: { projectId: projectId.value, taskId: taskId.value }, body: { purpose, agent_id: options.agent_id, model: options.model || undefined, mode: options.mode, config: options.config } })
       return { ...result, content }
     } catch (e) { error.value = String(e) }
     finally { launching.value = false }

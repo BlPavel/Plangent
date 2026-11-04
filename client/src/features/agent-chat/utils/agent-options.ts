@@ -1,13 +1,7 @@
 import type { SelectOption } from '@shared/ui/AppSelect.vue'
 
-/** What an ACP agent reports about itself: `configOptions` (current spec) or the older `modes`/`models`. */
-export interface AgentOptionsSource {
-  configOptions?: RawConfigOption[] | null
-  modes?: { currentModeId?: string; availableModes: { id: string; name: string; description?: string | null }[] } | null
-  models?: { currentModelId?: string; availableModels: { modelId: string; name: string; description?: string | null }[] } | null
-}
-interface RawChoice { value: string; name: string; description?: string | null; options?: RawChoice[] }
-interface RawConfigOption { id: string; name?: string; category?: string | null; type?: string; currentValue?: string; options?: RawChoice[] }
+import type { AgentOptionsSource } from '@contracts'
+export type { AgentOptionsSource } from '@contracts'
 
 /** One selector in the composer: `kind` decides which server action changes it. */
 export interface AgentSelect {
@@ -69,10 +63,10 @@ export function agentSelects(source: AgentOptionsSource | null | undefined): Age
   for (const o of source.configOptions ?? []) {
     const category = o.category ?? o.id
     if (HIDDEN.has(category) || (o.type && o.type !== 'select')) continue
-    const flat = (o.options ?? []).flatMap(c => c.options ?? [c]).filter(c => category !== 'mode' || !isBypassMode(c.value))
+    const flat = (o.options ?? []).flatMap(c => c.options ?? ('value' in c ? [c] : [])).filter(c => category !== 'mode' || !isBypassMode(c.value))
     if (!flat.length) continue
     const [heading, prefix] = HEADINGS[category] ?? [o.name ?? category]
-    selects.push({ kind: category === 'mode' ? 'mode' : category === 'model' ? 'model' : 'config', configId: o.id, category, heading, prefix, current: o.currentValue ?? '', options: flat.map(c => choice(category, c)) })
+    selects.push({ kind: category === 'mode' ? 'mode' : category === 'model' ? 'model' : 'config', configId: o.id, category, heading, prefix, current: typeof o.currentValue === 'string' ? o.currentValue : '', options: flat.map(c => choice(category, c)) })
   }
   if (!selects.some(s => s.category === 'mode') && source.modes?.availableModes?.length) {
     selects.push({ kind: 'mode', configId: 'mode', category: 'mode', heading: HEADINGS.mode[0], current: source.modes.currentModeId ?? '',

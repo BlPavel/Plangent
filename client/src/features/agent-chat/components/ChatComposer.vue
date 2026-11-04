@@ -14,15 +14,15 @@
     />
 
     <div v-if="attachments.length" class="attachments">
-      <span v-for="(file, index) in attachments" :key="index" class="chip">
+      <AppChip v-for="(file, index) in attachments" :key="index" removable remove-label="Убрать" @remove="attachments.splice(index, 1)">
         <img v-if="file.preview" :src="file.preview" alt="" />
         <span class="chip-name">{{ file.name }}</span>
-        <button type="button" class="chip-remove" title="Убрать" @click="attachments.splice(index, 1)">×</button>
-      </span>
+      </AppChip>
     </div>
 
-    <textarea
-      ref="input"
+    <AppTextarea block
+      ref="inputComponent"
+      composer
       v-model="text"
       rows="1"
       :placeholder="placeholder"
@@ -37,11 +37,11 @@
 
     <div class="toolbar">
       <div class="tools">
-        <label class="btn btn-subtle btn-sm btn-icon" title="Прикрепить файл">
-          <svg viewBox="0 0 16 16" fill="none"><path d="M13 7.5l-5.2 5.2a3.2 3.2 0 0 1-4.5-4.5l5.6-5.6a2.1 2.1 0 0 1 3 3L6.3 11.2a1 1 0 0 1-1.5-1.5L10 4.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" /></svg>
-          <input type="file" multiple hidden @change="filesSelected" />
-        </label>
-        <button type="button" class="btn btn-subtle btn-sm btn-icon" title="Упомянуть файл (@)" @click="insertAt">@</button>
+        <AppButton variant="subtle" size="sm" icon title="Прикрепить файл" aria-label="Прикрепить файл" @click="fileInput?.element?.click()">
+          <UIIconAttach />
+        </AppButton>
+        <AppInput ref="fileInput" type="file" multiple hidden @change="filesSelected" />
+        <AppButton variant="subtle" size="sm" icon type="button"  title="Упомянуть файл (@)" @click="insertAt">@</AppButton>
       </div>
       <div class="actions">
         <slot name="status" />
@@ -59,32 +59,37 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { IconAttach as UIIconAttach } from '@shared/ui/icons'
+import AppChip from '@shared/ui/AppChip.vue'
+import AppInput from '@shared/ui/AppInput.vue'
+import AppTextarea from '@shared/ui/AppTextarea.vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useMentionFiles } from '../composables/useMentionFiles'
-import { emptyDraft, useChatDraftsStore } from '../stores/drafts'
+import { useDraft } from '@core/composables/useDraft'
+import { emptyDraft } from '../stores/drafts'
 import { commandSuggestions, type ChatCommand } from '../utils/commands'
 import AppButton from '@shared/ui/AppButton.vue'
 import SuggestMenu, { type SuggestItem } from './SuggestMenu.vue'
 
-export type ContentBlock = Record<string, unknown>
+export type ContentBlock = NonNullable<import('@contracts').AgentSessionsPOSTIdActionBody['content']>[number]
 
 const props = withDefaults(defineProps<{
   projectId: string
-  draftKey?: string
+  draftKey: string
   commands?: ChatCommand[]
   busy?: boolean
   disabled?: boolean
   initialText?: string
   placeholder?: string
-}>(), { draftKey: undefined, initialText: undefined, commands: () => [], busy: false, disabled: false, placeholder: 'Напишите агенту…  @ — файл, / — команда' })
+}>(), { initialText: undefined, commands: () => [], busy: false, disabled: false, placeholder: 'Напишите агенту…  @ — файл, / — команда' })
 const emit = defineEmits<{ send: [content: ContentBlock[]]; cancel: []; error: [message: string] }>()
 
-const input = ref<HTMLTextAreaElement>()
-const drafts = useChatDraftsStore()
-const localDraft = reactive(emptyDraft(props.initialText))
-const draft = computed(() => props.draftKey ? drafts.get(props.draftKey, props.initialText) : localDraft)
-const text = computed({ get: () => draft.value.text, set: value => { draft.value.text = value } })
-watch(() => props.initialText, value => { if (value !== undefined) text.value = value })
+const inputComponent = ref<InstanceType<typeof AppTextarea>>()
+const input = computed(() => inputComponent.value?.element)
+const fileInput = ref<InstanceType<typeof AppInput>>()
+const draft = useDraft(() => props.draftKey, () => emptyDraft(props.initialText))
+const text = computed({ get: () => draft.value.text, set: value => { draft.value.touched = true; draft.value.text = value } })
+watch(() => props.initialText, value => { if (value !== undefined && !draft.value.touched && !draft.value.attachments.length) draft.value.text = value })
 const attachments = computed({ get: () => draft.value.attachments, set: value => { draft.value.attachments = value } })
 const focused = ref(false), dragging = ref(false)
 const canSend = computed(() => !!text.value.trim() || attachments.value.length > 0)
@@ -201,7 +206,7 @@ function submit() {
     const uri = mentions.value.get(path)
     if (uri && !seen.has(path)) { seen.add(path); links.push({ type: 'resource_link', uri, name: path }) }
   }
-  emit('send', [...(value ? [{ type: 'text', text: value }] : []), ...links, ...attachments.value.map(a => a.block)])
+  emit('send', [...(value ? [{ type: 'text' as const, text: value }] : []), ...links, ...attachments.value.map(a => a.block)])
   text.value = ''
   attachments.value = []
   mentions.value.clear()
@@ -242,29 +247,13 @@ defineExpose({
   background: var(--bg2);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-lg);
-  transition: border-color 0.12s, box-shadow 0.12s;
+  transition: border-color var(--motion-fast), box-shadow var(--motion-fast);
 }
 .composer.focused { border-color: var(--blue); box-shadow: 0 0 0 3px var(--blue-soft); }
 .composer.dragging { border-style: dashed; border-color: var(--blue-hover); }
-textarea {
-  width: 100%;
-  min-height: 44px;
-  max-height: 240px;
-  padding: 12px 14px 4px;
-  resize: none;
-  background: transparent;
-  border: none;
-  outline: none;
-  color: var(--text);
-  font: inherit;
-  font-size: 14px;
-  line-height: 1.5;
-}
-textarea::placeholder { color: var(--text-faint); }
 .toolbar { display: flex; align-items: flex-end; gap: 8px; padding: 4px 8px 8px; }
 .tools { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 2px; }
 .actions { flex-shrink: 0; display: flex; align-items: center; gap: 4px; }
-.tools .btn-icon { font-size: 14px; font-weight: 600; }
 /* Narrow composer: rings without numbers, icon-only buttons. */
 @container composer (max-width: 460px) {
   .actions :deep(.meter-text), .send-label { display: none; }
@@ -280,10 +269,10 @@ textarea::placeholder { color: var(--text-faint); }
   background: var(--bg3);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
-  font-size: 12px;
+  font-size: var(--fs-sm);
 }
-.chip img { width: 20px; height: 20px; object-fit: cover; border-radius: 4px; margin-left: -4px; }
+.chip img { width: 20px; height: 20px; object-fit: cover; border-radius: var(--radius-4); margin-left: -4px; }
 .chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chip-remove { width: 20px; height: 20px; flex-shrink: 0; background: none; border: none; border-radius: 4px; color: var(--text-muted); cursor: pointer; font-size: 15px; line-height: 1; }
+.chip-remove { width: 20px; height: 20px; flex-shrink: 0; background: none; border: none; border-radius: var(--radius-4); color: var(--text-muted); cursor: pointer; font-size: var(--fs-lg); line-height: 1; }
 .chip-remove:hover { background: var(--bg-hover); color: var(--text); }
 </style>

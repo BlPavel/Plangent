@@ -1,10 +1,10 @@
 <template>
-  <ItemComposer
+  <ItemComposer :draft-key="`item-edit:${item.id}`"
     v-if="editing" :where="where" :general="item.scope === 'general'" :initial-kind="item.kind" :initial-text="item.text" :initial-refs="item.refs" :busy="busy" :error="error"
     @save="save" @cancel="editing = false"
   />
   <ItemCard
-    v-else :item="item" :thread="thread" :state="state" :read-only="readOnly" :show-location="showLocation" :busy="busy"
+    v-else :item="item" :thread="thread" :state="state" :read-only="readOnly" :show-location="showLocation" :embedded="embedded" :busy="busy"
     :agent-busy="agent.busy" :working="working" :permissions="working ? agent.permissions : []"
     @edit="editing = true" @remove="remove" @general="general" @goto="emit('goto')" @open-ref="emit('open-ref', $event)"
     @send-now="agent.send([item.id])" @reply="reply" @remove-message="removeMessage" @close="close"
@@ -13,6 +13,8 @@
 </template>
 
 <script setup lang="ts">
+import { useDraft } from '@core/composables/useDraft'
+import { useDraftsStore } from '@core/stores/drafts'
 import { computed, ref } from 'vue'
 import { useAppStore } from '@core/stores/app'
 import { useCodeStore } from '../stores/code'
@@ -23,12 +25,12 @@ import ItemCard from './ItemCard.vue'
 import ItemComposer from './ItemComposer.vue'
 
 /** A review item with its thread, wired to the review store and the review's agent. */
-const props = defineProps<{ item: CodeReviewItem; readOnly?: boolean; showLocation?: boolean }>()
+const props = defineProps<{ item: CodeReviewItem; readOnly?: boolean; showLocation?: boolean; embedded?: boolean }>()
 const emit = defineEmits<{ goto: []; 'open-ref': [ref: string]; 'show-change': [roundId: string, file?: string] }>()
 const store = useCodeStore()
 const agent = useReviewAgentStore()
 const app = useAppStore()
-const editing = ref(false)
+const editing = useDraft(() => `code-review:${props.item.review_id}:item:${props.item.id}:editing`, () => false)
 const busy = ref(false)
 const error = ref('')
 
@@ -50,7 +52,7 @@ async function run(action: () => Promise<unknown>, fallback: string) {
 }
 async function save(value: { kind: 'fix' | 'question'; text: string; refs: string[] }) {
   const patch = value
-  if (await run(() => store.updateDraft(props.item.review_id, props.item.id, patch), 'Не удалось сохранить')) editing.value = false
+  if (await run(() => store.updateDraft(props.item.review_id, props.item.id, patch), 'Не удалось сохранить')) { editing.value = false; useDraftsStore().clearPrefix(`code-review:${props.item.review_id}:composer:item-edit:${props.item.id}:`) }
 }
 const remove = () => run(() => store.removeItem(props.item.review_id, props.item.id), 'Не удалось удалить')
 const general = () => run(() => store.makeGeneral(props.item.review_id, props.item.id), 'Не удалось превратить в общий')
