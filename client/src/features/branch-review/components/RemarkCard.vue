@@ -1,17 +1,16 @@
 <template>
-  <div class="rc" :class="[remark.status, { agent: remark.author === 'agent', outdated: remark.outdated }]">
-    <div class="rc-head">
-      <AppBadge  :tone="remark.author" :title="remark.author === 'agent' ? 'Черновик агента: правьте или уберите' : 'Ваше замечание'">{{ remark.author === 'agent' ? 'агент' : 'я' }}</AppBadge>
+  <AppItemCard compact :accent="remark.status === 'sent' ? 'success' : remark.author === 'agent' ? 'warning' : 'blue'" :dimmed="remark.status === 'sent'">
+    <template #title>
+      <AppBadge :tone="remark.author" :title="remark.author === 'agent' ? 'Черновик агента: правьте или уберите' : 'Ваше замечание'">{{ remark.author === 'agent' ? 'агент' : 'я' }}</AppBadge>
       <AppButton variant="link" size="md" v-if="showLocation" type="button"  :disabled="!remark.path" @click="emit('goto', remark)">{{ remarkPlace(remark) }}</AppButton>
       <span v-if="remark.outdated" class="rc-warn" title="Строка из прошлой версии ветки">к старой версии</span>
       <span v-if="remark.status === 'sent'" class="rc-muted">отправлено</span>
-      <span class="rc-spacer" />
-      <template v-if="remark.status === 'draft' && !editing">
-        <AppButton variant="link" size="md" v-if="remark.outdated" type="button"  :disabled="busy" title="Сделать замечанием к МР целиком с указанием места" @click="run(() => branchReviewApi.detachRemark(scope, reviewId, remark.id))">Сделать общим</AppButton>
-        <AppButton variant="link" size="md" type="button"  :disabled="busy" @click="startEdit">Править</AppButton>
-        <AppButton variant="danger-link" size="md" type="button" :disabled="busy" @click="removeRemark">Убрать</AppButton>
-      </template>
-    </div>
+    </template>
+    <template v-if="remark.status === 'draft' && !editing" #actions>
+      <AppButton variant="link" size="md" v-if="remark.outdated" type="button"  :disabled="busy" title="Сделать замечанием к МР целиком с указанием места" @click="run(() => branchReviewApi.detachRemark(scope, reviewId, remark.id))">Сделать общим</AppButton>
+      <AppButton variant="link" size="md" type="button"  :disabled="busy" @click="startEdit">Править</AppButton>
+      <AppButton variant="danger-link" size="md" type="button" :disabled="busy" @click="removeRemark">Убрать</AppButton>
+    </template>
     <form v-if="editing" class="rc-edit" @submit.prevent="save" @keydown.esc.stop.prevent="editing = false">
       <AppTextarea ref="fieldComponent" v-model="text" block rows="4" spellcheck="false" @input="fit" @keydown.ctrl.enter.prevent="save" @keydown.meta.enter.prevent="save" />
       <div class="rc-bar">
@@ -27,10 +26,11 @@
       <AppButton variant="link" size="md" type="button"  :disabled="busy" @click="run(() => branchReviewApi.recoverRemark(scope, reviewId, remark.id, false))">Нет, вернуть в черновики</AppButton>
     </div>
     <div v-else-if="remark.error" class="rc-error">{{ remark.error }}</div>
-  </div>
+  </AppItemCard>
 </template>
 <script setup lang="ts">
 import AppBadge from '@shared/ui/AppBadge.vue'
+import { AppItemCard } from '@shared/ui'
 import AppButton from '@shared/ui/AppButton.vue'
 import AppTextarea from '@shared/ui/AppTextarea.vue'
 import { useDraftsStore } from '@core/stores/drafts'
@@ -74,17 +74,9 @@ async function save() {
 }
 </script>
 <style scoped>
-.rc { display: flex; flex-direction: column; gap: 4px; padding: 6px 8px; font-size: var(--fs-sm); background: var(--bg2); border: 1px solid var(--border-strong); border-left: 3px solid var(--blue); border-radius: var(--radius-sm); }
-.rc.agent { border-left-color: var(--warning-text); }
-.rc.sent { opacity: 0.75; border-left-color: var(--accent-hover); }
-.rc-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.rc-badge { padding: 0 6px; font-size: var(--fs-xs); font-weight: 600; border-radius: var(--radius-pill); background: var(--blue-soft); color: var(--blue-hover); }
-.rc-badge.agent { background: var(--warning-soft); color: var(--warning-text); }
 .rc-warn { font-size: var(--fs-xs); color: var(--warning-text); }
 .rc-muted { font-size: var(--fs-xs); color: var(--text-muted); }
 .rc-spacer { flex: 1; }
-.rc-link { padding: 0; font: inherit; font-size: var(--fs-sm); color: var(--blue-hover); background: none; border: none; cursor: pointer; text-align: left; overflow-wrap: anywhere; }
-.rc-link:disabled { color: var(--text-muted); cursor: default; }
 .rc-body { font-size: var(--fs-md); line-height: 1.5; }
 .rc-edit { display: flex; flex-direction: column; gap: 6px; }
 .rc-text { width: 100%; padding: 6px 10px; line-height: 1.45; resize: vertical; font: inherit; }

@@ -1,162 +1,34 @@
 <template>
-  <div class="fixer-editor">
-    <div class="section-row">
-      <div>
-        <h3>{{ cfg.title }}</h3>
-        <p>{{ cfg.description }}</p>
-      </div>
-    </div>
-
-    <div class="effective">
-      <span class="effective-label">Сейчас действует:</span>
-      <span class="effective-value" :class="{ own: effective === 'own' }">{{ effectiveLabel }}</span>
-    </div>
-
-    <template v-if="editing">
-      <div class="toolbar">
-        <AppButton size="sm" variant="ghost" :disabled="saving" @click="useDefault">Взять предустановленное за основу</AppButton>
-        <AppButton v-if="inherited" size="sm" variant="ghost" :disabled="saving" @click="content = inherited.content">Взять {{ inherited.label }} за основу</AppButton>
-        <span class="spacer" />
-        <AppButton size="sm" variant="primary" :disabled="saving || !isDirty || !content.trim()" @click="save">{{ saving ? 'Сохранение…' : 'Сохранить' }}</AppButton>
-        <AppButton size="sm" variant="ghost" :disabled="saving" @click="cancel">{{ own ? 'Отмена' : 'Не переопределять' }}</AppButton>
-        <AppButton v-if="own" size="sm" variant="danger-ghost" :disabled="saving" @click="reset">{{ scope === 'global' ? 'Вернуть предустановленное' : 'Сбросить переопределение' }}</AppButton>
-      </div>
-      <AppTextarea mono block rows="16" v-model="content" spellcheck="false" :disabled="loading" placeholder="Текст инструкции (Markdown, лучше на английском)" />
-    </template>
-
-    <template v-else>
-      <div class="toolbar">
-        <AppButton size="sm" variant="primary" :disabled="loading" @click="startOverride(inherited?.content ?? defaultText)">
-          {{ scope === 'global' ? 'Задать свою инструкцию' : `Переопределить для ${levelName}` }}
-        </AppButton>
-        <span class="hint">Начнётся с текста, который действует сейчас.</span>
-      </div>
-      <AppTextarea mono block rows="16" v-if="inherited" :model-value="inherited.content" spellcheck="false" readonly />
-    </template>
-
-    <section class="defaults">
-      <h3>Предустановленные инструкции</h3>
-      <p>Встроенная инструкция, которая применяется, если своя не задана. Её можно взять за основу с помощью кнопки в редакторе.</p>
-      <AppTextarea mono block rows="16" :model-value="defaultText" aria-label="Предустановленные инструкции" spellcheck="false" readonly />
-    </section>
-  </div>
+  <InstructionTextEditor
+    :type="type" :scope="scope" :project-id="projectId" :title="cfg.title" :description="cfg.description"
+    placeholder="Текст инструкции (Markdown, лучше на английском)"
+  />
 </template>
 
 <script setup lang="ts">
-import AppTextarea from '@shared/ui/AppTextarea.vue'
-import { libraryEndpoints, libraryDefaults } from '../api'
-
-import { computed, onMounted, ref, watch } from 'vue'
-
-import { useAppStore } from '@core/stores/app'
-import { useProjectsStore } from '@features/projects'
-import type { LibraryItem, LibraryScope } from '@contracts'
-import AppButton from '@shared/ui/AppButton.vue'
-import { useLibraryStore } from '../stores/library'
+import { computed } from 'vue'
+import type { LibraryScope } from '@contracts'
+import InstructionTextEditor from './InstructionTextEditor.vue'
 
 /** One editor for every rule text with project / group / global levels and a built-in default. */
 const props = withDefaults(defineProps<{ scope: LibraryScope; projectId?: string; type?: 'code-fixer-instruction' | 'commit-rules' | 'plan-review-instruction' | 'architecture-review-instruction' | 'qa-review-instruction' | 'interview-instruction' }>(), { type: 'code-fixer-instruction' })
+const COMMON = 'Общая инструкция для всех проектов. Если своя не задана, применяется встроенная.'
 const CONFIG = {
-  'interview-instruction': { title: 'Уточняющее интервью', itemTitle: 'Уточняющее интервью', slug: 'interview_instruction', description: 'Общая инструкция для всех проектов. Если своя не задана, применяется встроенная.' },
-  'qa-review-instruction': { title: 'Ревью QA', itemTitle: 'Ревью QA', slug: 'qa_review_instruction', description: 'Общая инструкция для всех проектов. Если своя не задана, применяется встроенная.' },
-  'architecture-review-instruction': { title: 'Ревью архитектуры', itemTitle: 'Ревью архитектуры', slug: 'architecture_review_instruction', description: 'Общая инструкция для всех проектов. Если своя не задана, применяется встроенная.' },
+  'interview-instruction': { title: 'Уточняющее интервью', description: COMMON },
+  'qa-review-instruction': { title: 'Ревью QA', description: COMMON },
+  'architecture-review-instruction': { title: 'Ревью архитектуры', description: COMMON },
   'code-fixer-instruction': {
-    title: 'Агент доработки', itemTitle: 'Агент доработки', slug: 'code_fixer_instruction',
+    title: 'Агент доработки',
     description: 'Ваши правила для агента, который исполняет замечания ревью кода: что ему можно трогать, чего избегать, как отчитываться. Как читать замечания и вопросы и как их закрывать, агент получает от Plangent вместе с самими пунктами — здесь это описывать не нужно. Git и запись вне папки проекта запрещены в любом случае. Действует ближайший уровень: проект, группа, глобальный; если нигде не задано — предустановленный текст.',
   },
   'plan-review-instruction': {
-    title: 'Ревью плана', itemTitle: 'Ревью плана', slug: 'plan_review_instruction',
+    title: 'Ревью плана',
     description: 'Ваши правила для агента, который проверяет план задачи по материалам анализа: что искать, на что не обращать внимания. Как оформлять замечания, сводку и таблицу покрытия, агент получает от Plangent — здесь это описывать не нужно. Это общие проверки для всех проектов, они действуют всегда. Свои требования проекта или группы (например, архитектурные) пишутся скиллами ревью плана в проекте. Если текст не задан — предустановленный.',
   },
   'commit-rules': {
-    title: 'Правила коммитов', itemTitle: 'Правила коммитов', slug: 'commit_rules',
+    title: 'Правила коммитов',
     description: 'Как агент пишет сообщения коммитов: язык, длина, стиль, формат заголовка. Действует ближайший уровень: проект, группа, глобальный; если нигде не задано — предустановленный текст.',
   },
 } as const
 const cfg = computed(() => CONFIG[props.type])
-const app = useAppStore(), store = useLibraryStore(), projects = useProjectsStore()
-
-const own = ref<LibraryItem | null>(null)
-const inherited = ref<{ origin: 'group' | 'global'; label: string; content: string } | null>(null)
-const defaultText = ref('')
-const content = ref(''), saved = ref('')
-const editing = ref(false), loading = ref(false), saving = ref(false)
-const isDirty = computed(() => content.value !== saved.value)
-
-const project = computed(() => props.scope === 'project' ? projects.byId(props.projectId) : null)
-const levelName = computed(() => project.value?.kind === 'group' ? 'группы' : 'проекта')
-const effective = computed(() => own.value ? 'own' : inherited.value?.origin ?? 'default')
-const effectiveLabel = computed(() => {
-  if (effective.value === 'own') return props.scope === 'global' ? 'глобальное (своё)' : `своё для ${levelName.value}`
-  if (effective.value === 'group') return `от группы «${projects.byId(project.value?.group_id)?.name ?? '—'}»`
-  if (effective.value === 'global') return 'глобальное, из настроек'
-  return 'предустановленное'
-})
-
-onMounted(load)
-watch(() => [props.scope, props.projectId, props.type], load)
-
-// The project list carries each item's origin; the nearest enabled level wins, as on the server.
-async function load() {
-  loading.value = true
-  try {
-    defaultText.value = (await libraryDefaults(props.type)).content
-    const list = props.scope === 'global'
-      ? (await libraryEndpoints.getLibrary({ params: {  }, query: Object.fromEntries(new URLSearchParams("type=" + props.type + "&scope=global")) })).map(i => ({ ...i, origin: 'direct' as const }))
-      : await libraryEndpoints.getLibrary({ params: {  }, query: Object.fromEntries(new URLSearchParams("type=" + props.type + "&forProject=" + encodeURIComponent(props.projectId ?? ''))) })
-    own.value = list.find(i => i.origin === 'direct') ?? null
-    const parent = (['group', 'global'] as const).map(origin => list.find(i => i.origin === origin && i.enabled)).find(Boolean)
-    inherited.value = parent
-      ? { origin: parent.origin as 'group' | 'global', label: parent.origin === 'group' ? 'инструкция группы' : 'глобальное', content: (await store.getItem(parent.id)).content ?? '' }
-      : null
-    saved.value = own.value ? (await store.getItem(own.value.id)).content ?? '' : ''
-    content.value = saved.value
-    editing.value = !!own.value
-  } catch (e) { app.toast(String(e), 'error') }
-  finally { loading.value = false }
-}
-
-function startOverride(text: string) { content.value = text; editing.value = true }
-function useDefault() { content.value = defaultText.value }
-function cancel() {
-  content.value = saved.value
-  if (!own.value) editing.value = false
-}
-
-async function save() {
-  saving.value = true
-  try {
-    if (own.value) await libraryEndpoints.putLibraryById({ params: { id: own.value.id }, body: { content: content.value } })
-    else own.value = await libraryEndpoints.postLibrary({ params: {  }, body: {
-      type: props.type, slug: cfg.value.slug, title: cfg.value.itemTitle, description: '',
-      scope: props.scope, targets: props.scope === 'project' && props.projectId ? [props.projectId] : [], content: content.value,
-    } })
-    saved.value = content.value
-    app.toast('Инструкция сохранена', 'success')
-  } catch (e) { app.toast(String(e), 'error') }
-  finally { saving.value = false }
-}
-
-async function reset() {
-  if (!own.value) return
-  const next = props.scope === 'global' ? 'предустановленное' : inherited.value ? inherited.value.label : 'предустановленное'
-  if (!(await app.confirm(`Удалить свою инструкцию? Будет действовать ${next}.`))) return
-  try { await store.remove(own.value.id); await load() }
-  catch (e) { app.toast(String(e), 'error') }
-}
 </script>
-
-<style scoped>
-.fixer-editor { display: flex; flex-direction: column; gap: 10px; min-height: 0; }
-.defaults { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
-.section-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
-h3 { margin: 0 0 3px; font-size: var(--fs-base); }
-p { margin: 0; color: var(--text-muted); font-size: var(--fs-sm); line-height: 1.45; max-width: 720px; }
-.effective { font-size: var(--fs-md); display: flex; gap: 6px; }
-.effective-label { color: var(--text-muted); }
-.effective-value { font-weight: 500; }
-.effective-value.own { color: var(--blue-hover); }
-.toolbar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.spacer { flex: 1; }
-.hint { font-size: var(--fs-sm); color: var(--text-faint); }
-</style>

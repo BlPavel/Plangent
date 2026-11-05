@@ -84,6 +84,7 @@
   "librarian": [
     "get_library",
     "get_library_item",
+    "get_instruction_text",
     "propose_library_change"
   ],
   "planner": [

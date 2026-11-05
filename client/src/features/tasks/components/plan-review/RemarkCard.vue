@@ -1,11 +1,11 @@
 <template>
-  <article class="remark" :class="{ selected, rejected: remark.status === 'rejected' }">
-    <header>
+  <AppItemCard as="article" :selected="selected" :dimmed="remark.status === 'rejected'">
+    <template #title>
       <strong>{{ number }} · {{ remarkKinds[remark.kind] }}</strong>
       <AppButton variant="link" size="md" type="button"  :title="L.highlight" @click="$emit('highlight', remark.steps.filter(s => !s.deleted).map(s => s.id))">
         {{ remark.steps.length ? remark.steps.map(s => s.id + (s.deleted ? ' (удалён)' : '')).join(', ') : remark.quote ? 'Цитата' : L.whole }}
       </AppButton>
-    </header>
+    </template>
     <blockquote v-if="remark.quote" class="quote">{{ remark.quote }}</blockquote>
     <details :open="!['accepted', 'rejected', 'applied'].includes(remark.status)">
       <summary>
@@ -58,10 +58,11 @@
         </form>
       </template>
     </details>
-  </article>
+  </AppItemCard>
 </template>
 <script setup lang="ts">
 import AppBadge from '@shared/ui/AppBadge.vue'
+import { AppItemCard } from '@shared/ui'
 import AppTextarea from '@shared/ui/AppTextarea.vue'
 import { useDraft } from '@core/composables/useDraft'
 import { computed } from 'vue'
@@ -114,14 +115,11 @@ function submit() {
 }
 </script>
 <style scoped>
-.remark { padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow-wrap: anywhere; }
-.remark.selected { border-color: var(--blue); }
-.remark.rejected { opacity: 0.75; }
-header, .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .actions { margin-top: 14px; }
 .form-actions { margin-top: 10px; }
 summary { cursor: pointer; margin: 10px 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.quote { margin: 8px 0; padding: 4px 10px; border-left: 2px solid var(--border-strong); color: var(--text-muted); font-size: var(--fs-sm); }
+.quote { margin: 0; padding: 4px 10px; border-left: 2px solid var(--border-strong); color: var(--text-muted); font-size: var(--fs-sm); }
 .was { margin: 8px 0; font-size: var(--fs-sm); color: var(--text-muted); }
 .was summary { margin: 0; }
 .was > :not(summary) { padding-left: 10px; border-left: 2px solid var(--border); }

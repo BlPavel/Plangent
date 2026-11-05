@@ -4,8 +4,8 @@
       <h2>Настройки</h2>
     </div>
 
-    <div class="settings-content">
-    <div class="settings-navigation"><AppTabs :model-value="tab" :items="[{'value':'agents','label':'Агенты'},{'value':'connections','label':'Подключения'},{'value':'skills','label':'Скиллы'},{'value':'plan-template','label':'Шаблон плана'},{'value':'instruction-guide','label':'Руководство по инструкциям'},{'value':'code-fixer','label':'Агент доработки'},{'value':'review-skills','label':'Ревью МР'},{'value':'plan-review','label':'Ревью плана'},{'value':'commit-rules','label':'Коммиты'},{'value':'notes','label':'Доработки'},{'value':'architecture','label':'Архитектура'},{'value':'qa','label':'QA'},{'value':'interview','label':'Уточняющее интервью'}]" variant="side" label="Настройки" @update:model-value="tab = $event as Tab" /></div>
+    <div class="settings-content" :class="{ split: agentOpen }">
+    <aside class="settings-navigation"><SettingsNav v-model="tab" /></aside>
 
     <div v-if="tab === 'connections'" class="tab-body"><ConnectionsSettings :fix="typeof route.query.fix === 'string' ? route.query.fix : undefined" /></div>
     <!-- Agents -->
@@ -20,32 +20,28 @@
         <AppEmptyState v-if="!agentsStore.agents.length" >
           Нет агентов. Добавьте первого.
         </AppEmptyState>
-        <div v-for="a in agentsStore.agents" :key="a.id" class="agent-card">
-          <div class="agent-top">
-            <div>
-              <span class="agent-name">{{ a.name }}</span>
-              <code class="agent-cmd">{{ launchLine(a) }}</code>
-            </div>
-            <div class="actions">
-              <AppButton variant="ghost" size="sm" :disabled="checking.has(a.id)" title="Запустить агента и узнать, что он умеет" @click="check(a)">
-                {{ checking.has(a.id) ? 'Проверка…' : 'Проверить' }}
-              </AppButton>
-              <AppButton
-                v-if="canUpdate(a)"
-                variant="update"
-                size="sm"
-                :disabled="updatingAgentId === a.id"
-                title="Обновить CLI агента и ACP-адаптер до последней версии"
-                @click="updateAgent(a)"
-              >
-                {{ updatingAgentId === a.id ? 'Обновление…' : '⟳ Обновить' }}
-              </AppButton>
-              <AppButton variant="ghost" size="sm" @click="openEdit(a)">Изменить</AppButton>
-              <AppButton variant="danger-ghost" size="sm" @click="remove(a.id)">
-                <IconTrash /> Удалить
-              </AppButton>
-            </div>
-          </div>
+        <AppItemCard v-for="a in agentsStore.agents" :key="a.id">
+          <template #title>{{ a.name }}</template>
+          <template #subtitle><code class="agent-cmd">{{ launchLine(a) }}</code></template>
+          <template #actions>
+            <AppButton variant="ghost" size="sm" :disabled="checking.has(a.id)" title="Запустить агента и узнать, что он умеет" @click="check(a)">
+              {{ checking.has(a.id) ? 'Проверка…' : 'Проверить' }}
+            </AppButton>
+            <AppButton
+              v-if="canUpdate(a)"
+              variant="update"
+              size="sm"
+              :disabled="updatingAgentId === a.id"
+              title="Обновить CLI агента и ACP-адаптер до последней версии"
+              @click="updateAgent(a)"
+            >
+              {{ updatingAgentId === a.id ? 'Обновление…' : '⟳ Обновить' }}
+            </AppButton>
+            <AppButton variant="ghost" size="sm" @click="openEdit(a)">Изменить</AppButton>
+            <AppButton variant="danger-ghost" size="sm" @click="remove(a.id)">
+              <IconTrash /> Удалить
+            </AppButton>
+          </template>
           <div class="agent-meta">
             <template v-if="report(a.id)?.ok">
               <span v-if="report(a.id)!.title">{{ report(a.id)!.title }}</span>
@@ -61,7 +57,7 @@
             <span v-if="Object.keys(a.env).length">Env: {{ Object.keys(a.env).join(', ') }}</span>
             <span v-if="a.layout_profile?.main">Инструкции → {{ a.layout_profile.main.file }}</span>
           </div>
-        </div>
+        </AppItemCard>
       </div>
     </div>
 
@@ -101,16 +97,10 @@
       <CodeFixerInstructionEditor scope="global" type="plan-review-instruction" />
     </div>
 
-    <div v-if="tab === 'architecture'" class="tab-body">
-      <h3>Как писать архитектуру</h3>
-      <PlanTemplateEditor scope="global" type="architecture-template" />
-      <CodeFixerInstructionEditor scope="global" type="architecture-review-instruction" />
-    </div>
-    <div v-if="tab === 'qa'" class="tab-body">
-      <h3>Как писать QA</h3>
-      <PlanTemplateEditor scope="global" type="qa-template" />
-      <CodeFixerInstructionEditor scope="global" type="qa-review-instruction" />
-    </div>
+    <div v-if="tab === 'architecture-template'" class="tab-body"><PlanTemplateEditor scope="global" type="architecture-template" /></div>
+    <div v-if="tab === 'architecture-review'" class="tab-body"><CodeFixerInstructionEditor scope="global" type="architecture-review-instruction" /></div>
+    <div v-if="tab === 'qa-template'" class="tab-body"><PlanTemplateEditor scope="global" type="qa-template" /></div>
+    <div v-if="tab === 'qa-review'" class="tab-body"><CodeFixerInstructionEditor scope="global" type="qa-review-instruction" /></div>
     <div v-if="tab === 'interview'" class="tab-body"><CodeFixerInstructionEditor scope="global" type="interview-instruction" /></div>
     <!-- Commit message rules (global) -->
     <div v-show="tab === 'commit-rules'" class="tab-body">
@@ -124,6 +114,7 @@
       <ImprovementNotes />
     </div>
 
+    <LibrarianPanel v-if="agentOpen && agentProject" class="agent-panel" :project-id="agentProject.id" :default-agent-id="projectsStore.agentFor(agentProject)" :request="agentRequest" @close="agentOpen = false" />
     </div>
     <!-- Agent create/edit modal -->
     <AppModal
@@ -200,7 +191,7 @@
 import AppEmptyState from '@shared/ui/AppEmptyState.vue'
 import { agentsEndpoints } from '@features/agents'
 
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, provide, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAppStore } from '@core/stores/app'
 import { useAgentsStore } from '@features/agents'
@@ -210,20 +201,38 @@ import AppModal from '@shared/ui/AppModal.vue'
 import FormField from '@shared/ui/FormField.vue'
 import AppSelect from '@shared/ui/AppSelect.vue'
 import AppButton from '@shared/ui/AppButton.vue'
-import { AppCheckbox, AppTabs } from '@shared/ui'
+import { AppCheckbox, AppItemCard } from '@shared/ui'
 import IconTrash from '@shared/ui/IconTrash.vue'
-import { CodeFixerInstructionEditor, InstructionGuideEditor, PlanTemplateEditor, SkillsManager } from '@features/library'
+import { CodeFixerInstructionEditor, InstructionGuideEditor, LibrarianPanel, PlanTemplateEditor, SkillsManager, libraryAgentKey } from '@features/library'
+import { useProjectsStore } from '@features/projects'
 import ConnectionsSettings from '../components/ConnectionsSettings.vue'
+import SettingsNav from '../components/SettingsNav.vue'
+import type { SettingsTab } from '../utils/nav'
 import ImprovementNotes from '../components/ImprovementNotes.vue'
 import GlobalGitAgent from '../components/GlobalGitAgent.vue'
 
 const appStore = useAppStore()
+const projectsStore = useProjectsStore()
 const agentsStore = useAgentsStore()
 const chatStore = useChatStore()
 
-type Tab = 'agents' | 'skills' | 'plan-template' | 'instruction-guide' | 'code-fixer' | 'review-skills' | 'plan-review' | 'architecture' | 'qa' | 'interview' | 'commit-rules' | 'notes' | 'connections'
+type Tab = SettingsTab
 // Other screens link straight to a tab, e.g. a docs source's «Изменить пароль» → ?tab=connections&fix=<id>.
 const route = useRoute()
+// «Изменить с агентом» in the instructions and skills: the librarian chat opens beside the page.
+// The agent needs a project to read code in, so it works in the open one (or the first one).
+const agentOpen = ref(false)
+const agentRequest = ref<{ text: string; at: number } | null>(null)
+const agentProject = computed(() => {
+  const current = appStore.currentProject
+  return current && current.kind !== 'source' ? current : projectsStore.workProjects[0] ?? null
+})
+provide(libraryAgentKey, { open: text => {
+  if (!agentProject.value) { appStore.toast('Для работы с агентом нужен проект: агент читает его код', 'error'); return }
+  agentRequest.value = { text, at: Date.now() }
+  agentOpen.value = true
+} })
+
 const tab = ref<Tab>(route.query.tab === 'connections' ? 'connections' : 'agents')
 watch(() => route.query.tab, t => { if (t === 'connections') tab.value = t })
 
@@ -420,11 +429,13 @@ onMounted(() => {
 
 .settings-header {
   padding: calc(var(--titlebar-h) + var(--sp-4)) var(--sp-6) 0;
+  border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
 .settings-header h2 { font-size: var(--fs-2xl); font-weight: 700; letter-spacing: -0.01em; margin-bottom: var(--sp-4); }
 .settings-content { display: flex; flex: 1; min-height: 0; }
-.settings-navigation { flex: 0 0 220px; overflow-y: auto; padding: 0 var(--sp-3); }
+/* Like the chat list: the page background, set apart from the details by a border. */
+.settings-navigation { flex: 0 0 260px; overflow-y: auto; padding: var(--sp-5) var(--sp-2) var(--sp-2); border-right: 1px solid var(--border); }
 
 .settings-tabs {
   display: flex;
@@ -434,6 +445,9 @@ onMounted(() => {
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
+
+.settings-content.split .tab-body { flex: 0 1 46%; min-width: 360px; }
+.agent-panel { flex: 1 1 54%; min-width: 420px; border-left: 1px solid var(--border); }
 
 .tab-body {
   flex: 1;
@@ -472,20 +486,7 @@ onMounted(() => {
 .section-title { font-weight: 600; font-size: var(--fs-base); }
 
 .agent-list { display: flex; flex-direction: column; gap: var(--sp-2); }
-.agent-card {
-  background: var(--bg2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 14px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-2);
-  transition: border-color var(--motion-fast);
-}
-.agent-card:hover { border-color: var(--border-strong); }
-.agent-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-.agent-name { font-weight: 600; display: block; margin-bottom: 2px; }
-.agent-cmd { font-size: var(--fs-sm); color: var(--text-muted); display: block; }
+.agent-cmd { font-size: var(--fs-sm); color: var(--text-muted); }
 .agent-meta { display: flex; gap: 16px; flex-wrap: wrap; font-size: var(--fs-sm); color: var(--text-muted); }
 .agent-meta .bad { color: var(--danger-hover); }
 .actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }

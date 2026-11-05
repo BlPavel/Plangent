@@ -23,9 +23,5 @@ onMounted(() => { void store.loadHistory() })
 <style scoped>
 .rr { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; }
 .rr-title { font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-faint); }
-.rr-item { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; font: inherit; font-size: var(--fs-sm); text-align: left; color: var(--text); background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; }
-.rr-item:hover { background: var(--bg3); }
-.rr-head { display: flex; align-items: center; gap: 6px; font-weight: 600; }
-.rr-status { padding: 0 6px; font-size: var(--fs-xs); font-weight: 500; border-radius: var(--radius-pill); background: var(--bg3); color: var(--text-muted); }
 .rr-meta { font-size: var(--fs-xs); color: var(--text-muted); }
 </style>

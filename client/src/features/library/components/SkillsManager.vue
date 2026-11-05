@@ -3,7 +3,9 @@
     <div class="lib-header">
       <AppTabs v-if="scope !== 'global' && availableTypeValues.length > 1" :model-value="filterType" :items="typeOptions" label="Типы элементов" @update:model-value="filterType = $event as typeof filterType; reload()" />
       <div class="lib-actions">
-        <slot name="actions" />
+        <slot name="actions">
+          <AppButton v-if="agent" variant="blue" size="sm" @click="agent.open(agentRequest)">▸ Написать с агентом</AppButton>
+        </slot>
         <AppButton variant="ghost" size="sm" :disabled="syncing" @click="doSync">
           {{ syncing ? '...' : '↻ Синк' }}
         </AppButton>
@@ -27,27 +29,25 @@
       <div v-else-if="!items.length" class="muted-msg">
         Нет элементов. Нажмите «+ Добавить».
       </div>
-      <div v-for="item in items" :key="item.id" class="item-row" :class="{ fresh: fresh === item.id }">
-        <div class="item-main">
+      <AppItemCard v-for="item in items" :key="item.id" :highlighted="fresh === item.id">
+        <template #lead>
           <AppSwitch :model-value="item.enabled" :title="item.enabled ? 'Включён' : 'Выключен'" :aria-label="item.title" @update:model-value="toggleEnabled(item)" />
-          <div class="item-text">
-            <span class="item-title">{{ item.title }}</span>
-            <span class="item-slug">{{ item.slug }}</span>
-            <span v-if="item.description" class="item-desc">{{ item.description }}</span>
-          </div>
-          <div class="item-badges">
-            <AppBadge >{{ typeLabel(item.type) }}</AppBadge>
-            <AppBadge v-if="availabilityLabel(item)"  :title="availabilityTitle(item)">{{ availabilityLabel(item) }}</AppBadge>
-            <AppBadge v-if="item.agent_filter.length" >{{ item.agent_filter.join(', ') }}</AppBadge>
-          </div>
-        </div>
-        <div class="item-btns">
+        </template>
+        <template #title>{{ item.title }}</template>
+        <template #subtitle>
+          <span class="item-slug">{{ item.slug }}</span>
+          <span v-if="item.description" class="item-desc">{{ item.description }}</span>
+        </template>
+        <template #actions>
+          <AppBadge>{{ typeLabel(item.type) }}</AppBadge>
+          <AppBadge v-if="availabilityLabel(item)" :title="availabilityTitle(item)">{{ availabilityLabel(item) }}</AppBadge>
+          <AppBadge v-if="item.agent_filter.length">{{ item.agent_filter.join(', ') }}</AppBadge>
           <AppButton variant="ghost" size="sm" @click="openEdit(item)">Изменить</AppButton>
           <AppButton variant="danger-ghost" size="sm" icon title="Удалить" @click="removeItem(item)">
             <IconTrash />
           </AppButton>
-        </div>
-      </div>
+        </template>
+      </AppItemCard>
     </div>
 
     <!-- Modal -->
@@ -68,7 +68,7 @@
         :allowed-types="availableTypeValues"
       />
       <AvailabilityField
-        v-if="form.type !== 'plan-template' && !ownProjectOnly" v-model="availability" class="availability" own-folder :within="scope === 'project' ? projectId : undefined"
+        v-if="form.type !== 'plan-template' && !ownProjectOnly && scope !== 'global'" v-model="availability" class="availability" own-folder :within="scope === 'project' ? projectId : undefined"
         hint="Группа и все её проекты вместе — это вся группа: новые проекты группы получат элемент сами. Если проект не отмечен, он не получит."
       />
     </AppModal>
@@ -77,10 +77,11 @@
 
 <script setup lang="ts">
 import AppBadge from '@shared/ui/AppBadge.vue'
-import { AppCheckbox, AppSwitch, AppTabs } from '@shared/ui'
+import { AppCheckbox, AppItemCard, AppSwitch, AppTabs } from '@shared/ui'
 import { libraryEndpoints } from '../api'
 
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, inject, onMounted, onBeforeUnmount, watch } from 'vue'
+import { libraryAgentKey } from '../agent-context'
 import { onServerEvent } from '@core/api/events'
 import { useLibraryStore } from '../stores/library'
 import { useAppStore } from '@core/stores/app'
@@ -111,6 +112,9 @@ const ownProjectOnly = computed(() => scope.value === 'project' && project.value
 const availableTypeValues = computed<LibraryItemType[]>(() => props.allowedTypes ?? (scope.value === 'global' ? ['skill'] : ['skill', 'command', 'main', 'plan-template', 'architecture-template', 'qa-template']))
 const filterType = ref<LibraryItemType | ''>(availableTypeValues.value.length === 1 ? availableTypeValues.value[0] : '')
 const syncing = ref(false)
+const agent = inject(libraryAgentKey, null)
+const agentRequest = computed(() => `${scope.value === 'global' ? 'Глобально: нужен' : 'Нужен'} ${SKILL_NOUN[availableTypeValues.value[0]] ?? 'скилл'}: `)
+const SKILL_NOUN: Partial<Record<LibraryItemType, string>> = { 'review-skill': 'скилл ревью МР', 'plan-review-skill': 'скилл ревью плана', 'architecture-review-skill': 'скилл ревью архитектуры', 'qa-review-skill': 'скилл ревью QA' }
 
 const typeOptions = computed(() => [
   { value: '' as const, label: 'Все' },
@@ -156,7 +160,8 @@ async function reload() {
 }
 
 function availabilityLabel(item: LibraryItem): string {
-  if (item.detached_from) return ''
+  // Global skills apply everywhere by definition: nothing to say about who gets them.
+  if (scope.value === 'global' || item.detached_from) return ''
   if (scope.value === 'project') return item.origin === 'global' ? 'везде' : item.origin === 'group' ? 'через группу' : ''
   if (item.scope === 'global') return 'везде'
   return item.targets.length === 1 ? (projectsStore.byId(item.targets[0])?.name ?? '—') : `выбранным: ${item.targets.length}`
@@ -217,7 +222,11 @@ async function toggleEnabled(item: LibraryItem) {
 async function removeItem(item: LibraryItem) {
   // A group's item removed inside a project only leaves that project.
   const shared = isSharedInProject(item)
-  if (!(await appStore.confirm(shared ? 'Убрать из этого проекта? В группе и в других проектах он останется.' : 'Удалить?'))) return
+  const name = `«${item.title}»`
+  const question = shared ? `Убрать ${name} из этого проекта? В группе и в других проектах он останется.`
+    : scope.value === 'global' ? `Удалить ${name} для всех проектов? Агенты больше не будут получать этот элемент, его файлы уберутся из их папок.`
+    : `Удалить ${name}? Его файлы уберутся из папок агентов, где он был доступен.`
+  if (!(await appStore.confirm(question, { confirmLabel: shared ? 'Убрать' : 'Удалить' }))) return
   try {
     if (shared) await store.exclude(item.id, props.projectId!)
     else await store.remove(item.id)
@@ -354,27 +363,12 @@ async function save() {
 .item-list { display: flex; flex-direction: column; gap: 6px; overflow-y: auto; flex: 1; }
 .muted-msg { color: var(--text-muted); font-size: var(--fs-md); padding: 8px 0; }
 
-.item-row {
-  background: var(--bg2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 10px 14px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.item-row.fresh { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); transition: box-shadow var(--motion-slow), border-color var(--motion-slow); }
-.item-main { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
-.item-text { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
-.item-title { font-weight: 600; font-size: var(--fs-md); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.item-slug { font-size: var(--fs-xs); color: var(--text-muted); font-family: var(--font-mono); }
-.item-desc { font-size: var(--fs-xs); color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.item-badges { display: flex; gap: 4px; flex-shrink: 0; }
+.item-slug { display: block; font-size: var(--fs-xs); font-family: var(--font-mono); }
+.item-desc { display: block; font-size: var(--fs-xs); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .badge-where { color: var(--blue-hover); }
 .availability { margin-top: 12px; }
 .shared-note { margin: 0 0 12px; padding: 8px 10px; background: var(--blue-soft); border-radius: var(--radius-sm); font-size: var(--fs-sm); line-height: 1.45; color: var(--text-muted); }
 .badge { font-size: var(--fs-xs); padding: 2px 6px; background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius-4); color: var(--text-muted); }
-.item-btns { display: flex; gap: 6px; flex-shrink: 0; }
 
 /* Toggle */
 .toggle { position: relative; display: inline-block; width: 32px; height: 18px; cursor: pointer; flex-shrink: 0; }

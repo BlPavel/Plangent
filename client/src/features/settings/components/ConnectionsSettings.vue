@@ -30,64 +30,56 @@
       <div class="actions"><AppButton size="sm" variant="primary" @click="openConnection()">Добавить подключение</AppButton></div>
     </div>
 
-    <section v-for="g in groups" :key="g.org?.id || 'none'" class="org">
-      <header class="org-head">
-        <div class="org-title">
-          <span class="org-name">{{ g.org ? g.org.name : 'Без организации' }}</span>
-          <span v-if="g.org" class="org-sub">Общая учётная запись: {{ credentialName(g.org.credential_id) || 'не выбрана' }}</span>
-        </div>
-        <div class="actions">
-          <AppButton size="xs" variant="subtle" @click="openCredential(undefined, g.org?.id)">+ Учётная запись</AppButton>
-          <AppButton size="xs" variant="subtle" @click="openConnection(undefined, g.org?.id)">+ Подключение</AppButton>
-          <template v-if="g.org">
-            <AppButton size="xs" variant="ghost" @click="openOrganization(g.org)">Изменить</AppButton>
-            <AppButton size="xs" variant="danger-ghost" @click="removeOrganization(g.org)">Удалить</AppButton>
-          </template>
-        </div>
-      </header>
+    <AppItemCard v-for="g in groups" :key="g.org?.id || 'none'" as="section">
+      <template #title>{{ g.org ? g.org.name : 'Без организации' }}</template>
+      <template v-if="g.org" #subtitle>Общая учётная запись: {{ credentialName(g.org.credential_id) || 'не выбрана' }}</template>
+      <template #actions>
+        <AppButton size="xs" variant="subtle" @click="openCredential(undefined, g.org?.id)">+ Учётная запись</AppButton>
+        <AppButton size="xs" variant="subtle" @click="openConnection(undefined, g.org?.id)">+ Подключение</AppButton>
+        <template v-if="g.org">
+          <AppButton size="xs" variant="ghost" @click="openOrganization(g.org)">Изменить</AppButton>
+          <AppButton size="xs" variant="danger-ghost" @click="removeOrganization(g.org)">Удалить</AppButton>
+        </template>
+      </template>
 
       <p v-if="!g.connections.length && !g.credentials.length" class="hint">Пусто: добавьте учётную запись или подключение.</p>
 
-      <div v-for="c in g.connections" :key="c.id" class="item">
-        <div class="item-main">
-          <div class="item-title">
-            <span>{{ c.name }}</span>
-            <AppBadge  :tone="STATUS[status(c)]?.tone">{{ STATUS[status(c)]?.label || status(c) }}</AppBadge>
-          </div>
-          <div class="item-sub"><code>{{ c.base_url }}</code> · {{ STRATEGIES[c.auth_strategy]?.label || c.auth_strategy }} · {{ accountLabel(c) }}</div>
-          <div v-if="checks[c.id]?.running" class="item-message">Проверка: вход и запрос «кто я»…</div>
-          <template v-else-if="checks[c.id]?.result">
-            <div class="item-message" :class="checks[c.id]!.result!.ok ? 'ok' : 'error'">{{ checks[c.id]!.result!.ok ? '✓ ' : '' }}{{ checkText(checks[c.id]!.result!.status, checks[c.id]!.result!.message, checks[c.id]!.result!.url) }}</div>
-            <div v-if="checks[c.id]!.result!.url" class="item-url">Запрос: <code>{{ checks[c.id]!.result!.url }}</code></div>
-          </template>
-          <div v-else-if="c.last_check_message" class="item-message" :class="STATUS[c.last_check_status]?.tone">
-            {{ c.last_check_message }}<span v-if="c.last_check_at" class="faint"> · {{ formatDateTime(c.last_check_at) }}</span>
-          </div>
-          <div v-else-if="noPassword(c)" class="item-message warn">{{ secretWord(c).Nom }} не задан — вход невозможен.</div>
-        </div>
-        <div class="actions">
+      <AppItemCard v-for="c in g.connections" :key="c.id" nested>
+        <template #title>
+          <span>{{ c.name }}</span>
+          <AppBadge :tone="STATUS[status(c)]?.tone">{{ STATUS[status(c)]?.label || status(c) }}</AppBadge>
+        </template>
+        <template #subtitle><code>{{ c.base_url }}</code> · {{ STRATEGIES[c.auth_strategy]?.label || c.auth_strategy }} · {{ accountLabel(c) }}</template>
+        <template #actions>
           <AppButton v-if="passwordTarget(c)" size="sm" :variant="status(c) === 'needs_update' || noPassword(c) ? 'update' : 'ghost'" @click="fixPassword(c)">{{ noPassword(c) ? 'Задать' : 'Изменить' }} {{ secretWord(c).acc }}</AppButton>
           <AppButton size="sm" variant="ghost" :disabled="checks[c.id]?.running" title="Войти и запросить текущего пользователя" @click="check(c.id)">{{ checks[c.id]?.running ? 'Проверка…' : 'Проверить' }}</AppButton>
           <AppButton size="sm" variant="ghost" @click="openConnection(c)">Изменить</AppButton>
           <AppButton size="sm" variant="danger-ghost" @click="removeConnection(c)">Удалить</AppButton>
+        </template>
+        <div v-if="checks[c.id]?.running" class="item-message">Проверка: вход и запрос «кто я»…</div>
+        <template v-else-if="checks[c.id]?.result">
+          <div class="item-message" :class="checks[c.id]!.result!.ok ? 'ok' : 'error'">{{ checks[c.id]!.result!.ok ? '✓ ' : '' }}{{ checkText(checks[c.id]!.result!.status, checks[c.id]!.result!.message, checks[c.id]!.result!.url) }}</div>
+          <div v-if="checks[c.id]!.result!.url" class="item-message item-url">Запрос: <code>{{ checks[c.id]!.result!.url }}</code></div>
+        </template>
+        <div v-else-if="c.last_check_message" class="item-message" :class="STATUS[c.last_check_status]?.tone">
+          {{ c.last_check_message }}<span v-if="c.last_check_at" class="faint"> · {{ formatDateTime(c.last_check_at) }}</span>
         </div>
-      </div>
+        <div v-else-if="noPassword(c)" class="item-message warn">{{ secretWord(c).Nom }} не задан — вход невозможен.</div>
+      </AppItemCard>
 
-      <div v-for="c in g.credentials" :key="c.id" class="item account">
-        <div class="item-main">
-          <div class="item-title">
-            <span>{{ c.name }}</span>
-            <AppBadge  :tone="credentialStatus(c).tone">{{ credentialStatus(c).label }}</AppBadge>
-          </div>
-          <div class="item-sub">Учётная запись · логин {{ c.username }} · {{ usage(c.id) ? 'используют подключения: ' + usage(c.id) : 'не используется' }}</div>
-        </div>
-        <div class="actions">
+      <AppItemCard v-for="c in g.credentials" :key="c.id" nested>
+        <template #title>
+          <span>{{ c.name }}</span>
+          <AppBadge :tone="credentialStatus(c).tone">{{ credentialStatus(c).label }}</AppBadge>
+        </template>
+        <template #subtitle>Учётная запись · логин {{ c.username }} · {{ usage(c.id) ? 'используют подключения: ' + usage(c.id) : 'не используется' }}</template>
+        <template #actions>
           <AppButton size="sm" :variant="c.status === 'needs_update' || !c.hasSecret ? 'update' : 'ghost'" @click="openPassword('credentials', c.id, c.name)">{{ c.hasSecret ? 'Изменить пароль' : 'Задать пароль' }}</AppButton>
           <AppButton size="sm" variant="ghost" @click="openCredential(c)">Изменить</AppButton>
           <AppButton size="sm" variant="danger-ghost" @click="removeCredential(c)">Удалить</AppButton>
-        </div>
-      </div>
-    </section>
+        </template>
+      </AppItemCard>
+    </AppItemCard>
 
     <AppModal v-model="organizationOpen" :title="organizationForm.id ? 'Организация' : 'Новая организация'" @confirm="saveOrganization">
       <FormField v-model="organizationForm.name" label="Название" placeholder="Компания A" :hint="ORGANIZATION.name" />
@@ -123,6 +115,7 @@
 
 <script setup lang="ts">
 import AppBadge from '@shared/ui/AppBadge.vue'
+import { AppItemCard } from '@shared/ui'
 import { settingsEndpoints } from '../api'
 import { projectsEndpoints } from '@features/projects'
 
@@ -327,22 +320,11 @@ onMounted(async () => {
 .empty ol { padding-left: 20px; display: flex; flex-direction: column; gap: 4px; color: var(--text-muted); font-size: var(--fs-md); line-height: 1.5; }
 .empty .actions { justify-content: flex-start; }
 
-.org { display: flex; flex-direction: column; gap: var(--sp-2); padding: 12px 14px; background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); }
-.org-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-.org-title { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.org-name { font-weight: 600; font-size: var(--fs-base); }
-.org-sub { font-size: var(--fs-sm); color: var(--text-muted); }
-
-.item { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 10px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); transition: border-color var(--motion-fast); }
-.item:hover { border-color: var(--border-strong); }
-.item-main { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 3px; }
-.item-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-weight: 600; font-size: var(--fs-md); }
-.item-sub, .item-url { font-size: var(--fs-sm); color: var(--text-muted); overflow-wrap: anywhere; }
-.item-url { color: var(--text-faint); }
 .item-message { font-size: var(--fs-sm); line-height: 1.45; color: var(--text-muted); overflow-wrap: anywhere; }
 .item-message.ok { color: var(--accent-hover); }
 .item-message.error { color: var(--danger-hover); }
 .item-message.warn { color: var(--warning-text); }
+.item-message.item-url { color: var(--text-faint); }
 .faint { color: var(--text-faint); }
 code { padding: 1px 5px; background: var(--bg3); border-radius: var(--radius-4); font-size: var(--fs-sm); }
 

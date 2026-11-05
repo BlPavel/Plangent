@@ -20,40 +20,47 @@
           <span v-if="g.id === 'done'" class="caret">{{ doneOpen ? '▾' : '▸' }}</span>{{ g.title }} <span class="work-group-count">· {{ g.items.length }}</span>
         </h3>
         <template v-if="g.id !== 'done' || doneOpen">
-          <div
-            v-for="e in g.items" :key="e.task.id" class="work-row" :class="[workTone(e.state), { attention: e.state.group === 'attention' }]"
-            tabindex="0" role="button" @click="open(e)" @keydown.enter.self="open(e)"
+          <AppItemCard
+            v-for="e in g.items" :key="e.task.id" class="work-row" compact interactive
+            :accent="workTone(e.state) === 'danger' ? 'danger' : e.state.group === 'attention' ? 'warning' : undefined"
+            @click="open(e)"
           >
-            <span class="work-kind" :class="e.task.kind" :title="e.task.kind === 'errand' ? 'Поручение' : 'Задача с планом'">{{ e.task.kind === 'errand' ? '⚡' : '📋' }}</span>
-            <div class="work-main">
+            <template #lead>
+              <span class="work-kind" :class="e.task.kind" :title="e.task.kind === 'errand' ? 'Поручение' : 'Задача с планом'">{{ e.task.kind === 'errand' ? '⚡' : '📋' }}</span>
+            </template>
+            <template #title>
               <div class="work-line">
                 <code v-if="e.task.external_key" class="work-number">{{ e.task.external_key }}</code>
                 <span class="work-title">{{ e.task.title || (e.task.external_key ? '' : '—') }}</span>
                 <AppBadge v-if="isGroup" :tone="e.task.project_id === project.id ? 'open' : 'neutral'">{{ e.task.project_id === project.id ? 'группа' : ownerName(e.task.project_id) }}</AppBadge>
               </div>
+            </template>
+            <template #subtitle>
               <div class="work-meta">
-                <span class="work-state" :class="{ live: e.state.agentWorking }">{{ e.state.text }}</span>
+                <span class="work-state" :class="{ live: e.state.agentWorking, 'is-attention': e.state.group === 'attention', 'is-failed': workTone(e.state) === 'danger' }">{{ e.state.text }}</span>
                 <span v-if="branchOf(e)" class="work-branch" :title="'Ветка: ' + branchOf(e)">⎇ {{ branchOf(e) }}</span>
                 <span v-if="inMainFolder(e)" class="work-main-folder" title="Работа идёт в основной папке проекта">основная папка</span>
                 <span v-if="e.task.kind !== 'errand' && e.state.counts.steps">шаги {{ e.state.counts.completed }}/{{ e.state.counts.steps }}</span>
                 <span v-if="e.state.counts.remarks && e.state.group !== 'done'" class="work-remarks">💬 замечаний: {{ e.state.counts.remarks }}</span>
               </div>
-            </div>
-            <div class="work-stage" :title="stageTitle(e)">
-              <span class="work-bars"><i v-for="(b, i) in bars(e)" :key="i" :class="b" /></span>
-              <span class="work-stage-name">{{ stageName(e) }}</span>
-            </div>
-            <div class="work-actions">
-              <template v-if="e.state.group !== 'done'">
-                <AppButton :variant="e.state.group === 'attention' ? 'primary' : 'subtle'" size="sm" @click.stop="open(e)">{{ e.state.actionLabel }}</AppButton>
-              </template>
-              <template v-else>
-                <AppButton v-if="e.state.action === 'errand'" variant="subtle" size="sm" @click.stop="startFollowUp(e.task)">Поручение по этой</AppButton>
-                <AppButton v-else variant="subtle" size="sm" @click.stop="reopen(e.task)">Открыть снова</AppButton>
-              </template>
-              <span class="work-menu" @click.stop><AppMenu :items="rowMenu(e.task)" size="sm" title="Действия с работой" /></span>
-            </div>
-          </div>
+            </template>
+            <template #actions>
+              <div class="work-stage" :title="stageTitle(e)">
+                <span class="work-bars"><i v-for="(b, i) in bars(e)" :key="i" :class="b" /></span>
+                <span class="work-stage-name">{{ stageName(e) }}</span>
+              </div>
+              <div class="work-actions">
+                <template v-if="e.state.group !== 'done'">
+                  <AppButton :variant="e.state.group === 'attention' ? 'primary' : 'subtle'" size="sm" @click.stop="open(e)">{{ e.state.actionLabel }}</AppButton>
+                </template>
+                <template v-else>
+                  <AppButton v-if="e.state.action === 'errand'" variant="subtle" size="sm" @click.stop="startFollowUp(e.task)">Поручение по этой</AppButton>
+                  <AppButton v-else variant="subtle" size="sm" @click.stop="reopen(e.task)">Открыть снова</AppButton>
+                </template>
+                <span class="work-menu" @click.stop><AppMenu :items="rowMenu(e.task)" size="sm" title="Действия с работой" /></span>
+              </div>
+            </template>
+          </AppItemCard>
         </template>
       </section>
     </div>
@@ -74,7 +81,7 @@
 
 <script setup lang="ts">
 import AppInput from '@shared/ui/AppInput.vue'
-import { AppBadge, AppEmptyState, AppSegmented } from '@shared/ui'
+import { AppBadge, AppEmptyState, AppItemCard, AppSegmented } from '@shared/ui'
 import { tasksEndpoints } from '../api'
 
 import { computed, nextTick, ref, watch } from 'vue'
@@ -195,21 +202,17 @@ async function submitFollowUp() {
 .work-group h3.clickable { cursor: pointer; }
 .work-group-count { color: var(--text-faint); }
 .caret { margin-right: 6px; }
-.work-row { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto auto; align-items: center; gap: 12px; padding: 8px 12px; margin-bottom: 4px; background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; }
-.work-row.attention { box-shadow: inset 2px 0 0 var(--warning); }
-.work-row.danger { box-shadow: inset 2px 0 0 var(--danger-hover); }
-.work-row:hover, .work-row:focus-visible { border-color: var(--border-strong); background: var(--bg3); outline: none; }
+.work-row { margin-bottom: 4px; }
 .work-kind { width: 24px; height: 24px; display: grid; place-items: center; border-radius: var(--radius-sm); font-size: var(--fs-sm); }
 .work-kind.errand { background: var(--warning-soft); }
 .work-kind.task { background: var(--blue-soft); }
-.work-main { min-width: 0; }
-.work-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.work-line { display: flex; align-items: center; flex: 1 1 100%; gap: 8px; min-width: 0; }
 .work-number { flex-shrink: 0; font-size: var(--fs-sm); color: var(--text-muted); }
 .work-title { min-width: 0; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.work-meta { display: flex; align-items: center; gap: 10px; margin-top: 2px; min-width: 0; font-size: var(--fs-sm); color: var(--text-faint); white-space: nowrap; overflow: hidden; }
+.work-meta { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: var(--fs-sm); color: var(--text-faint); white-space: nowrap; overflow: hidden; }
 .work-state { color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; }
-.work-row.attention .work-state { color: var(--warning-text); }
-.work-row.danger .work-state { color: var(--danger-hover); }
+.work-state.is-attention { color: var(--warning-text); }
+.work-state.is-failed { color: var(--danger-hover); }
 .work-state.live { color: var(--blue-hover); }
 .work-state.live::before { content: ''; display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: var(--radius-round); background: currentColor; vertical-align: 1px; animation: work-pulse 1.4s ease-in-out infinite; }
 @keyframes work-pulse { 50% { opacity: 0.3; } }

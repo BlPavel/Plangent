@@ -54,7 +54,7 @@ test('librarian HTTP and MCP workflow keeps files read-only and briefs the first
     id = session.id;
     assert.equal(session.role, 'librarian');
     assert.equal(session.policy, 'read-only');
-    assert.deepEqual(allowed(sessions.getSession(id)), ['get_library', 'get_library_item', 'propose_library_change']);
+    assert.deepEqual(allowed(sessions.getSession(id)), ['get_library', 'get_library_item', 'get_instruction_text', 'propose_library_change']);
     for (const role of ['chat', 'analyst', 'planner', 'executor'] as const)
       assert.ok(!allowed({ ...sessions.getSession(id), role }).includes('get_library'));
     assert.equal((await json('/sessions/' + id, { policy: 'allow-all' }, 'PATCH')).status, 400);
@@ -67,7 +67,7 @@ test('librarian HTTP and MCP workflow keeps files read-only and briefs the first
       return await response.json() as { error?: unknown; result: { isError?: boolean; content: { text: string }[]; tools?: { name: string }[] } };
     };
     const tools = await call('', {}, 'tools/list');
-    assert.deepEqual(tools.result.tools?.map(t => t.name), ['get_library', 'get_library_item', 'propose_library_change']);
+    assert.deepEqual(tools.result.tools?.map(t => t.name), ['get_library', 'get_library_item', 'get_instruction_text', 'propose_library_change']);
     await host.sendPrompt(id, [{ type: 'text', text: 'Create a store testing skill' }]);
     const untilReady = async () => {
       const deadline = Date.now() + 10_000;

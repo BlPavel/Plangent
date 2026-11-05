@@ -1,4 +1,4 @@
-<template><textarea ref="element" class="control-input textarea" :class="[size, { mono, invalid, warning, block, composer }]" :value="modelValue" :aria-invalid="invalid || undefined" @input="input" /></template>
+<template><textarea ref="element" class="control-input textarea" :class="[size, { mono, invalid, warning, block, composer, fill }]" :value="modelValue" :aria-invalid="invalid || undefined" @input="input" /></template>
 <script setup lang="ts">
 import { nextTick, onMounted, ref, watch } from 'vue';
 const props = withDefaults(defineProps<{
@@ -10,6 +10,8 @@ const props = withDefaults(defineProps<{
     block?: boolean;
     autosize?: boolean;
     composer?: boolean;
+    /** Takes all the height the flex parent leaves; the text scrolls inside. */
+    fill?: boolean;
 }>(), { size: 'md' });
 const emit = defineEmits<{
     'update:modelValue': [
@@ -26,4 +28,4 @@ watch(() => [props.modelValue, props.autosize], () => void nextTick(resize));
 onMounted(resize);
 defineExpose({ focus: () => element.value?.focus(), select: () => element.value?.select?.(), element });
 </script>
-<style scoped>@import './styles/controls.css'; .warning { border-color: var(--warning); } .composer { width: 100%; min-height: 44px; max-height: 240px; padding: 12px 14px 4px; resize: none; background: transparent; border: none; outline: none; color: var(--text); font: var(--fs-base)/var(--lh-normal) var(--font-sans); }</style>
+<style scoped>@import './styles/controls.css'; .warning { border-color: var(--warning); } .fill { flex: 1; min-height: 160px; height: auto; resize: none; } .composer, .composer:focus { width: 100%; min-height: 44px; max-height: 240px; padding: 12px 14px 4px; resize: none; background: transparent; border: none; border-radius: 0; box-shadow: none; outline: none; color: var(--text); font: var(--fs-base)/var(--lh-normal) var(--font-sans); }</style>

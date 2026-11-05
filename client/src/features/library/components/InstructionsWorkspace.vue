@@ -42,15 +42,16 @@
       </template>
       </div>
     </section>
-    <LibrarianPanel v-if="panelOpen" class="panel" :project-id="projectId" :default-agent-id="defaultAgentId" @close="panelOpen = false" />
+    <LibrarianPanel v-if="panelOpen" class="panel" :project-id="projectId" :default-agent-id="defaultAgentId" :request="request" @close="panelOpen = false" />
   </div>
 </template>
 
 <script setup lang="ts">
 import AppTabs from '@shared/ui/AppTabs.vue'
-import { computed, ref, watch } from 'vue'
+import { computed, provide, ref, watch } from 'vue'
 import AppButton from '@shared/ui/AppButton.vue'
 import { ProjectGitPanel } from '@features/projects'
+import { libraryAgentKey } from '../agent-context'
 import { useLibraryStore } from '../stores/library'
 import SkillsManager from './SkillsManager.vue'
 import LibrarianPanel from './LibrarianPanel.vue'
@@ -64,6 +65,9 @@ const props = defineProps<{ projectId: string; defaultAgentId?: string | null; r
 const store = useLibraryStore()
 const view = ref<'items' | 'guide' | 'fixer' | 'review' | 'plan-review' | 'architecture-review' | 'qa-review' | 'commits' | 'branches' | 'mr'>('items')
 const panelOpen = ref(false)
+// The editors and lists inside ask for the chat with what the developer wants changed.
+const request = ref<{ text: string; at: number } | null>(null)
+provide(libraryAgentKey, { open: text => { request.value = { text, at: Date.now() }; panelOpen.value = true } })
 const pending = computed(() => store.proposalsFor({ projectId: props.projectId }).filter(p => p.status === 'pending').length)
 
 watch(() => props.projectId, id => {

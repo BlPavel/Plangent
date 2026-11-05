@@ -4,7 +4,9 @@ Use `@shared/ui` primitives for controls so their appearance, keyboard handling
 and disabled states remain consistent. Choose AppButton (including link/icon
 variants), AppInput, AppTextarea, AppSelect/Combobox, AppCheckbox, AppRadioGroup,
 AppSwitch, AppTabs, AppSegmented, AppBadge/Count/Chip, AppModal and AppPopover.
-FormField wraps common fields; BranchSelect wraps the combobox. See
+FormField wraps common fields; BranchSelect wraps the combobox. List entries with a title,
+badges, buttons on the right and meta lines below are AppItemCard (`nested` for a card inside
+a card); sidebar-style rows are AppTreeRow. Do not restyle such cards locally. See
 `client/src/shared/ui/index.ts` for the public exports.
 
 Set visual state through props (`variant`, `size`, `pressed`, `tone`, `mono`,

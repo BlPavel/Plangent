@@ -4,6 +4,8 @@ export { default as PlanTemplateEditor } from './components/PlanTemplateEditor.v
 export { default as InstructionGuideEditor } from './components/InstructionGuideEditor.vue'
 export { default as CodeFixerInstructionEditor } from './components/CodeFixerInstructionEditor.vue'
 export { default as InstructionsWorkspace } from './components/InstructionsWorkspace.vue'
+export { default as LibrarianPanel } from './components/LibrarianPanel.vue'
+export { libraryAgentKey } from './agent-context'
 export { useLibraryStore } from './stores/library'
 
 export { libraryEndpoints } from './api'

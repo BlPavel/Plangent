@@ -1,5 +1,5 @@
 <template>
-  <form class="composer" :class="{ focused, dragging }" @submit.prevent="submit" @dragover.prevent="dragging = true" @dragleave="dragging = false" @drop.prevent="drop">
+  <form class="chat-composer" :class="{ focused, dragging }" @submit.prevent="submit" @dragover.prevent="dragging = true" @dragleave="dragging = false" @drop.prevent="drop">
     <SuggestMenu
       v-if="suggest"
       :anchor="input"
@@ -240,7 +240,7 @@ defineExpose({
 </script>
 
 <style scoped>
-.composer {
+.chat-composer {
   position: relative;
   container: composer / inline-size;
   display: flex;
@@ -250,8 +250,8 @@ defineExpose({
   border-radius: var(--radius-lg);
   transition: border-color var(--motion-fast), box-shadow var(--motion-fast);
 }
-.composer.focused { border-color: var(--blue); box-shadow: 0 0 0 3px var(--blue-soft); }
-.composer.dragging { border-style: dashed; border-color: var(--blue-hover); }
+.chat-composer.focused { border-color: var(--blue); box-shadow: 0 0 0 3px var(--blue-soft); }
+.chat-composer.dragging { border-style: dashed; border-color: var(--blue-hover); }
 .toolbar { display: flex; align-items: flex-end; gap: 8px; padding: 4px 8px 8px; }
 .tools { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 2px; }
 .actions { flex-shrink: 0; display: flex; align-items: center; gap: 4px; }

@@ -2,7 +2,7 @@
   <aside class="librarian">
     <header class="head">
       <span class="head-title">Запись с агентом</span>
-      <AppTabs :model-value="selected" :items="sessions.map(session => ({ value: session.id, label: session.title, title: session.title }))" rich label="Чаты с библиотекарем" @update:model-value="selected = $event">
+      <AppTabs bare :model-value="selected" :items="sessions.map(session => ({ value: session.id, label: session.title, title: session.title }))" rich label="Чаты с библиотекарем" @update:model-value="selected = $event">
         <template #item="{ item }"><span class="dot" :class="sessions.find(session => session.id === item.value)?.status" />{{ item.label }}<AppCount v-if="pendingIn(item.value)" :value="pendingIn(item.value)" /></template>
       </AppTabs>
       <AppButton variant="subtle" size="xs" :pressed="!selected" title="Новый чат с библиотекарем" @click="selected = ''">+ Новый</AppButton>
@@ -33,6 +33,7 @@
         v-else
         :project-id="projectId"
         :default-agent-id="defaultAgentId"
+        :initial-text="startText"
         title="Запись инструкций"
         text="Опишите, что нужно: новый скилл, правило после ошибки агента, команда. Агент изучит библиотеку и код (только чтение) и предложит изменение — вы проверите его и примените."
         placeholder="Например: нужен скилл про то, как у нас устроены диалоги"
@@ -60,18 +61,21 @@ import IconTrash from '@shared/ui/IconTrash.vue'
 import { useLibraryStore } from '../stores/library'
 import ProposalCard from './ProposalCard.vue'
 
-const props = defineProps<{ projectId: string; defaultAgentId?: string | null }>()
+/** `request` starts a new chat with the developer's wish already written (the «Изменить с агентом» buttons). */
+const props = defineProps<{ projectId: string; defaultAgentId?: string | null; request?: { text: string; at: number } | null }>()
 defineEmits<{ close: [] }>()
 const chats = useChatStore(), agents = useAgentsStore(), library = useLibraryStore(), app = useAppStore(), router = useRouter()
 const selected = ref(''), creating = ref(false), error = ref('')
 const initial = ref<{ id: string; content: ContentBlock[] } | null>(null)
 const chat = ref<InstanceType<typeof ChatView> | null>(null)
+const startText = ref('')
+watch(() => props.request?.at, () => { if (props.request) { selected.value = ''; startText.value = props.request.text } }, { immediate: true })
 
 const sessions = computed(() => chats.sessions.filter(s => s.project_id === props.projectId && s.role === 'librarian'))
 const pendingIn = (sessionId: string) => library.proposalsFor({ sessionId }).filter(p => p.status === 'pending').length
 
 // The latest librarian chat opens by default; a new one starts from the start screen.
-watch(() => props.projectId, () => { void chats.connect().then(() => { selected.value = sessions.value[0]?.id ?? '' }) }, { immediate: true })
+watch(() => props.projectId, () => { void chats.connect().then(() => { selected.value = startText.value ? '' : sessions.value[0]?.id ?? '' }) }, { immediate: true })
 watch(selected, id => { if (initial.value && initial.value.id !== id) initial.value = null })
 
 // After a finished turn with an answer but no proposal the agent may have only talked; offer to ask for one.

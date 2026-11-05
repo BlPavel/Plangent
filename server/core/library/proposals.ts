@@ -1,7 +1,7 @@
 import { moduleDependencies } from './dependencies';
 import { randomUUID } from 'crypto';
 import { getProposalRow, listProposalRows, insertProposal, updateProposalStatus, libraryTransaction } from '../../infrastructure/db/repositories/library/proposals';
-import type { LibraryItem, LibraryProposal, LibraryScope } from '../../models';
+import type { LibraryItem, LibraryItemType, LibraryProposal, LibraryScope } from '../../models';
 import { getProject } from '../projects';
 import type { getSession } from '../agents';
 import { broadcast } from '../shared';
@@ -9,10 +9,12 @@ import { createLibraryItem, getLibraryItem, libraryItemsFor, libraryOrigin, list
 import { readItemContent, writeItemContent, deleteItemContent } from './library-manager';
 import { syncItem, unsyncItem } from './syncer';
 import { resolveInstructionGuide } from './instruction-guide';
+import { isGlobalOnlyType, isTextInstructionType, textInstructionSlug } from './instruction-texts';
 
 export interface ProposalInput {
   action: 'create' | 'update';
   type: LibraryProposal['type'];
+  /** Ignored for text instructions: their slug is fixed. */
   slug: string;
   title: string;
   description?: string;
@@ -41,10 +43,14 @@ export function listProposals(filters: { projectId?: string; sessionId?: string 
 function snapshot(item: LibraryItem): LibraryItem & { content: string } {
   return { ...item, content: readItemContent(item) };
 }
+/** What the librarian may propose: list items and the single text instructions. */
+export const PROPOSAL_TYPES: readonly LibraryItemType[] = ['skill', 'main', 'command', 'review-skill', 'plan-review-skill', 'architecture-review-skill', 'qa-review-skill',
+  'instruction-guide', 'code-fixer-instruction', 'commit-rules', 'plan-template', 'plan-review-instruction', 'interview-instruction',
+  'architecture-template', 'architecture-review-instruction', 'qa-template', 'qa-review-instruction'];
 function validate(data: ProposalInput): void {
   if (!['create', 'update'].includes(data.action)) throw new Error('Invalid action');
-  if (!['skill', 'main', 'command', 'review-skill', 'plan-review-skill', 'architecture-review-skill', 'qa-review-skill'].includes(data.type)) throw new Error('Invalid library type');
-  if (typeof data.slug !== 'string' || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(data.slug)) throw new Error('Invalid slug: use kebab-case');
+  if (!PROPOSAL_TYPES.includes(data.type)) throw new Error('Invalid library type');
+  if (typeof data.slug !== 'string' || (!isTextInstructionType(data.type) && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(data.slug))) throw new Error('Invalid slug: use kebab-case');
   for (const key of ['title', 'content', 'explanation'] as const)
     if (typeof data[key] !== 'string' || !data[key].trim()) throw new Error('Invalid ' + key);
   if (data.description !== undefined && typeof data.description !== 'string') throw new Error('Invalid description');
@@ -66,16 +72,18 @@ function notify(proposal: LibraryProposal): LibraryProposal {
 export function proposeLibraryChange(sessionId: string, input: ProposalInput): LibraryProposal {
   const session = moduleDependencies.agents.getSession(sessionId), project = getProject(session.project_id);
   if (session.role !== 'librarian' || !project || project.kind === 'source') throw new Error('A librarian project session is required');
-  validate(input);
   const item = input.action === 'update' ? getLibraryItem(String(input.item_id ?? '')) : null;
+  if (isTextInstructionType(input.type)) input = { ...input, slug: item?.slug ?? textInstructionSlug(input.type) };
+  validate(input);
   if (input.action === 'update' && (!item || !libraryOrigin(item, project))) throw new Error('Library item is not available in this project');
   if (item && (input.type !== item.type || input.slug !== item.slug)) throw new Error('Updates must preserve type and slug');
   if (input.action === 'create' && input.item_id !== undefined) throw new Error('Create must not specify item_id');
   const shared = item && libraryOrigin(item, project) === 'group';
+  const scope = input.scope ?? (isGlobalOnlyType(input.type) ? 'global' : shared ? 'project' : item?.scope ?? 'project');
   const access = availability({
-    scope: input.scope ?? (shared ? 'project' : item?.scope ?? 'project'),
-    targets: input.targets ?? (shared ? [project.id] : item?.targets ?? [project.id]),
-    own_only: input.own_only ?? (shared ? [] : item?.own_only ?? []),
+    scope,
+    targets: input.targets ?? (scope === 'global' ? [] : shared ? [project.id] : item?.targets ?? [project.id]),
+    own_only: input.own_only ?? (scope === 'global' || shared ? [] : item?.own_only ?? []),
   });
   const data = { ...input, description: input.description ?? item?.description ?? '', frontmatter: input.frontmatter ?? item?.frontmatter ?? {},
     ...access, item_id: item?.id ?? null, snapshot: item ? snapshot(item) : null };
@@ -104,13 +112,14 @@ export function applyProposal(id: string, override?: ProposalAvailability): Libr
   }
   validate({ ...p, item_id: p.item_id ?? undefined });
   const access = availability(override ?? p);
+  if (isGlobalOnlyType(p.type) && access.scope !== 'global') throw new Error('This instruction is global only');
   const detached = before && libraryOrigin(before, project) === 'group';
   if (detached && (access.scope !== 'project' || access.targets.length !== 1 || access.targets[0] !== project.id || access.own_only.length))
     throw new Error('A shared group item must be detached into this project');
   const clashes = listLibraryItems({ type: p.type }).filter(i => i.id !== before?.id);
-  if (p.type === 'main' && clashes.some(i => i.scope === access.scope && (access.scope === 'global' || i.targets.some(t => access.targets.includes(t)))))
-    throw new ProposalConflict('A main file already exists at this level');
-  if (p.action === 'create' && listLibraryItems({ type: p.type }).some(i => i.slug === p.slug && !i.detached_from))
+  if ((p.type === 'main' || isTextInstructionType(p.type)) && clashes.some(i => i.scope === access.scope && (access.scope === 'global' || i.targets.some(t => access.targets.includes(t)))))
+    throw new ProposalConflict('A main file or instruction text already exists at this level');
+  if (p.action === 'create' && !isTextInstructionType(p.type) && listLibraryItems({ type: p.type }).some(i => i.slug === p.slug && !i.detached_from))
     throw new ProposalConflict('A library item with this slug already exists');
   let result: LibraryItem | undefined;
   try {

@@ -53,7 +53,7 @@ const item = (id, scope, type = 'skill') => ({
 })
 const response = data => ({ ok: true, status: 200, json: async () => data })
 const flush = async () => { await new Promise(resolve => setImmediate(resolve)); await nextTick() }
-const titles = selector => [...document.querySelectorAll(`${selector} .item-title`)].map(el => el.textContent)
+const titles = selector => [...document.querySelectorAll(`${selector} [data-item-title]`)].map(el => el.textContent)
 
 test('global skills and review skills exclude project items, including simultaneous project refreshes', async () => {
   const Skills = await compiled

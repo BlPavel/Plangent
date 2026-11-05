@@ -1,11 +1,11 @@
 <template>
-  <div v-if="proposal" class="proposal" :class="[proposal.status, { main: proposal.type === 'main' }]">
-    <div class="head">
+  <AppItemCard v-if="proposal" class="proposal" :accent="accent" :class="proposal.status">
+    <template #title>
       <span class="kind">{{ kindLabel }}</span>
       <span class="title">{{ proposal.title }}</span>
       <code class="slug">{{ proposal.slug }}</code>
       <span class="status" :class="proposal.status">{{ STATUS[proposal.status] }}</span>
-    </div>
+    </template>
 
     <div class="explanation">{{ proposal.explanation }}</div>
 
@@ -63,8 +63,8 @@
       <AppButton size="sm" variant="ghost" :disabled="busy" @click="$emit('discuss', `По предложению «${proposal.slug}»: `)">Изменить в чате</AppButton>
       <span v-if="invalidWhere" class="hint">Выберите, где будет доступно.</span>
     </div>
-  </div>
-  <div v-else class="proposal missing">Предложение не найдено.</div>
+  </AppItemCard>
+  <AppItemCard v-else accent="muted"><span class="missing">Предложение не найдено.</span></AppItemCard>
 </template>
 
 <script setup lang="ts">
@@ -73,6 +73,7 @@ import { useAppStore } from '@core/stores/app'
 import { AvailabilityField, useProjectsStore, type Availability } from '@features/projects'
 import type { LibraryProposal } from '@contracts'
 import AppButton from '@shared/ui/AppButton.vue'
+import { AppItemCard } from '@shared/ui'
 import { useLibraryStore } from '../stores/library'
 import { CodeView, diffLines, diffTextHunks } from '@shared/code-viewer'
 
@@ -81,10 +82,16 @@ defineEmits<{ discuss: [text: string] }>()
 const store = useLibraryStore(), projects = useProjectsStore(), app = useAppStore()
 const proposal = computed<LibraryProposal | undefined>(() => store.proposals[props.proposalId])
 const pending = computed(() => proposal.value?.status === 'pending')
+const accent = computed(() => ({ applied: 'success', rejected: 'muted', stale: 'muted' } as const)[proposal.value?.status as 'applied'] ?? (proposal.value?.type === 'main' ? 'warning' : 'blue'))
 const busy = ref(false), error = ref(''), editWhere = ref(false)
 
 const STATUS: Record<LibraryProposal['status'], string> = { pending: 'ждёт решения', applied: 'применено', rejected: 'отклонено', stale: 'устарело' }
-const TYPE: Record<LibraryProposal['type'], [string, string]> = { skill: ['Новый скилл', 'Изменение скилла'], command: ['Новая команда', 'Изменение команды'], main: ['Новый главный файл', 'Изменение главного файла'], 'review-skill': ['Новый скилл ревью', 'Изменение скилла ревью'], 'plan-review-skill': ['Новый скилл ревью плана', 'Изменение скилла ревью плана'], 'architecture-review-skill': ['Новый скилл ревью архитектуры', 'Изменение скилла ревью архитектуры'], 'qa-review-skill': ['Новый скилл ревью QA', 'Изменение скилла ревью QA'] }
+const TYPE: Record<LibraryProposal['type'], [string, string]> = { skill: ['Новый скилл', 'Изменение скилла'], command: ['Новая команда', 'Изменение команды'], main: ['Новый главный файл', 'Изменение главного файла'], 'review-skill': ['Новый скилл ревью', 'Изменение скилла ревью'], 'plan-review-skill': ['Новый скилл ревью плана', 'Изменение скилла ревью плана'], 'architecture-review-skill': ['Новый скилл ревью архитектуры', 'Изменение скилла ревью архитектуры'], 'qa-review-skill': ['Новый скилл ревью QA', 'Изменение скилла ревью QA'],
+  'instruction-guide': ['Новое руководство по инструкциям', 'Изменение руководства по инструкциям'], 'code-fixer-instruction': ['Новая инструкция агента доработки', 'Изменение инструкции агента доработки'],
+  'commit-rules': ['Новые правила коммитов', 'Изменение правил коммитов'], 'plan-template': ['Новый шаблон плана', 'Изменение шаблона плана'],
+  'plan-review-instruction': ['Новая инструкция ревью плана', 'Изменение инструкции ревью плана'], 'interview-instruction': ['Новая инструкция уточняющего интервью', 'Изменение инструкции уточняющего интервью'],
+  'architecture-template': ['Новый шаблон «Как писать архитектуру»', 'Изменение шаблона «Как писать архитектуру»'], 'architecture-review-instruction': ['Новая инструкция ревью архитектуры', 'Изменение инструкции ревью архитектуры'],
+  'qa-template': ['Новый шаблон «Как писать QA»', 'Изменение шаблона «Как писать QA»'], 'qa-review-instruction': ['Новая инструкция ревью QA', 'Изменение инструкции ревью QA'] }
 const kindLabel = computed(() => proposal.value ? TYPE[proposal.value.type][proposal.value.action === 'create' ? 0 : 1] : '')
 
 // A group's item proposed from one of its projects is applied as that project's own copy: the level is fixed.
@@ -163,16 +170,11 @@ async function reject() {
 </script>
 
 <style scoped>
-.proposal { padding: 12px 14px; background: var(--bg2); border: 1px solid var(--border); border-left: 3px solid var(--blue); border-radius: var(--radius); display: flex; flex-direction: column; gap: 10px; }
-.proposal.main { border-left-color: var(--warning); }
-.proposal.applied { border-left-color: var(--accent); }
-.proposal.rejected, .proposal.stale { border-left-color: var(--border-strong); }
 .proposal.rejected .diff, .proposal.rejected .fields { opacity: 0.6; }
-.proposal.missing { font-size: var(--fs-sm); color: var(--text-muted); border-left-color: var(--border-strong); }
+.missing { font-size: var(--fs-sm); color: var(--text-muted); }
 
-.head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
 .kind { font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); }
-.title { font-weight: 600; font-size: var(--fs-base); }
+.title { font-size: var(--fs-base); }
 .slug { font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--text-muted); }
 .status { margin-left: auto; font-size: var(--fs-xs); padding: 1px 8px; border-radius: var(--radius-pill); border: 1px solid var(--border); color: var(--text-muted); white-space: nowrap; }
 .status.pending { color: var(--blue-hover); border-color: var(--blue-soft); background: var(--blue-soft); }

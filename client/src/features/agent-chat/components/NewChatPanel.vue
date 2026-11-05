@@ -4,14 +4,14 @@
       <h2 class="new-chat-title">{{ title }}</h2>
       <p class="new-chat-text">{{ text }}</p>
       <div class="new-chat-options">
-        <AppSelect v-model="agentId" :options="agentList" placeholder="Агент" />
+        <AppSelect v-model="agentId" :options="agentList" placeholder="Агент" block />
       </div>
     </div>
     <div class="new-chat-dock">
       <template v-if="compact">
         <div class="new-chat-row">
           <span class="new-chat-label">{{ title }}</span>
-          <AppSelect v-model="agentId" :options="agentList" placeholder="Агент" size="sm" />
+          <AppSelect v-model="agentId" :options="agentList" placeholder="Агент" size="sm" block />
           <slot name="actions" />
         </div>
         <p v-if="text" class="new-chat-hint">{{ text }}</p>
@@ -96,7 +96,7 @@ function start(content: ContentBlock[]) {
 .new-chat-title { font-size: var(--fs-2xl); font-weight: 700; letter-spacing: -0.01em; }
 .new-chat-text { font-size: var(--fs-md); color: var(--text-muted); max-width: 420px; }
 .new-chat-options { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--sp-2); margin-top: var(--sp-3); }
-.new-chat-options .select { min-width: 200px; }
+.new-chat-options .select.block { width: 220px; }
 .new-chat-dock { width: 100%; max-width: 820px; margin: 0 auto; padding: 0 var(--sp-5) var(--sp-4); }
 .options-note { font-size: var(--fs-sm); color: var(--text-faint); padding: 0 6px; white-space: nowrap; }
 .new-chat.compact { flex: none; height: auto; }

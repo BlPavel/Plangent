@@ -64,7 +64,7 @@ test('library proposals apply, detach, reject and detect stale snapshots without
     assert.ok(!library.libraryItemsFor(project).some(i => i.id === shared.id));
     assert.ok(fs.existsSync(path.join(project.repo_path, '.claude', 'skills', 'plangent-shared-skill', 'SKILL.md')));
     assert.throws(() => proposals.proposeLibraryChange(session.id, { ...input, slug: '../escape' }), /slug/);
-    assert.throws(() => proposals.proposeLibraryChange(session.id, { ...input, type: 'instruction-guide' as 'skill' }), /type/);
+    assert.throws(() => proposals.proposeLibraryChange(session.id, { ...input, type: 'bogus' as 'skill' }), /type/);
     assert.throws(() => proposals.proposeLibraryChange(session.id, { ...input, targets: ['missing'] }), /targets/);
     const main = library.createLibraryItem({ type: 'main', slug: 'main', title: 'Main', scope: 'project', targets: [project.id] });
     const conflictingMain = proposals.proposeLibraryChange(session.id, { ...input, type: 'main', slug: 'another-main' });

@@ -132,7 +132,7 @@ function projectRow(p: Project) {
 .tree-tools { display: flex; gap: 4px; }
 .tree-filter { flex: 1; }
 
-.tree-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+.tree-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: var(--sp-1); }
 .tree-empty { padding: 6px 10px; font-size: var(--fs-sm); color: var(--text-faint); }
 
 .section-label {

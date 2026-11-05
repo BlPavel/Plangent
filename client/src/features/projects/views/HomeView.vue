@@ -353,59 +353,6 @@ async function moveTask(t: Task, targetId: string) {
   overflow-y: auto;
 }
 
-.task-card {
-  background: var(--bg2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 12px 14px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: var(--sp-3);
-  transition: border-color var(--motion-fast), background var(--motion-fast);
-}
-.task-card:hover { border-color: var(--border-strong); background: var(--bg3); }
-.task-key {
-  font-size: var(--fs-sm);
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-  min-width: 88px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.task-title { flex: 1; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.task-owner { flex-shrink: 0; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 2px 8px; border-radius: var(--radius-pill); background: var(--bg3); border: 1px solid var(--border); font-size: var(--fs-xs); color: var(--text-muted); }
-.task-owner.own { color: var(--blue-hover); border-color: var(--blue-soft); }
-.task-menu { opacity: 0; transition: opacity var(--motion-fast); }
-.task-card:hover .task-menu, .task-menu:has(.menu.open) { opacity: 1; }
-.task-filter { width: 190px; }
-.task-search { width: 200px; height: var(--size-md); padding: 0 10px; background: var(--bg3); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); color: var(--text); font: inherit; font-size: var(--fs-md); }
-.task-search:focus { outline: none; border-color: var(--blue); }
-
-.task-act {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  background: none;
-  border: none;
-  cursor: pointer;
-  border-radius: var(--radius-sm);
-  opacity: 0;
-  transition: opacity var(--motion-fast), background var(--motion-fast);
-}
-.task-act svg { width: 16px; height: 16px; }
-.task-card:hover .task-act { opacity: 0.75; }
-.task-act:hover { opacity: 1; }
-.task-del { color: var(--danger-hover); }
-.task-del:hover { background: var(--danger-soft); }
-.task-done { color: var(--accent-hover); }
-.task-done:hover { background: var(--accent-soft); }
-.task-reopen { color: var(--blue-hover); }
-.task-reopen:hover { background: var(--blue-soft); }
-.task-act + .task-del { margin-left: -8px; }
 
 .instructions-tab { overflow: hidden; }
 

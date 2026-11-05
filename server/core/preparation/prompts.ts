@@ -15,6 +15,7 @@ export function buildLibrarianPrompt(projectName: string): string {
     'Read project code for accurate examples. Choose the instruction type and availability from the request and guide; ask only when an answer is needed for that choice.',
     'Submit changes only with propose_library_change. Do not write project, library or synchronized agent files, and do not run commands that modify them.',
     'For a shared group item, propose a separate project copy; do not change the shared original.',
+    'Text instructions (instruction guide, code-fixer instruction, commit rules, plan template, review and interview instructions, material templates) are one text per level: read the one in force with get_instruction_text, then propose an update with its item_id, or a create when item_id is null. Their slug is fixed. Review, interview and plan-review instructions are global only. When the developer asks to change a global text, use scope global.',
     'After submitting, briefly explain your choice and wait for feedback. The developer applies or rejects proposals.',
     REVIEW_SKILL_AUTHORING,
     PLAN_REVIEW_SKILL_AUTHORING,

@@ -31,7 +31,7 @@ export interface LibraryProposal {
     session_id: string;
     status: LibraryProposalStatus;
     action: 'create' | 'update';
-    type: 'skill' | 'main' | 'command' | 'review-skill' | 'plan-review-skill' | 'architecture-review-skill' | 'qa-review-skill';
+    type: LibraryItemType;
     slug: string;
     title: string;
     description: string;

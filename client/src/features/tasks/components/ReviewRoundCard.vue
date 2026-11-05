@@ -11,9 +11,6 @@ defineProps<{ round: number; live: boolean; auto?: boolean }>()
 defineEmits<{ open: [] }>()
 </script>
 <style scoped>
-.round-card { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 12px; background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text); font: inherit; font-size: var(--fs-md); text-align: left; cursor: pointer; }
-.round-card:hover { border-color: var(--border-strong); background: var(--bg3); }
-.round-card.live { border-color: var(--blue-soft); }
 .round-state { color: var(--text-muted); }
 .round-go { margin-left: auto; color: var(--blue-hover); }
 </style>
