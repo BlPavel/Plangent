@@ -1,7 +1,6 @@
 <template>
   <div class="connections">
     <div class="section-header">
-      <span class="section-title">Подключения</span>
       <div class="actions">
         <AppButton size="sm" variant="ghost" @click="openOrganization()">+ Организация</AppButton>
         <AppButton size="sm" variant="ghost" @click="openCredential()">+ Учётная запись</AppButton>
@@ -304,8 +303,7 @@ onMounted(async () => {
 
 <style scoped>
 .connections { display: flex; flex-direction: column; gap: var(--sp-4); }
-.section-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-.section-title { font-weight: 600; font-size: var(--fs-base); }
+.section-header { display: flex; align-items: center; justify-content: flex-end; gap: 12px; flex-wrap: wrap; }
 .actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; justify-content: flex-end; }
 .hint { font-size: var(--fs-sm); line-height: 1.5; color: var(--text-muted); overflow-wrap: anywhere; }
 .empty-state { color: var(--text-muted); font-size: var(--fs-md); }

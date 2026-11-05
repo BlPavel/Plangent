@@ -1,7 +1,7 @@
 <template>
   <div class="instruction">
     <div class="instruction-head">
-      <h3>{{ title }}</h3>
+      <h3 v-if="!titled">{{ title }}</h3>
       <p>{{ description }}</p>
     </div>
 
@@ -39,7 +39,7 @@ import { computed, inject } from 'vue'
 import type { LibraryScope } from '@contracts'
 import AppButton from '@shared/ui/AppButton.vue'
 import AppTextarea from '@shared/ui/AppTextarea.vue'
-import { libraryAgentKey } from '../agent-context'
+import { libraryAgentKey, pageTitledKey } from '../agent-context'
 import { useInstructionText, type InstructionTextType } from '../composables/useInstructionText'
 
 /** One text instruction: read it, change it by hand («Изменить») or with the agent. */
@@ -57,6 +57,7 @@ const props = defineProps<{
   allowEmpty?: boolean
 }>()
 const agent = inject(libraryAgentKey, null)
+const titled = inject(pageTitledKey, false)
 const text = useInstructionText({
   type: () => props.type, scope: () => props.scope, projectId: () => props.projectId,
   itemTitle: () => props.title, groupLabel: () => props.groupLabel ?? 'инструкция группы',

@@ -39,3 +39,13 @@ export const SETTINGS_NAV: SettingsNavItem[] = [
 ]
 
 export const sectionOf = (tab: SettingsTab) => SETTINGS_NAV.find(item => item.children?.some(child => child.tab === tab))?.id
+
+/** What the page header shows for a tab: the section name, with its parent when the tab sits inside one. */
+export function settingsPage(tab: SettingsTab): { parent?: string; title: string } {
+  for (const item of SETTINGS_NAV) {
+    if (item.tab === tab) return { title: item.label }
+    const child = item.children?.find(c => c.tab === tab)
+    if (child) return { parent: item.label, title: child.label }
+  }
+  return { title: '' }
+}

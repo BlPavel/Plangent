@@ -9,3 +9,6 @@ export interface LibraryAgent {
   open: (request: string) => void
 }
 export const libraryAgentKey: InjectionKey<LibraryAgent> = Symbol('library-agent')
+
+/** Provided as `true` by a page that already shows the title of the text above the editor. */
+export const pageTitledKey: InjectionKey<boolean> = Symbol('page-titled')

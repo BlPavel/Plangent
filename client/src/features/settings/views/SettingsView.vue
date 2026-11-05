@@ -7,13 +7,14 @@
     <div class="settings-content" :class="{ split: agentOpen }">
     <aside class="settings-navigation"><SettingsNav v-model="tab" /></aside>
 
+    <div class="settings-main">
+    <div class="settings-page-bar"><AppPageHeader :parent="page.parent" :title="page.title">
+      <template #actions><AppButton v-if="tab === 'agents'" variant="primary" size="sm" @click="openCreate()">+ Добавить агента</AppButton></template>
+    </AppPageHeader></div>
+
     <div v-if="tab === 'connections'" class="tab-body"><ConnectionsSettings :fix="typeof route.query.fix === 'string' ? route.query.fix : undefined" /></div>
     <!-- Agents -->
     <div v-show="tab === 'agents'" class="tab-body">
-      <div class="section-header">
-        <span class="section-title">Агенты</span>
-        <AppButton variant="primary" size="sm" @click="openCreate()">+ Добавить агента</AppButton>
-      </div>
       <p class="hint">Агенты подключаются по ACP (Agent Client Protocol). Plangent сам отвечает на их запросы разрешений, поэтому режимы «без подтверждений» агента не нужны.</p>
 
       <div class="agent-list">
@@ -114,6 +115,7 @@
       <ImprovementNotes />
     </div>
 
+    </div>
     <LibrarianPanel v-if="agentOpen && agentProject" class="agent-panel" :project-id="agentProject.id" :default-agent-id="projectsStore.agentFor(agentProject)" :request="agentRequest" @close="agentOpen = false" />
     </div>
     <!-- Agent create/edit modal -->
@@ -201,13 +203,13 @@ import AppModal from '@shared/ui/AppModal.vue'
 import FormField from '@shared/ui/FormField.vue'
 import AppSelect from '@shared/ui/AppSelect.vue'
 import AppButton from '@shared/ui/AppButton.vue'
-import { AppCheckbox, AppItemCard } from '@shared/ui'
+import { AppCheckbox, AppItemCard, AppPageHeader } from '@shared/ui'
 import IconTrash from '@shared/ui/IconTrash.vue'
-import { CodeFixerInstructionEditor, InstructionGuideEditor, LibrarianPanel, PlanTemplateEditor, SkillsManager, libraryAgentKey } from '@features/library'
+import { CodeFixerInstructionEditor, InstructionGuideEditor, LibrarianPanel, PlanTemplateEditor, SkillsManager, libraryAgentKey, pageTitledKey } from '@features/library'
 import { useProjectsStore } from '@features/projects'
 import ConnectionsSettings from '../components/ConnectionsSettings.vue'
 import SettingsNav from '../components/SettingsNav.vue'
-import type { SettingsTab } from '../utils/nav'
+import { settingsPage, type SettingsTab } from '../utils/nav'
 import ImprovementNotes from '../components/ImprovementNotes.vue'
 import GlobalGitAgent from '../components/GlobalGitAgent.vue'
 
@@ -233,7 +235,11 @@ provide(libraryAgentKey, { open: text => {
   agentOpen.value = true
 } })
 
+// Every text editor below sits under the page header, so they skip their own title.
+provide(pageTitledKey, true)
+
 const tab = ref<Tab>(route.query.tab === 'connections' ? 'connections' : 'agents')
+const page = computed(() => settingsPage(tab.value))
 watch(() => route.query.tab, t => { if (t === 'connections') tab.value = t })
 
 // ── Agents ────────────────────────────────────────────────────────────────────
@@ -446,13 +452,15 @@ onMounted(() => {
   flex-shrink: 0;
 }
 
-.settings-content.split .tab-body { flex: 0 1 46%; min-width: 360px; }
+.settings-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.settings-page-bar { flex-shrink: 0; padding: var(--sp-5) var(--sp-6) 0; }
+.settings-content.split .settings-main { flex: 0 1 46%; min-width: 360px; }
 .agent-panel { flex: 1 1 54%; min-width: 420px; border-left: 1px solid var(--border); }
 
 .tab-body {
   flex: 1;
   overflow-y: auto;
-  padding: var(--sp-5) var(--sp-6);
+  padding: var(--sp-4) var(--sp-6) var(--sp-5);
   display: flex;
   flex-direction: column;
   gap: var(--sp-4);

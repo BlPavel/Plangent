@@ -1,6 +1,7 @@
 export { default as AppBadge } from './AppBadge.vue';
 export { default as AppButton } from './AppButton.vue';
 export { default as AppCard } from './AppCard.vue';
+export { default as AppPageHeader } from './AppPageHeader.vue';
 export { default as AppItemCard } from './AppItemCard.vue';
 export { default as AppCheckbox } from './AppCheckbox.vue';
 export { default as AppChip } from './AppChip.vue';
