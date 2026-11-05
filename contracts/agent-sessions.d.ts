@@ -14,6 +14,10 @@ export interface ChatSession {
     updated_at?: string;
 }
 export interface ChatPayload {
+    gitReason?: string;
+    operationId?: string;
+    output?: string;
+    state?: string;
     link?: string;
     text?: string;
     toolCallId?: string;
@@ -92,7 +96,6 @@ export interface AgentSession {
     id: string;
     project_id: string;
     task_id: string | null;
-    run_id: string | null;
     step_ids: string[];
     role: 'errand' | 'task-chat' | 'task-reviewer' | 'plan-reviewer' | 'chat' | 'analyst' | 'material-author' | 'planner' | 'executor' | 'librarian' | 'code-fixer' | 'committer' | 'conflict-resolver';
     agent_id: string;
@@ -468,6 +471,7 @@ export type AgentSessionsPOSTIdActionResponse = C.AgentSession | {
     })[];
 };
 export type AgentSessionsPOSTIdActionBody = {
+    "gitForTurn"?: boolean;
     "content"?: ({
         "annotations"?: null | {
             "audience"?: null | ("assistant" | "user")[];

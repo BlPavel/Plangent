@@ -1,0 +1,21 @@
+import { getDb } from '../../../schema';
+
+export const rowSelectBranchReviews = (...params: unknown[]) => getDb().prepare('SELECT project_id FROM branch_reviews WHERE id=?').get(...params);
+export const rowSelectBranchQuestions = (...params: unknown[]) => getDb().prepare('SELECT * FROM branch_questions WHERE id=? AND review_id=?').get(...params);
+export const questionsSelectBranchQuestions = (...params: unknown[]) => getDb().prepare('SELECT * FROM branch_questions WHERE review_id=? ORDER BY created_at,rowid').all(...params);
+export const messagesSelectBranchQuestionMessages = (...params: unknown[]) => getDb().prepare('SELECT m.* FROM branch_question_messages m JOIN branch_questions q ON q.id=m.question_id WHERE q.review_id=? ORDER BY m.created_at,m.rowid').all(...params);
+export const threadSelectBranchQuestionMessages = (...params: unknown[]) => getDb().prepare('SELECT * FROM branch_question_messages WHERE question_id=? ORDER BY created_at,rowid').all(...params);
+export const addInsertBranchQuestions = (...params: unknown[]) => getDb().prepare('INSERT INTO branch_questions(id,review_id,path,side,line) VALUES (?,?,?,?,?)').run(...params);
+export const addInsertBranchQuestionMessages = (...params: unknown[]) => getDb().prepare("INSERT INTO branch_question_messages(id,question_id,author,kind,text) VALUES (?,?,'developer','text',?)").run(...params);
+export const replyInsertBranchQuestionMessages = (...params: unknown[]) => getDb().prepare("INSERT INTO branch_question_messages(id,question_id,author,kind,text) VALUES (?,?,'developer','text',?)").run(...params);
+export const replyUpdateBranchQuestions = (...params: unknown[]) => getDb().prepare('UPDATE branch_questions SET closed=0 WHERE id=?').run(...params);
+export const changedUpdateBranchQuestionMessages = (...params: unknown[]) => getDb().prepare("UPDATE branch_question_messages SET text=? WHERE id=? AND question_id=? AND author='developer' AND sent=0").run(...params);
+export const changedDeleteBranchQuestionMessages = (...params: unknown[]) => getDb().prepare("DELETE FROM branch_question_messages WHERE id=? AND question_id=? AND author='developer' AND sent=0").run(...params);
+export const removeMessageDeleteBranchQuestions = (...params: unknown[]) => getDb().prepare('DELETE FROM branch_questions WHERE id=?').run(...params);
+export const closeUpdateBranchQuestions = (...params: unknown[]) => getDb().prepare('UPDATE branch_questions SET closed=? WHERE id=?').run(...params);
+export const queuedSelectBranchQuestionMessages = (...params: unknown[]) => getDb().prepare("SELECT m.* FROM branch_question_messages m JOIN branch_questions q ON q.id=m.question_id WHERE q.review_id=? AND m.author='developer' AND m.sent=0 ORDER BY m.created_at,m.rowid").all(...params);
+export const markUpdateBranchQuestionMessages = (...params: unknown[]) => getDb().prepare('UPDATE branch_question_messages SET sent=? WHERE id=?').run(...params);
+export const agentReplyInsertBranchQuestionMessages = (...params: unknown[]) => getDb().prepare("INSERT INTO branch_question_messages(id,question_id,author,kind,text,sent) VALUES (?,?,'agent',?,?,1)").run(...params);
+export const stopUpdateBranchReviews = (...params: unknown[]) => getDb().prepare("UPDATE branch_reviews SET analysis_status='stopped' WHERE id=? AND analysis_status='running'").run(...params);
+export const stopSelectBranchReviewThreads = (...params: unknown[]) => getDb().prepare('SELECT session_id FROM branch_review_threads WHERE review_id=?').all(...params);
+export const stopUpdateBranchQuestionMessages = (...params: unknown[]) => getDb().prepare('UPDATE branch_question_messages SET sent=0 WHERE id=?').run(...params);

@@ -1,63 +1,60 @@
-# Server architecture
+﻿# Server architecture
 
-The server in `server/` uses a pragmatic modular monolith layout:
+The server in `server/` is a modular monolith. `index.ts` assembles the
+application; `core-services.ts` wires callbacks between domains.
 
-```text
-server/
-  models/
-  core/
-    agents/
-    library/
-    orchestration/
-    projects/
-    runs/
-    sessions/
-    shared/
-    tasks/
-  infrastructure/
-    adapters/
-    db/
-    http/
-      routes/
-    terminal/
-  index.ts
-```
+| Layer | Responsibility | Allowed dependencies |
+| --- | --- | --- |
+| `api/` | HTTP routes, WebSocket delivery, MCP tools | core, models, contracts |
+| `core/<domain>/` | Domain rules and workflows | earlier core public APIs, infrastructure, models |
+| `infrastructure/` | Persistence, processes and external services | infrastructure, models |
+| `models/` | Server types and contract re-exports | contracts |
 
-`models` re-exports the common contract and keeps server-only types and interfaces.
-It does not import from `core` or `infrastructure`.
+Import another core module through its `index.ts`. Runtime dependencies follow
+the order in `scripts/eslint-server-layers.mjs`; inject callbacks from the
+composition root for collaboration in the opposite direction. Type-only imports
+still use public APIs. Core accesses SQL only through its own
+`infrastructure/db/repositories/<domain>/`; keep SQL and transactions there.
+Infrastructure never imports core or API. No DI container is required.
 
-`core` contains domain behavior grouped by product area. Domain modules are
-transport-agnostic and own their thin repository functions. They may use shared
-core services and model types. Repository modules use the shared database
-connection directly by choice; there are no repository interfaces or DI
-containers.
+Core modules:
 
-`infrastructure` contains delivery and external runtime code: Express routes and
-server assembly in `infrastructure/http`, SQLite schema/connection setup in
-`infrastructure/db`, PTY/tmux integration in `infrastructure/terminal`, and
-agent CLI adapters in `infrastructure/adapters`.
+- `shared/`: domain-independent helpers.
+- `files/`: safe paths, reads, trees, search and watchers.
+- `integrations/`: accounts, connections and authorization lifecycle.
+- `settings/`: application/git settings, agent choices and level resolution.
+- `projects/`: projects, groups, briefing, remote URLs and documentation `sources/`.
+- `library/`: items, levels, synchronization, proposals and built-in texts.
+- `agents/`: `catalog/`, `sessions/`, selection, launch, turn waiting and one-shot work.
+- `tasks/`: tasks, moves and task files.
+- `workspaces/`: task working folders and recovery.
+- `git/`: `repo/`, `commits/`, `hosts/`, `merge-requests/`, `conflicts/`, `finish/`.
+- `preparation/`: analysis, materials, plans and preparation prompts.
+- `execution/`: orchestrator, queue and step context.
+- `review/`: shared `kernel/` and `code/`, `plan/`, `branch/` workflows.
+- `work/`: errands, task chat, work launch and state.
+- `terminals/`: terminal domain lifecycle.
 
-Dependency direction is one-way at the module boundary: infrastructure calls
-core, and core points toward models. Core code must not import HTTP routes,
-terminal sessions, or CLI adapters; runtime integrations are wired from
-`server/index.ts`.
+Delivery lives in `api/http/` (including `routes/`, `typed-route.ts` and
+`local-origin.ts`), `api/ws/` and `api/mcp/`.
+Infrastructure owns `db/` (connection, transactions, ordered `migrations/` and
+per-domain `repositories/`), `git/`, `code-hosts/`, `http-client/`, `acp/`,
+`docs-sources/`, `secrets/`, `files/` and `terminal/`.
+Integration tests live in `server/tests/<domain>/`; `tests/support/` provides
+isolated databases, Git repositories and the mock ACP agent.
+Client tests live in `client/tests/`. `scripts/` owns build/runtime setup,
+route checking and ESLint boundary rules.
 
-Integrations, authenticated documentation sources and their lifecycle are documented in [INTEGRATIONS.md](../INTEGRATIONS.md).
+Rules and verification:
 
-Shared entities, HTTP endpoints, socket events and platform types are declared in
-[`contracts/`](../../contracts/index.d.ts). `server/models` re-exports those types
-and retains server-only types locally. The declaration files have no runtime code.
+- [Database](database.md): migrations and repositories.
+- [Agents](agents.md): sessions, permissions and process lifetime.
+- [MCP](mcp.md): registry and role authorization.
+- [Reviews](review.md): shared kernel and domain workflows.
+- [Git](git.md): repository operations and finishing work.
+- [Integrations](integrations.md): connections, secrets and documentation sources.
+- [Testing](testing.md): checks and isolated fixtures.
+- [Common contract](../CONTRACTS.md): HTTP types and endpoint registration.
 
-Register HTTP routes only through `typedRoutes` in
-`server/infrastructure/http/typed-route.ts`. Supply the full contract endpoint key
-and use the matching `json`, `empty`, `file` or `stream` helper. The helper types
-request params/query/body and responses and forwards asynchronous errors to Express.
-Handlers still validate incoming data at runtime. `npm run check:routes` compares
-every registration with the contract; `npm run typecheck` checks their types.
-See [CONTRACTS.md](../CONTRACTS.md) for the endpoint workflow.
-
-Git integration domains in `server/core`: `code` (read-only `git.ts`; writes in `git-write.ts`; commit message rules in
-`commit-message.ts`), `code-reviews` (the developer's review with the agent, plus colleagues' MR discussions pulled by
-button), `finish` (the «Завершение работ» workflow and the `committer` MCP role), `code-hosts` (`CodeHost`, GitLab),
-`mr-review` (review of other people's MRs), `task-mr` (create MR for a branch/task). Each has a README.
-Agents never run writing git commands in a shell; commits, push and MR are Plangent MCP tools checked by the server.
+`npm run lint` enforces boundaries; `npm run typecheck` checks types,
+`npm run check:routes` checks HTTP registrations, and `npm test` checks behavior.

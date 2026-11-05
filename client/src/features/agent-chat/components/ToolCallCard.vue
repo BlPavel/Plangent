@@ -4,6 +4,7 @@
       <svg class="tool-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path v-for="(d, i) in icon" :key="i" :d="d" /></svg>
       <span class="tool-title">{{ call.title || 'Инструмент' }}</span>
       <span v-if="state === 'running'" class="tool-spinner" />
+      <span v-else-if="call.gitReason" class="tool-denied">отклонено</span>
       <span v-else-if="state === 'failed'" class="tool-state">ошибка</span>
       <UIIconChevronRight v-if="hasBody" class="tool-chevron" />
     </AppButton>
@@ -16,6 +17,7 @@
         <pre v-else-if="part.content?.text">{{ part.content.text }}</pre>
       </template>
       <pre v-if="output">{{ output }}</pre>
+      <pre v-if="call.gitReason">Команда Git отклонена. Для изменений используйте инструмент Plangent git_action.</pre>
     </div>
   </div>
 </template>
@@ -31,7 +33,7 @@ const open = ref(false)
 
 const state = computed(() => {
   const s = props.call.status
-  return s === 'failed' ? 'failed' : s === 'completed' ? 'done' : 'running'
+  return props.call.gitReason ? 'done' : s === 'failed' ? 'failed' : s === 'completed' ? 'done' : 'running'
 })
 const output = computed(() => {
   const raw = props.call.rawOutput
@@ -39,7 +41,7 @@ const output = computed(() => {
   if (props.call.content?.some(p => p.type === 'diff' || p.content?.text)) return ''
   return typeof raw === 'string' ? raw : JSON.stringify(raw, null, 2)
 })
-const hasBody = computed(() => !!output.value || !!props.call.content?.some(p => p.type === 'diff' || p.content?.text))
+const hasBody = computed(() => !!props.call.gitReason || !!output.value || !!props.call.content?.some(p => p.type === 'diff' || p.content?.text))
 
 const ICONS: Record<string, string[]> = {
   read: ['M4 2.5h5l3 3v8H4z M9 2.5v3h3'],
@@ -95,6 +97,7 @@ function diffLines(oldText: string, newText: string) {
 .tool.done .tool-icon { color: var(--accent-hover); }
 .tool.failed { border-color: var(--danger-soft); }
 .tool.failed .tool-icon, .tool-state { color: var(--danger-hover); }
+.tool-denied { color: var(--text-muted); font-size: var(--fs-xs); }
 .tool-state { font-size: var(--fs-xs); }
 .tool-chevron { width: 13px; height: 13px; flex-shrink: 0; transition: transform var(--motion-modal); }
 .tool.open .tool-chevron { transform: rotate(90deg); }

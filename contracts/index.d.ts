@@ -10,7 +10,6 @@ export type * from './code';
 export type * from './git';
 export type * from './code-reviews';
 export type * from './code-hosts';
-export type * from './mr-review';
 export type * from './branch-review';
 export type * from './plan-review';
 export type * from './task-mr';

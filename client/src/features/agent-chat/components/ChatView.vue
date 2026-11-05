@@ -51,6 +51,10 @@
             <MessageMarkdown :text="String(row.payload.summary ?? '') + ' ' + String(row.payload.link ?? '')" />
           </div>
           <ToolCallCard v-else-if="row.type === 'tool_call'" :call="row.payload" />
+          <div v-else-if="row.type === 'git_action_progress'" class="card notice">
+            <div class="card-label">Git · {{ row.payload.state === 'finished' ? 'завершено' : 'выполняется' }}</div>
+            <pre v-if="row.payload.output" class="notice-text">{{ row.payload.output }}</pre>
+          </div>
           <div v-else-if="row.type === 'plan'" class="card plan">
             <div class="card-label">План</div>
             <div v-for="(entry, index) in row.payload.entries" :key="index" class="plan-entry" :class="entry.status">
@@ -107,6 +111,9 @@
           @cancel="action('cancel')"
           @error="error = $event"
         >
+          <template #tools>
+            <AppButton v-if="canUseGit" type="button" variant="subtle" size="xs" class="git-chip" :class="{ active: gitForTurn }" :aria-pressed="gitForTurn" title="Разрешить Git-действия на один ход" @click="gitForTurn = !gitForTurn">Git</AppButton>
+          </template>
           <template #status>
             <UsageMeter :agent-id="snap.session.agent_id" :usage="usage" />
           </template>
@@ -134,6 +141,7 @@ import { agentChatEndpoints } from '../api'
 
 import { computed, ref, watch, nextTick, onBeforeUnmount } from 'vue'
 import { useAgentsStore, permissionPolicy } from '@features/agents'
+import { useProjectsStore } from '@features/projects'
 import AppButton from '@shared/ui/AppButton.vue'
 import ChatComposer, { type ContentBlock } from './ChatComposer.vue'
 import { MessageMarkdown } from '@shared/markdown'
@@ -150,7 +158,10 @@ const emit = defineEmits<{ session: [id: string]; errand: [text: string] }>()
 defineExpose({ setText: (text: string) => composer.value?.setText(text) })
 const store = useChatStore()
 const agents = useAgentsStore()
+const projects = useProjectsStore()
+const gitForTurn = ref(false)
 const snap = computed(() => store.snapshots[props.sessionId])
+const canUseGit = computed(() => !!snap.value && ['chat', 'task-chat', 'errand'].includes(snap.value.session.role) && !snap.value.session.metadata.branch_review && !snap.value.session.metadata.mr_private && projects.byId(snap.value.session.project_id)?.kind === 'project')
 const error = ref('')
 const feed = ref<HTMLElement>(), inner = ref<HTMLElement>(), composer = ref<InstanceType<typeof ChatComposer>>()
 const pending = ref<{ id: number; text: string }[]>([])
@@ -188,10 +199,18 @@ const rows = computed(() => {
     if (event.type === 'tool_call_update') {
       const tool = list.find(e => e.type === 'tool_call' && e.payload.toolCallId === event.payload.toolCallId)
       if (tool) tool.payload = { ...tool.payload, ...event.payload }
+    } else if (event.type === 'git_action_progress') {
+      const operation = list.find(e => e.type === 'git_action_progress' && e.payload.operationId === event.payload.operationId)
+      if (operation) operation.payload = { ...operation.payload, ...event.payload, output: (operation.payload.output ?? '') + (event.payload.output ?? '') }
+      else list.push({ ...event, payload: { ...event.payload } })
     } else if (event.type === 'plan') {
       const old = list.findIndex(e => e.type === 'plan'); if (old >= 0) list.splice(old, 1)
       list.push(event)
     } else list.push({ ...event, payload: { ...event.payload } })
+  }
+  for (const event of list) if (event.type === 'permission_result' && event.payload.gitReason) {
+    const tool = list.find(e => e.type === 'tool_call' && e.payload.toolCallId === event.payload.toolCallId)
+    if (tool) tool.payload.gitReason = event.payload.gitReason
   }
   // The in-flight chunk becomes a row keyed by the seq its final event will get, so the same
   // component instance keeps typing when the message is committed — no jump at the end.
@@ -230,6 +249,7 @@ watch(inner, (el, old) => { if (old) observer.unobserve(old); if (el) observer.o
 onBeforeUnmount(() => observer.disconnect())
 
 watch(() => props.sessionId, async id => {
+  gitForTurn.value = false
   error.value = ''
   pending.value = []
   follow = true
@@ -254,10 +274,12 @@ async function action(name: string, body: import('@contracts').AgentSessionsPOST
   catch (e) { error.value = String(e) }
 }
 async function send(content: ContentBlock[]) {
+  const gitAllowed = canUseGit.value && gitForTurn.value
+  gitForTurn.value = false
   const item = { id: ++pendingId, text: content.filter(c => c.type === 'text').map(c => String(c.text)).join('\n') }
   follow = true
   if (!thinking.value) pending.value.push(item) // a prompt sent mid-turn shows up in the queue instead
-  try { error.value = ''; await agentChatEndpoints.postAgentSessionsByIdByAction({ params: { id: props.sessionId, action: "prompt" }, body: { content } }); await store.load(props.sessionId) }
+  try { error.value = ''; await agentChatEndpoints.postAgentSessionsByIdByAction({ params: { id: props.sessionId, action: "prompt" }, body: { content, ...(gitAllowed ? { gitForTurn: true } : {}) } }); await store.load(props.sessionId) }
   catch (e) { error.value = String(e); if (item.text) void composer.value?.setText(item.text) }
   finally { pending.value = pending.value.filter(p => p.id !== item.id) }
 }
@@ -269,7 +291,7 @@ function changeOption(select: AgentSelect, value: string) {
   else if (select.kind === 'mode') void action('mode', { mode: value })
   else void action('config', { configId: select.configId, value })
 }
-function queueText(content: string) { try { return (JSON.parse(content) as { text?: string }[]).map(c => c.text ?? '[вложение]').join(' ') } catch { return content } }
+function queueText(content: string) { try { const value = JSON.parse(content); return (Array.isArray(value) ? value : value.content).map((c: { text?: string }) => c.text ?? '[вложение]').join(' ') } catch { return content } }
 async function removeQueue(id: string) { await agentChatEndpoints.deleteAgentSessionsByIdQueueByPromptId({ params: { id: props.sessionId, promptId: id } }); await store.load(props.sessionId) }
 async function editQueue(item: { id: string; content: string }) { void composer.value?.setText(queueText(item.content)); await removeQueue(item.id) }
 async function newContext() {
@@ -343,6 +365,8 @@ kbd { font-family: inherit; font-size: var(--fs-xs); padding: 1px 5px; border: 1
 .dock { flex-shrink: 0; padding: 0 var(--sp-5) var(--sp-4); }
 .dock-inner { max-width: 820px; margin: 0 auto; }
 .dock-error { display: flex; justify-content: space-between; gap: 8px; margin-top: 6px; font-size: var(--fs-sm); color: var(--danger-hover); }
+.git-chip { padding: 2px var(--sp-2); border: 1px solid var(--border-strong); border-radius: var(--radius-pill); background: var(--bg3); color: var(--text-muted); font-size: var(--fs-sm); cursor: pointer; }
+.git-chip.active { background: var(--blue-soft); border-color: var(--blue); color: var(--text); }
 
 .queue { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
 .queue-item { display: flex; align-items: center; gap: 8px; padding: 4px 6px 4px 10px; font-size: var(--fs-md); background: var(--bg2); border: 1px dashed var(--border-strong); border-radius: var(--radius); }

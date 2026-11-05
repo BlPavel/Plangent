@@ -40,18 +40,6 @@ export interface PlanStep {
     analysisLinks?: string[];
     parallelGroup?: string; // @parallel:<groupName>
 }
-export interface Run {
-    id: string;
-    task_id: string;
-    plan_id?: string;
-    agent_id?: string;
-    agent_name: string;
-    status: 'running' | 'completed' | 'failed' | 'interrupted';
-    completed_steps: string[];
-    notes?: string;
-    started_at: string;
-    finished_at?: string;
-}
 export interface AnalysisSection {
     files: AnalysisFile[];
     id: string;
@@ -73,11 +61,10 @@ export interface AnalysisFile {
     size: number;
     created_at: string;
 }
-export interface RunStartResult {
-    run: Run;
+export interface TaskAgentLaunchResult {
     session_id: string;
     mode: 'acp';
-    prompt: string;
+    prompt?: string;
 }
 export type MaterialType = 'architecture' | 'qa';
 export interface Material {
@@ -254,16 +241,7 @@ export type MaterialsGETResponse = ({
 export type MaterialsPOSTStageBody = {
     "status"?: "ready" | "skipped";
 };
-export type RunsPOSTResponse = {
-    "run": C.Run;
-    "session_id": string;
-    "mode": string;
-} | {
-    "run": C.Run;
-    "session_id": string;
-    "mode": string;
-    "prompt": string;
-};
+export type RunsPOSTResponse = { session_id: string; mode: 'acp'; prompt?: string };
 export type RunsPOSTBody = {
     agent_id?: string;
     model?: string;
@@ -271,33 +249,6 @@ export type RunsPOSTBody = {
     purpose?: 'analysis' | 'plan' | 'execute' | 'preflight' | 'architecture' | 'qa';
     mode?: string;
     config?: Record<string, string>;
-};
-export type RunsPATCHRunIdBody = {
-    "status"?: "running" | "completed" | "failed" | "interrupted";
-    "completed_steps"?: (string)[];
-    "notes"?: string;
-    "finished_at"?: string;
-};
-export type RunsPOSTRunIdStepBody = {
-    step: string;
-};
-export type RunsPOSTRunIdFinishBody = {
-    status: 'completed' | 'failed' | 'interrupted';
-    notes?: string;
-};
-export type RunsGETRunIdSessionResponse = {
-    "running": boolean;
-    "session_id": string;
-    "mode": string;
-    "output": string;
-} | {
-    "running": boolean;
-};
-export type RunsPOSTRunIdInputResponse = {
-    "ok": boolean;
-};
-export type RunsPOSTRunIdInputBody = {
-    "text"?: string;
 };
 export interface TasksEndpoints {
     "POST /api/projects/:projectId/tasks/:taskId/base-commit": Endpoint<"POST /api/projects/:projectId/tasks/:taskId/base-commit", never, C.Task, Record<string, never>, "json", never>;
@@ -338,13 +289,5 @@ export interface TasksEndpoints {
     "PUT /api/projects/:projectId/tasks/:taskId/materials/:type": Endpoint<"PUT /api/projects/:projectId/tasks/:taskId/materials/:type", MaterialsPUTTypeBody, C.Material, Record<string, never>, "json", never>;
     "GET /api/projects/:projectId/tasks/:taskId/preparation": Endpoint<"GET /api/projects/:projectId/tasks/:taskId/preparation", never, MaterialsGETResponse, Record<string, never>, "json", never>;
     "POST /api/projects/:projectId/tasks/:taskId/preparation/:stage": Endpoint<"POST /api/projects/:projectId/tasks/:taskId/preparation/:stage", MaterialsPOSTStageBody, MaterialsGETResponse, Record<string, never>, "json", never>;
-    "GET /api/projects/:projectId/tasks/:taskId/runs": Endpoint<"GET /api/projects/:projectId/tasks/:taskId/runs", never, (C.Run)[], Record<string, never>, "json", never>;
-    "GET /api/projects/:projectId/tasks/:taskId/runs/:runId": Endpoint<"GET /api/projects/:projectId/tasks/:taskId/runs/:runId", never, C.Run, Record<string, never>, "json", never>;
     "POST /api/projects/:projectId/tasks/:taskId/runs": Endpoint<"POST /api/projects/:projectId/tasks/:taskId/runs", RunsPOSTBody, RunsPOSTResponse, Record<string, never>, "json", never>;
-    "PATCH /api/projects/:projectId/tasks/:taskId/runs/:runId": Endpoint<"PATCH /api/projects/:projectId/tasks/:taskId/runs/:runId", RunsPATCHRunIdBody, C.Run, Record<string, never>, "json", never>;
-    "POST /api/projects/:projectId/tasks/:taskId/runs/:runId/step": Endpoint<"POST /api/projects/:projectId/tasks/:taskId/runs/:runId/step", RunsPOSTRunIdStepBody, C.Run, Record<string, never>, "json", never>;
-    "POST /api/projects/:projectId/tasks/:taskId/runs/:runId/finish": Endpoint<"POST /api/projects/:projectId/tasks/:taskId/runs/:runId/finish", RunsPOSTRunIdFinishBody, C.Run, Record<string, never>, "json", never>;
-    "GET /api/projects/:projectId/tasks/:taskId/runs/:runId/session": Endpoint<"GET /api/projects/:projectId/tasks/:taskId/runs/:runId/session", never, RunsGETRunIdSessionResponse, Record<string, never>, "json", never>;
-    "POST /api/projects/:projectId/tasks/:taskId/runs/:runId/input": Endpoint<"POST /api/projects/:projectId/tasks/:taskId/runs/:runId/input", RunsPOSTRunIdInputBody, RunsPOSTRunIdInputResponse, Record<string, never>, "json", never>;
-    "POST /api/projects/:projectId/tasks/:taskId/runs/:runId/kill": Endpoint<"POST /api/projects/:projectId/tasks/:taskId/runs/:runId/kill", never, RunsPOSTRunIdInputResponse, Record<string, never>, "json", never>;
 }

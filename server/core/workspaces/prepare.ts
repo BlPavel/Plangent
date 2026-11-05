@@ -2,12 +2,13 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import spawn from 'cross-spawn';
 import { killProcessTree } from '../../infrastructure/terminal/process-tree';
-import { getProject, effectiveGitSettings } from '../projects';
-import { validateGitSettings } from '../projects/git-settings';
-import { isInside } from '../shared/paths';
+import { getProject } from '../projects';
+import { effectiveGitSettings } from '../settings';
+import { validateGitSettings } from '../settings';
+import { isInside } from '../shared';
 import { getWorkspace, updateWorkspace } from './store';
-import { syncWorkspaceLibrary } from '../library/syncer';
-import { serializeGit } from '../code/git-write';
+import { syncWorkspaceLibrary } from '../library';
+import { serializeGit } from '../../infrastructure/git/write';
 
 /** Common shell globs, also on Electron's Node versions without fs.glob. */
 function globRegex(pattern: string): RegExp {

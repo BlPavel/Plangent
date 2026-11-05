@@ -18,7 +18,6 @@ export interface OrchestratorQueueSession {
     // (see Agent.model / Agent.reasoning_effort) — leave unset to use the agent's default.
     model?: string;
     reasoningEffort?: string;
-    runId?: string;
     sessionId?: string;
     mode?: 'acp';
 }
@@ -80,7 +79,6 @@ export type OrchestratorPUTQueueBody = {
             "reason"?: string;
             "model"?: string;
             "reasoningEffort"?: string;
-            "runId"?: string;
             "sessionId"?: string;
             "mode"?: "acp";
         })[];

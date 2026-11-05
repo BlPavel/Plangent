@@ -1,5 +1,5 @@
 import type { Task, Workspace, TaskQueue, WorkState } from '../../models';
-import type { AgentSession } from '../agent-sessions/types';
+import type { AgentSession } from '../agents';
 import type { FinishStatus } from '../../models/finish';
 
 export interface WorkInput {

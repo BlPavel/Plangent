@@ -1,4 +1,4 @@
-export type JsonValue = null | boolean | number | string | JsonValue[] | {
+﻿export type JsonValue = null | boolean | number | string | JsonValue[] | {
     [key: string]: JsonValue | undefined;
 };
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
@@ -19,7 +19,8 @@ export interface Endpoint<Key extends `${HttpMethod} ${string}`, Body, Reply, Qu
     kind: Kind;
     event: Event;
 }
-import type { TerminalsEndpoints, TaskMrEndpoints, MrReviewEndpoints, PlanReviewEndpoints, BranchReviewEndpoints, IntegrationsEndpoints, AgentSessionsEndpoints, CodeEndpoints, GitEndpoints, FinishEndpoints, CodeReviewsEndpoints, ProjectsEndpoints, TasksEndpoints, WorkEndpoints, LibraryEndpoints, AgentsEndpoints, FilesEndpoints, SettingsEndpoints, QueueEndpoints } from "./index";
-export interface Endpoints extends TerminalsEndpoints, TaskMrEndpoints, MrReviewEndpoints, PlanReviewEndpoints, BranchReviewEndpoints, IntegrationsEndpoints, AgentSessionsEndpoints, CodeEndpoints, GitEndpoints, FinishEndpoints, CodeReviewsEndpoints, ProjectsEndpoints, TasksEndpoints, WorkEndpoints, LibraryEndpoints, AgentsEndpoints, FilesEndpoints, SettingsEndpoints, QueueEndpoints {
+import type { TerminalsEndpoints, TaskMrEndpoints, PlanReviewEndpoints, BranchReviewEndpoints, IntegrationsEndpoints, AgentSessionsEndpoints, CodeEndpoints, GitEndpoints, FinishEndpoints, CodeReviewsEndpoints, ProjectsEndpoints, TasksEndpoints, WorkEndpoints, LibraryEndpoints, AgentsEndpoints, FilesEndpoints, SettingsEndpoints, QueueEndpoints } from "./index";
+export interface Endpoints extends TerminalsEndpoints, TaskMrEndpoints, PlanReviewEndpoints, BranchReviewEndpoints, IntegrationsEndpoints, AgentSessionsEndpoints, CodeEndpoints, GitEndpoints, FinishEndpoints, CodeReviewsEndpoints, ProjectsEndpoints, TasksEndpoints, WorkEndpoints, LibraryEndpoints, AgentsEndpoints, FilesEndpoints, SettingsEndpoints, QueueEndpoints {
 }
 export type EndpointKey = keyof Endpoints;
+

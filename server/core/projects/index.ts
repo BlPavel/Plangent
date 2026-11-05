@@ -1,19 +1,20 @@
+import * as queries from '../../infrastructure/db/repositories/projects/index';
 import fs from 'fs';
-import { execFileSync } from 'child_process';
-import { originUrl, isRepository } from '../code/git';
-import { cloneRepository, type GitOperationOptions } from '../code/git-write';
-import { CodeError } from '../code/files';
-import { parseRemoteUrl, sameRemote, publicRemoteUrl } from './remote-url';
-import { resolveGitSettings, validateGitSettings, type GitSettings } from './git-settings';
+import { gitSync } from '../../infrastructure/git/process';
+import { originUrl, isRepository } from '../../infrastructure/git/read';
+import { cloneRepository, type GitOperationOptions } from '../../infrastructure/git/write';
+import { DomainError } from '../../models/domain-error';
+import { parseRemoteUrl, sameRemote, publicRemoteUrl } from '../../infrastructure/git/remote-url';
+import { validateGitSettings, type GitSettings } from '../settings';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import { DATA_DIR, getDb } from '../../infrastructure/db/schema';
-import { checkedFile } from '../docs-sources/sync';
-import { validateConfig } from '../docs-sources/config';
-import { sourceFolder, isDocsSyncRunning } from '../docs-sources';
+import { DATA_DIR } from '../../infrastructure/paths';
+import { checkedFile } from './sources/sync';
+import { validateConfig } from '../../infrastructure/docs-sources/config';
+import { sourceFolder, isDocsSyncRunning } from './sources';
 import { listConnections, requireConnection } from '../integrations';
 import { DocsSelection, SourceType } from '../../models/integrations';
-import { slugify } from '../shared/slugify';
+import { slugify } from '../shared';
 import { Project, ProjectConfig, ProjectKind } from '../../models';
 
 function parse(row: Record<string, unknown>): Project {
@@ -33,23 +34,23 @@ function parse(row: Record<string, unknown>): Project {
 
 export function listProjects(kind?: ProjectKind): Project[] {
   const rows = kind
-    ? getDb().prepare('SELECT * FROM projects WHERE kind=? ORDER BY name COLLATE NOCASE').all(kind)
-    : getDb().prepare('SELECT * FROM projects ORDER BY name COLLATE NOCASE').all();
+    ? queries.rowsSelectProjects(kind)
+    : queries.rowsSelectProjects2();
   return (rows as Record<string, unknown>[]).map(parse);
 }
 
 export function getProject(id: string): Project | null {
-  const row = getDb().prepare('SELECT * FROM projects WHERE id = ?').get(id) as Record<string, unknown> | undefined;
+  const row = queries.rowSelectProjects(id) as Record<string, unknown> | undefined;
   return row ? parse(row) : null;
 }
 
 export function getProjectByKey(key: string): Project | null {
-  const row = getDb().prepare(`SELECT * FROM projects WHERE key = ? AND kind <> 'group'`).get(key) as Record<string, unknown> | undefined;
+  const row = queries.rowSelectProjects2(key) as Record<string, unknown> | undefined;
   return row ? parse(row) : null;
 }
 
 export function groupMembers(groupId: string): Project[] {
-  return (getDb().prepare(`SELECT * FROM projects WHERE group_id=? AND kind='project' ORDER BY name COLLATE NOCASE`).all(groupId) as Record<string, unknown>[]).map(parse);
+  return (queries.groupMembersSelectProjects(groupId) as Record<string, unknown>[]).map(parse);
 }
 
 /** A user-facing validation problem; routes answer it with 400. */
@@ -91,7 +92,7 @@ export const groupFolder = (id: string) => path.join(DATA_DIR, 'groups', id);
 /** The actual `origin` of a member folder (not a stored copy), without credentials, for the group README. */
 function syncOrigin(root: string): string {
   try {
-    return execFileSync('git', ['-C', root, 'config', '--get', 'remote.origin.url'], { encoding: 'utf-8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] })
+    return gitSync(root, ['config', '--get', 'remote.origin.url'])
       .trim().replace(/\/\/[^/@]*@/, '//');
   }
   catch {
@@ -170,8 +171,7 @@ function docsSettings(data: Partial<ProjectInput>, current?: Project) {
   return { type, connection, config, selection };
 }
 function saveDocsSettings(id: string, settings: ReturnType<typeof docsSettings>): void {
-  getDb().prepare('UPDATE projects SET source_type=?,connection_id=?,docs_config=?,docs_selection=? WHERE id=?')
-    .run(settings.type, settings.connection, JSON.stringify(settings.config), JSON.stringify(settings.selection), id);
+  queries.saveDocsSettingsUpdateProjects(settings.type, settings.connection, JSON.stringify(settings.config), JSON.stringify(settings.selection), id);
 }
 
 export function createProject(data: ProjectInput): Project {
@@ -192,11 +192,7 @@ export function createProject(data: ProjectInput): Project {
     key = data.key?.trim() || uniqueKey(slugify(data.name));
     checkKey(key);
   }
-  getDb().prepare(`
-    INSERT INTO projects (id, kind, name, key, repo_path, group_id, icon, description, default_agent_id, config, hide_from_git)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(id, kind, data.name.trim(), key, repoPath, data.group_id ?? null, data.icon ?? '', data.description ?? '',
-    data.default_agent_id ?? null, JSON.stringify(data.config ?? {}), data.hide_from_git === false ? 0 : 1);
+  queries.createProjectInsertProjects(id, kind, data.name.trim(), key, repoPath, data.group_id ?? null, data.icon ?? '', data.description ?? '', data.default_agent_id ?? null, JSON.stringify(data.config ?? {}), data.hide_from_git === false ? 0 : 1);
   saveDocsSettings(id, settings);
   saveGitData(id, git);
   if (settings.type === 'docs') fs.mkdirSync(repoPath, { recursive: true });
@@ -223,10 +219,7 @@ export function updateProject(id: string, data: Partial<ProjectInput>): Project 
   }
   if (u.group_id === id) throw new ProjectError('Группа не может входить в саму себя');
   checkGroup(u.group_id, current.kind);
-  getDb().prepare(`
-    UPDATE projects SET name=?, key=?, repo_path=?, group_id=?, icon=?, description=?, default_agent_id=?, config=?, hide_from_git=? WHERE id=?
-  `).run(u.name.trim(), current.kind === 'group' ? null : u.key, u.repo_path, u.group_id ?? null, u.icon ?? '', u.description ?? '',
-    u.default_agent_id ?? null, JSON.stringify(u.config), u.hide_from_git ? 1 : 0, id);
+  queries.updateProjectUpdateProjects(u.name.trim(), current.kind === 'group' ? null : u.key, u.repo_path, u.group_id ?? null, u.icon ?? '', u.description ?? '', u.default_agent_id ?? null, JSON.stringify(u.config), u.hide_from_git ? 1 : 0, id);
   saveDocsSettings(id, settings);
   saveGitData(id, git);
   for (const group of new Set([current.group_id, u.group_id, current.kind === 'group' ? id : null])) if (group) writeGroupReadme(group);
@@ -247,7 +240,7 @@ export function deleteProject(id: string): boolean {
     }
     fs.rmSync(root, { recursive: true, force: true });
   }
-  const deleted = getDb().prepare('DELETE FROM projects WHERE id = ?').run(id).changes > 0;
+  const deleted = queries.deletedDeleteProjects(id).changes > 0;
   // Only ever the service folder Plangent created itself.
   if (current.kind === 'group' && path.resolve(current.repo_path) === path.resolve(groupFolder(id))) {
     fs.rmSync(current.repo_path, { recursive: true, force: true });
@@ -263,49 +256,8 @@ function gitData(data: Pick<ProjectInput, 'clone_url' | 'host_project_path' | 'g
   } catch (error) { throw new ProjectError((error as Error).message); }
 }
 function saveGitData(id: string, data: ReturnType<typeof gitData>) {
-  getDb().prepare('UPDATE projects SET clone_url=?,host_project_path=?,git_settings=? WHERE id=?')
-    .run(data.url, data.hostPath, JSON.stringify(data.settings), id);
+  queries.saveGitDataUpdateProjects(data.url, data.hostPath, JSON.stringify(data.settings), id);
 }
-export function effectiveGitSettings(id: string) {
-  const project = getProject(id);
-  if (!project) throw new ProjectError('Project not found');
-  return resolveGitSettings(project.group_id ? getProject(project.group_id)?.git_settings : {}, project.git_settings, globalGitSettings());
-}
-
-/** App-wide git settings («Настройки»): the level under every group and project. */
-export function globalGitSettings(): Partial<GitSettings> {
-  const row = getDb().prepare("SELECT value FROM app_settings WHERE key = 'git-settings'").get() as { value: string } | undefined;
-  try { return row ? validateGitSettings(JSON.parse(row.value)) : {}; } catch { return {}; }
-}
-export function saveGlobalGitSettings(value: unknown) {
-  let settings: Partial<GitSettings>;
-  try { settings = validateGitSettings(value); } catch (error) { throw new ProjectError((error as Error).message); }
-  getDb().prepare(`INSERT INTO app_settings (key, value, updated_at) VALUES ('git-settings', ?, datetime('now'))
-    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`).run(JSON.stringify(settings));
-  return settings;
-}
-
-/** Who does the git work (commit messages, commit split, MR description): the configured agent, else the project's. */
-export function gitAgent(id: string) { return configuredAgent(id, 'git', 'Выберите агента для коммитов и МР в настройках'); }
-/** Who reviews code with the developer: the configured review agent, else the project's. */
-export function reviewAgent(id: string) { return configuredAgent(id, 'review', 'Выберите агента для ревью в настройках проекта'); }
-/** Who resolves merge/rebase conflicts: the configured conflict agent, else the git agent, else the project's. */
-export function conflictAgent(id: string) {
-  const settings = effectiveGitSettings(id).values;
-  if (!settings.conflict_agent_id) {
-    try { return gitAgent(id); } catch { throw new CodeError('Выберите агента для конфликтов в настройках'); }
-  }
-  return { agentId: settings.conflict_agent_id, model: settings.conflict_agent_model, effort: settings.conflict_agent_effort };
-}
-function configuredAgent(id: string, kind: 'git' | 'review', missing: string): { agentId: string; model: string; effort: string } {
-  const settings = effectiveGitSettings(id).values;
-  const own = settings[`${kind}_agent_id`];
-  const agentId = own || getProject(id)?.default_agent_id || '';
-  if (!agentId) throw new CodeError(missing);
-  // A model or effort only makes sense for the agent it was picked for.
-  return own ? { agentId, model: settings[`${kind}_agent_model`], effort: settings[`${kind}_agent_effort`] } : { agentId, model: '', effort: '' };
-}
-
 export interface CreateProjectOptions extends GitOperationOptions { reuseExisting?: boolean }
 export class ExistingCloneError extends ProjectError { code = 'reuse_existing'; }
 /** Called by HTTP creation, leaving synchronous creation compatible with internal migrations/tests. */
@@ -376,3 +328,14 @@ export async function inspectProjectGit(root: string) {
   return { repository: await isRepository(root), clone_url: raw ? publicRemoteUrl(raw) : '', host_project_path: remote?.projectPath ?? '',
     connection_id: matches.length === 1 ? matches[0].id : null };
 }
+
+export function listProjectsWithActiveTasks() {
+  const active = new Map((queries.activeSelectTasks() as { project_id: string; n: number }[]).map(r => [r.project_id, r.n]));
+  return listProjects().map(p => ({ ...p, active_tasks: active.get(p.id) ?? 0 }));
+}
+
+export { readOnlyRoots } from './workspace';
+export { workspaceBriefing } from './workspace';
+export { mentionedReferences } from './workspace';
+export { WORKSPACE_BRIEFING_VERSION } from './workspace';
+export { writableRoots } from './workspace';

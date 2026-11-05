@@ -42,6 +42,7 @@
         </AppButton>
         <AppInput ref="fileInput" type="file" multiple hidden @change="filesSelected" />
         <AppButton variant="subtle" size="sm" icon type="button"  title="Упомянуть файл (@)" @click="insertAt">@</AppButton>
+        <slot name="tools" />
       </div>
       <div class="actions">
         <slot name="status" />

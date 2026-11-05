@@ -10,7 +10,6 @@ export type OrchestratorEvent = QueueEventBase & ({
 } | {
     type: 'session_started';
     sessionId: string;
-    runId: string;
     terminalSessionId: string;
     mode: 'acp';
     points: string[];
@@ -21,7 +20,6 @@ export type OrchestratorEvent = QueueEventBase & ({
 } | {
     type: 'session_complete';
     sessionId: string;
-    runId?: string;
 } | {
     type: 'session_waiting';
     sessionId: string;

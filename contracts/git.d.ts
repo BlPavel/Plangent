@@ -1,6 +1,6 @@
 import type { RepositoryInfo } from './index';
 export interface GitOperationState {
-    kind: 'merge' | 'rebase' | 'cherry-pick' | 'revert';
+    kind: 'merge' | 'rebase' | 'cherry-pick' | 'revert' | 'conflict';
     id: string;
     branch: string | null;
     commit: {

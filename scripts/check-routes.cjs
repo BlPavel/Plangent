@@ -15,8 +15,8 @@ for (const file of fs.readdirSync(path.join(root, 'contracts')).filter(file => f
     expected.set(key, kind === 'ndjson' ? 'stream' : kind);
   });
 }
-for (const file of ['server.ts', ...fs.readdirSync(path.join(root, 'server/infrastructure/http/routes')).filter(file => file.endsWith('.ts')).map(file => 'routes/' + file)]) {
-  const ast = parse('server/infrastructure/http/' + file), routers = new Set(['app']), helpers = new Set();
+for (const file of ['server.ts', ...fs.readdirSync(path.join(root, 'server/api/http/routes')).filter(file => file.endsWith('.ts')).map(file => 'routes/' + file)]) {
+  const ast = parse('server/api/http/' + file), routers = new Set(['app']), helpers = new Set();
   walk(ast, node => {
     if (!ts.isVariableDeclaration(node) || !node.initializer || !ts.isCallExpression(node.initializer)) return;
     if (node.initializer.expression.getText() === 'Router') routers.add(node.name.getText());

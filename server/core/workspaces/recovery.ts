@@ -1,12 +1,12 @@
+import * as records from '../../infrastructure/db/repositories/workspaces/recovery';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { getDb } from '../../infrastructure/db/schema';
 import type { Workspace } from '../../models';
 import { getProject } from '../projects';
-import { runGit } from '../code/git-write';
+import { runGit } from '../../infrastructure/git/write';
 import { updateWorkspace } from './store';
 export async function recoverWorkspaces() {
-  const rows = getDb().prepare("SELECT * FROM workspaces WHERE status<>'removed'").all() as Workspace[];
+  const rows = records.recoverWorkspacesWorkspaces() as Workspace[];
   const projects = new Map<string, string>();
   for (const workspace of rows) {
     try {

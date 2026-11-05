@@ -1,0 +1,155 @@
+import * as queries from '../../infrastructure/db/repositories/preparation/plans';
+import { emitPlanSaved } from './plan-events';
+import { v4 as uuidv4 } from 'uuid';
+import { Plan, PlanFrontmatter, PlanStep } from '../../models';
+
+function parsePlanRow(row: Record<string, unknown>): Plan {
+  return row as unknown as Plan;
+}
+
+export function getLatestPlan(task_id: string): Plan | null {
+  const row = queries.rowSelectPlans(task_id) as Record<string, unknown> | undefined;
+  return row ? parsePlanRow(row) : null;
+}
+
+export function getPlan(id: string): Plan | null {
+  const row = queries.rowSelectPlans2(id) as Record<string, unknown> | undefined;
+  return row ? parsePlanRow(row) : null;
+}
+
+export function listPlans(task_id: string): Plan[] {
+  const rows = queries.rowsSelectPlans(task_id) as Record<string, unknown>[];
+  return rows.map(parsePlanRow);
+}
+
+export interface PlanAuthor { author: Plan['author']; session_id?: string | null }
+
+export function createPlan(data: { task_id: string; content: string } & Partial<PlanAuthor>): Plan {
+  const id = uuidv4();
+    const latest = getLatestPlan(data.task_id);
+  const version = latest ? latest.version + 1 : 1;
+  queries.createPlanInsertPlans(id, data.task_id, data.content, version, data.author === 'agent' ? data.session_id ?? null : null, data.author ?? 'developer');
+  const plan = getPlan(id)!;
+  emitPlanSaved({ taskId: plan.task_id, content: plan.content, previousContent: latest?.content ?? '', version: plan.version, sessionId: plan.session_id, idMap: {} });
+  return plan;
+}
+
+export function updatePlan(id: string, content: string, writer: PlanAuthor = { author: 'developer' }, idMap: Record<string, string> = {}, removedSteps: string[] = []): Plan | null {
+    const previous = getPlan(id);
+  queries.updatePlanUpdatePlans(content, writer.author === 'agent' ? writer.session_id ?? null : null, writer.author, id);
+  const plan = getPlan(id);
+  if (plan && previous && (previous.content !== content || Object.keys(idMap).length))
+    emitPlanSaved({ taskId: plan.task_id, content, previousContent: previous.content, version: plan.version, sessionId: plan.session_id, idMap, removedSteps });
+  return plan;
+}
+
+// Parse YAML frontmatter block
+function parseFrontmatter(content: string): { meta: PlanFrontmatter; body: string } {
+  if (!content.startsWith('---')) return { meta: {}, body: content };
+  const rest = content.slice(3);
+  const endIdx = rest.indexOf('\n---');
+  if (endIdx === -1) return { meta: {}, body: content };
+  const yamlStr = rest.slice(0, endIdx);
+  const body = rest.slice(endIdx + 4).replace(/^\n/, '');
+  const meta: PlanFrontmatter = {};
+  for (const line of yamlStr.split('\n')) {
+    const m = line.match(/^(\w+)\s*:\s*(.+)$/);
+    if (!m) continue;
+    const [, key, val] = m;
+    const trimmed = val.trim();
+    if (key === 'plangent') meta.plangent = parseInt(trimmed, 10);
+    else if (key === 'key') meta.key = trimmed;
+    else if (key === 'title') meta.title = trimmed;
+    else if (key === 'status') meta.status = trimmed as PlanFrontmatter['status'];
+  }
+  return { meta, body };
+}
+
+// Pattern: - [ ] (p1) text @parallel:groupA
+// or:      - [x] text (no id yet)
+const STEP_REGEX = /^(\s*-\s*)\[([ x])\]\s+(?:\(([^)]+)\)\s+)?(.+?)(\s+@parallel:(\S+))?$/i;
+
+export function parseAnalysisLinks(text: string): string[] {
+  return [...new Set([...text.matchAll(/\[\[([^\]\r\n]+)\]\]/g)].map(m => m[1].trim()))];
+}
+
+export function parsePlanSteps(content: string): PlanStep[] {
+  const { body } = parseFrontmatter(content);
+  const lines = body.split('\n');
+  const steps: PlanStep[] = [];
+  let index = 0;
+  for (const line of lines) {
+    const m = line.match(STEP_REGEX);
+    if (!m) continue;
+    const done = m[2].toLowerCase() === 'x';
+    const stepId = m[3] || undefined;
+    // m[4] is the text, m[5] is " @parallel:group", m[6] is just the group name
+    // Strip @parallel tag from the display text
+    const rawText = m[4].trim();
+    const parallelGroup = m[6] || undefined;
+    steps.push({ text: rawText, done, index: index++, id: stepId, analysisLinks: parseAnalysisLinks(rawText), parallelGroup });
+  }
+  return steps;
+}
+
+// Assign stable (pN) ids to checkbox lines that are missing them.
+// Returns the new content and whether any changes were made.
+export function assignMissingIds(content: string): { content: string; changed: boolean } {
+  const lines = content.split('\n');
+  let maxId = 0;
+  for (const line of lines) {
+    const m = line.match(/\(p(\d+)\)/i);
+    if (m) maxId = Math.max(maxId, parseInt(m[1], 10));
+  }
+
+  let changed = false;
+  const result = lines.map(line => {
+    // Match checkbox lines that do NOT already have (pN)
+    const m = line.match(/^(\s*-\s*\[[ x]\]\s+)(?!\(p\d+\))/i);
+    if (!m) return line;
+    changed = true;
+    maxId++;
+    return line.replace(/^(\s*-\s*\[[ x]\]\s+)/i, `$1(p${maxId}) `);
+  });
+  return { content: result.join('\n'), changed };
+}
+
+/**
+ * Numbers every step by its position (p1, p2, …), so a step inserted in the middle doesn't read
+ * "p1 p2 p3 p5 p4". Only safe while no execution refers to the old ids; `idMap` maps old → new.
+ */
+export function renumberSteps(content: string): { content: string; idMap: Record<string, string> } {
+  const idMap: Record<string, string> = {};
+  let n = 0;
+  const result = content.split('\n').map(line => line.replace(/^(\s*-\s*\[[ x]\]\s+)(?:\((p\d+)\)\s+)?/i, (_m, head: string, old?: string) => {
+    const id = `p${++n}`;
+    if (old && old.toLowerCase() !== id) idMap[old.toLowerCase()] = id;
+    return `${head}(${id}) `;
+  }));
+  return { content: result.join('\n'), idMap };
+}
+
+export function setStepDone(content: string, stepIndex: number, done: boolean): string {
+  const { body } = parseFrontmatter(content);
+  const frontmatterLen = content.length - body.length;
+  const frontmatter = content.slice(0, frontmatterLen);
+
+  const lines = body.split('\n');
+  let idx = 0;
+  const updated = lines.map(line => {
+    const m = line.match(STEP_REGEX);
+    if (m) {
+      if (idx === stepIndex) {
+        idx++;
+        return line.replace(/\[[ x]\]/i, done ? '[x]' : '[ ]');
+      }
+      idx++;
+    }
+    return line;
+  });
+  return frontmatter + updated.join('\n');
+}
+
+export function markStepDone(content: string, stepIndex: number): string {
+  return setStepDone(content, stepIndex, true);
+}

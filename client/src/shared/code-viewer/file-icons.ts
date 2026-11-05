@@ -1,6 +1,6 @@
 import { ICON_SET } from './icon-set'
 
-// Names refer to the vscode-icons set (MIT); scripts/gen-file-icons.cjs extracts the ones used here into icon-set.ts.
+// Names refer to the vscode-icons set (MIT); the icons used here are stored in icon-set.ts.
 const byName: Record<string, string> = {
   'package.json': 'file-type-npm', 'package-lock.json': 'file-type-npm', '.npmrc': 'file-type-npm',
   dockerfile: 'file-type-docker', '.dockerignore': 'file-type-docker', 'docker-compose.yml': 'file-type-docker', 'docker-compose.yaml': 'file-type-docker',

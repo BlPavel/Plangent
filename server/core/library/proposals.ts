@@ -1,9 +1,10 @@
+import { moduleDependencies } from './dependencies';
 import { randomUUID } from 'crypto';
-import { getDb } from '../../infrastructure/db/schema';
+import { getProposalRow, listProposalRows, insertProposal, updateProposalStatus, libraryTransaction } from '../../infrastructure/db/repositories/library/proposals';
 import type { LibraryItem, LibraryProposal, LibraryScope } from '../../models';
 import { getProject } from '../projects';
-import { getSession } from '../agent-sessions/sessions';
-import { broadcast } from '../shared/events';
+import type { getSession } from '../agents';
+import { broadcast } from '../shared';
 import { createLibraryItem, getLibraryItem, libraryItemsFor, libraryOrigin, listLibraryItems, setExcluded, updateLibraryItem } from './index';
 import { readItemContent, writeItemContent, deleteItemContent } from './library-manager';
 import { syncItem, unsyncItem } from './syncer';
@@ -30,15 +31,12 @@ function parse(row: unknown): LibraryProposal {
   return { ...JSON.parse(String(data)), ...rest } as unknown as LibraryProposal;
 }
 export function getProposal(id: string): LibraryProposal {
-  const row = getDb().prepare('SELECT * FROM library_proposals WHERE id=?').get(id);
+  const row = getProposalRow(id);
   if (!row) throw new Error('Proposal not found');
   return parse(row);
 }
 export function listProposals(filters: { projectId?: string; sessionId?: string } = {}): LibraryProposal[] {
-  const conditions: string[] = [], params: string[] = [];
-  if (filters.projectId) { conditions.push('project_id=?'); params.push(filters.projectId); }
-  if (filters.sessionId) { conditions.push('session_id=?'); params.push(filters.sessionId); }
-  return getDb().prepare('SELECT * FROM library_proposals' + (conditions.length ? ' WHERE ' + conditions.join(' AND ') : '') + ' ORDER BY created_at, rowid').all(...params).map(parse);
+  return listProposalRows(filters).map(parse);
 }
 function snapshot(item: LibraryItem): LibraryItem & { content: string } {
   return { ...item, content: readItemContent(item) };
@@ -66,7 +64,7 @@ function notify(proposal: LibraryProposal): LibraryProposal {
   return proposal;
 }
 export function proposeLibraryChange(sessionId: string, input: ProposalInput): LibraryProposal {
-  const session = getSession(sessionId), project = getProject(session.project_id);
+  const session = moduleDependencies.agents.getSession(sessionId), project = getProject(session.project_id);
   if (session.role !== 'librarian' || !project || project.kind === 'source') throw new Error('A librarian project session is required');
   validate(input);
   const item = input.action === 'update' ? getLibraryItem(String(input.item_id ?? '')) : null;
@@ -82,11 +80,11 @@ export function proposeLibraryChange(sessionId: string, input: ProposalInput): L
   const data = { ...input, description: input.description ?? item?.description ?? '', frontmatter: input.frontmatter ?? item?.frontmatter ?? {},
     ...access, item_id: item?.id ?? null, snapshot: item ? snapshot(item) : null };
   const id = randomUUID();
-  getDb().prepare("INSERT INTO library_proposals(id,project_id,session_id,status,data) VALUES (?,?,?,'pending',?)").run(id, project.id, session.id, JSON.stringify(data));
+  insertProposal(id, project.id, session.id, JSON.stringify(data));
   return notify(getProposal(id));
 }
 function setStatus(id: string, status: LibraryProposal['status'], appliedId?: string): LibraryProposal {
-  getDb().prepare("UPDATE library_proposals SET status=?, applied_item_id=?, updated_at=datetime('now') WHERE id=?").run(status, appliedId ?? null, id);
+  updateProposalStatus(id, status, appliedId);
   return getProposal(id);
 }
 export function rejectProposal(id: string): LibraryProposal {
@@ -116,7 +114,7 @@ export function applyProposal(id: string, override?: ProposalAvailability): Libr
     throw new ProposalConflict('A library item with this slug already exists');
   let result: LibraryItem | undefined;
   try {
-    getDb().transaction(() => {
+    libraryTransaction(() => {
       const fields = { type: p.type, slug: p.slug, title: p.title, description: p.description, frontmatter: p.frontmatter, ...access };
       result = before && !detached ? updateLibraryItem(before.id, fields)! : createLibraryItem({
         ...fields, ...(before ? { detached_from: before.id, enabled: before.enabled, agent_filter: before.agent_filter } : {}),

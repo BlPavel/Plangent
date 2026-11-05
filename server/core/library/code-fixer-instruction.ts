@@ -1,5 +1,7 @@
+import { DEFAULT_CODE_FIXER_INSTRUCTION } from './builtins';
+export { DEFAULT_CODE_FIXER_INSTRUCTION } from './builtins';
 import { readItemContent } from './library-manager';
-import { libraryItemsFor, listLibraryItems } from './index';
+import { resolveLibraryItem } from './section-settings';
 import { getProject } from '../projects';
 
 /**
@@ -7,12 +9,7 @@ import { getProject } from '../projects';
  * are read and resolved is Plangent's protocol, not a preference, so it comes from get_review
  * (CODE_FIXER_PROTOCOL) and the tool descriptions instead.
  */
-export const DEFAULT_CODE_FIXER_INSTRUCTION = `# Code fixer
-Make the smallest change that addresses the item. No unrelated refactoring, renames or reformatting.
-Do not run git commands that modify the repository (including commit, checkout, switch, stash, reset, rebase, push, or staging). The user makes commits through Plangent. Read commands such as status, diff, log, show, blame and grep follow the session permission policy.
-Write only inside the project folder. Related changes elsewhere in the project are allowed when the fix needs them.
-When a question implies a choice, discuss the options as a numbered list in your message text, with their trade-offs, and mark the one you recommend. The developer chooses or continues the discussion by writing a reply. You decide how many; do not pad the list.
-Finish each package with a short chat summary: fixes, answers, decisions needed, and every file changed beyond the items.`;
+
 
 /** How review items work; returned by get_review with the items, never editable. */
 export const CODE_FIXER_PROTOCOL = [
@@ -38,12 +35,6 @@ export function buildCodeFixerBriefing(projectId: string): string {
 }
 
 export function resolveCodeFixerInstruction(projectId: string): string {
-  const project = getProject(projectId);
-  const items = project
-    ? libraryItemsFor(project, 'code-fixer-instruction').filter(item => item.enabled)
-    : listLibraryItems({ type: 'code-fixer-instruction', projectId: '', enabledOnly: true })
-      .map(item => ({ ...item, origin: 'global' as const }));
-  const item = (['direct', 'group', 'global'] as const)
-    .map(origin => items.find(item => item.origin === origin)).find(Boolean);
+  const item = resolveLibraryItem('code-fixer-instruction', projectId);
   return item ? readItemContent(item) : DEFAULT_CODE_FIXER_INSTRUCTION;
 }

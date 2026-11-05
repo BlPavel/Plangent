@@ -3,6 +3,7 @@ import vue from 'eslint-plugin-vue'
 import tseslint from 'typescript-eslint'
 import vueParser from 'vue-eslint-parser'
 import layers from './scripts/eslint-layers.mjs'
+import serverLayers from './scripts/eslint-server-layers.mjs'
 
 const existingVueFormatRules = {
   'vue/attributes-order': 'off',
@@ -14,6 +15,8 @@ const existingVueFormatRules = {
 }
 
 export default [
+  { ignores: ['server/**/*.type-test.ts', 'server/**/*.cjs'] },
+  { files: ['server/tests/support/*.mjs'], languageOptions: { globals: { process: 'readonly', setTimeout: 'readonly', fetch: 'readonly' } } },
   { plugins: { local: { rules: { layers } } } },
   { files: ['client/src/**/*.{ts,vue}'], rules: { 'local/layers': 'error' } },
   {
@@ -30,6 +33,15 @@ export default [
   js.configs.recommended,
   ...tseslint.configs.recommended,
   ...vue.configs['flat/recommended'],
+  {
+    files: ['server/**/*.ts'],
+    plugins: { server: { rules: { layers: serverLayers } } },
+    rules: {
+      ...Object.fromEntries(Object.keys(js.configs.recommended.rules).map(name => [name, 'off'])),
+      ...Object.fromEntries(tseslint.configs.recommended.flatMap(config => Object.keys(config.rules ?? {})).map(name => [name, 'off'])),
+      'server/layers': 'error',
+    },
+  },
   {
     files: ['client/src/**/*.ts'],
     languageOptions: {

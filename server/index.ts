@@ -1,16 +1,18 @@
+import './core-services';
+import { initializeAgentPresets } from './core/agents/catalog/seed';
 import { recoverWorkspaces } from './core/workspaces/recovery';
 import { initWorkEvents } from './core/work/events';
-import { initSessions } from './core/agent-sessions/sessions';
-import { initTaskFiles } from './core/orchestration/task-files-startup';
-import { initQueues } from './core/orchestration/queue';
-import { configureSessionHost, shutdownSessions } from './core/agent-sessions/acp-host';
-import { sessionMcpConfig } from './infrastructure/mcp/server';
+import { initSessions } from './core/agents/sessions/sessions';
+import { initTaskFiles } from './core/tasks/task-files-startup';
+import { initQueues } from './core/execution/queue';
+import { configureSessionHost, shutdownSessions } from './core/agents/sessions/acp-host';
+import { sessionMcpConfig } from './api/mcp/server';
 import { killProcessTree } from './infrastructure/terminal/process-tree';
-import { shutdownTerminals } from './infrastructure/http/routes/terminals';
-import { createApp } from './infrastructure/http/server';
+import { shutdownTerminals } from './api/http/routes/terminals';
+import { createApp } from './api/http/server';
 import { DATA_DIR, getDb } from './infrastructure/db/schema';
 import { configureSecretVault, DevFileVault, SecretVault } from './infrastructure/secrets';
-import { resetInterruptedDocsSyncs } from './core/docs-sources';
+import { resetInterruptedDocsSyncs } from './core/projects/sources';
 import { syncAll } from './core/library/syncer';
 import { migratePlanReviewInstructionLevels } from './core/library/plan-review-instruction';
 
@@ -27,6 +29,7 @@ const DEFAULT_PORT = parseInt(process.env.PORT ?? '3001', 10);
 export async function startServer(port = DEFAULT_PORT, vault?: SecretVault): Promise<number> {
   configureSecretVault(vault ?? new DevFileVault(DATA_DIR));
   getDb();
+  initializeAgentPresets();
   resetInterruptedDocsSyncs();
   initSessions();
   initQueues();
