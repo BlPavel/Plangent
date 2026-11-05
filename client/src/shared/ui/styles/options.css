@@ -1,4 +1,5 @@
-.option { display: flex; align-items: center; gap: var(--sp-2); width: 100%; padding: var(--sp-2); border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.option { display: flex; align-items: center; gap: var(--sp-2); width: 100%; min-height: var(--size-sm); padding: var(--sp-2) var(--sp-3); border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.option + .option { margin-top: 2px; }
 .option:hover:not(:disabled), .option:focus-visible, .option.active { background: var(--bg-hover); outline: none; }
 .option:disabled { opacity: .45; cursor: not-allowed; }
 .option.selected { color: var(--blue-hover); background: var(--blue-soft); }

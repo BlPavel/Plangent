@@ -7,9 +7,9 @@
         <AppButton block :aria-expanded="newMenuOpen" aria-haspopup="menu" @click="newMenuOpen = !newMenuOpen">
           <span class="btn-plus">+</span> Новый
         </AppButton>
-        <AppPopover v-model="newMenuOpen" :anchor="newMenu" :min-width="220" role="menu" focus-on-open>
+        <AppPopover v-model="newMenuOpen" :anchor="newMenu" match-anchor role="menu" focus-on-open>
           <AppButton v-for="o in NEW_OPTIONS" :key="o.kind" variant="subtle" block multiline start role="menuitem" @click="openCreate(o.kind)">
-            <span>{{ o.icon }}</span><span class="new-option-text"><strong>{{ o.label }}</strong><small>{{ o.hint }}</small></span>
+            <span class="new-option"><span class="new-option-icon" aria-hidden="true">{{ o.icon }}</span><span class="new-option-text"><strong>{{ o.label }}</strong><small>{{ o.hint }}</small></span></span>
           </AppButton>
         </AppPopover>
       </div>
@@ -18,8 +18,6 @@
         :current-id="isSettingsRoute ? null : appStore.currentProject?.id ?? null"
         :blocked="projectAttention"
         @select="selectProject"
-        @create="openCreate"
-        @regroup="regroup"
       />
 
       <RouterLink to="/settings" class="sidebar-link app-no-drag" :class="{ active: $route.path === '/settings' }">
@@ -117,8 +115,8 @@ function placeLabel(_projectId: string, workspaceId: string | null) {
 
 const NEW_OPTIONS: { kind: ProjectKind; icon: string; label: string; hint: string }[] = [
   { kind: 'project', icon: '📁', label: 'Проект', hint: 'Репозиторий, в котором работают агенты' },
-  { kind: 'group', icon: '🗂', label: 'Группа', hint: 'Несколько проектов и общие задачи' },
-  { kind: 'source', icon: '📘', label: 'Справочник', hint: 'Папка только для чтения, @имя' },
+  { kind: 'group', icon: '🗂️', label: 'Группа', hint: 'Несколько проектов и общие задачи' },
+  { kind: 'source', icon: '📘', label: 'Справочник', hint: 'Папка или документация, которую читает агент' },
 ]
 const newMenu = ref<HTMLElement>()
 const newMenuOpen = ref(false)
@@ -134,14 +132,6 @@ function openCreate(kind: ProjectKind) {
   const current = appStore.currentProject
   createGroupId.value = current?.kind === 'group' ? current.id : current?.kind === 'project' ? current.group_id : null
   showCreate.value = true
-}
-
-async function regroup(p: Project, groupId: string | null) {
-  try {
-    const updated = await projectsStore.update(p.id, { group_id: groupId })
-    if (appStore.currentProject?.id === p.id) appStore.currentProject = updated
-    appStore.toast(groupId ? `«${p.name}» в группе «${projectsStore.byId(groupId)?.name}»` : `«${p.name}» вне группы`, 'success')
-  } catch (e: unknown) { appStore.toast(String(e), 'error') }
 }
 
 onMounted(async () => {
@@ -183,7 +173,9 @@ function selectProject(p: Project) {
 }
 
 .new-menu { position: relative; margin-bottom: var(--sp-3); }
-.new-option-text { display: flex; flex-direction: column; align-items: flex-start; }
+.new-option { display: flex; align-items: flex-start; gap: var(--sp-3); padding-block: var(--sp-1); }
+.new-option-icon { width: 20px; flex-shrink: 0; text-align: center; line-height: var(--lh-normal); }
+.new-option-text { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-1); min-width: 0; }
 .btn-plus { font-size: var(--fs-lg); line-height: var(--lh-tight); margin-top: -1px; }
 
 .sidebar-link {

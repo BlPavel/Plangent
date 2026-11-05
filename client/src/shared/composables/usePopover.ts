@@ -8,6 +8,7 @@ export interface PopoverOptions {
         y: number;
     } | null;
     minWidth?: number;
+    matchAnchor?: boolean;
 }
 export function usePopover(open: Ref<boolean>, anchor: Ref<HTMLElement | null | undefined>, panel: Ref<HTMLElement | undefined>, options: () => PopoverOptions, close: () => void) {
     const style = ref<CSSProperties>({});
@@ -21,7 +22,7 @@ export function usePopover(open: Ref<boolean>, anchor: Ref<HTMLElement | null | 
         const point = opts.at;
         if (!rect && !point)
             return;
-        const edge = 8, gap = 6, width = Math.min(Math.max(opts.minWidth ?? 0, rect?.width ?? 0, panel.value.offsetWidth), window.innerWidth - edge * 2);
+        const edge = 8, gap = 6, width = Math.min(opts.matchAnchor && rect ? rect.width : Math.max(opts.minWidth ?? 0, rect?.width ?? 0, panel.value.offsetWidth), window.innerWidth - edge * 2);
         const left = point?.x ?? (opts.align === 'right' ? rect!.right - width : rect!.left);
         const below = window.innerHeight - (point?.y ?? rect!.bottom) - gap - edge;
         const above = (point?.y ?? rect!.top) - gap - edge;

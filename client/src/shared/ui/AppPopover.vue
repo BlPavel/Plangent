@@ -12,6 +12,8 @@ const props = withDefaults(defineProps<{
     align?: 'left' | 'right';
     placement?: 'top' | 'bottom';
     minWidth?: number;
+    /** Panel is exactly as wide as the anchor; content wraps. Otherwise it fits its content. */
+    matchAnchor?: boolean;
     role?: string;
     label?: string;
     focusOnOpen?: boolean;
@@ -29,7 +31,7 @@ watch(() => props.modelValue, async (value) => { if (value && props.focusOnOpen)
     (panel.value?.querySelector<HTMLElement>('[aria-selected="true"]:not(:disabled)') ?? panel.value?.querySelector<HTMLElement>('button:not(:disabled)'))?.focus();
 } }, { immediate: true });
 const floatingOpen = computed(() => props.modelValue && !props.inline);
-const { style } = usePopover(floatingOpen, toRef(props, 'anchor'), panel, () => ({ align: props.align, placement: props.placement, at: props.at, minWidth: props.minWidth }), () => emit('update:modelValue', false));
+const { style } = usePopover(floatingOpen, toRef(props, 'anchor'), panel, () => ({ align: props.align, placement: props.placement, at: props.at, minWidth: props.minWidth, matchAnchor: props.matchAnchor }), () => emit('update:modelValue', false));
 function navigate(event: KeyboardEvent) {
     if (event.defaultPrevented) return;
     if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key) || event.target instanceof HTMLInputElement)
@@ -44,4 +46,4 @@ function navigate(event: KeyboardEvent) {
 }
 defineExpose({ panel });
 </script>
-<style scoped>.popover { z-index: var(--z-popover); overflow: auto; padding: var(--sp-1); border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--bg2); color: var(--text); box-shadow: var(--shadow-md); font: var(--fs-sm)/var(--lh-normal) var(--font-sans); }.popover.inline { position: static; overflow: visible; padding: 0; border: 0; background: transparent; box-shadow: none; }</style>
+<style scoped>.popover { width: max-content; max-width: calc(100vw - 16px); z-index: var(--z-popover); overflow: auto; padding: var(--sp-1); border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--bg2); color: var(--text); box-shadow: var(--shadow-md); font: var(--fs-sm)/var(--lh-normal) var(--font-sans); }.popover.inline { width: auto; max-width: none; position: static; overflow: visible; padding: 0; border: 0; background: transparent; box-shadow: none; }</style>

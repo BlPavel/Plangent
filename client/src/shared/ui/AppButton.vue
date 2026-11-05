@@ -63,9 +63,9 @@ function click(event: MouseEvent) { if (props.disabled) { event.preventDefault()
 
 /* Icons inside buttons inherit the button's colour so a danger button
    shows a red icon, a primary button a white one, etc. */
-.btn svg { width: 15px; height: 15px; flex-shrink: 0; }
-.btn-sm svg { width: 14px; height: 14px; }
-.btn-xs svg { width: 12px; height: 12px; }
+.btn svg, .btn :slotted(svg) { width: 15px; height: 15px; flex-shrink: 0; }
+.btn-sm svg, .btn-sm :slotted(svg) { width: 14px; height: 14px; }
+.btn-xs svg, .btn-xs :slotted(svg) { width: 12px; height: 12px; }
 
 
 .btn { text-decoration: none; }

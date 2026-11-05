@@ -56,7 +56,7 @@
       </section>
       <section>
         <h3>Как пользоваться</h3>
-        <p class="text">
+        <p class="text plain">
           В чате или задаче напишите <code>@{{ source.key }}</code> или <code>@{{ source.key }}/путь/к/файлу</code>.
           Справочник подключается только по вашему явному @упоминанию. Агент получает имя, путь и описание — сами файлы читает, когда это нужно, и никогда не меняет.
         </p>
@@ -148,6 +148,7 @@ async function cancel() { busy.value = true; try { await projectsStore.cancelSyn
 .source-body { flex: 1; overflow-y: auto; padding: var(--sp-5) var(--sp-6); display: flex; flex-direction: column; gap: var(--sp-5); max-width: 720px; }
 h3 { font-size: var(--fs-sm); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-faint); margin-bottom: 6px; }
 .text { font-size: var(--fs-md); line-height: 1.55; white-space: pre-wrap; }
+.text.plain { white-space: normal; }
 .muted { font-size: var(--fs-md); color: var(--text-muted); }
 code { padding: 1px 5px; background: var(--bg3); border-radius: var(--radius-4); font-size: var(--fs-sm); }
 

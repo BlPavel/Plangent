@@ -52,6 +52,6 @@ watch(() => props.disabled, value => { if (value)
 @import './styles/options.css';
 .select { display: inline-flex; min-width: 0; }
 .select.block { display: flex; width: 100%; }
-.value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.value { line-height: var(--lh-normal); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chevron { width: 14px; height: 14px; flex-shrink: 0; margin-left: auto; }
 </style>

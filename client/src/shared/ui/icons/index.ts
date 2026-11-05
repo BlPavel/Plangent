@@ -4,6 +4,7 @@ export { default as IconChevron } from './IconChevron.vue';
 export { default as IconChevronRight } from './IconChevronRight.vue';
 export { default as IconClose } from './IconClose.vue';
 export { default as IconDots } from './IconDots.vue';
+export { default as IconFilter } from './IconFilter.vue';
 export { default as IconGitBranch } from './IconGitBranch.vue';
 export { default as IconPlus } from './IconPlus.vue';
 export { default as IconRefresh } from './IconRefresh.vue';

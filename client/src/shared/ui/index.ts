@@ -32,4 +32,5 @@ export { default as StageMark } from './StageMark.vue';
 export { default as StaleDraftNote } from './StaleDraftNote.vue';
 export { default as StatusBadge } from './StatusBadge.vue';
 export { default as TagListEditor } from './TagListEditor.vue';
+export { default as AppTreeRow } from './AppTreeRow.vue';
 export * from './icons';

@@ -1,4 +1,4 @@
-<template><label class="check" :class="{ disabled }"><input ref="input" v-bind="$attrs" type="checkbox" :checked="modelValue" :disabled="disabled" :aria-invalid="invalid || undefined" @change="emit('update:modelValue', ($event.target as HTMLInputElement).checked)" /><span><slot>{{ label }}</slot></span></label></template>
+<template><label class="check" :class="{ disabled, block }"><input ref="input" v-bind="$attrs" type="checkbox" :checked="modelValue" :disabled="disabled" :aria-invalid="invalid || undefined" @change="emit('update:modelValue', ($event.target as HTMLInputElement).checked)" /><span><slot>{{ label }}</slot></span></label></template>
 <script setup lang="ts">
 import { ref, watchEffect } from 'vue';
 defineOptions({ inheritAttrs: false });
@@ -8,6 +8,8 @@ const props = defineProps<{
     disabled?: boolean;
     invalid?: boolean;
     indeterminate?: boolean;
+    /** Full-width row, so a list of checkboxes stacks vertically. */
+    block?: boolean;
 }>();
 const emit = defineEmits<{
     'update:modelValue': [
@@ -19,4 +21,4 @@ watchEffect(() => { if (input.value)
     input.value.indeterminate = !!props.indeterminate; });
 defineExpose({ focus: () => input.value?.focus() });
 </script>
-<style scoped>.check{display:inline-flex;align-items:center;gap:var(--sp-2);font:var(--fs-sm)/var(--lh-normal) var(--font-sans);color:var(--text);cursor:pointer}.check input{accent-color:var(--blue);width:16px;height:16px}.check input:focus-visible{outline:var(--focus-outline)}.disabled{opacity:.45;cursor:not-allowed}</style>
+<style scoped>.check{display:inline-flex;align-items:center;gap:var(--sp-2);font:var(--fs-sm)/var(--lh-normal) var(--font-sans);color:var(--text);cursor:pointer}.check input{accent-color:var(--blue);width:16px;height:16px}.check input:focus-visible{outline:var(--focus-outline)}.check.block{display:flex;padding:var(--sp-2);border-radius:var(--radius-sm)}.check.block:hover{background:var(--bg-hover)}.disabled{opacity:.45;cursor:not-allowed}</style>
