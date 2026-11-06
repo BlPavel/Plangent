@@ -28,6 +28,7 @@
       </header>
       <div class="csp-tabs">
         <AppTabs :model-value="state.list" :items="listTabs" label="Код" bare @update:model-value="selectList($event as SideListTab)" />
+        <AppButton variant="subtle" size="xs" icon title="Скрыть (Ctrl+Shift+E)" aria-label="Скрыть код" @click="emit('close')">»</AppButton>
       </div>
       <p v-if="place.blocked" class="csp-blocked">{{ place.blocked }}</p>
       <template v-else>
@@ -228,7 +229,8 @@ defineExpose({ open })
 </script>
 
 <style scoped>
-.csp { display: flex; flex-shrink: 1; min-width: 0; min-height: 0; outline: none; background: var(--bg2); }
+/* The panel starts below the title bar, which stays one even strip with the window buttons. */
+.csp { display: flex; margin-top: var(--titlebar-h); flex-shrink: 1; min-width: 0; min-height: 0; outline: none; background: var(--bg2); }
 .csp-resizer { position: relative; z-index: var(--z-local-raised); width: 0; flex-shrink: 0; border-left: 1px solid var(--border); cursor: col-resize; outline: none; }
 .csp-resizer::before { content: ''; position: absolute; top: 0; bottom: 0; left: -3px; width: 6px; opacity: 0.6; transition: background var(--motion-fast); }
 .csp-resizer:hover::before, .csp-resizer:focus-visible::before { background: var(--blue); }
@@ -242,9 +244,7 @@ defineExpose({ open })
 .csp-grip { color: var(--text-faint); letter-spacing: -2px; }
 .csp-chip code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--blue-hover); }
 .csp-list { display: flex; flex-direction: column; flex-shrink: 0; min-height: 0; background: var(--bg2); }
-.csp-head { display: flex; align-items: center; gap: 8px; flex-shrink: 0; box-sizing: content-box; height: 28px; padding: var(--titlebar-h) 4px 0 12px; border-bottom: 1px solid var(--border); font-size: var(--fs-sm);
-  /* The strip under the window buttons has their colour (--bg), so the panel does not break it in two. */
-  background: linear-gradient(var(--bg) var(--titlebar-h), transparent var(--titlebar-h)); }
+.csp-head { display: flex; align-items: center; gap: 8px; flex-shrink: 0; height: 28px; padding: 0 4px 0 12px; border-bottom: 1px solid var(--border); font-size: var(--fs-sm); }
 .csp-place { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); font-weight: var(--fw-medium); }
 .csp-tabs { display: flex; align-items: center; flex-shrink: 0; padding-right: 4px; border-bottom: 1px solid var(--border); }
 .csp-tabs > :first-child { flex: 1; min-width: 0; }

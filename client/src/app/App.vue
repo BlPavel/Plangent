@@ -4,6 +4,11 @@
       <AppButton class="app-no-drag" variant="subtle" size="sm" icon title="Развернуть панель проектов" aria-label="Развернуть панель проектов" @click="sidebarCollapsed = false">
         <IconSidebar />
       </AppButton>
+      <div ref="newMenuRail" class="rail-new app-no-drag">
+        <AppButton variant="subtle" size="sm" icon title="Новый" aria-label="Новый" aria-haspopup="menu" :aria-expanded="newMenuOpen" @click="newMenuOpen = !newMenuOpen">
+          <span class="rail-plus">+</span>
+        </AppButton>
+      </div>
       <RouterLink to="/settings" class="rail-settings app-no-drag" :class="{ active: isSettingsRoute }" title="Настройки" aria-label="Настройки">⚙</RouterLink>
     </nav>
     <aside v-else class="sidebar">
@@ -18,11 +23,6 @@
         <AppButton block :aria-expanded="newMenuOpen" aria-haspopup="menu" @click="newMenuOpen = !newMenuOpen">
           <span class="btn-plus">+</span> Новый
         </AppButton>
-        <AppPopover v-model="newMenuOpen" :anchor="newMenu" match-anchor role="menu" focus-on-open>
-          <AppButton v-for="o in NEW_OPTIONS" :key="o.kind" variant="subtle" block multiline start role="menuitem" @click="openCreate(o.kind)">
-            <span class="new-option"><span class="new-option-icon" aria-hidden="true">{{ o.icon }}</span><span class="new-option-text"><strong>{{ o.label }}</strong><small>{{ o.hint }}</small></span></span>
-          </AppButton>
-        </AppPopover>
       </div>
 
       <ProjectTree
@@ -37,6 +37,12 @@
 
       <UpdateStatus :version="appVersion" />
     </aside>
+
+    <AppPopover v-model="newMenuOpen" :anchor="newMenuAnchor" :match-anchor="!sidebarCollapsed" role="menu" focus-on-open>
+      <AppButton v-for="o in NEW_OPTIONS" :key="o.kind" variant="subtle" block multiline start role="menuitem" @click="openCreate(o.kind)">
+        <span class="new-option"><span class="new-option-icon" aria-hidden="true">{{ o.icon }}</span><span class="new-option-text"><strong>{{ o.label }}</strong><small>{{ o.hint }}</small></span></span>
+      </AppButton>
+    </AppPopover>
 
     <main class="content">
       <div class="content-body">
@@ -179,6 +185,9 @@ const NEW_OPTIONS: { kind: ProjectKind; icon: string; label: string; hint: strin
   { kind: 'source', icon: '📘', label: 'Справочник', hint: 'Папка или документация, которую читает агент' },
 ]
 const newMenu = ref<HTMLElement>()
+const newMenuRail = ref<HTMLElement>()
+// «Новый» lives in the full panel or, when it is folded, in the rail.
+const newMenuAnchor = computed(() => (sidebarCollapsed.value ? newMenuRail.value : newMenu.value))
 const newMenuOpen = ref(false)
 const showCreate = ref(false)
 const createKind = ref<ProjectKind>('project')
@@ -243,6 +252,9 @@ function selectProject(p: Project) {
   padding: calc(var(--titlebar-h) + var(--sp-2)) 0 var(--sp-3);
   flex-shrink: 0;
 }
+.sidebar-rail > * + * { margin-top: var(--sp-2); }
+.rail-new { display: flex; }
+.rail-plus { font-size: var(--fs-lg); line-height: var(--lh-tight); }
 .rail-settings {
   margin-top: auto;
   display: inline-flex;
