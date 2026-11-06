@@ -23,13 +23,15 @@ The document is free-form Markdown. Read it with get_material and save its compl
 
 export const ARCHITECTURE_TEMPLATE = `# Architecture
 
+Architecture is a technical document for developers: components and their responsibilities, dependencies, contracts, data, and decisions with their rationale. It does not retell requirements or describe features in the user's words; the requirements are in the analysis, and this document shows how they map onto the system.
+
 A flexible outline for an empty document. Combine, omit, or change sections; completeness does not determine readiness. Write the document in Russian.
 
 ## Context and boundaries
 Describe what changes and what does not, the sources of requirements (links to analysis), and applicable project rules.
 
 ## Components and interactions
-Describe affected parts and their responsibilities, the main flow, state ownership, errors, and concurrency where relevant. Distinguish existing from proposed components. Use a diagram only when text is insufficient.
+Describe affected parts and their responsibilities, the main flow, state ownership, errors, and concurrency where relevant. Distinguish existing from proposed components. Use a diagram only when text is insufficient: one diagram answers one question, and its components carry the same names as in the text.
 
 ## Decisions and constraints
 **D1** Decision, rationale, and consequences.
@@ -43,7 +45,11 @@ export const QA_TEMPLATE = `# QA
 
 A flexible outline for an empty document. Combine, omit, or change sections; completeness does not determine readiness. Write the document in Russian.
 
-A criterion turns a requirement into behavior verifiable by code and automated tests: condition, action, expected result, boundary, and basis (a link to analysis).
+QA records what must be true at the level of code and tests and resolves ambiguities of the analysis before the plan.
+
+Look in the analysis for ambiguities and constraints it does not state explicitly: boundary values, empty and invalid input, concurrency, access rights, behavior on failure. Record what you find as a proposed clarification or a question, not as an accepted requirement.
+
+A criterion turns a requirement into behavior verifiable by code and tests: condition, action, expected result, boundary, and basis (a link to analysis). When the way to verify it is not obvious, state it on a separate line under the criterion.
 
 **Q1** Condition -> action -> expected result. Basis: [[section]].
 
@@ -53,7 +59,7 @@ const ARCHITECTURE_REVIEW = `# Architecture review
 1. Check that the document follows the analysis materials and the current code. QA and the plan are not grounds for this review: they depend on the architecture.
 2. Check the project's architectural rules: name the exact rule and the dependency that violates it. Explicit exceptions are allowed.
 3. Check responsibility and data ownership of the affected components, error handling and concurrent operations where they matter.
-4. Check that text and diagrams agree, component names are uniform, and existing parts are told apart from proposed ones.
+4. Check that the document is technical: decisions are justified rather than requirements retold. Text and diagrams agree, component names are uniform, and existing parts are told apart from proposed ones.
 5. Look for needless complication and for details that free interpretation would change.
 Back every remark with a place of the document (decision id or quote), the code or the requirement, and the consequence. Keep violations apart from matters of taste.`;
 
@@ -61,7 +67,8 @@ const QA_REVIEW = `# QA review
 1. Check that every criterion rests on the analysis materials and that no behaviour is invented. Find requirements without a criterion and criteria without a basis.
 2. Check that ambiguities are raised as questions and are not decided silently; a strengthening of a requirement needs a decision.
 3. Check that criteria agree with each other and with the ready architecture.
-4. Check that boundaries, errors and expected results are exact and observable by code and automated tests.
+4. Check that boundaries, errors and expected results are exact and observable by code and tests.
+5. Find implicit constraints the analysis implies but no criterion covers: boundary, empty and invalid input, failures.
 Back every remark with a place of the document (criterion id or quote) and the source it conflicts with. Keep violations apart from suggestions.`;
 
 export const MATERIAL_KINDS: Record<MaterialType, MaterialKind> = {

@@ -1,16 +1,13 @@
 export const DEFAULT_COMMIT_RULES = [
   'Write the commit message in English.',
   'Title: one short line in the imperative mood that says what was done, for example "Add retry to payment client".',
-  'Keep the title under 10 words (never more than 72 characters) and do not end it with a period.',
+  'Aim for about 50 characters in the title, never more than 72, and do not end it with a period.',
   'Describe the change itself, not the files or the process. Do not mention the AI, the agent or the tool.',
   'Description (only when requested): 1-3 short lines or bullets on what changed and why.',
 ].join('\n');
 
 export const DEFAULT_CODE_FIXER_INSTRUCTION = `# Code fixer
 Make the smallest change that addresses the item. No unrelated refactoring, renames or reformatting.
-Do not run git commands that modify the repository (including commit, checkout, switch, stash, reset, rebase, push, or staging). The user makes commits through Plangent. Read commands such as status, diff, log, show, blame and grep follow the session permission policy.
-Write only inside the project folder. Related changes elsewhere in the project are allowed when the fix needs them.
-When a question implies a choice, discuss the options as a numbered list in your message text, with their trade-offs, and mark the one you recommend. The developer chooses or continues the discussion by writing a reply. You decide how many; do not pad the list.
 Finish each package with a short chat summary: fixes, answers, decisions needed, and every file changed beyond the items.`;
 
 export const DEFAULT_INSTRUCTION_GUIDE = `# Instruction Authoring Guide
@@ -238,23 +235,85 @@ Plangent tracks plan steps as checkbox lines. Use this format:
 - Do not assign a \`(pN)\` label to a new step; Plangent assigns it when the file is saved.
 
 Headings, descriptions and notes are free text. Do not start a note with a checkbox, or it becomes a step.
-Add links to analysis materials on the step line: [[section]] or [[section/file]]. Use the section slug and exact file name from get_plan; the link must exist.
+The step line is a short name of the action without links. Put links to analysis materials in the step description below it: [[section]] or [[section/file]]. Use the section slug and exact file name from get_plan; the link must exist.
 When get_plan contains architecture and QA materials, link steps to individual decisions or criteria using [[architecture#D2]] or [[qa#Q3]], or to a whole document using [[architecture]] or [[qa]]. The identifier must appear in the supplied text.
-Each step describes an action, links to its decisions and criteria, and briefly says how to verify it. Do not copy criteria into steps.
+Each step describes an action, links to its decisions and criteria in its description, and briefly says how to verify it. Do not copy criteria into steps.
 Cover every QA criterion with at least one step. If several steps cover a criterion, verify it only after the last one. If get_plan has no QA, keep local acceptance criteria in the steps. Write the plan in Russian.`;
 
-export const DEFAULT_PLAN_REVIEW_INSTRUCTION = `# Plan review
+export const DEFAULT_PLAN_TEMPLATE = `# How to write a plan
+
+A plan describes how to implement the task and in what order. Its structure is the same whether or not analysis, architecture or QA exist. Write the plan in Russian.
+
+Do not pick an interpretation silently: when the wording allows two readings that lead to different code, ask or put the choice into "Open questions". Do not agree for the sake of agreement: when a solution breaks boundaries or is worse than an alternative, say so with an argument.
+
+## Structure
+
+Use these sections in this order, with the Russian headings given in parentheses.
+
+- **Task name.**
+- **Current situation** («Текущая ситуация»). What exists now, how it works, what the problem is.
+- **Solution** («Решение»). The chosen approach in two or three sentences: what changes and why. When new entities appear, say in one sentence what depends on what. When the task's architecture is ready, refer to its decisions instead of retelling them.
+- **Implementation options** («Варианты реализации»). Only when there is real doubt about the approach; otherwise omit the section. Give each option its pros and cons, then the recommended option and one sentence why.
+- **Contracts and given values** («Контракты и заданные значения»). Only when there are any. Everything the implementation must match exactly:
+  - endpoints, request and response shapes, data interfaces at module boundaries, in the project's language notation or as a JSON example;
+  - values the developer gave in the task or in chat (spacing, sizes, texts, element order), verbatim, in the project's units or tokens.
+  Keep what the developer gave apart from what you propose. Steps refer to this section instead of repeating it.
+- **Steps** («Шаги»).
+- **Changes by file** («Изменения по файлам»). A nested list of affected files and folders: new ones in **bold**, removed ones ~~struck through~~, changed ones as plain text. Always include it, even for a small refactoring.
+- **Open questions** («Открытые вопросы»). Unresolved questions, risks and objections. Keep the section even when it is empty, with a dash.
+
+## Steps
+
+Steps are strictly ordered: a step that can only be done after another one comes below it.
+
+The step line is a short name of the action, up to eight words. It contains no links, explanations or lists; everything else goes into the description below the line.
+
+The step description has two required layers:
+- **Task** («По задаче»): what changes in terms of the domain and the requirements.
+- **Code** («По коду»): which entities are created or changed, where they live, who calls whom, where the data comes from and what is exposed. A developer reviewing the plan must see that the code will be written correctly, not only that the requirement is covered.
+
+When there is a sample of the right implementation, give it on a separate «Образец:» line: a file or entity in the code (its path), an analysis section where the developer described how to do it, or project documentation. A sample is the most reliable way to say "do it the same way".
+
+The plan contains no implementation code: no functions, components or styles. Describe in words or refer to a sample. The exception is the contracts in "Contracts and given values".
+
+When a step has a tempting but poor path, name it and explain why it is poor. An unnamed poor path gets chosen during implementation because it is shorter.
+
+**Verification** («Проверка»): one per step, what must be true after it is done. Do not copy QA criteria into a step; link them in its description.
+
+Refer to another step by its \`(pN)\` label, or by its wording while there are no labels yet.
+
+Example. Step line: "Move contact data loading into a service". Description:
+- Task: the contact card opens with its data already assembled, without an intermediate empty state.
+- Code: a new service next to the component. It takes the data from the existing source, assembles it into one object following the \`ContactCard\` contract and returns it ready. The component stops calling the source directly.
+- Образец: \`features/orders/order-card.service.ts\` assembles the order card the same way.
+- Verification: the component does not call the data source; the screen opens without an empty state.
+
+## Before submitting
+
+Go through the plan in a separate pass and raise everything you find in chat or in "Open questions":
+- a violation of layers and dependency rules, including a cycle that would appear a step later;
+- an entity in the wrong layer or module, duplication of something that already exists;
+- a contradiction between steps or with the current code;
+- a step that needs something the plan does not contain;
+- reliance on an assumption instead of a verified fact;
+- a value from the chat or the task that did not get into "Contracts and given values".`;
+
+export const DEFAULT_PLAN_REVIEW_INSTRUCTION =`# Plan review
 1. Check that the steps do not contradict each other or the analysis materials.
 2. Check that the order is executable: everything step N+1 needs exists after step N, and no step depends on a later one. Parallel steps must not change the same files.
 3. Match every requirement of the analysis to the steps. Find requirements nobody covers and work that does not follow from the task materials.
 4. Check that every step can be verified: its description must make clear when it is done.
+5. Find steps that duplicate existing code, rest on an assumption the plan does not verify, or break the project's layer and dependency rules; name the rule.
+6. Check that step names are short and contain no links; links to materials belong in the step description.
+7. Check that contracts and values given by the developer are recorded exactly and that no step contradicts them.
 Back every remark with concrete steps and materials. Suggest a fix when it is clear.`;
 
 export const DEFAULT_INTERVIEW_INSTRUCTION = `# Plangent clarification interview
 The developer explicitly requested an interview. Ask questions in the language of the conversation.
 1. Read the section's current materials with your own context tool and inspect relevant project rules and code yourself. Ask about choices, not facts you can discover. Use reference sources only when explicitly mentioned by the developer.
 2. Identify unresolved decisions and their dependencies. Ask small rounds (usually 1–3 questions), starting with choices whose prerequisites are already settled.
-3. Offer concrete options with consequences and a reasoned recommendation. Do not present your proposals as accepted requirements. Wait for the developer's answers before resolving dependent choices.
+3. Offer concrete options with consequences and a reasoned recommendation. Name a tempting but poor option explicitly and say why it is poor. Do not present your proposals as accepted requirements. Wait for the developer's answers before resolving dependent choices.
+   Argue with reasons and change your position only for a better argument. When the developer insists after your objection, record their decision and keep your objection among the section's open questions.
 4. Record answers in your section using its existing save tools. Preserve distinctions between facts, proposals, accepted decisions and unresolved questions. Do not create a separate interview specification or duplicate other materials.
 5. The developer may stop or narrow the interview at any time. Leave unanswered questions visible in the section. Exhausting every branch is not required.
 6. Never mark a preparation stage ready or skipped; only the developer does that.`;

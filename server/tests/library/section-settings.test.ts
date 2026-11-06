@@ -16,7 +16,7 @@ test('section settings: project text beats group and global, built-in applies wi
   const { syncItem } = await import('../../core-services').then(() => import('../../core/library/syncer'));
   const settings = await import('../../core-services').then(() => import('../../core/library/section-settings'));
   const { MATERIAL_KINDS } = await import('../../core-services').then(() => import('../../core/preparation/materials/kinds'));
-  const { resolvePlanTemplate } = await import('../../core-services').then(() => import('../../core/library/plan-template'));
+  const { resolvePlanTemplate, DEFAULT_PLAN_TEMPLATE } = await import('../../core-services').then(() => import('../../core/library/plan-template'));
   const { planReviewSkills } = await import('../../core-services').then(() => import('../../core/library/plan-review-skill'));
   try {
     const group = createProject({ name: 'Group', kind: 'group' });
@@ -53,9 +53,12 @@ test('section settings: project text beats group and global, built-in applies wi
     assert.equal(settings.resolveMaterialReviewSkill('architecture', project.id, qaSkill.id)!.id, archSkill.id);
 
     // Plan keeps its own behavior; material items never leak into the plan template.
-    assert.equal(resolvePlanTemplate(project.id), '');
-    make('plan-template', 'Plan', 'project', [project.id]);
+    assert.equal(resolvePlanTemplate(project.id), DEFAULT_PLAN_TEMPLATE);
+    const plan = make('plan-template', 'Plan', 'project', [project.id]);
     assert.equal(resolvePlanTemplate(project.id), 'Plan');
+    // A saved empty template switches the built-in text off.
+    files.writeItemContent(plan, '');
+    assert.equal(resolvePlanTemplate(project.id), '');
     // Service-only types never touch agent directories.
     assert.equal(fs.existsSync(path.join(project.repo_path, '.claude')), false);
   } finally {

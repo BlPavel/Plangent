@@ -4,7 +4,7 @@ import { availableLibraryItems, closestLibraryItem, resolveLibraryItem } from '.
 import { getProject } from '../projects';
 import type { InstructionTextState, InstructionTextSource, LibraryItem } from '../../../contracts';
 import { isTextInstructionType } from '../../../common/library-registry';
-import { DEFAULT_CODE_FIXER_INSTRUCTION, DEFAULT_COMMIT_RULES, DEFAULT_INSTRUCTION_GUIDE, DEFAULT_INTERVIEW_INSTRUCTION, DEFAULT_MR_REVIEW_INSTRUCTION, DEFAULT_PLAN_REVIEW_INSTRUCTION } from './builtins';
+import { DEFAULT_CODE_FIXER_INSTRUCTION, DEFAULT_COMMIT_RULES, DEFAULT_INSTRUCTION_GUIDE, DEFAULT_INTERVIEW_INSTRUCTION, DEFAULT_MR_REVIEW_INSTRUCTION, DEFAULT_PLAN_REVIEW_INSTRUCTION, DEFAULT_PLAN_TEMPLATE } from './builtins';
 
 export { TEXT_INSTRUCTION_TYPES, isTextInstructionType, isGlobalOnlyType } from '../../../common/library-registry';
 import { isGlobalOnlyType } from '../../../common/library-registry';
@@ -23,7 +23,7 @@ export function defaultInstructionText(type: TextInstructionType): string {
     case 'plan-review-instruction': return DEFAULT_PLAN_REVIEW_INSTRUCTION;
     case 'mr-review-instruction': return DEFAULT_MR_REVIEW_INSTRUCTION;
     case 'interview-instruction': return DEFAULT_INTERVIEW_INSTRUCTION;
-    case 'plan-template': return '';
+    case 'plan-template': return DEFAULT_PLAN_TEMPLATE;
     default: {
       const kind = kinds.find(k => k.templateType === type || k.reviewInstructionType === type);
       return kind ? (kind.templateType === type ? kind.defaultTemplate : kind.defaultReviewInstruction) : '';

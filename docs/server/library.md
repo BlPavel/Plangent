@@ -39,7 +39,8 @@ the current level's own item (including disabled items), built-in text and
 inherited text/source. `section-settings.ts` owns the shared selection rules:
 available enabled direct item, group item, global item, then built-in text.
 Global scope ignores the code-context project. Global-only types reject project
-scope. An empty built-in plan template is a valid result.
+scope. The plan template has a built-in text like the other templates; a saved
+empty plan template is a valid result and disables it.
 
 `GET /api/library/instruction-text` exposes this state. The editor loads it in
 one request, reloads on `library_changed`, rejects late responses after owner

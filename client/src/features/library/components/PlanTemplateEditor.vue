@@ -28,7 +28,7 @@ const props = withDefaults(defineProps<{
 }>(), { type: 'plan-template' })
 
 const CONFIG = {
-  'plan-template': { description: 'Текст для планирования. Можно оставить пустым.' },
+  'plan-template': { description: 'Как писать план. Если своё не задано, применяется встроенный текст; сохранённый пустой шаблон отключает его.' },
   'architecture-template': { description: 'Как писать материал. Если своё не задано, применяется встроенный текст.' },
   'qa-template': { description: 'Как писать материал. Если своё не задано, применяется встроенный текст.' },
 } as const

@@ -69,6 +69,10 @@ test('analyst MCP, plan references and execution material selection', async () =
     const plan = '- [ ] Read [[findings]]\n- [ ] Read [[api/api.json]]\n- [ ] Code only';
     submitPlan(task, root, plan, true);
     assert.deepEqual(parsePlanSteps(getLatestPlan(task.id)!.content)[1].analysisLinks, ['api/api.json']);
+    // Links in a step's description belong to that step only; a heading ends the description.
+    const described = parsePlanSteps('- [ ] Load contact\nSample: [[findings]]\n- [ ] Show card [[api]]\nBasis [[api/api.json]]\n## Open questions\nSee [[findings]]');
+    assert.deepEqual(described.map(s => s.analysisLinks), [['findings'], ['api', 'api/api.json']]);
+    assert.throws(() => submitPlan(task, root, '- [ ] Clean name\nSee [[missing]]', true), /Unknown analysis/);
     const ctx = { projectName: project.name, taskKey: task.key, taskId: task.id, repoPath: root, planContent: getLatestPlan(task.id)!.content, };
     assert.ok(planningToolContext(ctx).analysis);
     // Materials are no longer pasted into the prompt: it only points at get_step_context.

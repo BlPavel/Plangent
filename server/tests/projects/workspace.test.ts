@@ -11,7 +11,7 @@ test('groups, sources and sharing: keys, catalog, library targets and moving tas
   const projects = await import('../../core-services').then(() => import('../../core/projects/index'));
   const { referenceCatalog, workspaceBriefing, mentionedReferences, writableRoots } = await import('../../core-services').then(() => import('../../core/projects/workspace'));
   const library = await import('../../core-services').then(() => import('../../core/library'));
-  const { resolvePlanTemplate } = await import('../../core-services').then(() => import('../../core/library/plan-template'));
+  const { resolvePlanTemplate, DEFAULT_PLAN_TEMPLATE } = await import('../../core-services').then(() => import('../../core/library/plan-template'));
   const { writeItemContent } = await import('../../core-services').then(() => import('../../core/library/library-manager'));
   const { initSessions } = await import('../../core-services').then(() => import('../../core/agents/sessions/sessions'));
   const { initQueues } = await import('../../core-services').then(() => import('../../core/execution/queue'));
@@ -68,7 +68,7 @@ test('groups, sources and sharing: keys, catalog, library targets and moving tas
     const groupTemplate = library.createLibraryItem({ type: 'plan-template', slug: 'g-tpl', title: 'g', scope: 'project', targets: [group.id] });
     writeItemContent(groupTemplate, 'GROUP');
     assert.equal(resolvePlanTemplate(orders.id), 'GROUP');
-    assert.equal(resolvePlanTemplate(solo.id), '');
+    assert.equal(resolvePlanTemplate(solo.id), DEFAULT_PLAN_TEMPLATE);
     const own = library.createLibraryItem({ type: 'plan-template', slug: 'o-tpl', title: 'o', scope: 'project', targets: [orders.id] });
     writeItemContent(own, 'OWN');
     assert.equal(resolvePlanTemplate(orders.id), 'OWN');

@@ -78,16 +78,23 @@ export function parsePlanSteps(content: string): PlanStep[] {
   const lines = body.split('\n');
   const steps: PlanStep[] = [];
   let index = 0;
+  // Links belong to a step through its description: the lines below it up to the next step or heading.
+  let described: PlanStep | undefined;
   for (const line of lines) {
     const m = line.match(STEP_REGEX);
-    if (!m) continue;
+    if (!m) {
+      if (/^#{1,6}\s/.test(line)) described = undefined;
+      else if (described) described.analysisLinks = [...new Set([...described.analysisLinks ?? [], ...parseAnalysisLinks(line)])];
+      continue;
+    }
     const done = m[2].toLowerCase() === 'x';
     const stepId = m[3] || undefined;
     // m[4] is the text, m[5] is " @parallel:group", m[6] is just the group name
     // Strip @parallel tag from the display text
     const rawText = m[4].trim();
     const parallelGroup = m[6] || undefined;
-    steps.push({ text: rawText, done, index: index++, id: stepId, analysisLinks: parseAnalysisLinks(rawText), parallelGroup });
+    described = { text: rawText, done, index: index++, id: stepId, analysisLinks: parseAnalysisLinks(rawText), parallelGroup };
+    steps.push(described);
   }
   return steps;
 }

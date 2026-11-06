@@ -15,7 +15,7 @@ test('commit rules: built-in default, then global, group and project levels, nea
   const db = getDb();
   t.after(() => { db.close(); fs.rmSync(data, { recursive: true, force: true }); });
   assert.match(DEFAULT_COMMIT_RULES, /English/);
-  assert.match(DEFAULT_COMMIT_RULES, /under 10 words/);
+  assert.match(DEFAULT_COMMIT_RULES, /never more than 72/);
   db.prepare("INSERT INTO projects (id,kind,name,key,repo_path) VALUES ('g','group','G','g','/tmp/g')").run();
   db.prepare("INSERT INTO projects (id,kind,name,key,repo_path,group_id) VALUES ('p','project','P','p','/tmp/p','g')").run();
   const make = (scope: 'global' | 'project', targets: string[], text: string) => {

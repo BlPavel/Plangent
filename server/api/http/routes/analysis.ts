@@ -56,8 +56,7 @@ function references(taskId: string, slug: string, name?: string) {
   const plan = getLatestPlan(taskId);
   if (!plan) return [];
   return parsePlanSteps(plan.content).filter(step => {
-    const links = [...step.text.matchAll(/\[\[([^\]]+)\]\]/g)].map(match => match[1]);
-    return links.some(link => name ? link === slug + '/' + name : link === slug || link.startsWith(slug + '/'));
+    return (step.analysisLinks ?? []).some(link => name ? link === slug + '/' + name : link === slug || link.startsWith(slug + '/'));
   });
 }
 function confirmDeletion(req: Request, res: ErrorResponse, value: AnalysisSection, name?: string): boolean {
