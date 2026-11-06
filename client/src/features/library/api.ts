@@ -5,6 +5,7 @@ const defaults = {
   'code-fixer-instruction': endpoint('GET /api/library/code-fixer-instruction/defaults'),
   'commit-rules': endpoint('GET /api/library/commit-rules/defaults'),
   'plan-review-instruction': endpoint('GET /api/library/plan-review-instruction/defaults'),
+  'mr-review-instruction': endpoint('GET /api/library/mr-review-instruction/defaults'),
   'architecture-review-instruction': endpoint('GET /api/library/architecture-review-instruction/defaults'),
   'qa-review-instruction': endpoint('GET /api/library/qa-review-instruction/defaults'),
   'interview-instruction': endpoint('GET /api/library/interview-instruction/defaults'),

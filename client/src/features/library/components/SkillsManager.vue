@@ -131,7 +131,7 @@ const typeOptions = computed(() => [
 ].filter(t => t.value === '' || availableTypeValues.value.includes(t.value)))
 
 function typeLabel(t: LibraryItemType) {
-  return { 'architecture-template': 'Как писать архитектуру', 'qa-template': 'Как писать QA', 'architecture-review-skill': 'Ревью архитектуры', 'qa-review-skill': 'Ревью QA', 'architecture-review-instruction': 'Ревью архитектуры', 'qa-review-instruction': 'Ревью QA', 'interview-instruction': 'Уточняющее интервью', 'commit-rules': 'правила коммитов', 'code-fixer-instruction': 'Агент доработки', skill: 'скилл', command: 'команда', main: 'main', 'plan-template': 'шаблон плана', 'instruction-guide': 'руководство по инструкциям', 'review-skill': 'скилл ревью', 'plan-review-skill': 'скилл ревью плана', 'plan-review-instruction': 'ревью плана' }[t]
+  return { 'architecture-template': 'Как писать архитектуру', 'qa-template': 'Как писать QA', 'architecture-review-skill': 'Ревью архитектуры', 'qa-review-skill': 'Ревью QA', 'architecture-review-instruction': 'Ревью архитектуры', 'qa-review-instruction': 'Ревью QA', 'interview-instruction': 'Уточняющее интервью', 'commit-rules': 'правила коммитов', 'code-fixer-instruction': 'Агент доработки', skill: 'скилл', command: 'команда', main: 'main', 'plan-template': 'шаблон плана', 'instruction-guide': 'руководство по инструкциям', 'review-skill': 'скилл ревью', 'plan-review-skill': 'скилл ревью плана', 'plan-review-instruction': 'ревью плана', 'mr-review-instruction': 'ревью МР' }[t]
 }
 
 // Each mounted list owns its results: hidden project views can reload independently of settings.

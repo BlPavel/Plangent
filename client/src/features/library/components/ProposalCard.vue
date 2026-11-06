@@ -28,20 +28,20 @@
 
     <details class="diff" :open="diffOpen" @toggle="diffOpen = ($event.target as HTMLDetailsElement).open">
       <summary>
-        {{ proposal.action === 'create' ? 'Текст' : 'Изменения' }}
-        <span class="stat"><span class="plus">+{{ stats.add }}</span><span v-if="proposal.action === 'update'" class="minus">−{{ stats.del }}</span></span>
-        <span v-if="proposal.action === 'update' && !stats.add && !stats.del" class="stat-none">текст не меняется</span>
+        {{ hasBase ? 'Изменения' : 'Текст' }}
+        <span class="stat"><span class="plus">+{{ stats.add }}</span><span v-if="hasBase" class="minus">−{{ stats.del }}</span></span>
+        <span v-if="hasBase && !stats.add && !stats.del" class="stat-none">текст не меняется</span>
       </summary>
-      <div class="diff-body"><CodeView :file="{ path: proposal.slug + '.md', kind: 'text', content: proposal.content, size: proposal.content.length }" :hunks="diffTextHunks(proposal.snapshot?.content ?? '', proposal.content)" mode="diff" /></div>
+      <div class="diff-body"><CodeView fit-content class="proposal-code" :file="{ path: proposal.slug + '.md', kind: 'text', content: proposal.content, size: proposal.content.length }" :hunks="diffTextHunks(baseContent, proposal.content)" mode="diff" /></div>
     </details>
 
-    <div v-if="pending" class="where">
+    <div v-if="pending && proposal.scope !== 'global'" class="where">
       <span class="where-label">Доступно:</span>
       <span class="where-value">{{ whereLabel }}</span>
       <AppButton variant="link" size="md" v-if="!shared" type="button"  @click="editWhere = !editWhere">{{ editWhere ? 'Готово' : 'Изменить' }}</AppButton>
     </div>
     <AvailabilityField
-      v-if="editWhere && pending && !shared"
+      v-if="editWhere && pending && !shared && proposal.scope !== 'global'"
       v-model="availability" class="availability" own-folder allow-everywhere :within="proposal.project_id"
       label="Где будет доступно"
     />
@@ -89,7 +89,7 @@ const STATUS: Record<LibraryProposal['status'], string> = { pending: 'ждёт �
 const TYPE: Record<LibraryProposal['type'], [string, string]> = { skill: ['Новый скилл', 'Изменение скилла'], command: ['Новая команда', 'Изменение команды'], main: ['Новый главный файл', 'Изменение главного файла'], 'review-skill': ['Новый скилл ревью', 'Изменение скилла ревью'], 'plan-review-skill': ['Новый скилл ревью плана', 'Изменение скилла ревью плана'], 'architecture-review-skill': ['Новый скилл ревью архитектуры', 'Изменение скилла ревью архитектуры'], 'qa-review-skill': ['Новый скилл ревью QA', 'Изменение скилла ревью QA'],
   'instruction-guide': ['Новое руководство по инструкциям', 'Изменение руководства по инструкциям'], 'code-fixer-instruction': ['Новая инструкция агента доработки', 'Изменение инструкции агента доработки'],
   'commit-rules': ['Новые правила коммитов', 'Изменение правил коммитов'], 'plan-template': ['Новый шаблон плана', 'Изменение шаблона плана'],
-  'plan-review-instruction': ['Новая инструкция ревью плана', 'Изменение инструкции ревью плана'], 'interview-instruction': ['Новая инструкция уточняющего интервью', 'Изменение инструкции уточняющего интервью'],
+  'plan-review-instruction': ['Новая инструкция ревью плана', 'Изменение инструкции ревью плана'], 'mr-review-instruction': ['Новая инструкция ревью МР', 'Изменение инструкции ревью МР'], 'interview-instruction': ['Новая инструкция уточняющего интервью', 'Изменение инструкции уточняющего интервью'],
   'architecture-template': ['Новый шаблон «Как писать архитектуру»', 'Изменение шаблона «Как писать архитектуру»'], 'architecture-review-instruction': ['Новая инструкция ревью архитектуры', 'Изменение инструкции ревью архитектуры'],
   'qa-template': ['Новый шаблон «Как писать QA»', 'Изменение шаблона «Как писать QA»'], 'qa-review-instruction': ['Новая инструкция ревью QA', 'Изменение инструкции ревью QA'] }
 const kindLabel = computed(() => proposal.value ? TYPE[proposal.value.type][proposal.value.action === 'create' ? 0 : 1] : '')
@@ -141,10 +141,12 @@ const fields = computed(() => {
     : list.filter(f => f.after).map(f => ({ ...f, before: undefined }))
 })
 
-const lines = computed(() => proposal.value ? diffLines(proposal.value.snapshot?.content ?? '', proposal.value.content) : [])
+const baseContent = computed(() => proposal.value?.base_content ?? proposal.value?.snapshot?.content ?? '')
+const hasBase = computed(() => proposal.value?.action === 'update' || baseContent.value.length > 0)
+const lines = computed(() => proposal.value ? diffLines(baseContent.value, proposal.value.content) : [])
 const stats = computed(() => ({ add: lines.value.filter(l => l.kind === 'add').length, del: lines.value.filter(l => l.kind === 'del').length }))
 // Main is always in context, so its diff is shown open; a long new text starts folded.
-const diffOpen = ref(proposal.value?.type === 'main' || proposal.value?.action === 'update' || lines.value.length <= 40)
+const diffOpen = ref(proposal.value?.type === 'main' || hasBase.value || lines.value.length <= 40)
 
 
 
@@ -198,7 +200,8 @@ async function reject() {
 .plus { color: var(--accent-hover); }
 .minus { color: var(--danger-hover); }
 .stat-none { font-weight: 400; color: var(--text-faint); }
-.diff-body { margin-top: var(--sp-2); height: 420px; overflow: hidden; }
+.diff-body { margin-top: var(--sp-2); max-height: 420px; overflow: hidden; }
+.proposal-code { max-height: 420px; }
 
 .where { display: flex; align-items: baseline; gap: 6px; font-size: var(--fs-md); }
 .where-label { color: var(--text-muted); }

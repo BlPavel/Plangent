@@ -50,6 +50,7 @@
           <div v-else-if="row.type === 'save_section'" class="card notice">
             <MessageMarkdown :text="String(row.payload.summary ?? '') + ' ' + String(row.payload.link ?? '')" />
           </div>
+          <slot v-else-if="cards?.includes(row.type)" name="card" :event="row" />
           <ToolCallCard v-else-if="row.type === 'tool_call'" :call="row.payload" />
           <div v-else-if="row.type === 'git_action_progress'" class="card notice">
             <div class="card-label">Git · {{ row.payload.state === 'finished' ? 'завершено' : 'выполняется' }}</div>

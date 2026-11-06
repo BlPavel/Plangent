@@ -1,5 +1,5 @@
 <template>
-  <div class="code-view" :class="{ 'diff-mode': effectiveMode === 'diff' }" :style="{ '--digits': gutter.digits, '--cols': gutter.columns }">
+  <div class="code-view" :class="{ 'diff-mode': effectiveMode === 'diff', 'fit-content': fitContent }" :style="{ '--digits': gutter.digits, '--cols': gutter.columns }">
     <div class="cv-header">
       <!-- eslint-disable-next-line vue/no-v-html -- bundled icon set, not user input -->
       <span class="cv-icon" v-html="iconSvg(fileIconName(file.path.split('/').pop() ?? ''))" />
@@ -46,7 +46,7 @@
       <MessageMarkdown :key="file.path" :text="file.content ?? ''" />
     </div>
     <div v-else-if="effectiveMode === 'diff' && !rows.length" class="cv-note">Изменений нет</div>
-    <div v-else ref="scroller" class="cv-scroll" @scroll.passive="onScroll">
+    <div v-else ref="scroller" class="cv-scroll" :style="fitContent ? { height: totalHeight + scrollbarHeight + FIT_CONTENT_PADDING * 2 + 4 + 'px', paddingBlock: FIT_CONTENT_PADDING + 'px' } : undefined" @scroll.passive="onScroll">
       <div class="cv-body" :style="{ height: totalHeight + 'px' }">
         <div class="cv-window" :style="{ transform: `translateY(${windowTop}px)` }">
           <template v-for="index in visible" :key="index">
@@ -97,11 +97,14 @@ import { highlightLines } from './highlight'
 import type { CodeSide, LineMarker, LineSelection, ViewerFile } from './types'
 
 const LINE_HEIGHT = 20
+const FIT_CONTENT_PADDING = 2
 const OVERSCAN = 20
 const WIDGET_ESTIMATE = 96
 
 const props = withDefaults(defineProps<{
   file: ViewerFile
+  /** Size to content, including scrollbars, within the consumer's maximum height. */
+  fitContent?: boolean
   /** URL for image files. */
   imageSrc?: string
   /** Which version of the file is shown in "file" mode; reported back in `select`. */
@@ -136,6 +139,7 @@ const scroller = ref<HTMLElement>()
 const markdownMode = ref<'preview' | 'source'>('preview')
 const scrollTop = ref(0)
 const viewHeight = ref(600)
+const scrollbarHeight = ref(0)
 const widgetHeights = reactive(new Map<string, number>())
 const expanded = reactive(new Set<number>())
 const expandAll = ref(false)
@@ -303,6 +307,15 @@ function offsetOfIndex(index: number): number {
 
 function onScroll() { scrollTop.value = scroller.value?.scrollTop ?? 0 }
 
+function measureViewport() {
+  const el = scroller.value
+  if (!el) return
+  viewHeight.value = el.clientHeight
+  // The horizontal scrollbar occupies space outside clientHeight.
+  // Include it in the requested height so every content row stays visible.
+  scrollbarHeight.value = el.offsetHeight - el.clientHeight
+}
+
 let resizeScroller: ResizeObserver | undefined
 let resizeWidgets: ResizeObserver | undefined
 const watched = new Map<HTMLElement, string>()
@@ -313,14 +326,14 @@ onMounted(() => {
       if (key !== undefined) widgetHeights.set(key, Math.round(entry.target.getBoundingClientRect().height))
     }
   })
-  resizeScroller = new ResizeObserver(() => { viewHeight.value = scroller.value?.clientHeight ?? viewHeight.value })
+  resizeScroller = new ResizeObserver(measureViewport)
   if (scroller.value) resizeScroller.observe(scroller.value)
 })
 onBeforeUnmount(() => { resizeScroller?.disconnect(); resizeWidgets?.disconnect() })
 // The scroller is replaced when switching between preview and source.
 watch(scroller, (el, old) => {
   if (old) resizeScroller?.unobserve(old)
-  if (el) { resizeScroller?.observe(el); viewHeight.value = el.clientHeight; scrollTop.value = el.scrollTop }
+  if (el) { resizeScroller?.observe(el); measureViewport(); scrollTop.value = el.scrollTop }
 })
 
 function watchWidget(el: HTMLElement | null, key: string) {
@@ -436,6 +449,8 @@ defineExpose({ scrollToLine, clearSelection, step, openFind })
 .cv-image img { max-width: 100%; max-height: 100%; object-fit: contain; }
 .cv-preview { flex: 1; min-height: 0; overflow: auto; padding: 16px 24px; }
 .cv-scroll { flex: 1; min-height: 0; overflow: auto; container-type: inline-size; font-family: var(--font-mono); font-size: var(--fs-md); }
+.code-view.fit-content { height: auto; }
+.code-view.fit-content .cv-scroll { flex: 0 1 auto; }
 .cv-body { position: relative; min-width: 100%; }
 .cv-window { position: absolute; top: 0; left: 0; min-width: 100%; width: max-content; }
 .cv-line { display: flex; height: 20px; line-height: var(--lh-code); }
@@ -474,7 +489,7 @@ defineExpose({ scrollToLine, clearSelection, step, openFind })
 .cv-line.selected .cv-gutter { background: var(--bg2); }
 .cv-number { flex-shrink: 0; width: calc(var(--digits, 3) * 1ch); margin-left: 8px; text-align: right; }
 .cv-marker sup { font-size: var(--fs-xs); color: var(--text-muted); }
-.cv-text { flex: 1; padding-left: 8px; padding-right: 16px; white-space: pre; background: none; color: var(--hl-text); font-family: inherit; font-size: inherit; }
+.cv-text { flex: 1; padding: 0 16px 0 8px; white-space: pre; background: none; color: var(--hl-text); font-family: inherit; font-size: inherit; }
 /* Comments under a line start at the left edge: they belong to the review, not to the code's indentation. */
 .cv-widget { position: sticky; left: 0; box-sizing: border-box; width: min(760px, 100cqw); padding: 4px 12px 4px 8px; font-family: var(--font-sans); white-space: normal; }
 .cv-text :deep(.hljs-keyword), .cv-text :deep(.hljs-doctag), .cv-text :deep(.hljs-template-tag), .cv-text :deep(.hljs-template-variable), .cv-text :deep(.hljs-type) { color: var(--hl-keyword); }

@@ -12,7 +12,7 @@
         </template>
       </SkillsManager>
       <template v-else-if="view === 'review'">
-        <p class="hint">Скиллы ревью задают, что проверять в МР. Без своих скиллов используется стандартный.</p>
+        <p class="hint">Скиллы ревью добавляют требования этого проекта к общей инструкции ревью МР из глобальных настроек.</p>
         <SkillsManager class="skills" scope="project" :project-id="projectId" :allowed-types="['review-skill']">
           <template #actions>
             <AppButton v-if="!panelOpen" variant="subtle" size="sm" title="Агент изучит код проекта, расспросит вас и предложит скилл ревью" @click="panelOpen = true">✦ Написать с агентом</AppButton>
@@ -42,7 +42,7 @@
       </template>
       </div>
     </section>
-    <LibrarianPanel v-if="panelOpen" class="panel" :project-id="projectId" :default-agent-id="defaultAgentId" :request="request" @close="panelOpen = false" />
+    <LibrarianPanel v-if="panelOpen" :key="view" :section="view" class="panel" :project-id="projectId" :default-agent-id="defaultAgentId" :request="request" @close="panelOpen = false" />
   </div>
 </template>
 
@@ -67,6 +67,7 @@ const view = ref<'items' | 'guide' | 'fixer' | 'review' | 'plan-review' | 'archi
 const panelOpen = ref(false)
 // The editors and lists inside ask for the chat with what the developer wants changed.
 const request = ref<{ text: string; at: number } | null>(null)
+watch(view, () => { request.value = null })
 provide(libraryAgentKey, { open: text => { request.value = { text, at: Date.now() }; panelOpen.value = true } })
 const pending = computed(() => store.proposalsFor({ projectId: props.projectId }).filter(p => p.status === 'pending').length)
 

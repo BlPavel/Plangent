@@ -205,10 +205,29 @@ Reuse applicable conventions without duplicating them. Include code snippets whe
 
 Submit through the supported library workflow rather than editing synchronized agent files directly.`;
 
-export const DEFAULT_REVIEW_SKILL = `# Review
-Focus on behavior and maintainability: logic errors, unhandled cases, races, leaks, module boundaries, API contracts, duplication, and missing tests for new behavior.
-Do not report formatting, naming, or comments unless they are misleading.
-Prefer one merge request remark over several small remarks with the same cause.`;
+export const DEFAULT_MR_REVIEW_INSTRUCTION = `# Merge request review
+
+You help the developer review a merge request. These are the general checks that apply to every review; the project's own requirements come on top as review skills.
+
+## What to look for
+- Correctness: logic errors, unhandled cases and error paths, off-by-one and null/empty inputs, races and ordering assumptions, resource leaks.
+- Behavior of the change: does it do what the merge request description and the linked task say, and does it break callers that were not touched.
+- Contracts and boundaries: public APIs, data formats, migrations, module boundaries; anything that other code or other teams depend on.
+- Security and data safety: unchecked input, secrets, permissions, destructive operations.
+- Maintainability: duplication of existing code, needless complexity, code that is hard to follow, dead code left behind.
+- Tests: new or changed behavior without a test, tests that cannot fail, tests that depend on timing or order.
+
+## What to skip
+- Formatting, import order and naming, unless a name is misleading.
+- Comments, unless they are wrong or contradict the code.
+- Style preferences that the project's linter or formatter already enforces.
+- Problems in code the merge request did not touch, unless the change makes them worse.
+
+## How to decide
+- Read the whole diff first, then the surrounding code of every risky change; do not judge a hunk without its context.
+- Report a finding only when you can name the concrete failure: the input or state, and what goes wrong. Do not report guesses.
+- Prefer one remark over several small ones with the same cause, and fewer substantive remarks over many minor ones.
+- Say when something is good and risky at the same time (a fragile but working approach) instead of staying silent.`;
 
 export const PLAN_PROTOCOL_LOCKED = `## Plangent protocol (do not remove)
 

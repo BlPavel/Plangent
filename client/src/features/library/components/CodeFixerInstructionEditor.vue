@@ -11,7 +11,7 @@ import type { LibraryScope } from '@contracts'
 import InstructionTextEditor from './InstructionTextEditor.vue'
 
 /** One editor for every rule text with project / group / global levels and a built-in default. */
-const props = withDefaults(defineProps<{ scope: LibraryScope; projectId?: string; type?: 'code-fixer-instruction' | 'commit-rules' | 'plan-review-instruction' | 'architecture-review-instruction' | 'qa-review-instruction' | 'interview-instruction' }>(), { type: 'code-fixer-instruction' })
+const props = withDefaults(defineProps<{ scope: LibraryScope; projectId?: string; type?: 'code-fixer-instruction' | 'commit-rules' | 'plan-review-instruction' | 'mr-review-instruction' | 'architecture-review-instruction' | 'qa-review-instruction' | 'interview-instruction' }>(), { type: 'code-fixer-instruction' })
 const COMMON = 'Общая инструкция для всех проектов. Если своя не задана, применяется встроенная.'
 const CONFIG = {
   'interview-instruction': { title: 'Уточняющее интервью', description: COMMON },
@@ -24,6 +24,10 @@ const CONFIG = {
   'plan-review-instruction': {
     title: 'Ревью плана',
     description: 'Ваши правила для агента, который проверяет план задачи по материалам анализа: что искать, на что не обращать внимания. Как оформлять замечания, сводку и таблицу покрытия, агент получает от Plangent — здесь это описывать не нужно. Это общие проверки для всех проектов, они действуют всегда. Свои требования проекта или группы (например, архитектурные) пишутся скиллами ревью плана в проекте. Если текст не задан — предустановленный.',
+  },
+  'mr-review-instruction': {
+    title: 'Ревью МР',
+    description: 'Общие проверки при ревью merge request: что искать, на что не обращать внимания. Как оформлять обзор и замечания, агент получает от Plangent — здесь это описывать не нужно. Действует во всех проектах всегда, для ревью ветки и для ревью задачи. Свои требования проекта или группы пишутся скиллами ревью МР во вкладке «Инструкции» → «Ревью МР» проекта. Если текст не задан — предустановленный.',
   },
   'commit-rules': {
     title: 'Правила коммитов',

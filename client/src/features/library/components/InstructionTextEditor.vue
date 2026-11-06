@@ -16,14 +16,14 @@
         <AppButton variant="ghost" size="sm" :disabled="text.loading.value" @click="text.startEdit">Изменить</AppButton>
       </template>
       <template v-else>
-        <AppButton variant="primary" size="sm" :disabled="text.saving.value || !text.isDirty.value || (!allowEmpty && !text.content.value.trim())" @click="text.save">{{ text.saving.value ? 'Сохранение…' : 'Сохранить' }}</AppButton>
+        <AppButton variant="primary" size="sm" :disabled="text.saving.value || text.stale.value || !text.isDirty.value || (!allowEmpty && !text.content.value.trim())" @click="text.save">{{ text.saving.value ? 'Сохранение…' : 'Сохранить' }}</AppButton>
         <AppButton variant="ghost" size="sm" :disabled="text.saving.value" @click="text.cancel">Отмена</AppButton>
-        <AppButton v-if="text.defaultText.value" variant="subtle" size="sm" :disabled="text.saving.value" @click="text.useDefault">Взять предустановленное за основу</AppButton>
+        <AppButton v-if="text.defaultText.value || allowEmpty" variant="subtle" size="sm" :disabled="text.saving.value" @click="text.useDefault">Взять предустановленное за основу</AppButton>
         <AppButton v-if="text.inherited.value" variant="subtle" size="sm" :disabled="text.saving.value" @click="text.useInherited">Взять {{ text.inherited.value.label }} за основу</AppButton>
-        <span class="spacer" />
-        <AppButton v-if="text.own.value" variant="danger-ghost" size="sm" :disabled="text.saving.value" @click="text.reset">{{ scope === 'global' ? 'Вернуть предустановленное' : 'Сбросить переопределение' }}</AppButton>
       </template>
     </div>
+
+    <StaleDraftNote v-if="text.stale.value" @reload="text.load()" />
 
     <AppTextarea
       v-model="shown" fill mono block spellcheck="false" :aria-label="title" :readonly="!text.editing.value" :disabled="text.loading.value"
@@ -39,6 +39,7 @@ import { computed, inject } from 'vue'
 import type { LibraryScope } from '@contracts'
 import AppButton from '@shared/ui/AppButton.vue'
 import AppTextarea from '@shared/ui/AppTextarea.vue'
+import { StaleDraftNote } from '@shared/ui'
 import { libraryAgentKey, pageTitledKey } from '../agent-context'
 import { useInstructionText, type InstructionTextType } from '../composables/useInstructionText'
 
@@ -73,12 +74,12 @@ defineExpose({ text })
 
 <style scoped>
 .instruction { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: var(--sp-3); }
+.instruction-head { flex-shrink: 0; }
 .instruction-head h3 { margin: 0 0 3px; font-size: var(--fs-base); }
 .instruction-head p { margin: 0; max-width: 720px; color: var(--text-muted); font-size: var(--fs-sm); line-height: 1.45; }
-.effective { display: flex; gap: 6px; font-size: var(--fs-md); }
+.effective { display: flex; flex-shrink: 0; gap: 6px; font-size: var(--fs-md); }
 .effective-label { color: var(--text-muted); }
 .effective-value { font-weight: 500; }
 .effective-value.own { color: var(--blue-hover); }
-.toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
-.spacer { flex: 1; }
+.toolbar { display: flex; flex-shrink: 0; align-items: center; flex-wrap: wrap; gap: 6px; }
 </style>

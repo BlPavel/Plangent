@@ -19,7 +19,7 @@ import { getLatestPlan } from '../../preparation';
 import { analysisToolContext } from '../../preparation';
 import { repositoryInfo, taskWorktreeChanges } from '../../../infrastructure/git/read';
 import { reviews } from './reviews';
-import { resolveReviewSkill } from '../../library';
+import { resolveMrReviewInstruction, resolveReviewSkill } from '../../library';
 import { getOrchestrator } from '../../execution';
 import { isActive, saveQueue, getQueue } from '../../execution';
 import { DomainError } from '../../../models/domain-error';
@@ -27,7 +27,7 @@ import { getReadyMaterials } from '../../preparation';
 
 export const TASK_REVIEW_PROTOCOL = [
   'You are a task reviewer. Read files and run read-only commands only. Never edit files or change Git state.',
-  'Call get_task_review_brief first. Follow the selected review skill. Review implementation against the task, analysis, plan and executor reports, including failed/skipped work.',
+  'Call get_task_review_brief first. Follow the review instruction and the selected review skill, if any. Review implementation against the task, analysis, plan and executor reports, including failed/skipped work.',
   'The captured diff spans the task baseline to the worktree at launch, including committed, staged, unstaged and untracked changes. Other work may share the branch: report only problems related to this task.',
   'Read existing branch review items and threads. Do not duplicate them, including dismissed or already addressed findings, without new evidence.',
   'Use add_task_remark for actionable findings: scope line/file/general, kind fix/question, text, file and optional line_start/line_end. Lines refer to the current worktree, never old-side lines. Invalid lines become file remarks.',
@@ -87,6 +87,7 @@ export async function taskReviewBrief(session: AgentSession) {
     'When ready architecture or QA materials are provided, check implementation against architecture decisions (structure) and QA criteria (code behavior, even without tests). Findings about violations must reference the relevant D… decision or Q… criterion (for example [[architecture#D1]] or [[qa#Q3]]).'],
     task, plan: getLatestPlan(task.id)?.content ?? '', architecture, qa,
     analysis: analysisToolContext(task.id, project.repo_path, task.key),
+    instruction: resolveMrReviewInstruction(),
     skill: session.metadata.task_review_skill,
     range: { base: task.base_commit, repository: session.metadata.task_review_repository, captured_at: session.created_at },
     changes: session.metadata.task_review_changes,

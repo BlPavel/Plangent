@@ -105,7 +105,8 @@ test('MR review: list with approvals, open from origin, remarks on diff lines, p
   await agent.setOverview(session, 'Меняет вторую строку.');
   const brief = await agent.brief(session);
   assert.equal(brief.range.head, head);
-  assert.match(brief.skill.content, /Review/);
+  assert.equal(brief.skill, null);
+  assert.match(brief.instruction, /Merge request review/);
   assert.equal(brief.remarks.filter(r => r.author === 'agent').length, 1);
   assert.equal(getDb().prepare('SELECT overview FROM branch_reviews WHERE id=?').pluck().get(id), 'Меняет вторую строку.');
 });

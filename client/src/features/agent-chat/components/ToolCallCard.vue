@@ -1,6 +1,6 @@
 <template>
   <div class="tool" :class="[state, { open }]">
-    <AppButton variant="subtle" size="sm" block :disabled="!hasBody" :aria-expanded="open" @click="open = !open">
+    <AppButton variant="disclosure" block start :disabled="!hasBody" :aria-expanded="open" @click="open = !open">
       <svg class="tool-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path v-for="(d, i) in icon" :key="i" :d="d" /></svg>
       <span class="tool-title">{{ call.title || 'Инструмент' }}</span>
       <span v-if="state === 'running'" class="tool-spinner" />
@@ -75,23 +75,6 @@ function diffLines(oldText: string, newText: string) {
 
 <style scoped>
 .tool { border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg2); overflow: hidden; }
-.tool-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  min-height: 32px;
-  padding: 5px 10px;
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  font: inherit;
-  font-size: var(--fs-md);
-  text-align: left;
-  cursor: pointer;
-}
-.tool-head:disabled { cursor: default; }
-.tool-head:not(:disabled):hover { color: var(--text); background: var(--bg3); }
 .tool-icon { width: 14px; height: 14px; flex-shrink: 0; }
 .tool-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); }
 .tool.done .tool-icon { color: var(--accent-hover); }

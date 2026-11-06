@@ -87,10 +87,10 @@ export const useLibraryStore = defineStore('library', () => {
   function putProposal(p: LibraryProposal) { proposals.value[p.id] = p }
 
   async function loadProposals(projectId: string): Promise<void> {
-    for (const p of await libraryEndpoints.getLibraryProposals({ params: {  }, query: Object.fromEntries(new URLSearchParams("projectId=" + encodeURIComponent(projectId))) })) putProposal(p)
     unsubscribe ??= onServerEvent<{ type: string; proposal?: LibraryProposal }>(event => {
       if (event.type === 'library_proposal' && event.proposal) putProposal(event.proposal)
     })
+    for (const p of await libraryEndpoints.getLibraryProposals({ params: {  }, query: Object.fromEntries(new URLSearchParams("projectId=" + encodeURIComponent(projectId))) })) putProposal(p)
   }
 
   function proposalsFor(filter: { projectId?: string; sessionId?: string }): LibraryProposal[] {

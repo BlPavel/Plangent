@@ -86,10 +86,9 @@
       <CodeFixerInstructionEditor scope="global" />
     </div>
 
-    <!-- Review skills (global) -->
-    <div v-if="tab === 'review-skills'" class="tab-body">
-      <p class="hint">Глобальные скиллы ревью МР доступны во всех проектах. Скиллы под конкретный проект пишутся во вкладке «Инструкции» → «Ревью МР» внутри проекта, в том числе вместе с агентом.</p>
-      <SkillsManager scope="global" :allowed-types="['review-skill']" />
+    <!-- Merge request review instruction (global) -->
+    <div v-show="tab === 'mr-review'" class="tab-body">
+      <CodeFixerInstructionEditor scope="global" type="mr-review-instruction" />
     </div>
 
     <!-- Plan review instruction (global) -->
@@ -116,7 +115,7 @@
     </div>
 
     </div>
-    <LibrarianPanel v-if="agentOpen && agentProject" class="agent-panel" :project-id="agentProject.id" :default-agent-id="projectsStore.agentFor(agentProject)" :request="agentRequest" @close="agentOpen = false" />
+    <LibrarianPanel v-if="agentOpen && agentProject" :key="tab" library-scope="global" :section="tab" class="agent-panel" :project-id="agentProject.id" :default-agent-id="projectsStore.agentFor(agentProject)" :request="agentRequest" @close="agentOpen = false" />
     </div>
     <!-- Agent create/edit modal -->
     <AppModal
@@ -239,6 +238,7 @@ provide(libraryAgentKey, { open: text => {
 provide(pageTitledKey, true)
 
 const tab = ref<Tab>(route.query.tab === 'connections' ? 'connections' : 'agents')
+watch(tab, () => { agentRequest.value = null })
 const page = computed(() => settingsPage(tab.value))
 watch(() => route.query.tab, t => { if (t === 'connections') tab.value = t })
 

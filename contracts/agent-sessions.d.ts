@@ -120,6 +120,8 @@ export interface SessionEvent {
 import type * as C from "./index";
 import type { Endpoint, JsonValue } from "./endpoint";
 export type AgentSessionsPOSTBody = {
+    library_scope?: C.LibraryScope;
+    library_section?: string;
     workspace_id?: string | null;
     workspace?: string | null;
     project_id: string;

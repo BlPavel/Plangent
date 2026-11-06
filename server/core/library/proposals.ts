@@ -9,7 +9,8 @@ import { createLibraryItem, getLibraryItem, libraryItemsFor, libraryOrigin, list
 import { readItemContent, writeItemContent, deleteItemContent } from './library-manager';
 import { syncItem, unsyncItem } from './syncer';
 import { resolveInstructionGuide } from './instruction-guide';
-import { isGlobalOnlyType, isTextInstructionType, textInstructionSlug } from './instruction-texts';
+import { librarianTargetTypes } from './chat-context';
+import { defaultInstructionText, instructionTextFor, isGlobalOnlyType, isTextInstructionType, textInstructionSlug, TEXT_INSTRUCTION_TYPES } from './instruction-texts';
 
 export interface ProposalInput {
   action: 'create' | 'update';
@@ -30,7 +31,10 @@ export interface ProposalAvailability { scope: LibraryScope; targets: string[]; 
 export class ProposalConflict extends Error {}
 function parse(row: unknown): LibraryProposal {
   const { data, ...rest } = row as Record<string, unknown>;
-  return { ...JSON.parse(String(data)), ...rest } as unknown as LibraryProposal;
+  const proposal = { ...JSON.parse(String(data)), ...rest } as unknown as LibraryProposal;
+  // Legacy creates had no snapshot even when they replaced a built-in instruction.
+  proposal.base_content ??= proposal.snapshot?.content ?? (isTextInstructionType(proposal.type) ? defaultInstructionText(proposal.type) : '');
+  return proposal;
 }
 export function getProposal(id: string): LibraryProposal {
   const row = getProposalRow(id);
@@ -44,9 +48,7 @@ function snapshot(item: LibraryItem): LibraryItem & { content: string } {
   return { ...item, content: readItemContent(item) };
 }
 /** What the librarian may propose: list items and the single text instructions. */
-export const PROPOSAL_TYPES: readonly LibraryItemType[] = ['skill', 'main', 'command', 'review-skill', 'plan-review-skill', 'architecture-review-skill', 'qa-review-skill',
-  'instruction-guide', 'code-fixer-instruction', 'commit-rules', 'plan-template', 'plan-review-instruction', 'interview-instruction',
-  'architecture-template', 'architecture-review-instruction', 'qa-template', 'qa-review-instruction'];
+export const PROPOSAL_TYPES: readonly LibraryItemType[] = ['skill', 'main', 'command', 'review-skill', 'plan-review-skill', 'architecture-review-skill', 'qa-review-skill', ...TEXT_INSTRUCTION_TYPES];
 function validate(data: ProposalInput): void {
   if (!['create', 'update'].includes(data.action)) throw new Error('Invalid action');
   if (!PROPOSAL_TYPES.includes(data.type)) throw new Error('Invalid library type');
@@ -72,7 +74,13 @@ function notify(proposal: LibraryProposal): LibraryProposal {
 export function proposeLibraryChange(sessionId: string, input: ProposalInput): LibraryProposal {
   const session = moduleDependencies.agents.getSession(sessionId), project = getProject(session.project_id);
   if (session.role !== 'librarian' || !project || project.kind === 'source') throw new Error('A librarian project session is required');
+  const targetTypes = librarianTargetTypes(session.metadata);
+  if (targetTypes.length && !targetTypes.includes(input.type)) throw new Error(`This chat edits ${targetTypes.join(', ')}. Read the target instruction and propose a change of the matching type.`);
   const item = input.action === 'update' ? getLibraryItem(String(input.item_id ?? '')) : null;
+  if (session.metadata.library_scope === 'global') {
+    if (item && item.scope !== 'global') throw new Error('This chat edits global instructions. Read the global instruction with get_instruction_text before proposing a change.');
+    input = { ...input, scope: 'global', targets: [], own_only: [] };
+  }
   if (isTextInstructionType(input.type)) input = { ...input, slug: item?.slug ?? textInstructionSlug(input.type) };
   validate(input);
   if (input.action === 'update' && (!item || !libraryOrigin(item, project))) throw new Error('Library item is not available in this project');
@@ -85,8 +93,10 @@ export function proposeLibraryChange(sessionId: string, input: ProposalInput): L
     targets: input.targets ?? (scope === 'global' ? [] : shared ? [project.id] : item?.targets ?? [project.id]),
     own_only: input.own_only ?? (scope === 'global' || shared ? [] : item?.own_only ?? []),
   });
+  const before = item ? snapshot(item) : null;
+  const baseContent = before?.content ?? (isTextInstructionType(input.type) ? instructionTextFor(input.type, project.id, scope).content : '');
   const data = { ...input, description: input.description ?? item?.description ?? '', frontmatter: input.frontmatter ?? item?.frontmatter ?? {},
-    ...access, item_id: item?.id ?? null, snapshot: item ? snapshot(item) : null };
+    ...access, item_id: item?.id ?? null, snapshot: before, base_content: baseContent };
   const id = randomUUID();
   insertProposal(id, project.id, session.id, JSON.stringify(data));
   return notify(getProposal(id));

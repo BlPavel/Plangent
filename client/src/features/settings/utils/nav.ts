@@ -4,7 +4,7 @@ export type SettingsTab =
   | 'plan-template' | 'plan-review'
   | 'architecture-template' | 'architecture-review'
   | 'qa-template' | 'qa-review'
-  | 'review-skills' | 'notes'
+  | 'mr-review' | 'notes'
 
 export interface SettingsNavItem { id: string; label: string; tab?: SettingsTab; children?: { tab: SettingsTab; label: string }[] }
 
@@ -34,7 +34,7 @@ export const SETTINGS_NAV: SettingsNavItem[] = [
     id: 'qa', label: 'QA',
     children: [{ tab: 'qa-template', label: 'Как писать' }, { tab: 'qa-review', label: 'Ревью' }],
   },
-  { id: 'review-skills', label: 'Ревью МР', tab: 'review-skills' },
+  { id: 'mr-review', label: 'Ревью МР', tab: 'mr-review' },
   { id: 'notes', label: 'Доработки', tab: 'notes' },
 ]
 

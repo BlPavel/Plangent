@@ -1,4 +1,4 @@
-export type LibraryItemType = 'skill' | 'command' | 'main' | 'plan-template' | 'instruction-guide' | 'code-fixer-instruction' | 'commit-rules' | 'review-skill' | 'plan-review-skill' | 'plan-review-instruction' | 'architecture-template' | 'architecture-review-instruction' | 'architecture-review-skill' | 'qa-template' | 'qa-review-instruction' | 'qa-review-skill' | 'interview-instruction';
+export type LibraryItemType = 'skill' | 'command' | 'main' | 'plan-template' | 'instruction-guide' | 'code-fixer-instruction' | 'commit-rules' | 'review-skill' | 'plan-review-skill' | 'plan-review-instruction' | 'mr-review-instruction' | 'architecture-template' | 'architecture-review-instruction' | 'architecture-review-skill' | 'qa-template' | 'qa-review-instruction' | 'qa-review-skill' | 'interview-instruction';
 export type LibraryScope = 'global' | 'project';
 export interface LibraryItem {
     origin?: 'global' | 'group' | 'direct';
@@ -26,6 +26,8 @@ export interface LibraryItem {
 }
 export type LibraryProposalStatus = 'pending' | 'applied' | 'rejected' | 'stale';
 export interface LibraryProposal {
+    /** Text in force when proposed, including inherited or built-in instructions. */
+    base_content?: string;
     id: string;
     project_id: string;
     session_id: string;
@@ -129,6 +131,7 @@ export interface LibraryEndpoints {
     "GET /api/library/code-fixer-instruction/defaults": Endpoint<"GET /api/library/code-fixer-instruction/defaults", never, LibraryGETInterviewInstructionDefaultsResponse, Record<string, never>, "json", never>;
     "GET /api/library/commit-rules/defaults": Endpoint<"GET /api/library/commit-rules/defaults", never, LibraryGETInterviewInstructionDefaultsResponse, Record<string, never>, "json", never>;
     "GET /api/library/plan-review-instruction/defaults": Endpoint<"GET /api/library/plan-review-instruction/defaults", never, LibraryGETInterviewInstructionDefaultsResponse, Record<string, never>, "json", never>;
+    "GET /api/library/mr-review-instruction/defaults": Endpoint<"GET /api/library/mr-review-instruction/defaults", never, LibraryGETInterviewInstructionDefaultsResponse, Record<string, never>, "json", never>;
     "GET /api/library/architecture-review-instruction/defaults": Endpoint<"GET /api/library/architecture-review-instruction/defaults", never, LibraryGETInterviewInstructionDefaultsResponse, Record<string, never>, "json", never>;
     "GET /api/library/qa-review-instruction/defaults": Endpoint<"GET /api/library/qa-review-instruction/defaults", never, LibraryGETInterviewInstructionDefaultsResponse, Record<string, never>, "json", never>;
     "GET /api/library/architecture-template/defaults": Endpoint<"GET /api/library/architecture-template/defaults", never, LibraryGETArchitectureTemplateDefaultsResponse, Record<string, never>, "json", never>;

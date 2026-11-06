@@ -140,6 +140,7 @@ const typeHint = computed(() => ({
   'qa-review-instruction': 'Общая инструкция из глобальных настроек.',
   'interview-instruction': 'Общая инструкция из глобальных настроек.',
   'plan-review-instruction': 'Что проверять в плане. Редактируется во вкладке «Ревью плана».',
+  'mr-review-instruction': 'Что проверять в МР. Редактируется во вкладке «Ревью МР».',
 }[form.type]))
 
 function slugify(s: string): string {

@@ -1,4 +1,5 @@
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { onServerEvent } from '@core/api/events'
 import type { LibraryItem, LibraryScope } from '@contracts'
 import { useAppStore } from '@core/stores/app'
 import { useProjectsStore } from '@features/projects'
@@ -31,7 +32,8 @@ export function useInstructionText(options: InstructionTextOptions) {
   const defaultText = ref('')
   const content = ref(''), saved = ref('')
   const editing = ref(false), loading = ref(false), saving = ref(false)
-  const isDirty = computed(() => content.value !== saved.value)
+  const editingBase = ref(''), stale = ref(false)
+  const isDirty = computed(() => content.value !== editingBase.value)
 
   const project = computed(() => options.scope() === 'project' ? projects.byId(options.projectId()) : null)
   const levelName = computed(() => project.value?.kind === 'group' ? 'группы' : 'проекта')
@@ -46,32 +48,46 @@ export function useInstructionText(options: InstructionTextOptions) {
   const effectiveText = computed(() => own.value ? saved.value : inherited.value?.content ?? defaultText.value)
 
   // The project list carries each item's origin; the nearest enabled level wins, as on the server.
-  async function load() {
+  let loadRevision = 0
+  async function load(preserveEdits = false) {
+    const revision = ++loadRevision
     loading.value = true
     try {
       const type = options.type(), scope = options.scope()
-      defaultText.value = (await libraryDefaults(type)).content
+      const nextDefault = (await libraryDefaults(type)).content
       const list = scope === 'global'
         ? (await libraryEndpoints.getLibrary({ params: {}, query: { type, scope: 'global' } })).map(i => ({ ...i, origin: 'direct' as const }))
         : await libraryEndpoints.getLibrary({ params: {}, query: { type, forProject: options.projectId() ?? '' } })
-      own.value = list.find(i => i.origin === 'direct') ?? null
+      const nextOwn = list.find(i => i.origin === 'direct') ?? null
       const parent = (['group', 'global'] as const).map(origin => list.find(i => i.origin === origin && i.enabled)).find(Boolean)
-      inherited.value = parent
+      const nextInherited = parent
         ? { origin: parent.origin as 'group' | 'global', label: parent.origin === 'group' ? options.groupLabel() : 'глобальное', content: (await store.getItem(parent.id)).content ?? '' }
         : null
-      saved.value = own.value ? (await store.getItem(own.value.id)).content ?? '' : ''
-      content.value = saved.value
-      editing.value = false
-    } catch (e) { app.toast(String(e), 'error') }
-    finally { loading.value = false }
+      const nextSaved = nextOwn ? (await store.getItem(nextOwn.id)).content ?? '' : ''
+      if (revision !== loadRevision) return
+      const keepEdits = preserveEdits && editing.value && isDirty.value
+      defaultText.value = nextDefault
+      own.value = nextOwn
+      inherited.value = nextInherited
+      saved.value = nextSaved
+      if (keepEdits) stale.value = editingBase.value !== effectiveText.value
+      else {
+        content.value = effectiveText.value
+        editingBase.value = effectiveText.value
+        editing.value = false
+        stale.value = false
+      }
+    } catch (e) { if (revision === loadRevision) app.toast(String(e), 'error') }
+    finally { if (revision === loadRevision) loading.value = false }
   }
 
-  function startEdit() { content.value = effectiveText.value; editing.value = true }
+  function startEdit() { content.value = editingBase.value = effectiveText.value; editing.value = true; stale.value = false }
   function useDefault() { content.value = defaultText.value }
   function useInherited() { if (inherited.value) content.value = inherited.value.content }
-  function cancel() { content.value = saved.value; editing.value = false }
+  function cancel() { content.value = saved.value; editing.value = false; stale.value = false }
 
   async function save() {
+    if (stale.value) return
     saving.value = true
     try {
       if (own.value) await libraryEndpoints.putLibraryById({ params: { id: own.value.id }, body: { content: content.value } })
@@ -83,6 +99,7 @@ export function useInstructionText(options: InstructionTextOptions) {
         } })
       }
       saved.value = content.value
+      editingBase.value = content.value
       editing.value = false
       app.toast(options.savedToast(), 'success')
     } catch (e) { app.toast(String(e), 'error') }
@@ -97,8 +114,12 @@ export function useInstructionText(options: InstructionTextOptions) {
     catch (e) { app.toast(String(e), 'error') }
   }
 
-  onMounted(load)
-  watch([options.type, options.scope, options.projectId], load)
+  onMounted(() => load())
+  watch([options.type, options.scope, options.projectId], () => load())
+  onBeforeUnmount(onServerEvent<{ type: string; item?: LibraryItem }>(event => {
+    if (event.type === 'library_changed' && (!event.item || event.item.type === options.type())) void load(true)
+  }))
+  onBeforeUnmount(() => { loadRevision++ })
 
-  return { own, inherited, defaultText, content, editing, loading, saving, isDirty, levelName, effective, effectiveLabel, effectiveText, load, startEdit, useDefault, useInherited, cancel, save, reset }
+  return { own, inherited, defaultText, content, editing, loading, saving, isDirty, stale, levelName, effective, effectiveLabel, effectiveText, load, startEdit, useDefault, useInherited, cancel, save, reset }
 }

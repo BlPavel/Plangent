@@ -1,7 +1,7 @@
 import { moduleDependencies } from '../dependencies';
 import { commandPrompt, sessionCommands } from './commands';
 import { idleDeadline } from './idle-policy';
-import { buildCodeFixerBriefing } from '../../library';
+import { buildCodeFixerBriefing, librarianSectionBriefing } from '../../library';
 import type { buildLibrarianPrompt } from '../../preparation';
 import type * as ACP from '../../../infrastructure/acp/types';
 import { startAdapter, stopAdapter, configureAdapterTermination } from '../../../infrastructure/acp/process';
@@ -433,7 +433,7 @@ export async function sendPrompt(id: string, content: ACP.ContentBlock[], gitFor
     ...authoredSections.flatMap(section => [section.title, section.description])].filter(Boolean).join('\n');
   const references = project ? mentionedReferences(project, referenceRequest) : '';
   const roleBriefing = session.role === 'code-fixer' ? buildCodeFixerBriefing(session.project_id)
-    : session.role === 'librarian' ? moduleDependencies.preparation.buildLibrarianPrompt(project?.name ?? session.project_id) : '';
+    : session.role === 'librarian' ? moduleDependencies.preparation.buildLibrarianPrompt(project?.name ?? session.project_id) + (session.metadata.library_scope === 'global' ? '\nThis chat was opened from global settings. Read and propose GLOBAL library items only. The project is provided for code context; do not edit project or group instructions.' : '') : '';
   const hasGitTools = ['chat', 'task-chat', 'errand'].includes(session.role) && project?.kind === 'project' && !session.metadata.branch_review && !session.metadata.mr_private;
   const gitBriefing = hasGitTools
     ? 'Do not run git commands that modify the repository. For Git actions requested by the developer, use the Plangent git_action tool. Do not add agent attribution to commit messages or pull requests.'
@@ -441,8 +441,10 @@ export async function sendPrompt(id: string, content: ACP.ContentBlock[], gitFor
   const briefing = [gitBriefing, workspace, roleBriefing || (typeof session.metadata.briefing === 'string' ? session.metadata.briefing : '')].filter(Boolean).join('\n\n');
   const withBriefing = briefing && (!session.metadata.briefed || session.metadata.needsContext || hasGitTools && session.metadata.gitToolsBriefingVersion !== 1
     || session.metadata.workspaceBriefingVersion !== WORKSPACE_BRIEFING_VERSION);
+  const sectionBriefing = session.role === 'librarian' ? librarianSectionBriefing(session.metadata) : '';
   const prompt: ACP.ContentBlock[] = [
     ...(withBriefing ? [{ type: 'text' as const, text: briefing }] : []),
+    ...(sectionBriefing ? [{ type: 'text' as const, text: sectionBriefing }] : []),
     ...(references ? [{ type: 'text' as const, text: references }] : []),
     ...(session.metadata.needsContext ? [{ type: 'text' as const, text: `Previous conversation context (may be truncated):\n${transcript(id)}\n\nNew message:` }] : []),
     ...commandPrompt(session, content),

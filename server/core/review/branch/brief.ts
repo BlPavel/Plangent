@@ -8,7 +8,7 @@ import { getSession } from '../../agents';
 import type { AgentSession } from '../../agents';
 import { getTask } from '../../tasks';
 import { getLatestPlan } from '../../preparation';
-import { resolveReviewSkill } from '../../library';
+import { resolveMrReviewInstruction, resolveReviewSkill } from '../../library';
 import { detail, finishThreads, openIdleThread, repo, row, state, threads } from './index';
 import { mrReviews } from './mr';
 import { remarks, sessionReview } from './remarks';
@@ -17,10 +17,10 @@ import * as questions from './questions';
 /** How the agent reviews together with the developer; returned by get_review_brief, not editable. */
 const PROTOCOL = [
   'You help the developer review someone else’s code. The developer publishes remarks under their own name; prepare drafts only and do not change code or git.',
-  'Follow the review skill: it describes what matters and what to skip. Do not report things it excludes.',
+  'Follow the review instruction: it describes what matters and what to skip. If a review skill is given, it adds the requirements of this project; apply both and do not report things they exclude.',
   'When asked to review the MR, inspect the entire diff (git diff range.from..HEAD in the worktree) and surrounding code. Then call set_review_overview once with a concise Markdown summary: what changes and why, how the parts fit together, and where to focus the review (files and lines). Do not summarize every file.',
   'Call add_review_remark for each finding. For a line remark, provide path and line from the diff (side old for deleted lines). Omit path for an MR-wide remark. Write text as a concrete, polite MR comment from the developer, explaining the problem and suggested change.',
-  'Do not duplicate existing threads or remarks. Prefer fewer substantive findings. Write in Russian unless the skill or MR description requires another language.',
+  'Do not duplicate existing threads or remarks. Prefer fewer substantive findings. Write in Russian unless the instruction, the skill or MR description requires another language.',
 ];
 
 /** get_review_brief: everything the agent needs to know about the review besides the code. */
@@ -36,7 +36,8 @@ export async function brief(session: AgentSession) {
       threads = info.threads.map(t => ({ where: t.path ? t.path + ':' + t.line : 'весь МР', resolved: t.resolved, notes: t.notes.map(n => ({ author: n.author, mine: n.mine, body: n.body })) }));
     } catch (e) { mr = { error: e instanceof Error ? e.message : 'Не удалось загрузить МР' }; }
   }
-  return reviewBrief(PROTOCOL, { title: skill.title, content: skill.content }, {
+  return reviewBrief(PROTOCOL, skill ? { title: skill.title, content: skill.content } : null, {
+    instruction: resolveMrReviewInstruction(),
     range: { from: s.from, head: s.headSha, branch: s.head.name, base: s.base.name },
     merge_request: mr,
     developer_context: r.context || null,

@@ -1,12 +1,11 @@
-import { DEFAULT_REVIEW_SKILL } from './builtins';
-export { DEFAULT_REVIEW_SKILL } from './builtins';
 import { libraryItemsFor } from './index';
 import { resolveReviewSkillOf } from './section-settings';
 import { getProject } from '../projects';
 import type { LibraryOrigin } from './index';
 
 /**
- * Review skills tell the review agent what matters in a merge request of this project and what to skip.
+ * Review skills add the project's or group's own requirements to the general merge request review instruction
+ * (mr-review-instruction.ts): what matters in a merge request of this project and what to skip.
  * How the overview and the remarks are reported is Plangent's protocol (get_review_brief), not part of a skill.
  */
 
@@ -28,7 +27,7 @@ export function reviewSkills(projectId: string): ReviewSkill[] {
     .map(item => ({ id: item.id, title: item.title, description: item.description, origin: item.origin }));
 }
 
-/** The chosen skill's text; an unknown or unavailable one falls back to the project's first skill, then to the default. */
-export function resolveReviewSkill(projectId: string, skillId: string | null | undefined): { id: string | null; title: string; content: string } {
-  return resolveReviewSkillOf('review-skill', projectId, skillId) ?? { id: null, title: 'Стандартный', content: DEFAULT_REVIEW_SKILL };
+/** The chosen skill's text; an unknown or unavailable one falls back to the project's first skill, and without any there is none: the general instruction applies alone. */
+export function resolveReviewSkill(projectId: string, skillId: string | null | undefined): { id: string; title: string; content: string } | null {
+  return resolveReviewSkillOf('review-skill', projectId, skillId);
 }

@@ -18,6 +18,10 @@ agentSessionsRouterRoutes.json('POST /api/agent-sessions', async (req, res) => {
   try {
     const { project_id, agent_id, model, mode, config } = req.body;
     const role = req.body.role ?? 'chat';
+    const libraryScope = req.body.library_scope;
+    const librarySection = req.body.library_section;
+    if (librarySection !== undefined && (role !== 'librarian' || typeof librarySection !== 'string' || !librarySection.trim() || librarySection.length > 100)) return res.status(400).json({ error: 'Invalid library section' });
+    if (libraryScope !== undefined && (role !== 'librarian' || !['global', 'project'].includes(libraryScope))) return res.status(400).json({ error: 'Invalid library scope' });
     if (role !== 'chat' && role !== 'librarian' && role !== 'code-fixer') return res.status(400).json({ error: 'Invalid session role' });
     if (role === 'code-fixer' && getProject(project_id)?.kind !== 'project') return res.status(400).json({ error: 'Choose a project for the code fixer' });
     if (role === 'librarian' && getProject(project_id)?.kind === 'source') return res.status(400).json({ error: 'Choose a project or group for the librarian' });
@@ -26,7 +30,7 @@ agentSessionsRouterRoutes.json('POST /api/agent-sessions', async (req, res) => {
     const policy = role === 'librarian' ? 'read-only' : ['ask', 'allow-edits', 'allow-all', 'read-only'].includes(req.body.policy ?? '') ? req.body.policy! : 'ask';
     if (!getProject(project_id) || !getAgent(agent_id)) return res.status(400).json({ error: 'Проект или агент не найден' });
     // No pick (the agent's options were not loaded yet) → the default from the agent's settings.
-    const session = createAgentSession({ project_id, agent_id, model: model || getAgent(agent_id)!.model, role, policy, metadata: { ...(workspaceId ? { workspace_id: workspaceId } : {}), ...agentPreferences(mode, config) } });
+    const session = createAgentSession({ project_id, agent_id, model: model || getAgent(agent_id)!.model, role, policy, metadata: { ...(workspaceId ? { workspace_id: workspaceId } : {}), ...(libraryScope ? { library_scope: libraryScope } : {}), ...(librarySection ? { library_section: librarySection } : {}), ...agentPreferences(mode, config) } });
     res.status(201).json(session);
     void runAgentWork(session.id).catch(() => {});
   } catch (e) { res.status(400).json({ error: String(e) }); }
@@ -62,7 +66,7 @@ agentSessionsRouterRoutes.json('POST /api/agent-sessions/:id/:action', async (re
       case 'config': await setConfig(id, String(req.body.configId), String(req.body.value)); break;
       case 'context': {
         if (session.metadata.mr_private) throw new Error('Continue the private thread in the Review tab');
-        const next = createAgentSession({ project_id: session.project_id, agent_id: session.agent_id, role: session.role === 'code-fixer' ? 'code-fixer' : session.role === 'librarian' ? 'librarian' : 'chat', policy: session.role === 'librarian' ? 'read-only' : 'ask' });
+        const next = createAgentSession({ project_id: session.project_id, agent_id: session.agent_id, role: session.role === 'code-fixer' ? 'code-fixer' : session.role === 'librarian' ? 'librarian' : 'chat', policy: session.role === 'librarian' ? 'read-only' : 'ask', metadata: session.role === 'librarian' ? { library_scope: session.metadata.library_scope ?? 'project', ...(typeof session.metadata.library_section === 'string' ? { library_section: session.metadata.library_section } : {}) } : {} });
         const context = history(id).filter(e => ['user', 'assistant'].includes(e.type)).map(e => `${e.type}: ${e.payload.text ?? ''}`).join('\n').slice(-60_000);
         await runAgentWork(next.id, [{ type: 'text', text: `Контекст предыдущего разговора (может быть обрезан):\n${context}\nПродолжим разговор.` }]);
         return res.json(getSession(next.id));

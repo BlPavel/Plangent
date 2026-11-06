@@ -94,7 +94,7 @@ watch(() => props.detail.review.context, (value, previous) => { if (context.valu
 const origin = { direct: 'проект', group: 'группа', global: 'везде' }
 const skillOptions = computed(() => skills.value.length
   ? skills.value.map(s => ({ value: s.id, label: s.title + ' · ' + origin[s.origin] }))
-  : [{ value: '', label: 'Стандартный (скиллов ревью нет)' }])
+  : [{ value: '', label: 'Без скилла — общая инструкция' }])
 // The server falls back to the first available skill, so does the picker.
 const currentSkill = computed(() => skills.value.find(s => s.id === props.detail.review.skill_id)?.id ?? skills.value[0]?.id ?? '')
 const taskOptions = computed(() => [{ value: '', label: 'Без задачи' }, ...tasks.value.map(t => ({ value: t.id, label: t.key + (t.title ? ' · ' + t.title : '') }))])
@@ -133,7 +133,7 @@ const launchRows = computed(() => {
   const task = tasks.value.find(t => t.id === r.task_id)
   return ([
     ['Агент', reviewChat.value ? agentName.value : ''],
-    ['Скилл', skill?.title ?? 'стандартный'],
+    ['Скилл', skill?.title ?? ''],
     ['Задача', task ? task.key + (task.title ? ' · ' + task.title : '') : ''],
     ['Контекст', r.context.trim()],
     ['Особенно', r.analysis_note],

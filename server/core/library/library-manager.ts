@@ -77,6 +77,9 @@ function getContentPath(item: LibraryItem): string {
   if (item.type === 'plan-review-skill') {
     return path.join(contentDir(item.type, item.slug, item), 'PLAN_REVIEW_SKILL.md');
   }
+  if (item.type === 'mr-review-instruction') {
+    return path.join(contentDir(item.type, item.slug, item), 'MR_REVIEW_INSTRUCTION.md');
+  }
   if (item.type === 'plan-review-instruction') {
     return path.join(contentDir(item.type, item.slug, item), 'PLAN_REVIEW_INSTRUCTION.md');
   }

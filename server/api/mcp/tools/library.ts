@@ -2,6 +2,7 @@ import { libraryToolContext, libraryToolItem, proposeLibraryChange, PROPOSAL_TYP
 import { instructionTextFor, isTextInstructionType, TEXT_INSTRUCTION_TYPES, type TextInstructionType } from '../../../core/library/instruction-texts';
 import type { AgentSession } from '../../../core/agents';
 import { defineTools, type ToolEvent } from './types';
+import { librarianTargetTypes } from '../../../core/library';
 const definitions = {
 get_library: { description: 'Get the project library catalog, instruction authoring guide and available levels. Call first.', fields: {} },
 get_library_item: { description: 'Read an available library item, including content.', fields: { id: { type: 'string' } } },
@@ -25,8 +26,9 @@ async function handle(name: keyof typeof definitions, session: AgentSession, arg
   const id = session.id;
   if (name === 'get_instruction_text' && !isTextInstructionType(String(args.type))) throw new Error('Unknown instruction type');
   if (name === 'propose_library_change' && (!args.proposal || typeof args.proposal !== 'object' || Array.isArray(args.proposal))) throw new Error('Invalid proposal');
-const result = name === 'get_library' ? libraryToolContext(session.project_id)
-          : name === 'get_instruction_text' ? instructionTextFor(String(args.type) as TextInstructionType, session.project_id)
+const scope = session.metadata.library_scope === 'global' ? 'global' : undefined;
+const result = name === 'get_library' ? { ...libraryToolContext(session.project_id), editing_scope: scope ?? 'project', editing_section: session.metadata.library_section, editing_types: librarianTargetTypes(session.metadata) }
+          : name === 'get_instruction_text' ? instructionTextFor(String(args.type) as TextInstructionType, session.project_id, scope)
           : name === 'get_library_item' ? libraryToolItem(session.project_id, String(args.id))
           : proposeLibraryChange(id, args.proposal as unknown as ProposalInput);
 if (name === 'propose_library_change') {

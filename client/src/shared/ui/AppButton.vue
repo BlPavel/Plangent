@@ -2,7 +2,7 @@
   <component :is="as" class="btn" :class="['btn-' + variant, size === 'md' ? '' : 'btn-' + size, { 'btn-icon': icon, pressed, block, multiline, start }, join && 'join-' + join]" :type="as === 'button' ? type : undefined" :disabled="as === 'button' ? disabled : undefined" :href="as === 'a' && !disabled ? href : undefined" :aria-disabled="disabled || undefined" :aria-pressed="pressed" :tabindex="disabled ? -1 : undefined" @click="click"><slot /></component>
 </template>
 <script setup lang="ts">
-export type ButtonVariant = 'primary' | 'blue' | 'update' | 'ghost' | 'subtle' | 'danger' | 'danger-ghost' | 'link' | 'danger-link'
+export type ButtonVariant = 'primary' | 'blue' | 'update' | 'ghost' | 'subtle' | 'disclosure' | 'danger' | 'danger-ghost' | 'link' | 'danger-link'
 const props = withDefaults(defineProps<{ variant?: ButtonVariant; size?: 'md' | 'sm' | 'xs'; icon?: boolean; pressed?: boolean; block?: boolean; multiline?: boolean; start?: boolean; as?: 'button' | 'a'; href?: string; disabled?: boolean; type?: 'button' | 'submit' | 'reset'; join?: 'start' | 'end' }>(), { variant: 'ghost', size: 'md', as: 'button', type: 'button' })
 const emit = defineEmits<{ click: [event: MouseEvent] }>()
 function click(event: MouseEvent) { if (props.disabled) { event.preventDefault(); event.stopPropagation(); return }; emit('click', event) }
@@ -76,6 +76,19 @@ function click(event: MouseEvent) { if (props.disabled) { event.preventDefault()
 .btn.block { display: flex; width: 100%; }
 .btn.multiline { height: auto; min-height: var(--size-md); white-space: normal; flex-direction: column; align-items: stretch; }
 .btn.start { justify-content: flex-start; text-align: left; }
+.btn-disclosure {
+  height: auto;
+  min-height: 32px;
+  padding: 5px 10px;
+  gap: 8px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--fs-md);
+  font-weight: var(--fw-normal);
+}
+.btn-disclosure:disabled { opacity: 1; cursor: default; }
+.btn-disclosure:not(:disabled):hover { color: var(--text); background: var(--bg3); }
 .btn[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
 .join-start { border-top-right-radius: 0; border-bottom-right-radius: 0; }
 .join-end { border-top-left-radius: 0; border-bottom-left-radius: 0; border-left-color: var(--divider-on-fill); }

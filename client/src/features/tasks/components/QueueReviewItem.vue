@@ -27,7 +27,7 @@ const skills = ref<{ id: string; title: string; origin: string }[]>([])
 const origin: Record<string, string> = { direct: 'проект', group: 'группа', global: 'общий' }
 const skillOptions = computed(() => skills.value.length
   ? skills.value.map(s => ({ value: s.id, label: `${s.title} · ${origin[s.origin] ?? s.origin}` }))
-  : [{ value: '', label: 'Стандартный' }])
+  : [{ value: '', label: 'Без скилла — общая инструкция' }])
 const currentSkill = computed(() => skills.value.find(s => s.id === props.session.skillId)?.id ?? skills.value[0]?.id ?? '')
 watch(() => props.session.agentId, id => { if (id && !chats.agentOptions[id]) void chats.fetchAgentOptions(id) }, { immediate: true })
 watch(() => queue.queue.value?.projectId, async (id, _old, cleanup) => {
