@@ -1,16 +1,8 @@
 <template>
   <aside class="librarian">
-    <header class="head">
-      <span class="head-title">Запись с агентом</span>
-      <div ref="tabScroller" class="chat-tabs">
-        <AppTabs class="chat-tab-list" bare :model-value="selected" :items="sessions.map(session => ({ value: session.id, label: session.title, title: session.title }))" rich label="Чаты с библиотекарем" @update:model-value="selected = $event">
-          <template #item="{ item }"><span class="dot" :class="sessions.find(session => session.id === item.value)?.status" /><span class="chat-tab-title">{{ item.label }}</span><AppCount v-if="pendingIn(item.value)" :value="pendingIn(item.value)" /></template>
-        </AppTabs>
-      </div>
-      <AppButton variant="subtle" size="xs" :pressed="!selected" title="Новый чат с библиотекарем" @click="newChat">+ Новый</AppButton>
-      <AppButton v-if="selected" variant="danger-ghost" size="xs" icon title="Удалить чат" @click="remove"><IconTrash /></AppButton>
-      <AppButton variant="ghost" size="xs" icon title="Скрыть панель" @click="$emit('close')"><UIIconClose /></AppButton>
-    </header>
+    <ChatTabs :items="tabs" :selected="selected" :label="'Чаты: ' + sectionLabel" @select="$event ? (selected = $event) : newChat()" @remove="remove">
+      <template #actions><AppButton class="close" variant="ghost" size="xs" icon title="Скрыть панель" aria-label="Скрыть панель" @click="$emit('close')"><UIIconClose /></AppButton></template>
+    </ChatTabs>
 
     <div v-if="selected && noProposalYet" class="nudge">
       Агент пока ничего не предложил. Библиотека меняется только через карточку предложения.
@@ -49,22 +41,20 @@
 </template>
 
 <script setup lang="ts">
-import { AppCount, AppTabs } from '@shared/ui'
 import { IconClose as UIIconClose } from '@shared/ui/icons'
 import { agentChatEndpoints } from '@features/agent-chat'
 
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '@core/stores/app'
 import { useDraftsStore } from '@core/stores/drafts'
 import { useAgentsStore } from '@features/agents'
-import { ChatView, NewChatPanel, useChatStore, type NewChatRequest, type ContentBlock } from '@features/agent-chat'
+import { ChatTabs, ChatView, NewChatPanel, useChatStore, type NewChatRequest, type ContentBlock } from '@features/agent-chat'
 import AppButton from '@shared/ui/AppButton.vue'
-import IconTrash from '@shared/ui/IconTrash.vue'
 import { useLibraryStore } from '../stores/library'
 import ProposalCard from './ProposalCard.vue'
 import type { LibraryScope } from '@contracts'
-import { librarySectionForType } from '../../../../../common/library-registry'
+import { librarySection, librarySectionForType } from '../../../../../common/library-registry'
 
 /** `request` starts a new chat with the developer's wish already written (the «Изменить с агентом» buttons). */
 const props = defineProps<{ projectId: string; libraryScope?: LibraryScope; section?: string; defaultAgentId?: string | null; request?: { text: string; at: number } | null }>()
@@ -76,7 +66,6 @@ const chat = ref<InstanceType<typeof ChatView> | null>(null)
 const startText = ref('')
 const drafts = useDraftsStore()
 const newChatDraftKey = computed(() => `project:${props.projectId}:librarian-chat:${props.libraryScope ?? 'project'}:${props.section ?? 'items'}`)
-const tabScroller = ref<HTMLElement>()
 watch(() => props.request?.at, () => { if (props.request) { startText.value = props.request.text; newChat() } }, { immediate: true })
 
 function newChat() {
@@ -94,6 +83,9 @@ function sessionSection(id: string, metadata: Record<string, unknown>): string {
   return sections.size === 1 ? [...sections][0] : 'items'
 }
 const sessions = computed(() => chats.sessions.filter(s => s.project_id === props.projectId && s.role === 'librarian' && (s.metadata.library_scope ?? 'project') === (props.libraryScope ?? 'project') && sessionSection(s.id, s.metadata) === (props.section ?? 'items')))
+// «Скиллы 1», «Скиллы 2»: a chat is named after the section it works on, not after what was asked.
+const sectionLabel = computed(() => librarySection(props.libraryScope ?? 'project', props.section ?? 'items')?.title ?? 'Запись')
+const tabs = computed(() => sessions.value.map((session, i) => ({ id: session.id, name: `${sectionLabel.value} ${i + 1}`, title: session.title, status: session.status, count: pendingIn(session.id) })))
 const pendingIn = (sessionId: string) => library.proposalsFor({ sessionId }).filter(p => p.status === 'pending').length
 
 // The latest librarian chat opens by default; a new one starts from the start screen.
@@ -103,11 +95,6 @@ watch(() => props.projectId, id => {
   }).catch(e => app.toast(String(e), 'error'))
 }, { immediate: true })
 watch(selected, id => { if (initial.value && initial.value.id !== id) initial.value = null })
-watch(selected, async id => {
-  await nextTick()
-  const tab = Array.from(tabScroller.value?.querySelectorAll<HTMLElement>('[role="tab"]') ?? []).find(el => el.dataset.id === id)
-  tab?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
-})
 
 // After a finished turn with an answer but no proposal the agent may have only talked; offer to ask for one.
 const noProposalYet = computed(() => {
@@ -129,28 +116,17 @@ async function create({ content, ...options }: NewChatRequest) {
   finally { creating.value = false }
 }
 
-async function remove() {
-  const session = sessions.value.find(s => s.id === selected.value)
-  if (!session || !(await app.confirm(`Удалить чат «${session.title}»? Применённые изменения останутся в библиотеке.`))) return
-  try { await chats.remove(session.id); selected.value = sessions.value[0]?.id ?? '' }
+async function remove(id: string, name: string) {
+  const session = sessions.value.find(s => s.id === id)
+  if (!session || !(await app.confirm(`Удалить чат «${name}»? Применённые изменения останутся в библиотеке.`))) return
+  try { await chats.remove(session.id); if (selected.value === id) selected.value = sessions.value[0]?.id ?? '' }
   catch (e) { app.toast(String(e), 'error') }
 }
 </script>
 
 <style scoped>
 .librarian { display: flex; flex-direction: column; min-height: 0; min-width: 0; height: 100%; background: var(--bg); }
-.head { display: flex; align-items: center; gap: 6px; height: 44px; padding: 0 var(--sp-3); border-bottom: 1px solid var(--border); flex-shrink: 0; }
-.head-title { font-size: var(--fs-sm); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); white-space: nowrap; margin-right: 4px; }
-.chat-tabs { flex: 1; min-width: 0; align-self: stretch; overflow-x: auto; overflow-y: hidden; }
-.chat-tab-list { width: max-content; min-width: 100%; height: 100%; }
-.chat-tab-title { max-width: 180px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-.dot { width: 7px; height: 7px; border-radius: var(--radius-round); flex-shrink: 0; background: var(--border-strong); }
-.dot.thinking, .dot.starting { background: var(--blue-hover); animation: pulse 1.4s ease-in-out infinite; }
-.dot.waiting { background: var(--warning-text); }
-.dot.complete, .dot.ready { background: var(--accent-hover); }
-.dot.error { background: var(--danger-hover); }
-@keyframes pulse { 50% { opacity: 0.35; } }
+.close { align-self: center; }
 
 .nudge { padding: 8px var(--sp-4); font-size: var(--fs-sm); color: var(--text-muted); background: var(--bg2); border-bottom: 1px solid var(--border); flex-shrink: 0; }
 .link { background: none; border: none; padding: 0; margin-left: 4px; font: inherit; color: var(--blue-hover); cursor: pointer; }

@@ -9,6 +9,10 @@ badges, buttons on the right and meta lines below are AppItemCard (`nested` for 
 a card); sidebar-style rows are AppTreeRow. Do not restyle such cards locally. See
 `client/src/shared/ui/index.ts` for the public exports.
 
+Chats with an agent about an entity (analysis, plan, library section) show the
+same `ChatTabs` strip from `@features/agent-chat`: tabs named after the entity and the
+chat's number («План 1»), never after the first request, and «+ Новый чат».
+
 Set visual state through props (`variant`, `size`, `pressed`, `tone`, `mono`,
 `invalid`, `block`). For example:
 

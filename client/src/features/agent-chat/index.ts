@@ -1,5 +1,6 @@
 export { default as ChatView } from './components/ChatView.vue'
 export { default as AgentChats } from './components/AgentChats.vue'
+export { default as ChatTabs, type ChatTab } from './components/ChatTabs.vue'
 export { default as NewChatPanel, type NewChatRequest } from './components/NewChatPanel.vue'
 export { default as AgentSettingsBar } from './components/AgentSettingsBar.vue'
 export { useAgentLaunchOptions } from './composables/useAgentLaunchOptions'
