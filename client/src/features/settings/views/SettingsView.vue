@@ -65,7 +65,7 @@
     <!-- Skills (global) -->
     <div v-if="tab === 'skills'" class="tab-body">
       <p class="hint">Глобальные скиллы разработчика применяются ко всем агентам во всех проектах. Инструкции для конкретного проекта задаются во вкладке «Инструкции» внутри проекта.</p>
-      <SkillsManager scope="global" :allowed-types="['skill']" />
+      <SkillsManager scope="global" :allowed-types="LIBRARY_SECTIONS.global.skills.types" />
     </div>
 
     <!-- Plan template (global) -->
@@ -88,25 +88,25 @@
 
     <!-- Merge request review instruction (global) -->
     <div v-show="tab === 'mr-review'" class="tab-body">
-      <CodeFixerInstructionEditor scope="global" type="mr-review-instruction" />
+      <CodeFixerInstructionEditor scope="global" :type="LIBRARY_SECTIONS.global['mr-review'].types[0]" />
     </div>
 
     <!-- Plan review instruction (global) -->
     <div v-show="tab === 'plan-review'" class="tab-body">
       <p class="hint">Общие проверки плана: действуют во всех проектах всегда. Свои требования проекта или группы (например, архитектурные) пишутся скиллами во вкладке «Инструкции» → «Ревью плана» внутри проекта.</p>
-      <CodeFixerInstructionEditor scope="global" type="plan-review-instruction" />
+      <CodeFixerInstructionEditor scope="global" :type="LIBRARY_SECTIONS.global['plan-review'].types[0]" />
     </div>
 
-    <div v-if="tab === 'architecture-template'" class="tab-body"><PlanTemplateEditor scope="global" type="architecture-template" /></div>
-    <div v-if="tab === 'architecture-review'" class="tab-body"><CodeFixerInstructionEditor scope="global" type="architecture-review-instruction" /></div>
-    <div v-if="tab === 'qa-template'" class="tab-body"><PlanTemplateEditor scope="global" type="qa-template" /></div>
-    <div v-if="tab === 'qa-review'" class="tab-body"><CodeFixerInstructionEditor scope="global" type="qa-review-instruction" /></div>
-    <div v-if="tab === 'interview'" class="tab-body"><CodeFixerInstructionEditor scope="global" type="interview-instruction" /></div>
+    <div v-if="tab === 'architecture-template'" class="tab-body"><PlanTemplateEditor scope="global" :type="LIBRARY_SECTIONS.global['architecture-template'].types[0]" /></div>
+    <div v-if="tab === 'architecture-review'" class="tab-body"><CodeFixerInstructionEditor scope="global" :type="LIBRARY_SECTIONS.global['architecture-review'].types[0]" /></div>
+    <div v-if="tab === 'qa-template'" class="tab-body"><PlanTemplateEditor scope="global" :type="LIBRARY_SECTIONS.global['qa-template'].types[0]" /></div>
+    <div v-if="tab === 'qa-review'" class="tab-body"><CodeFixerInstructionEditor scope="global" :type="LIBRARY_SECTIONS.global['qa-review'].types[0]" /></div>
+    <div v-if="tab === 'interview'" class="tab-body"><CodeFixerInstructionEditor scope="global" :type="LIBRARY_SECTIONS.global['interview'].types[0]" /></div>
     <!-- Commit message rules (global) -->
     <div v-show="tab === 'commit-rules'" class="tab-body">
       <p class="hint">Глобальные правила действуют во всех проектах, если проект или группа не переопределили их во вкладке «Инструкции» → «Коммиты».</p>
       <GlobalGitAgent />
-      <CodeFixerInstructionEditor scope="global" type="commit-rules" />
+      <CodeFixerInstructionEditor scope="global" :type="LIBRARY_SECTIONS.global['commit-rules'].types[0]" />
     </div>
 
     <!-- Personal improvement notes -->
@@ -189,6 +189,7 @@
 </template>
 
 <script setup lang="ts">
+import { LIBRARY_SECTIONS } from '../../../../../common/library-registry'
 import AppEmptyState from '@shared/ui/AppEmptyState.vue'
 import { agentsEndpoints } from '@features/agents'
 

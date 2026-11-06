@@ -2,6 +2,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { getDb } from '../../schema';
 import { LibraryItem, LibraryItemType, LibraryScope } from '../../../../models';
 
+export function libraryTransaction<T>(fn: () => T) { return getDb().transaction(fn); }
+
 function targetsOf(itemId: string): { targets: string[]; own_only: string[] } {
   const rows = getDb().prepare('SELECT target_id, own_only FROM library_item_targets WHERE item_id=?').all(itemId) as { target_id: string; own_only: number }[];
   return { targets: rows.map(r => r.target_id), own_only: rows.filter(r => r.own_only).map(r => r.target_id) };

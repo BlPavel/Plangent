@@ -1,7 +1,7 @@
 <template>
   <div class="workspace" :class="{ split: panelOpen }">
     <section class="list-pane" :class="{ 'skills-pane': view === 'items' || view === 'review' || view === 'plan-review' || view === 'architecture-review' || view === 'qa-review' }">
-      <div class="view-navigation"><AppTabs :model-value="view" :items="[{'value':'items','label':'Элементы'},{'value':'guide','label':'Руководство для агента'},{'value':'fixer','label':'Агент доработки'},{'value':'review','label':'Ревью МР'},{'value':'plan-review','label':'Ревью плана'},{'value':'architecture-review','label':'Ревью архитектуры'},{'value':'qa-review','label':'Ревью QA'},{'value':'commits','label':'Коммиты'},{'value':'branches','label':'Ветки'},{'value':'mr','label':'Merge request'}]" variant="side" label="Инструкции" @update:model-value="view = $event as typeof view" /></div>
+      <div class="view-navigation"><AppTabs :model-value="view" :items="viewTabs" variant="side" label="Инструкции" @update:model-value="view = $event as typeof view" /></div>
       <div class="view-content">
       <SkillsManager v-if="view === 'items'" class="skills" scope="project" :project-id="projectId">
         <template #actions>
@@ -13,7 +13,7 @@
       </SkillsManager>
       <template v-else-if="view === 'review'">
         <p class="hint">Скиллы ревью добавляют требования этого проекта к общей инструкции ревью МР из глобальных настроек.</p>
-        <SkillsManager class="skills" scope="project" :project-id="projectId" :allowed-types="['review-skill']">
+        <SkillsManager class="skills" scope="project" :project-id="projectId" :allowed-types="librarySection('project', view)!.types">
           <template #actions>
             <AppButton v-if="!panelOpen" variant="subtle" size="sm" title="Агент изучит код проекта, расспросит вас и предложит скилл ревью" @click="panelOpen = true">✦ Написать с агентом</AppButton>
           </template>
@@ -21,7 +21,7 @@
       </template>
       <template v-else-if="view === 'plan-review'">
         <p class="hint">Скиллы ревью плана — ваши требования к плану в проекте (например, архитектурные). Общие проверки задаёт глобальная инструкция в настройках, она действует всегда; выбранный скилл добавляется к ней при запуске ревью.</p>
-        <SkillsManager class="skills" scope="project" :project-id="projectId" :allowed-types="['plan-review-skill']">
+        <SkillsManager class="skills" scope="project" :project-id="projectId" :allowed-types="librarySection('project', view)!.types">
           <template #actions>
             <AppButton v-if="!panelOpen" variant="subtle" size="sm" title="Агент изучит код проекта, расспросит вас и предложит скилл ревью плана" @click="panelOpen = true">✦ Написать с агентом</AppButton>
           </template>
@@ -29,7 +29,7 @@
       </template>
       <template v-else-if="view === 'architecture-review' || view === 'qa-review'">
         <p class="hint">Выбранный скилл добавляется к общей инструкции ревью из глобальных настроек.</p>
-        <SkillsManager :key="view" class="skills" scope="project" :project-id="projectId" :allowed-types="[view === 'architecture-review' ? 'architecture-review-skill' : 'qa-review-skill']">
+        <SkillsManager :key="view" class="skills" scope="project" :project-id="projectId" :allowed-types="librarySection('project', view)!.types">
           <template #actions><AppButton v-if="!panelOpen" variant="subtle" size="sm" @click="panelOpen = true">✦ Написать с агентом</AppButton></template>
         </SkillsManager>
       </template>
@@ -38,7 +38,7 @@
       <ProjectGitPanel v-else-if="view === 'branches' || view === 'mr'" :project-id="projectId" :section="view" />
       <template v-else>
         <CommitSettings :project-id="projectId" />
-        <CodeFixerInstructionEditor scope="project" type="commit-rules" :project-id="projectId" />
+        <CodeFixerInstructionEditor scope="project" :type="LIBRARY_SECTIONS.project.commits.types[0]" :project-id="projectId" />
       </template>
       </div>
     </section>
@@ -48,6 +48,7 @@
 
 <script setup lang="ts">
 import AppTabs from '@shared/ui/AppTabs.vue'
+import { librarySection, LIBRARY_SECTIONS } from '../../../../../common/library-registry'
 import { computed, provide, ref, watch } from 'vue'
 import AppButton from '@shared/ui/AppButton.vue'
 import { ProjectGitPanel } from '@features/projects'
@@ -64,6 +65,9 @@ import CommitSettings from './CommitSettings.vue'
 const props = defineProps<{ projectId: string; defaultAgentId?: string | null; requested?: { view: 'review'; at: number } | null }>()
 const store = useLibraryStore()
 const view = ref<'items' | 'guide' | 'fixer' | 'review' | 'plan-review' | 'architecture-review' | 'qa-review' | 'commits' | 'branches' | 'mr'>('items')
+const viewTabs = ['items', 'guide', 'fixer', 'review', 'plan-review', 'architecture-review', 'qa-review', 'commits', 'branches', 'mr'].map(value => ({
+  value, label: LIBRARY_SECTIONS.project[value as keyof typeof LIBRARY_SECTIONS.project]?.title ?? (value === 'branches' ? 'Ветки' : 'Merge request'),
+}))
 const panelOpen = ref(false)
 // The editors and lists inside ask for the chat with what the developer wants changed.
 const request = ref<{ text: string; at: number } | null>(null)

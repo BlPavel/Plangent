@@ -56,7 +56,7 @@ export const useLibraryStore = defineStore('library', () => {
   }
 
   // A group's item changed or removed inside one project: that project gets its own copy / nothing, the group keeps its item.
-  const detach = (id: string, projectId: string) => libraryEndpoints.postLibraryByIdDetach({ params: { id: id }, body: { projectId } })
+  const detach = (id: string, projectId: string, changes?: Partial<LibraryItem>) => libraryEndpoints.postLibraryByIdDetach({ params: { id }, body: { projectId, changes } })
   const exclude = (id: string, projectId: string) => libraryEndpoints.postLibraryByIdExclude({ params: { id: id }, body: { projectId } })
 
   async function syncAll(): Promise<void> {

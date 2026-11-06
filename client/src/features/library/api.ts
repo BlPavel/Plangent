@@ -19,6 +19,7 @@ export async function libraryDefaults(type: keyof typeof defaults) {
 }
 
 export const libraryEndpoints = {
+  getInstructionText: endpoint('GET /api/library/instruction-text'),
   getLibrary: endpoint('GET /api/library'),
   putLibraryById: endpoint('PUT /api/library/:id'),
   postLibrary: endpoint('POST /api/library'),

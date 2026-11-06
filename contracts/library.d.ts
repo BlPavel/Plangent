@@ -1,5 +1,18 @@
 export type LibraryItemType = 'skill' | 'command' | 'main' | 'plan-template' | 'instruction-guide' | 'code-fixer-instruction' | 'commit-rules' | 'review-skill' | 'plan-review-skill' | 'plan-review-instruction' | 'mr-review-instruction' | 'architecture-template' | 'architecture-review-instruction' | 'architecture-review-skill' | 'qa-template' | 'qa-review-instruction' | 'qa-review-skill' | 'interview-instruction';
 export type LibraryScope = 'global' | 'project';
+export interface InstructionTextSource {
+    level: 'own' | 'group' | 'global' | 'default';
+    item_id: string | null;
+    project_id: string | null;
+    name: string | null;
+}
+export interface InstructionTextState {
+    content: string;
+    source: InstructionTextSource;
+    own: (LibraryItem & { content: string }) | null;
+    default_content: string;
+    inherited: { content: string; source: InstructionTextSource } | null;
+}
 export interface LibraryItem {
     origin?: 'global' | 'group' | 'direct';
     content?: string;
@@ -26,6 +39,11 @@ export interface LibraryItem {
 }
 export type LibraryProposalStatus = 'pending' | 'applied' | 'rejected' | 'stale';
 export interface LibraryProposal {
+    /** Effective instruction at creation, independent of the editable item's conflict snapshot and diff base. */
+    instruction_snapshot?: {
+        type: LibraryItemType; slug: string; level: 'direct' | 'group' | 'global' | 'default';
+        item_id: string | null; global_only: boolean; content: string;
+    };
     /** Text in force when proposed, including inherited or built-in instructions. */
     base_content?: string;
     id: string;
@@ -53,7 +71,7 @@ export interface LibraryProposal {
 }
 // HTTP endpoint map: full mounted paths, including the /api prefix.
 import type * as C from "./index";
-import type { Endpoint, JsonValue } from "./endpoint";
+import type { Endpoint } from "./endpoint";
 export type LibraryPOSTProposalsProposalIdApplyResponse = C.LibraryItem & { content: string };
 export type LibraryPOSTProposalsProposalIdApplyBody = {
     "availability"?: undefined | {
@@ -107,6 +125,7 @@ export type LibraryPUTIdBody = Partial<C.LibraryItem> & {
 };
 export type LibraryPOSTIdDetachBody = {
     projectId: string;
+    changes?: LibraryPUTIdBody;
 };
 export type LibraryPOSTIdExcludeResponse = {
     "ok": boolean;
@@ -121,6 +140,7 @@ export type LibraryPUTIdOverridesAgentTypeBody = {
     content: string;
 };
 export interface LibraryEndpoints {
+    "GET /api/library/instruction-text": Endpoint<"GET /api/library/instruction-text", never, InstructionTextState, { type: string; scope: LibraryScope; projectId?: string }, "json", never>;
     "GET /api/library/proposals": Endpoint<"GET /api/library/proposals", never, (C.LibraryProposal)[], {
         "projectId"?: string;
         "sessionId"?: string;

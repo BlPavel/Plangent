@@ -1,21 +1,11 @@
+import { librarySection } from '../../../common/library-registry';
 import type { LibraryItemType } from '../../models';
 
 /** The screen that opened the chat owns its editing target, independently of message text. */
 export function librarianTargetTypes(metadata: Record<string, unknown>): readonly LibraryItemType[] {
-  const sections: Record<string, readonly LibraryItemType[]> = metadata.library_scope === 'global'
-    ? {
-      skills: ['skill'], 'instruction-guide': ['instruction-guide'], 'code-fixer': ['code-fixer-instruction'],
-      'commit-rules': ['commit-rules'], 'plan-template': ['plan-template'], 'architecture-template': ['architecture-template'],
-      'qa-template': ['qa-template'], 'plan-review': ['plan-review-instruction'], 'mr-review': ['mr-review-instruction'],
-      'architecture-review': ['architecture-review-instruction'], 'qa-review': ['qa-review-instruction'], interview: ['interview-instruction'],
-    }
-    : {
-      items: ['skill', 'command', 'main', 'plan-template', 'architecture-template', 'qa-template'],
-      guide: ['instruction-guide'], fixer: ['code-fixer-instruction'], commits: ['commit-rules'],
-      review: ['review-skill'], 'plan-review': ['plan-review-skill'],
-      'architecture-review': ['architecture-review-skill'], 'qa-review': ['qa-review-skill'],
-    };
-  return typeof metadata.library_section === 'string' ? sections[metadata.library_section] ?? [] : [];
+  return typeof metadata.library_section === 'string'
+    ? librarySection(metadata.library_scope === 'global' ? 'global' : 'project', metadata.library_section)?.types ?? []
+    : [];
 }
 
 export function librarianSectionBriefing(metadata: Record<string, unknown>): string {

@@ -3,7 +3,7 @@ import { readItemContent } from './library-manager';
 import { libraryItemsFor, listLibraryItems } from './index';
 import { getProject } from '../projects';
 import type { LibraryOrigin } from './index';
-import type { LibraryItemType } from '../../models';
+import type { LibraryItem, LibraryItemType } from '../../models';
 import type { MaterialType } from '../preparation';
 import type { MATERIAL_KINDS } from '../preparation';
 
@@ -12,12 +12,18 @@ export interface ReviewSkill { id: string; title: string; description: string; o
 
 /** The text at the closest level: the project itself, then its group, then global; '' when there is none. */
 export function resolveLibraryItem(type: LibraryItemType, projectId?: string, skillId?: string | null) {
+  const items = availableLibraryItems(type, projectId);
+  return (skillId ? items.find(item => item.id === skillId && item.enabled) : undefined) ?? closestLibraryItem(items);
+}
+
+export function availableLibraryItems(type: LibraryItemType, projectId?: string) {
   const project = projectId ? getProject(projectId) : null;
-  const items = project
-    ? libraryItemsFor(project, type).filter(t => t.enabled)
-    : listLibraryItems({ type, projectId: '', enabledOnly: true }).map(t => ({ ...t, origin: 'global' as const }));
-  return (skillId ? items.find(item => item.id === skillId) : undefined)
-    ?? (['direct', 'group', 'global'] as const).map(origin => items.find(t => t.origin === origin)).find(Boolean) ?? null;
+  return project ? libraryItemsFor(project, type)
+    : listLibraryItems({ type, projectId: '' }).map(t => ({ ...t, origin: 'global' as const }));
+}
+
+export function closestLibraryItem<T extends LibraryItem & { origin: LibraryOrigin }>(items: T[]): T | null {
+  return (['direct', 'group', 'global'] as const).map(origin => items.find(item => item.enabled && item.origin === origin)).find(Boolean) ?? null;
 }
 
 export function resolveLevelText(type: LibraryItemType, projectId?: string): string {

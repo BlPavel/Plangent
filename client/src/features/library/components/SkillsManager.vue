@@ -88,6 +88,7 @@ import { useAppStore } from '@core/stores/app'
 import { useAgentsStore } from '@features/agents'
 import { AvailabilityField, useProjectsStore, type Availability } from '@features/projects'
 import type { LibraryItem, LibraryItemType, LibraryScope } from '@contracts'
+import { LIBRARY_TYPES, LIBRARY_FORM_TYPES, libraryTypeLabel, librarySection } from '../../../../../common/library-registry'
 import AppModal from '@shared/ui/AppModal.vue'
 import AppButton from '@shared/ui/AppButton.vue'
 import IconTrash from '@shared/ui/IconTrash.vue'
@@ -109,7 +110,7 @@ function isSharedInProject(item: LibraryItem): boolean {
 }
 const editingShared = computed(() => !!editItem.value && isSharedInProject(editItem.value))
 const ownProjectOnly = computed(() => scope.value === 'project' && project.value?.kind === 'project')
-const availableTypeValues = computed<LibraryItemType[]>(() => props.allowedTypes ?? (scope.value === 'global' ? ['skill'] : ['skill', 'command', 'main', 'plan-template', 'architecture-template', 'qa-template']))
+const availableTypeValues = computed<LibraryItemType[]>(() => props.allowedTypes ?? librarySection(scope.value, scope.value === 'global' ? 'skills' : 'items')!.types)
 const filterType = ref<LibraryItemType | ''>(availableTypeValues.value.length === 1 ? availableTypeValues.value[0] : '')
 const syncing = ref(false)
 const agent = inject(libraryAgentKey, null)
@@ -118,20 +119,11 @@ const SKILL_NOUN: Partial<Record<LibraryItemType, string>> = { 'review-skill': '
 
 const typeOptions = computed(() => [
   { value: '' as const, label: 'Все' },
-  { value: 'skill' as LibraryItemType, label: 'Скиллы' },
-  { value: 'command' as LibraryItemType, label: 'Команды' },
-  { value: 'main' as LibraryItemType, label: 'Главный файл' },
-  { value: 'plan-template' as LibraryItemType, label: 'Шаблон плана' },
-  { value: 'review-skill' as LibraryItemType, label: 'Ревью МР' },
-  { value: 'architecture-template' as LibraryItemType, label: 'Как писать архитектуру' },
-  { value: 'qa-template' as LibraryItemType, label: 'Как писать QA' },
-  { value: 'architecture-review-skill' as LibraryItemType, label: 'Ревью архитектуры' },
-  { value: 'qa-review-skill' as LibraryItemType, label: 'Ревью QA' },
-  { value: 'plan-review-skill' as LibraryItemType, label: 'Ревью плана' },
+  ...LIBRARY_FORM_TYPES.map(value => ({ value, label: libraryTypeLabel(value, 'list') })),
 ].filter(t => t.value === '' || availableTypeValues.value.includes(t.value)))
 
 function typeLabel(t: LibraryItemType) {
-  return { 'architecture-template': 'Как писать архитектуру', 'qa-template': 'Как писать QA', 'architecture-review-skill': 'Ревью архитектуры', 'qa-review-skill': 'Ревью QA', 'architecture-review-instruction': 'Ревью архитектуры', 'qa-review-instruction': 'Ревью QA', 'interview-instruction': 'Уточняющее интервью', 'commit-rules': 'правила коммитов', 'code-fixer-instruction': 'Агент доработки', skill: 'скилл', command: 'команда', main: 'main', 'plan-template': 'шаблон плана', 'instruction-guide': 'руководство по инструкциям', 'review-skill': 'скилл ревью', 'plan-review-skill': 'скилл ревью плана', 'plan-review-instruction': 'ревью плана', 'mr-review-instruction': 'ревью МР' }[t]
+  return LIBRARY_TYPES[t].title
 }
 
 // Each mounted list owns its results: hidden project views can reload independently of settings.
@@ -315,8 +307,7 @@ async function save() {
 
   try {
     if (editItem.value && editingShared.value) {
-      const copy = await store.detach(editItem.value.id, props.projectId!)
-      await store.update(copy.id, { ...payload, scope: 'project', targets: [props.projectId!], own_only: [] })
+      await store.detach(editItem.value.id, props.projectId!, payload)
       appStore.toast('Сохранено для этого проекта', 'success')
     } else if (editItem.value) {
       await store.update(editItem.value.id, payload)

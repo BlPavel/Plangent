@@ -64,6 +64,7 @@ import IconTrash from '@shared/ui/IconTrash.vue'
 import { useLibraryStore } from '../stores/library'
 import ProposalCard from './ProposalCard.vue'
 import type { LibraryScope } from '@contracts'
+import { librarySectionForType } from '../../../../../common/library-registry'
 
 /** `request` starts a new chat with the developer's wish already written (the «Изменить с агентом» buttons). */
 const props = defineProps<{ projectId: string; libraryScope?: LibraryScope; section?: string; defaultAgentId?: string | null; request?: { text: string; at: number } | null }>()
@@ -88,10 +89,7 @@ function sessionSection(id: string, metadata: Record<string, unknown>): string {
   if (typeof metadata.library_section === 'string') return metadata.library_section
   // Older chats can be assigned only when their saved proposals identify one section.
   const sections = new Set(library.proposalsFor({ sessionId: id }).map(p => {
-    const aliases: Record<string, string> = props.libraryScope === 'global'
-      ? { skill: 'skills', 'code-fixer-instruction': 'code-fixer', 'plan-review-instruction': 'plan-review', 'mr-review-instruction': 'mr-review', 'architecture-review-instruction': 'architecture-review', 'qa-review-instruction': 'qa-review', 'interview-instruction': 'interview' }
-      : { 'instruction-guide': 'guide', 'code-fixer-instruction': 'fixer', 'commit-rules': 'commits', 'review-skill': 'review', 'plan-review-skill': 'plan-review', 'architecture-review-skill': 'architecture-review', 'qa-review-skill': 'qa-review', skill: 'items', command: 'items', main: 'items' }
-    return aliases[p.type] ?? p.type
+    return librarySectionForType(props.libraryScope ?? 'project', p.type) ?? p.type
   }))
   return sections.size === 1 ? [...sections][0] : 'items'
 }

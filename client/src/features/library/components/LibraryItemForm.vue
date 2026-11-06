@@ -69,6 +69,7 @@
 </template>
 
 <script setup lang="ts">
+import { LIBRARY_FORM_TYPES, libraryTypeLabel } from '../../../../../common/library-registry'
 import AppInput from '@shared/ui/AppInput.vue'
 import AppTextarea from '@shared/ui/AppTextarea.vue'
 import { AppButton, AppCheckbox, AppTabs } from '@shared/ui'
@@ -98,18 +99,7 @@ const props = defineProps<{
 const { form } = props
 const isReviewSkill = computed(() => form.type === 'review-skill' || form.type.endsWith('-review-skill'))
 
-const TYPES: { value: LibraryItemType; label: string }[] = [
-  { value: 'skill', label: 'Скилл' },
-  { value: 'command', label: 'Команда' },
-  { value: 'main', label: 'Главный файл' },
-  { value: 'plan-template', label: 'Шаблон плана' },
-  { value: 'review-skill', label: 'Скилл ревью' },
-  { value: 'architecture-template', label: 'Как писать архитектуру' },
-  { value: 'qa-template', label: 'Как писать QA' },
-  { value: 'architecture-review-skill', label: 'Ревью архитектуры' },
-  { value: 'qa-review-skill', label: 'Ревью QA' },
-  { value: 'plan-review-skill', label: 'Ревью плана' },
-]
+const TYPES = LIBRARY_FORM_TYPES.map(value => ({ value, label: libraryTypeLabel(value, 'form') }))
 const availableTypes = computed(() => TYPES.filter(t => !props.allowedTypes || props.allowedTypes.includes(t.value)))
 
 // Главный файл уже есть и мы не редактируем именно его

@@ -3,10 +3,12 @@ import { onServerEvent } from '@core/api/events'
 import type { LibraryItem, LibraryScope } from '@contracts'
 import { useAppStore } from '@core/stores/app'
 import { useProjectsStore } from '@features/projects'
-import { libraryDefaults, libraryEndpoints } from '../api'
+import { libraryEndpoints } from '../api'
+import type { TextInstructionType } from '../../../../../common/library-registry'
+import { useDraft } from '@core/composables/useDraft'
 import { useLibraryStore } from '../stores/library'
 
-export type InstructionTextType = Parameters<typeof libraryDefaults>[0]
+export type InstructionTextType = TextInstructionType
 
 export interface InstructionTextOptions {
   type: () => InstructionTextType
@@ -30,50 +32,61 @@ export function useInstructionText(options: InstructionTextOptions) {
   const own = ref<LibraryItem | null>(null)
   const inherited = ref<{ origin: 'group' | 'global'; label: string; content: string } | null>(null)
   const defaultText = ref('')
-  const content = ref(''), saved = ref('')
-  const editing = ref(false), loading = ref(false), saving = ref(false)
-  const editingBase = ref(''), stale = ref(false)
+  const draft = useDraft(() => `library:text:${options.scope()}:${options.scope() === 'project' ? options.projectId() : ''}:${options.type()}`, () => ({ content: '', base: '', version: '', editing: false }))
+  const content = computed({ get: () => draft.value.content, set: value => { draft.value.content = value } })
+  const editing = computed({ get: () => draft.value.editing, set: value => { draft.value.editing = value } })
+  const editingBase = computed({ get: () => draft.value.base, set: value => { draft.value.base = value } })
+  const saved = ref(''), stale = ref(false)
+  const loading = ref(false), saving = ref(false)
+  const effective = ref<'own' | 'group' | 'global' | 'default'>('default')
+  const effectiveText = ref('')
+  const sourceName = ref<string | null>(null)
+  const sourceVersion = ref('')
   const isDirty = computed(() => content.value !== editingBase.value)
 
   const project = computed(() => options.scope() === 'project' ? projects.byId(options.projectId()) : null)
   const levelName = computed(() => project.value?.kind === 'group' ? 'группы' : 'проекта')
-  const effective = computed(() => own.value ? 'own' : inherited.value?.origin ?? 'default')
   const effectiveLabel = computed(() => {
     if (effective.value === 'own') return options.scope() === 'global' ? 'глобальное (своё)' : `своё для ${levelName.value}`
-    if (effective.value === 'group') return `от группы «${projects.byId(project.value?.group_id)?.name ?? '—'}»`
+    if (effective.value === 'group') return `от группы «${sourceName.value ?? '—'}»`
     if (effective.value === 'global') return 'глобальное, из настроек'
     return 'предустановленное'
   })
-  /** The text in force now, what the read-only view shows and what «Изменить» starts from. */
-  const effectiveText = computed(() => own.value ? saved.value : inherited.value?.content ?? defaultText.value)
-
-  // The project list carries each item's origin; the nearest enabled level wins, as on the server.
+  // The server resolves availability, enabled and inheritance in a single response.
   let loadRevision = 0
+  let loadedDraft: typeof draft.value | undefined
   async function load(preserveEdits = false) {
     const revision = ++loadRevision
+    if (loadedDraft !== draft.value) {
+      own.value = null
+      inherited.value = null
+      defaultText.value = effectiveText.value = ''
+      effective.value = 'default'
+    }
     loading.value = true
     try {
-      const type = options.type(), scope = options.scope()
-      const nextDefault = (await libraryDefaults(type)).content
-      const list = scope === 'global'
-        ? (await libraryEndpoints.getLibrary({ params: {}, query: { type, scope: 'global' } })).map(i => ({ ...i, origin: 'direct' as const }))
-        : await libraryEndpoints.getLibrary({ params: {}, query: { type, forProject: options.projectId() ?? '' } })
-      const nextOwn = list.find(i => i.origin === 'direct') ?? null
-      const parent = (['group', 'global'] as const).map(origin => list.find(i => i.origin === origin && i.enabled)).find(Boolean)
-      const nextInherited = parent
-        ? { origin: parent.origin as 'group' | 'global', label: parent.origin === 'group' ? options.groupLabel() : 'глобальное', content: (await store.getItem(parent.id)).content ?? '' }
-        : null
-      const nextSaved = nextOwn ? (await store.getItem(nextOwn.id)).content ?? '' : ''
+      const result = await libraryEndpoints.getInstructionText({ params: {}, query: {
+        type: options.type(), scope: options.scope(), projectId: options.scope() === 'project' ? options.projectId() : undefined,
+      } })
       if (revision !== loadRevision) return
+      loadedDraft = draft.value
       const keepEdits = preserveEdits && editing.value && isDirty.value
-      defaultText.value = nextDefault
-      own.value = nextOwn
-      inherited.value = nextInherited
-      saved.value = nextSaved
-      if (keepEdits) stale.value = editingBase.value !== effectiveText.value
+      defaultText.value = result.default_content
+      own.value = result.own
+      inherited.value = result.inherited ? {
+        origin: result.inherited.source.level as 'group' | 'global',
+        label: result.inherited.source.level === 'group' ? options.groupLabel() : 'глобальное', content: result.inherited.content,
+      } : null
+      saved.value = result.own?.content ?? ''
+      effective.value = result.source.level
+      sourceName.value = result.source.name
+      effectiveText.value = result.content
+      sourceVersion.value = JSON.stringify({ content: result.content, source: result.source, own: result.own })
+      if (keepEdits) stale.value = draft.value.version !== sourceVersion.value
       else {
         content.value = effectiveText.value
         editingBase.value = effectiveText.value
+        draft.value.version = sourceVersion.value
         editing.value = false
         stale.value = false
       }
@@ -81,43 +94,53 @@ export function useInstructionText(options: InstructionTextOptions) {
     finally { if (revision === loadRevision) loading.value = false }
   }
 
-  function startEdit() { content.value = editingBase.value = effectiveText.value; editing.value = true; stale.value = false }
+  function startEdit() {
+    if (loading.value || loadedDraft !== draft.value) return
+    content.value = editingBase.value = effectiveText.value
+    draft.value.version = sourceVersion.value
+    editing.value = true
+    stale.value = false
+  }
   function useDefault() { content.value = defaultText.value }
   function useInherited() { if (inherited.value) content.value = inherited.value.content }
   function cancel() { content.value = saved.value; editing.value = false; stale.value = false }
 
   async function save() {
-    if (stale.value) return
+    if (stale.value || loading.value || saving.value || loadedDraft !== draft.value) return
+    const currentDraft = draft.value
+    const submitted = content.value
+    const item = own.value
+    const type = options.type(), scope = options.scope(), projectId = options.projectId()
     saving.value = true
     try {
-      if (own.value) await libraryEndpoints.putLibraryById({ params: { id: own.value.id }, body: { content: content.value } })
+      if (item) await libraryEndpoints.putLibraryById({ params: { id: item.id }, body: { content: submitted } })
       else {
-        const type = options.type(), scope = options.scope()
-        own.value = await libraryEndpoints.postLibrary({ params: {}, body: {
+        await libraryEndpoints.postLibrary({ params: {}, body: {
           type, slug: type.replaceAll('-', '_'), title: options.itemTitle(), description: '',
-          scope, targets: scope === 'project' && options.projectId() ? [options.projectId()!] : [], content: content.value,
+          scope, targets: scope === 'project' && projectId ? [projectId] : [], content: submitted,
         } })
       }
-      saved.value = content.value
-      editingBase.value = content.value
-      editing.value = false
+      if (currentDraft.content === submitted) Object.assign(currentDraft, { editing: false, base: submitted })
+      if (draft.value === currentDraft) await load(true)
       app.toast(options.savedToast(), 'success')
     } catch (e) { app.toast(String(e), 'error') }
     finally { saving.value = false }
   }
 
   async function reset() {
-    if (!own.value) return
+    if (!own.value || loading.value || loadedDraft !== draft.value) return
+    const item = own.value
+    const currentDraft = draft.value
     const next = options.scope() === 'global' ? 'предустановленное' : inherited.value ? inherited.value.label : 'предустановленное'
     if (!(await app.confirm(`${options.resetQuestion()} Будет действовать ${next}.`))) return
-    try { await store.remove(own.value.id); await load() }
+    try { await store.remove(item.id); if (draft.value === currentDraft) await load() }
     catch (e) { app.toast(String(e), 'error') }
   }
 
-  onMounted(() => load())
-  watch([options.type, options.scope, options.projectId], () => load())
+  onMounted(() => load(true))
+  watch([options.type, options.scope, options.projectId], () => load(true), { flush: 'sync' })
   onBeforeUnmount(onServerEvent<{ type: string; item?: LibraryItem }>(event => {
-    if (event.type === 'library_changed' && (!event.item || event.item.type === options.type())) void load(true)
+    if (event.type === 'library_changed') void load(true)
   }))
   onBeforeUnmount(() => { loadRevision++ })
 

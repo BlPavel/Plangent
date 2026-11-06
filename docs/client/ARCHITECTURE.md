@@ -15,6 +15,10 @@ imports within the owning feature. A feature exports only what its consumers nee
 No lower layer imports `app`; shared also cannot import core or contracts.
 Client code never imports `server/`.
 
+`common/library-registry.ts` is runtime policy shared by client and server.
+Features may import it directly for library types, sections and labels. It has
+no application dependencies; `contracts/` remains declarations only.
+
 Put routed screens in `views/`, embedded components in `components/`, domain
 stores in the feature's `stores/`. Global application state belongs in `core/stores`.
 The router is assembled in `app/router.ts` from feature route arrays.

@@ -4,6 +4,11 @@ Every feature owns server calls in `api.ts`. Bind endpoint keys from the common
 contract there; components and stores call the feature API. This keeps request
 paths and transport details out of screens.
 
+The library text editor uses `GET /api/library/instruction-text` with `type`,
+`scope` and, for project scope, `projectId`. The response contains effective,
+own, inherited and built-in text; clients do not resolve inheritance with list
+and content requests. See [library state and mutations](../server/library.md).
+
 ```ts
 // features/projects/api.ts
 import { endpoint } from '@core/api/endpoint'

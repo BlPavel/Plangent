@@ -1,10 +1,5 @@
-export type SettingsTab =
-  | 'agents' | 'connections'
-  | 'skills' | 'instruction-guide' | 'code-fixer' | 'commit-rules' | 'interview'
-  | 'plan-template' | 'plan-review'
-  | 'architecture-template' | 'architecture-review'
-  | 'qa-template' | 'qa-review'
-  | 'mr-review' | 'notes'
+import { LIBRARY_SECTIONS } from '../../../../../common/library-registry'
+export type SettingsTab = keyof typeof LIBRARY_SECTIONS.global | 'agents' | 'connections' | 'notes'
 
 export interface SettingsNavItem { id: string; label: string; tab?: SettingsTab; children?: { tab: SettingsTab; label: string }[] }
 
@@ -15,26 +10,26 @@ export const SETTINGS_NAV: SettingsNavItem[] = [
   {
     id: 'instructions', label: 'Инструкции',
     children: [
-      { tab: 'skills', label: 'Скиллы' },
-      { tab: 'instruction-guide', label: 'Руководство по инструкциям' },
-      { tab: 'code-fixer', label: 'Агент доработки' },
-      { tab: 'commit-rules', label: 'Коммиты' },
-      { tab: 'interview', label: 'Уточняющее интервью' },
+      { tab: 'skills', label: LIBRARY_SECTIONS.global['skills'].title },
+      { tab: 'instruction-guide', label: LIBRARY_SECTIONS.global['instruction-guide'].title },
+      { tab: 'code-fixer', label: LIBRARY_SECTIONS.global['code-fixer'].title },
+      { tab: 'commit-rules', label: LIBRARY_SECTIONS.global['commit-rules'].title },
+      { tab: 'interview', label: LIBRARY_SECTIONS.global['interview'].title },
     ],
   },
   {
     id: 'planning', label: 'Планирование',
-    children: [{ tab: 'plan-template', label: 'Шаблон плана' }, { tab: 'plan-review', label: 'Ревью плана' }],
+    children: [{ tab: 'plan-template', label: LIBRARY_SECTIONS.global['plan-template'].title }, { tab: 'plan-review', label: LIBRARY_SECTIONS.global['plan-review'].title }],
   },
   {
     id: 'architecture', label: 'Архитектура',
-    children: [{ tab: 'architecture-template', label: 'Как писать' }, { tab: 'architecture-review', label: 'Ревью' }],
+    children: [{ tab: 'architecture-template', label: LIBRARY_SECTIONS.global['architecture-template'].title }, { tab: 'architecture-review', label: LIBRARY_SECTIONS.global['architecture-review'].title }],
   },
   {
     id: 'qa', label: 'QA',
-    children: [{ tab: 'qa-template', label: 'Как писать' }, { tab: 'qa-review', label: 'Ревью' }],
+    children: [{ tab: 'qa-template', label: LIBRARY_SECTIONS.global['qa-template'].title }, { tab: 'qa-review', label: LIBRARY_SECTIONS.global['qa-review'].title }],
   },
-  { id: 'mr-review', label: 'Ревью МР', tab: 'mr-review' },
+  { id: 'mr-review', label: LIBRARY_SECTIONS.global['mr-review'].title, tab: 'mr-review' },
   { id: 'notes', label: 'Доработки', tab: 'notes' },
 ]
 

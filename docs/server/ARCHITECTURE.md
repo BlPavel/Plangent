@@ -3,6 +3,9 @@
 The server in `server/` is a modular monolith. `index.ts` assembles the
 application; `core-services.ts` wires callbacks between domains.
 
+`common/library-registry.ts` provides pure executable library policy to both
+applications. It imports contract types only and contains no server dependencies.
+
 | Layer | Responsibility | Allowed dependencies |
 | --- | --- | --- |
 | `api/` | HTTP routes, WebSocket delivery, MCP tools | core, models, contracts |
@@ -50,6 +53,7 @@ Rules and verification:
 - [Database](database.md): migrations and repositories.
 - [Agents](agents.md): sessions, permissions and process lifetime.
 - [MCP](mcp.md): registry and role authorization.
+- [Library](library.md): instructions, skills, shared registry and save operations.
 - [Reviews](review.md): shared kernel and domain workflows.
 - [Git](git.md): repository operations and finishing work.
 - [Integrations](integrations.md): connections, secrets and documentation sources.

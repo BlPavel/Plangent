@@ -1,22 +1,22 @@
-import type { ErrorResponse } from '../typed-route';
 import { typedRoutes } from '../typed-route';
 import { DEFAULT_INTERVIEW_INSTRUCTION } from '../../../core/library/interview-instruction';
-import { Router, Request, Response } from 'express';
+import { Router } from 'express';
 import {
-  listLibraryItems, getLibraryItem, createLibraryItem, updateLibraryItem, deleteLibraryItem,
-  setLibraryOverride, deleteLibraryOverride, libraryItemsFor, libraryOrigin, setExcluded,
+  listLibraryItems, getLibraryItem,
+  libraryItemsFor,
 } from '../../../core/library';
 import { getProject } from '../../../core/projects';
-import { readItemContent, writeItemContent, deleteItemContent, writeOverrideContent, readOverrideContent, deleteOverrideContent } from '../../../core/library/library-manager';
+import { readItemContent, readOverrideContent } from '../../../core/library/library-manager';
 import { DEFAULT_CODE_FIXER_INSTRUCTION } from '../../../core/library/code-fixer-instruction';
 import { DEFAULT_COMMIT_RULES } from '../../../core/library/commit-rules';
 import { DEFAULT_PLAN_REVIEW_INSTRUCTION } from '../../../core/library/plan-review-instruction';
 import { DEFAULT_MR_REVIEW_INSTRUCTION } from '../../../core/library/mr-review-instruction';
-import { isGlobalOnlyType, isTextInstructionType } from '../../../core/library/instruction-texts';
+import { instructionTextState } from '../../../core/library/instruction-texts';
+import { saveLibraryItem, removeLibraryItem, detachLibraryItem, excludeLibraryItem, saveLibraryOverride, removeLibraryOverride, LibraryOperationError } from '../../../core/library/operations';
 import { DEFAULT_INSTRUCTION_GUIDE } from '../../../core/library/instruction-guide';
 import { MATERIAL_KINDS } from '../../../core/preparation/materials/kinds';
 import { PLAN_PROTOCOL_LOCKED } from '../../../core/library/plan-template';
-import { syncItem, unsyncItem, syncAll } from '../../../core/library/syncer';
+import { syncAll } from '../../../core/library/syncer';
 import { LibraryItemType, LibraryScope } from '../../../models';
 
 import { listProposals, applyProposal, rejectProposal, ProposalConflict } from '../../../core/library/proposals';
@@ -47,7 +47,6 @@ libraryRouterRoutes.json('POST /api/library/proposals/:proposalId/reject', (req,
 
 libraryRouterRoutes.json('GET /api/library/interview-instruction/defaults', (_req, res) => res.json({ content: DEFAULT_INTERVIEW_INSTRUCTION }));
 
-const SINGLE_LEVEL_MATERIAL_TYPES = new Set<string>(Object.values(MATERIAL_KINDS).flatMap(kind => [kind.templateType, kind.reviewInstructionType]));
 
 libraryRouterRoutes.json('GET /api/library/code-fixer-instruction/defaults', (_req, res) => {
   res.json({ content: DEFAULT_CODE_FIXER_INSTRUCTION });
@@ -96,6 +95,11 @@ libraryRouterRoutes.json('GET /api/library', (req, res) => {
   res.json(items);
 });
 
+libraryRouterRoutes.json('GET /api/library/instruction-text', (req, res) => {
+  try { res.json(instructionTextState(req.query.type, req.query.scope, req.query.projectId)); }
+  catch (error) { operationError(res, error); }
+});
+
 libraryRouterRoutes.json('GET /api/library/:id', (req, res) => {
   const item = getLibraryItem(req.params.id);
   if (!item) return res.status(404).json({ error: 'Not found' });
@@ -103,82 +107,31 @@ libraryRouterRoutes.json('GET /api/library/:id', (req, res) => {
   res.json({ ...item, content });
 });
 
-libraryRouterRoutes.json('POST /api/library', (req, res) => {
-  const { type, slug, title, description, scope, project_id, frontmatter, agent_filter, enabled, content } = req.body;
-  if (!type || !slug || !title || !scope) {
-    return res.status(400).json({ error: 'type, slug, title, scope required' });
-  }
-  if (isGlobalOnlyType(type) && scope !== 'global') return res.status(400).json({ error: 'This instruction is global only' });
-  const targets: string[] = Array.isArray(req.body.targets) ? req.body.targets : project_id ? [project_id] : [];
-  const own_only: string[] = Array.isArray(req.body.own_only) ? req.body.own_only : [];
-  // Only one main file / plan template / instruction guide per level.
-  if (type === 'main' || isTextInstructionType(type)) {
-    const clash = listLibraryItems({ type, scope }).some(other => scope === 'global' || other.targets.some(t => targets.includes(t)));
-    if (clash) {
-      return res.status(409).json({ error: type === 'commit-rules' ? 'Правила коммитов для этого уровня уже существуют' : type === 'code-fixer-instruction' ? 'Инструкция агента доработки для этого уровня уже существует' : type === 'plan-review-instruction' ? 'Инструкция ревью плана для этого уровня уже существует' : type === 'mr-review-instruction' ? 'Инструкция ревью МР для этого уровня уже существует' : type === 'main' ? 'Главный файл для этого уровня уже существует' : type === 'plan-template' ? 'Шаблон плана для этого уровня уже существует' : SINGLE_LEVEL_MATERIAL_TYPES.has(type) ? 'Настройка раздела для этого уровня уже существует' : 'Руководство по инструкциям для этого уровня уже существует' });
-    }
-  }
-  const item = createLibraryItem({ type, slug, title, description, scope, targets, own_only, frontmatter, agent_filter, enabled });
-  if (content !== undefined) writeItemContent(item, content);
-  try { syncItem(item); } catch (e) { console.error('[library] syncItem error:', e); }
-  res.status(201).json({ ...item, content: content ?? '' });
-});
-
-libraryRouterRoutes.json('PUT /api/library/:id', (req, res) => {
-  const { content, ...rest } = req.body;
-  const before = getLibraryItem(req.params.id);
-  if (before && isGlobalOnlyType(rest.type ?? before.type) && (rest.scope ?? before.scope) !== 'global') return res.status(400).json({ error: 'This instruction is global only' });
-  const updated = updateLibraryItem(req.params.id, rest);
-  if (!before || !updated) return res.status(404).json({ error: 'Not found' });
-  // Availability changed: take the files away from where the item no longer applies.
-  if (before.scope !== updated.scope || before.targets.join() !== updated.targets.join() || before.own_only.join() !== updated.own_only.join()) {
-    try { unsyncItem(before); } catch (e) { console.error('[library] unsyncItem error:', e); }
-  }
-  if (content !== undefined) writeItemContent(updated, content);
-  try { syncItem(updated); } catch (e) { console.error('[library] syncItem error:', e); }
-  res.json({ ...updated, content: content ?? readItemContent(updated) });
-});
-
-// A group's item changed or deleted inside one project stops being shared there: the project gets its own copy
-// (or nothing), and the group's item stays as it was for everyone else.
-function projectOfSharedItem(req: Request, res: ErrorResponse) {
-  const item = getLibraryItem(req.params.id);
-  const project = getProject(String(req.body.projectId ?? ''));
-  if (!item || !project) { res.status(404).json({ error: 'Not found' }); return null; }
-  if (!libraryOrigin(item, project) || !project.group_id || !item.targets.includes(project.group_id)) { res.status(400).json({ error: 'Элемент не получен через группу' }); return null; }
-  return { item, project };
+function operationError(res: { status(code: number): { json(body: { error: string }): unknown } }, error: unknown) {
+  return res.status(error instanceof LibraryOperationError ? error.status : 400).json({ error: error instanceof Error ? error.message : String(error) });
 }
 
+libraryRouterRoutes.json('POST /api/library', (req, res) => {
+  try {
+    const body = req.body;
+    res.status(201).json(saveLibraryItem({ ...body, targets: body.targets ?? (body.project_id ? [body.project_id] : []) }));
+  } catch (error) { operationError(res, error); }
+});
+libraryRouterRoutes.json('PUT /api/library/:id', (req, res) => {
+  try { res.json(saveLibraryItem(req.body, { id: req.params.id })); }
+  catch (error) { operationError(res, error); }
+});
 libraryRouterRoutes.json('POST /api/library/:id/detach', (req, res) => {
-  const found = projectOfSharedItem(req, res);
-  if (!found) return;
-  const { item, project } = found;
-  const copy = createLibraryItem({
-    type: item.type, slug: item.slug, title: item.title, description: item.description, scope: 'project', targets: [project.id],
-    frontmatter: item.frontmatter, agent_filter: item.agent_filter, enabled: item.enabled, detached_from: item.id,
-  });
-  writeItemContent(copy, readItemContent(item));
-  try { unsyncItem(item, [project]); } catch (e) { console.error('[library] unsyncItem error:', e); }
-  setExcluded(item.id, project.id, true);
-  try { syncItem(copy); } catch (e) { console.error('[library] syncItem error:', e); }
-  res.status(201).json({ ...copy, content: readItemContent(copy) });
+  try { res.status(201).json(detachLibraryItem(req.params.id, req.body.projectId, req.body.changes)); }
+  catch (error) { operationError(res, error); }
 });
-
 libraryRouterRoutes.json('POST /api/library/:id/exclude', (req, res) => {
-  const found = projectOfSharedItem(req, res);
-  if (!found) return;
-  try { unsyncItem(found.item, [found.project]); } catch (e) { console.error('[library] unsyncItem error:', e); }
-  setExcluded(found.item.id, found.project.id, true);
-  res.json({ ok: true });
+  try { excludeLibraryItem(req.params.id, req.body.projectId); res.json({ ok: true }); }
+  catch (error) { operationError(res, error); }
 });
-
 libraryRouterRoutes.json('DELETE /api/library/:id', (req, res) => {
-  const item = getLibraryItem(req.params.id);
-  if (!item) return res.status(404).json({ error: 'Not found' });
-  try { unsyncItem(item); } catch (e) { console.error('[library] unsyncItem error:', e); }
-  deleteItemContent(item);
-  deleteLibraryItem(item.id);
-  res.json({ ok: true });
+  try { removeLibraryItem(req.params.id); res.json({ ok: true }); }
+  catch (error) { operationError(res, error); }
 });
 
 // Override content for specific agent type
@@ -190,23 +143,12 @@ libraryRouterRoutes.json('GET /api/library/:id/overrides/:agentType', (req, res)
 });
 
 libraryRouterRoutes.json('PUT /api/library/:id/overrides/:agentType', (req, res) => {
-  const item = getLibraryItem(req.params.id);
-  if (!item) return res.status(404).json({ error: 'Not found' });
-  const { content } = req.body;
-  if (typeof content !== 'string') return res.status(400).json({ error: 'content required' });
-  writeOverrideContent(item, req.params.agentType, content);
-  setLibraryOverride(item.id, req.params.agentType, req.params.agentType);
-  try { syncItem(item); } catch (e) { console.error('[library] syncItem error:', e); }
-  res.json({ ok: true });
+  try { saveLibraryOverride(req.params.id, req.params.agentType, req.body.content); res.json({ ok: true }); }
+  catch (error) { operationError(res, error); }
 });
-
 libraryRouterRoutes.json('DELETE /api/library/:id/overrides/:agentType', (req, res) => {
-  const item = getLibraryItem(req.params.id);
-  if (!item) return res.status(404).json({ error: 'Not found' });
-  deleteOverrideContent(item, req.params.agentType);
-  deleteLibraryOverride(item.id, req.params.agentType);
-  try { syncItem(item); } catch (e) { console.error('[library] syncItem error:', e); }
-  res.json({ ok: true });
+  try { removeLibraryOverride(req.params.id, req.params.agentType); res.json({ ok: true }); }
+  catch (error) { operationError(res, error); }
 });
 
 // Manual full re-sync

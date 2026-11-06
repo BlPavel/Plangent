@@ -5,6 +5,13 @@ events, API errors and the Electron bridge. Keep one file per domain and re-expo
 types from `index.d.ts`. Runtime code, database details and UI state stay with
 their owners. Import using `import type { Task, Endpoints } from '@contracts'`.
 
+Shared executable library policy lives in `common/library-registry.ts`, outside
+this declaration-only directory. `library.d.ts` declares instruction editor state
+and `GET /api/library/instruction-text`; effective/inherited selection belongs to
+the server. `POST /api/library/:id/detach` accepts optional `changes` to save the
+project copy in one atomic operation. Existing library and defaults endpoints
+remain available.
+
 To add an endpoint:
 
 1. Add its full `METHOD /api/path/:param` key to the domain map and include it in

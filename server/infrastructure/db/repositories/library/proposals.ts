@@ -13,4 +13,4 @@ export function insertProposal(id: string, projectId: string, sessionId: string,
 export function updateProposalStatus(id: string, status: string, appliedId?: string) {
   getDb().prepare("UPDATE library_proposals SET status=?, applied_item_id=?, updated_at=datetime('now') WHERE id=?").run(status, appliedId ?? null, id);
 }
-export function libraryTransaction<T>(fn: () => T) { return getDb().transaction(fn); }
+export { libraryTransaction } from './index';

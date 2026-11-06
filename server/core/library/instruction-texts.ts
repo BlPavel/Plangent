@@ -1,23 +1,15 @@
-import type { LibraryItemType } from '../../models';
 import { moduleDependencies } from './dependencies';
 import { readItemContent } from './library-manager';
-import { resolveLibraryItem } from './section-settings';
+import { availableLibraryItems, closestLibraryItem, resolveLibraryItem } from './section-settings';
+import { getProject } from '../projects';
+import type { InstructionTextState, InstructionTextSource, LibraryItem } from '../../../contracts';
+import { isTextInstructionType } from '../../../common/library-registry';
 import { DEFAULT_CODE_FIXER_INSTRUCTION, DEFAULT_COMMIT_RULES, DEFAULT_INSTRUCTION_GUIDE, DEFAULT_INTERVIEW_INSTRUCTION, DEFAULT_MR_REVIEW_INSTRUCTION, DEFAULT_PLAN_REVIEW_INSTRUCTION } from './builtins';
 
-/** Library items that are one editable text per level (not a list): the developer edits them in the settings or the project's «Инструкции». */
-export const TEXT_INSTRUCTION_TYPES = [
-  'instruction-guide', 'code-fixer-instruction', 'commit-rules', 'plan-template', 'plan-review-instruction', 'mr-review-instruction', 'interview-instruction',
-  'architecture-template', 'architecture-review-instruction', 'qa-template', 'qa-review-instruction',
-] as const satisfies readonly LibraryItemType[];
-export type TextInstructionType = typeof TEXT_INSTRUCTION_TYPES[number];
-
-export const isTextInstructionType = (type: string): type is TextInstructionType => (TEXT_INSTRUCTION_TYPES as readonly string[]).includes(type);
-
-/** Texts that exist only at the global level. */
-export function isGlobalOnlyType(type: string): boolean {
-  const kinds = Object.values(moduleDependencies.preparation.MATERIAL_KINDS);
-  return type === 'interview-instruction' || type === 'plan-review-instruction' || type === 'mr-review-instruction' || kinds.some(kind => kind.reviewInstructionType === type);
-}
+export { TEXT_INSTRUCTION_TYPES, isTextInstructionType, isGlobalOnlyType } from '../../../common/library-registry';
+import { isGlobalOnlyType } from '../../../common/library-registry';
+import type { TextInstructionType } from '../../../common/library-registry';
+export type { TextInstructionType } from '../../../common/library-registry';
 
 /** The slug of a text instruction is fixed: there is one of them per level. */
 export const textInstructionSlug = (type: TextInstructionType) => type.replaceAll('-', '_');
@@ -58,5 +50,30 @@ export function instructionTextFor(type: TextInstructionType, projectId: string,
     level: item ? ('origin' in item ? item.origin : 'global') : 'default',
     item_id: item?.id ?? null,
     content: item ? readItemContent(item) : defaultInstructionText(type),
+  };
+}
+
+/** Editor state and agent reads share the same enabled/availability/priority rules. */
+export function instructionTextState(type: string, scope: string, projectId?: string): InstructionTextState {
+  if (typeof type !== 'string' || !isTextInstructionType(type)) throw new Error('Invalid instruction type');
+  if (scope !== 'global' && scope !== 'project') throw new Error('Invalid scope');
+  if (isGlobalOnlyType(type) && scope !== 'global') throw new Error('This instruction is global only');
+  const project = scope === 'project' && projectId ? getProject(projectId) : null;
+  if (scope === 'project' && (!project || project.kind === 'source')) throw new Error('A project or group is required');
+  const items = availableLibraryItems(type, project?.id);
+  const own = items.find(item => item.origin === (project ? 'direct' : 'global')) ?? null;
+  const parent = project ? closestLibraryItem(items.filter(item => item.origin !== 'direct')) : null;
+  const active = closestLibraryItem(items);
+  const source = (item: LibraryItem | null): InstructionTextSource => {
+    const level = !item ? 'default' : item.id === own?.id ? 'own' : item.origin === 'group' ? 'group' : 'global';
+    const owner = level === 'own' ? project : level === 'group' && project?.group_id ? getProject(project.group_id) : null;
+    return { level, item_id: item?.id ?? null, project_id: owner?.id ?? null, name: owner?.name ?? null };
+  };
+  const defaultContent = defaultInstructionText(type);
+  return {
+    content: active ? readItemContent(active) : defaultContent,
+    source: source(active), own: own ? { ...own, content: readItemContent(own) } : null,
+    default_content: defaultContent,
+    inherited: parent ? { content: readItemContent(parent), source: source(parent) } : null,
   };
 }

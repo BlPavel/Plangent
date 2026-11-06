@@ -1,3 +1,4 @@
+import { writeLibraryFile, deleteLibraryFile, rethrowFileError } from './file-transaction';
 import { moduleDependencies } from './dependencies';
 import fs from 'fs';
 import path from 'path';
@@ -60,18 +61,18 @@ function safeWrite(targetPath: string, content: string): void {
     return;
   }
   fs.mkdirSync(path.dirname(targetPath), { recursive: true });
-  fs.writeFileSync(targetPath, content, 'utf-8');
+  writeLibraryFile(targetPath, content);
 }
 
 function safeDelete(targetPath: string): void {
   if (!isOurFile(targetPath)) return;
   try {
-    if (fs.existsSync(targetPath)) fs.unlinkSync(targetPath);
+    if (fs.existsSync(targetPath)) deleteLibraryFile(targetPath);
     const dir = path.dirname(targetPath);
     if (isOurFile(dir) && fs.existsSync(dir) && fs.readdirSync(dir).length === 0) {
       fs.rmdirSync(dir);
     }
-  } catch { /* ignore */ }
+  } catch (error) { rethrowFileError(error); }
 }
 
 function resolveBody(item: LibraryItem, agentType: string): string {
@@ -93,7 +94,7 @@ function upsertMainSection(mainFile: string, slug: string, content: string): voi
 
   if (!fs.existsSync(mainFile)) {
     fs.mkdirSync(path.dirname(mainFile), { recursive: true });
-    fs.writeFileSync(mainFile, block + '\n', 'utf-8');
+    writeLibraryFile(mainFile, block + '\n');
     return;
   }
 
@@ -107,7 +108,7 @@ function upsertMainSection(mainFile: string, slug: string, content: string): voi
     existing = existing.trimEnd() + '\n\n' + block + '\n';
   }
 
-  fs.writeFileSync(mainFile, existing, 'utf-8');
+  writeLibraryFile(mainFile, existing);
 }
 
 function removeMainSection(mainFile: string, slug: string): void {
@@ -120,9 +121,9 @@ function removeMainSection(mainFile: string, slug: string): void {
   if (startIdx === -1 || endIdx === -1) return;
   existing = (existing.slice(0, startIdx) + existing.slice(endIdx + end.length)).replace(/\n{3,}/g, '\n\n');
   if (existing.trim()) {
-    fs.writeFileSync(mainFile, existing, 'utf-8');
+    writeLibraryFile(mainFile, existing);
   } else {
-    fs.unlinkSync(mainFile);
+    deleteLibraryFile(mainFile);
   }
 }
 
@@ -166,7 +167,7 @@ function applyGitExclude(project: Project): void {
   } else {
     content = content.trimEnd() + '\n\n' + block + '\n';
   }
-  fs.writeFileSync(excludeFile, content, 'utf-8');
+  writeLibraryFile(excludeFile, content);
 }
 
 function removeGitExclude(project: Project): void {
@@ -179,7 +180,7 @@ function removeGitExclude(project: Project): void {
   const ei = content.indexOf(end);
   if (si === -1 || ei === -1) return;
   content = (content.slice(0, si) + content.slice(ei + end.length)).replace(/\n{3,}/g, '\n\n');
-  fs.writeFileSync(excludeFile, content, 'utf-8');
+  writeLibraryFile(excludeFile, content);
 }
 
 /**

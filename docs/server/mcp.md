@@ -26,7 +26,8 @@ The scope is preserved when starting a new conversation with the previous contex
 `metadata.library_section` identifies the settings or project instruction section
 that owns the chat. Preserve it on context continuation; the client filters chat
 history and keeps composer drafts separate by section and scope.
-The section also determines editing target types (`library/chat-context.ts`).
+The section also determines editing target types (`common/library-registry.ts`,
+consumed by `library/chat-context.ts`).
 Every librarian turn receives this context independently of the user's text;
 `get_library` reports it, and proposal creation rejects unrelated item types.
 
@@ -34,6 +35,8 @@ Library proposals persist `base_content`, the text in force before the proposed
 change. Creating a custom text instruction compares against its inherited or
 built-in text; creating an unrelated item compares against an empty string.
 The item snapshot remains separate and is used for update conflict detection.
+New text proposals also save an optional effective-instruction snapshot, so a
+changed inherited source makes them stale. See [library operations](library.md).
 
 Add tools to their domain registry and update the intentional role snapshot in
 `api/mcp/roles.snapshot.json` when access changes. `registry.test.ts` verifies

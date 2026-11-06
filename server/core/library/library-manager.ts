@@ -1,6 +1,9 @@
+import { writeLibraryFile, deleteLibraryFile } from './file-transaction';
 import fs from 'fs';
 import path from 'path';
 import { LibraryItem, LibraryItemType } from '../../models';
+import { isTextInstructionType } from '../../../common/library-registry';
+import { listLibraryItems } from '../../infrastructure/db/repositories/library';
 
 const LIBRARY_DIR = path.join(process.cwd(), 'data', 'library');
 
@@ -21,19 +24,24 @@ function mainContentDir(item: LibraryItem): string {
 }
 
 export function readItemContent(item: LibraryItem): string {
-  const p = getContentPath(item);
+  const own = getContentPath(item);
+  const p = fs.existsSync(own) ? own : legacyContentPath(item);
   return fs.existsSync(p) ? fs.readFileSync(p, 'utf-8') : '';
 }
 
 export function writeItemContent(item: LibraryItem, content: string): void {
   const p = getContentPath(item);
   fs.mkdirSync(path.dirname(p), { recursive: true });
-  fs.writeFileSync(p, content, 'utf-8');
+  writeLibraryFile(p, content);
 }
 
 export function deleteItemContent(item: LibraryItem): void {
   const p = getContentPath(item);
-  if (fs.existsSync(p)) fs.unlinkSync(p);
+  if (fs.existsSync(p)) deleteLibraryFile(p);
+  const legacy = legacyContentPath(item);
+  // Older text instructions can share a slug across levels. Keep the legacy text
+  // available to the other levels until each one has its own content file.
+  if (legacy !== p && fs.existsSync(legacy) && !listLibraryItems({ type: item.type }).some(other => other.id !== item.id && legacyContentPath(other) === legacy)) deleteLibraryFile(legacy);
   // Remove empty parent dirs
   try {
     const dir = path.dirname(p);
@@ -49,15 +57,39 @@ export function readOverrideContent(item: LibraryItem, agentType: string): strin
 export function writeOverrideContent(item: LibraryItem, agentType: string, content: string): void {
   const p = getOverridePath(item, agentType);
   fs.mkdirSync(path.dirname(p), { recursive: true });
-  fs.writeFileSync(p, content, 'utf-8');
+  writeLibraryFile(p, content);
 }
 
 export function deleteOverrideContent(item: LibraryItem, agentType: string): void {
   const p = getOverridePath(item, agentType);
-  if (fs.existsSync(p)) fs.unlinkSync(p);
+  if (fs.existsSync(p)) deleteLibraryFile(p);
 }
 
 function getContentPath(item: LibraryItem): string {
+  const legacy = legacyContentPath(item);
+  return (item.type === 'main' || isTextInstructionType(item.type)) && item.type !== 'commit-rules'
+    ? path.join(LIBRARY_DIR, 'texts', item.id, path.basename(legacy)) : legacy;
+}
+
+/** Preserve overrides when an item's storage identity changes or a group copy is made. */
+export function transferItemFiles(before: LibraryItem, after: LibraryItem, copy: boolean): string[] {
+  const beforeDir = path.dirname(getOverridePath(before, '_'));
+  const afterDir = path.dirname(getOverridePath(after, '_'));
+  const agents: string[] = [];
+  if (beforeDir !== afterDir && fs.existsSync(beforeDir)) {
+    for (const file of fs.readdirSync(beforeDir)) {
+      if (!file.endsWith('.md') || !fs.statSync(path.join(beforeDir, file)).isFile()) continue;
+      const agent = file.slice(0, -3);
+      writeOverrideContent(after, agent, fs.readFileSync(path.join(beforeDir, file), 'utf-8'));
+      agents.push(agent);
+      if (!copy && !listLibraryItems().some(other => other.id !== before.id && path.dirname(getOverridePath(other, '_')) === beforeDir)) deleteOverrideContent(before, agent);
+    }
+  }
+  if (!copy && getContentPath(before) !== getContentPath(after)) deleteItemContent(before);
+  return agents;
+}
+
+function legacyContentPath(item: LibraryItem): string {
   if (item.type === 'main') {
     return path.join(mainContentDir(item), `${item.slug}.md`);
   }
