@@ -10,13 +10,13 @@
         <template v-for="(item, index) in items" :key="`${index}:${item.value}`">
           <div v-if="item.section && item.section !== items[index - 1]?.section" class="suggest-section">{{ SECTIONS[item.section] }}</div>
           <AppButton
-            variant="subtle" size="sm" block :pressed="index === active"
-            @mouseenter="$emit('hover', index)"
+            variant="suggestion" block :pressed="index === active"
+            @mouseenter="hoverItem($event, index, item)"
             @click="$emit('pick', item)"
           >
             <svg v-if="!item.command" class="suggest-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round"><path :d="item.ref && !item.prefix ? BOOK : item.dir ? FOLDER : FILE" /></svg>
-            <span class="suggest-label"><bdi><span v-if="item.prefix" class="suggest-prefix">{{ item.prefix }}</span>{{ item.label }}</bdi></span>
-            <span v-if="item.detail" class="suggest-detail">{{ item.detail }}</span>
+            <span class="suggest-label" :class="{ command: item.command }"><bdi><span v-if="item.prefix" class="suggest-prefix">{{ item.prefix }}</span>{{ item.label }}</bdi></span>
+            <span v-if="item.detail" class="suggest-detail" :class="{ command: item.command }">{{ item.detail }}</span>
           </AppButton>
         </template>
       </div>
@@ -36,6 +36,14 @@ const props = defineProps<{ title: string; items: SuggestItem[]; active: number;
 const emit = defineEmits<{ pick: [item: SuggestItem]; hover: [index: number]; dismiss: [] }>()
 const list = ref<HTMLElement>()
 const menu = shallowRef<HTMLElement>()
+function hoverItem(event: MouseEvent, index: number, item: SuggestItem) {
+  emit('hover', index)
+  const row = event.currentTarget as HTMLElement
+  const clipped = Array.from(row.querySelectorAll<HTMLElement>('.suggest-label, .suggest-detail'))
+    .some(element => element.scrollWidth > element.clientWidth)
+  if (clipped) row.title = [item.label, item.detail].filter(Boolean).join('\n')
+  else row.removeAttribute('title')
+}
 const position = ref<CSSProperties>({ visibility: 'hidden' })
 let observer: ResizeObserver | undefined
 function place() {
@@ -124,27 +132,12 @@ kbd { font-family: inherit; font-size: var(--fs-xs); padding: 0 4px; border: 1px
 .suggest-section { padding: 8px 8px 4px; margin-top: 2px; border-top: 1px solid var(--border); font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-faint); }
 .suggest-section:first-child { border-top: none; margin-top: 0; }
 .suggest-empty { padding: 10px 8px; font-size: var(--fs-sm); color: var(--text-faint); }
-.suggest-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  height: 30px;
-  padding: 0 8px;
-  background: none;
-  border: none;
-  border-radius: var(--radius-sm);
-  color: var(--text);
-  font-family: var(--font-mono);
-  font-size: var(--fs-md);
-  text-align: left;
-  cursor: pointer;
-}
-.suggest-item.active { background: var(--blue-soft); color: var(--blue-hover); }
 .suggest-icon { width: 14px; height: 14px; flex-shrink: 0; color: var(--text-faint); }
-.suggest-item.active .suggest-icon { color: var(--blue-hover); }
+.pressed .suggest-icon { color: var(--blue-hover); }
 .suggest-label { flex-shrink: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
 .suggest-prefix { color: var(--text-muted); }
-.suggest-item.active .suggest-prefix { color: var(--blue-hover); opacity: 0.75; }
+.pressed .suggest-prefix { color: var(--blue-hover); opacity: 0.75; }
 .suggest-detail { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-sans); font-size: var(--fs-sm); color: var(--text-faint); }
+.suggest-label.command { flex-shrink: 0; line-height: var(--lh-normal); }
+.suggest-detail.command { line-height: var(--lh-normal); }
 </style>

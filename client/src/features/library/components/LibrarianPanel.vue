@@ -82,7 +82,9 @@ function sessionSection(id: string, metadata: Record<string, unknown>): string {
   }))
   return sections.size === 1 ? [...sections][0] : 'items'
 }
-const sessions = computed(() => chats.sessions.filter(s => s.project_id === props.projectId && s.role === 'librarian' && (s.metadata.library_scope ?? 'project') === (props.libraryScope ?? 'project') && sessionSection(s.id, s.metadata) === (props.section ?? 'items')))
+// A project or group shows only its own chats; global settings show all global ones, whichever project gave the agent its code.
+const isGlobal = computed(() => props.libraryScope === 'global')
+const sessions = computed(() => chats.sessions.filter(s => s.role === 'librarian' && (isGlobal.value || s.project_id === props.projectId) && (s.metadata.library_scope ?? 'project') === (props.libraryScope ?? 'project') && sessionSection(s.id, s.metadata) === (props.section ?? 'items')))
 // «Скиллы 1», «Скиллы 2»: a chat is named after the section it works on, not after what was asked.
 const sectionLabel = computed(() => librarySection(props.libraryScope ?? 'project', props.section ?? 'items')?.title ?? 'Запись')
 const tabs = computed(() => sessions.value.map((session, i) => ({ id: session.id, name: `${sectionLabel.value} ${i + 1}`, title: session.title, status: session.status, count: pendingIn(session.id) })))
@@ -90,7 +92,9 @@ const pendingIn = (sessionId: string) => library.proposalsFor({ sessionId }).fil
 
 // The latest librarian chat opens by default; a new one starts from the start screen.
 watch(() => props.projectId, id => {
-  void Promise.all([chats.connect(), library.loadProposals(id)]).then(() => {
+  void Promise.all([chats.connect(), library.loadProposals(id)]).then(async () => {
+    // Global chats of other projects bring their proposals along.
+    if (isGlobal.value) await Promise.all([...new Set(sessions.value.map(s => s.project_id))].filter(p => p !== id).map(p => library.loadProposals(p)))
     if (props.projectId === id) selected.value = startText.value ? '' : sessions.value[0]?.id ?? ''
   }).catch(e => app.toast(String(e), 'error'))
 }, { immediate: true })

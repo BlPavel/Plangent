@@ -6,7 +6,7 @@
         <span v-if="agentName" class="chat-agent">{{ agentName }}</span>
       </div>
       <AppBadge dot  :tone="statusTone(snap.session.status)">{{ statusLabel(snap.session.status) }}</AppBadge>
-      <AppButton v-if="canErrand && hasConversation" size="sm" variant="subtle" title="Передать разговор агенту отдельной работой в своей ветке" @click="makeErrand">⚡ Сделать поручением</AppButton>
+      <AppButton v-if="canMakeErrand && hasConversation" size="sm" variant="subtle" title="Передать разговор агенту отдельной работой в своей ветке" @click="makeErrand">⚡ Сделать поручением</AppButton>
       <slot name="actions" />
     </header>
 
@@ -163,6 +163,7 @@ const agents = useAgentsStore()
 const projects = useProjectsStore()
 const gitForTurn = ref(false)
 const snap = computed(() => store.snapshots[props.sessionId])
+const canMakeErrand = computed(() => props.canErrand && projects.byId(snap.value?.session.project_id)?.kind === 'project')
 const canUseGit = computed(() => !!snap.value && ['chat', 'task-chat', 'errand'].includes(snap.value.session.role) && !snap.value.session.metadata.branch_review && !snap.value.session.metadata.mr_private && projects.byId(snap.value.session.project_id)?.kind === 'project')
 const error = ref('')
 const feed = ref<HTMLElement>(), inner = ref<HTMLElement>(), composer = ref<InstanceType<typeof ChatComposer>>()
@@ -226,6 +227,7 @@ const rows = computed(() => {
 const hasConversation = computed(() => rows.value.some(r => r.type === 'user' && r.payload.text))
 // The whole conversation becomes the errand's first message; the oldest part is dropped if it is too long for one.
 function makeErrand() {
+  if (!canMakeErrand.value) return
   const lines = rows.value.filter(r => ['user', 'assistant'].includes(r.type) && r.payload.text && !r.live)
     .map(r => (r.type === 'user' ? 'Пользователь: ' : 'Агент: ') + String(r.payload.text).trim())
   let text = lines.join('\n\n')
@@ -237,10 +239,20 @@ const showTyping = computed(() => (busy.value || pending.value.length > 0) && !r
 function withMentions(text: string) {
   return text.split(/((?:^|(?<=\s))@\S+)/).filter(Boolean).map(part => ({ text: part, mention: part.startsWith('@') }))
 }
+const briefingLabel = computed(() => {
+  const session = snap.value?.session
+  if (session?.task_id) return 'контекст задачи'
+  switch (projects.byId(session?.project_id)?.kind) {
+    case 'project': return 'контекст проекта'
+    case 'group': return 'контекст группы'
+    case 'source': return 'контекст источника'
+    default: return 'контекст чата'
+  }
+})
 function extras(row: Row) {
   const content = (row.payload as { content?: { type: string; name?: string; resource?: { uri?: string } }[] }).content ?? []
   const files = content.flatMap(c => c.type === 'image' ? ['🖼 изображение'] : c.type === 'resource' ? ['📎 ' + decodeURIComponent(c.resource?.uri?.split('/').pop() ?? 'файл')] : [])
-  return row.payload.briefing ? ['📋 контекст задачи', ...files] : files
+  return row.payload.briefing ? ['📋 ' + briefingLabel.value, ...files] : files
 }
 
 // ── Scrolling: stick to the bottom while the user hasn't scrolled up ───────

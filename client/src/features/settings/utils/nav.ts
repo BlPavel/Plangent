@@ -1,46 +1,29 @@
 import { LIBRARY_SECTIONS } from '../../../../../common/library-registry'
-export type SettingsTab = keyof typeof LIBRARY_SECTIONS.global | 'agents' | 'connections' | 'notes'
+import type { NavTreeItem } from '@shared/ui'
+export type SettingsTab = keyof typeof LIBRARY_SECTIONS.global | 'agents' | 'connections' | 'git-agents' | 'notes'
 
-export interface SettingsNavItem { id: string; label: string; tab?: SettingsTab; children?: { tab: SettingsTab; label: string }[] }
-
-/** Sections with children expand in the navigation; the rest open straight away. */
-export const SETTINGS_NAV: SettingsNavItem[] = [
-  { id: 'agents', label: 'Агенты', tab: 'agents' },
-  { id: 'connections', label: 'Подключения', tab: 'connections' },
+/** Sections with children expand in the navigation; the rest open straight away. Grouped like a project's settings. */
+export const SETTINGS_NAV: NavTreeItem[] = [
+  { id: 'agents', label: 'Агенты', page: 'agents' },
+  { id: 'connections', label: 'Подключения', page: 'connections' },
+  { id: 'git', label: 'Git', children: [{ page: 'git-agents', label: 'Агенты' }] },
   {
     id: 'instructions', label: 'Инструкции',
     children: [
-      { tab: 'skills', label: LIBRARY_SECTIONS.global['skills'].title },
-      { tab: 'instruction-guide', label: LIBRARY_SECTIONS.global['instruction-guide'].title },
-      { tab: 'code-fixer', label: LIBRARY_SECTIONS.global['code-fixer'].title },
-      { tab: 'commit-rules', label: LIBRARY_SECTIONS.global['commit-rules'].title },
-      { tab: 'interview', label: LIBRARY_SECTIONS.global['interview'].title },
+      { page: 'skills', label: LIBRARY_SECTIONS.global['skills'].title },
+      { page: 'instruction-guide', label: LIBRARY_SECTIONS.global['instruction-guide'].title },
+      { page: 'code-fixer', label: LIBRARY_SECTIONS.global['code-fixer'].title },
+      { page: 'commit-rules', label: LIBRARY_SECTIONS.global['commit-rules'].title },
+      { page: 'interview', label: LIBRARY_SECTIONS.global['interview'].title },
     ],
   },
   {
-    id: 'planning', label: 'Планирование',
-    children: [{ tab: 'plan-template', label: LIBRARY_SECTIONS.global['plan-template'].title }, { tab: 'plan-review', label: LIBRARY_SECTIONS.global['plan-review'].title }],
+    id: 'templates', label: 'Шаблоны',
+    children: [{ page: 'plan-template', label: 'План' }, { page: 'architecture-template', label: 'Архитектура' }, { page: 'qa-template', label: 'QA' }],
   },
   {
-    id: 'architecture', label: 'Архитектура',
-    children: [{ tab: 'architecture-template', label: LIBRARY_SECTIONS.global['architecture-template'].title }, { tab: 'architecture-review', label: LIBRARY_SECTIONS.global['architecture-review'].title }],
+    id: 'review', label: 'Ревью',
+    children: [{ page: 'mr-review', label: 'Merge request' }, { page: 'plan-review', label: 'План' }, { page: 'architecture-review', label: 'Архитектура' }, { page: 'qa-review', label: 'QA' }],
   },
-  {
-    id: 'qa', label: 'QA',
-    children: [{ tab: 'qa-template', label: LIBRARY_SECTIONS.global['qa-template'].title }, { tab: 'qa-review', label: LIBRARY_SECTIONS.global['qa-review'].title }],
-  },
-  { id: 'mr-review', label: LIBRARY_SECTIONS.global['mr-review'].title, tab: 'mr-review' },
-  { id: 'notes', label: 'Доработки', tab: 'notes' },
+  { id: 'notes', label: 'Доработки', page: 'notes' },
 ]
-
-export const sectionOf = (tab: SettingsTab) => SETTINGS_NAV.find(item => item.children?.some(child => child.tab === tab))?.id
-
-/** What the page header shows for a tab: the section name, with its parent when the tab sits inside one. */
-export function settingsPage(tab: SettingsTab): { parent?: string; title: string } {
-  for (const item of SETTINGS_NAV) {
-    if (item.tab === tab) return { title: item.label }
-    const child = item.children?.find(c => c.tab === tab)
-    if (child) return { parent: item.label, title: child.label }
-  }
-  return { title: '' }
-}

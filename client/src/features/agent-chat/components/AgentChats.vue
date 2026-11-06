@@ -24,7 +24,9 @@
             <div class="chat-item-title">{{ session.title }}</div>
             <div class="chat-item-meta">{{ agentName(session.agent_id) }}<template v-if="session.updated_at"> · {{ ago(session.updated_at) }}</template></div>
           </div>
-          <AppButton variant="danger-ghost" size="xs" icon title="Удалить чат" aria-label="Удалить чат" @click.stop="remove(session)"><IconTrash /></AppButton>
+          <span class="chat-item-delete">
+            <AppButton variant="danger-subtle" size="xs" icon title="Удалить чат" aria-label="Удалить чат" @click.stop="remove(session)"><IconTrash /></AppButton>
+          </span>
         </div>
       </div>
     </aside>
@@ -35,7 +37,7 @@
         :key="selected"
         :session-id="selected"
         :initial-content="initial?.id === selected ? initial.content : undefined"
-        can-errand
+        :can-errand="projects.byId(projectId)?.kind === 'project'"
         @session="selected = $event"
         @errand="makeErrand"
       />
@@ -63,6 +65,7 @@ import { agentChatEndpoints } from '../api'
 import { ref, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAgentsStore } from '@features/agents'
+import { useProjectsStore } from '@features/projects'
 import { useAppStore } from '@core/stores/app'
 import AppButton from '@shared/ui/AppButton.vue'
 import AppModal from '@shared/ui/AppModal.vue'
@@ -75,6 +78,7 @@ import { useChatStore, type ChatSession } from '../stores/sessions'
 import { useChatDraftsStore } from '../stores/drafts'
 
 const props = defineProps<{ projectId: string; defaultAgentId?: string | null }>()
+const projects = useProjectsStore()
 const store = useChatStore(), agents = useAgentsStore(), app = useAppStore()
 const drafts = useChatDraftsStore()
 const selected = computed({
@@ -94,6 +98,7 @@ watch(selected, id => { if (initial.value && initial.value.id !== id) initial.va
 
 /** «Сделать поручением»: the conversation goes to a new errand (own branch and workspace) run by the same agent. */
 async function makeErrand(text: string) {
+  if (projects.byId(props.projectId)?.kind !== 'project') return
   const agentId = store.sessions.find(s => s.id === selected.value)?.agent_id
   try {
     const { task } = await tasksEndpoints.postProjectsByProjectIdErrands({ params: { projectId: props.projectId }, body: { text, agent_id: agentId } })
@@ -135,7 +140,7 @@ function ago(timestamp: string) {
 .chats { display: flex; height: 100%; min-height: 0; }
 
 .sidebar { width: 260px; flex-shrink: 0; display: flex; flex-direction: column; border-right: 1px solid var(--border); background: var(--bg); }
-.sidebar-head { display: flex; align-items: center; justify-content: space-between; height: 48px; padding: 0 var(--sp-3) 0 var(--sp-4); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.sidebar-head { display: flex; align-items: center; justify-content: space-between; height: 48px; padding: 0 var(--sp-3) 0 calc(var(--sp-2) + 10px); border-bottom: 1px solid var(--border); flex-shrink: 0; }
 .sidebar-title { font-size: var(--fs-sm); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
 .sidebar-list { flex: 1; overflow-y: auto; padding: var(--sp-2); display: flex; flex-direction: column; gap: 2px; }
 .sidebar-empty { padding: var(--sp-4) var(--sp-2); font-size: var(--fs-sm); color: var(--text-faint); text-align: center; }
@@ -146,10 +151,8 @@ function ago(timestamp: string) {
 .chat-item-body { flex: 1; min-width: 0; }
 .chat-item-title { font-size: var(--fs-md); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-item-meta { font-size: var(--fs-sm); color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chat-item-delete { width: 24px; height: 24px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; background: none; border: none; border-radius: var(--radius-sm); color: var(--text-faint); cursor: pointer; opacity: 0; transition: opacity var(--motion-instant), color var(--motion-instant), background var(--motion-instant); }
-.chat-item-delete svg { width: 14px; height: 14px; }
-.chat-item:hover .chat-item-delete { opacity: 1; }
-.chat-item-delete:hover { color: var(--danger-hover); background: var(--danger-soft); }
+.chat-item-delete { flex-shrink: 0; display: inline-flex; opacity: 0; pointer-events: none; transition: opacity var(--motion-instant); }
+.chat-item:hover .chat-item-delete, .chat-item:focus-within .chat-item-delete { opacity: 1; pointer-events: auto; }
 
 .chat-dot { width: 8px; height: 8px; border-radius: var(--radius-round); flex-shrink: 0; background: var(--border-strong); }
 .chat-dot.thinking, .chat-dot.starting { background: var(--blue-hover); animation: pulse 1.4s ease-in-out infinite; }

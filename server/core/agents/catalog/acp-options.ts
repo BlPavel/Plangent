@@ -7,6 +7,7 @@ export { clearAcpOptions } from '../../../infrastructure/db/repositories/agents/
  * them itself. Lets the UI list them before a chat exists instead of relying on hand-typed lists.
  */
 export interface AcpOptions {
+  commands?: { name: string; description: string }[];
   configOptions?: ACP.SessionConfigOption[] | null;
   modes?: ACP.SessionModeState | null;
   models?: unknown;
@@ -21,9 +22,9 @@ type Initialized = Pick<ACP.InitializeResponse, 'agentInfo' | 'agentCapabilities
 
 export function getAcpOptions(agentId: string): AcpOptions | null { const value = readOptions(agentId); return value ? JSON.parse(value) : null; }
 /** Only call with a brand-new session's response: its current values are the agent's defaults. */
-export function saveAcpOptions(agentId: string, response: { configOptions?: ACP.SessionConfigOption[] | null; modes?: ACP.SessionModeState | null; models?: unknown }, launch: string, init?: Initialized): AcpOptions {
+export function saveAcpOptions(agentId: string, response: { configOptions?: ACP.SessionConfigOption[] | null; modes?: ACP.SessionModeState | null; models?: unknown; commands?: AcpOptions['commands'] }, launch: string, init?: Initialized): AcpOptions {
   const options: AcpOptions = { configOptions: response.configOptions ?? null, modes: response.modes ?? null, models: response.models ?? null,
-    agent: init?.agentInfo ?? null, launch,
+    commands: response.commands ?? getAcpOptions(agentId)?.commands, agent: init?.agentInfo ?? null, launch,
     capabilities: init ? { loadSession: !!init.agentCapabilities?.loadSession, mcpHttp: !!init.agentCapabilities?.mcpCapabilities?.http } : null,
     at: Date.now() };
   writeOptions(agentId, JSON.stringify(options), options.at);

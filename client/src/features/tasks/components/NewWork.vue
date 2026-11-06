@@ -26,7 +26,7 @@
         </template>
         <template v-else>
           <FormField v-if="isGroup && members.length" v-model="owner" type="select" class="nw-owner" aria-label="Где">
-            <option value="">🗂 Вся группа</option>
+            <option value="">🗂️ Вся группа</option>
             <option v-for="m in members" :key="m.id" :value="m.id">📁 {{ m.name }}</option>
           </FormField>
           <span class="nw-spacer" />

@@ -188,14 +188,14 @@ async function submitFollowUp() {
 
 <style scoped>
 .work-list { display: flex; flex-direction: column; height: 100%; min-height: 0; }
-.work-toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 10px 16px 0; }
+.work-toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: var(--sp-4) var(--page-inset, 16px) 0; }
 .work-kinds { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
 .work-kinds button { padding: 5px 12px; background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: var(--fs-md); }
 .work-kinds button.active { background: var(--bg3); color: var(--text); }
 .work-kind-count { margin-left: 5px; font-size: var(--fs-xs); color: var(--text-faint); }
 .work-owner { width: 190px; }
 .work-search { margin-left: auto; flex: 0 0 220px; }
-.work-groups { flex: 1; overflow: auto; padding: 0 16px 16px; }
+.work-groups { flex: 1; overflow: auto; padding: 0 var(--page-inset, 16px) 16px; }
 .work-error { color: var(--danger-hover); }
 .work-group h3 { margin: 14px 0 6px; font-size: var(--fs-sm); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
 .work-group h3.attention { color: var(--warning-text); }

@@ -11,39 +11,40 @@
       <!-- Project / group header -->
       <div class="project-header app-drag">
         <div class="project-title">
-          <h1><span class="title-icon">{{ isGroup ? '🗂' : '📁' }}</span>{{ currentProject.name }}</h1>
+          <h1><span class="title-icon">{{ isGroup ? '🗂️' : '📁' }}</span>{{ currentProject.name }}</h1>
           <span v-if="isGroup" class="repo-path">
             {{ members.length ? `Проекты: ${members.map(m => m.name).join(', ')}` : 'В группе пока нет проектов — добавьте их на вкладке «Проекты»' }}
           </span>
           <span v-else class="repo-path">
-            <AppButton v-if="group" variant="link" size="xs" class="app-no-drag" title="Открыть группу" @click="appStore.currentProject = group">🗂 {{ group.name }} ›</AppButton>
+            <AppButton v-if="group" variant="link" size="xs" class="app-no-drag" title="Открыть группу" @click="appStore.currentProject = group">🗂️ {{ group.name }} ›</AppButton>
             <code class="project-key">@{{ currentProject.key }}</code> {{ currentProject.repo_path }}
           </span>
         </div>
-        <div class="project-header-actions">
-          <AppButton variant="danger-ghost" size="sm" @click="deleteProject">Удалить</AppButton>
+        <div class="project-header-actions app-no-drag">
+          <AppButton variant="ghost" size="sm" :pressed="activeTab === 'settings'" :title="isGroup ? 'Настройки группы' : 'Настройки проекта'" @click="toggleSettings">Настройки</AppButton>
         </div>
       </div>
 
-      <!-- Tab bar -->
-      <AppTabs :model-value="activeTab" :items="tabs.map(t => ({ value: t.id, label: t.label, disabled: t.disabled, count: t.count || undefined, title: t.countTitle }))" @update:model-value="activeTab = $event as HomeTab" />
+      <!-- Tab bar: the work places; the settings open from the header. -->
+      <div class="tab-bar">
+        <AppTabs bare :model-value="activeTab" :items="tabs.map(t => ({ value: t.id, label: t.label, count: t.count || undefined, title: t.countTitle }))" @update:model-value="activeTab = $event as HomeTab" />
+      </div>
 
       <div v-show="activeTab === 'agents'" class="tab-content"><AgentChats :project-id="currentProject.id" :default-agent-id="projectsStore.agentFor(currentProject)" /></div>
       <div v-if="isGroup" v-show="activeTab === 'projects'" class="tab-content"><GroupProjects :group="currentProject" /></div>
-      <div v-show="activeTab === 'tasks'" class="tab-content tasks-tab">
+      <div v-if="!isGroup" v-show="activeTab === 'tasks'" class="tab-content">
         <WorkList :project="currentProject" :members="members" :agents="agentsStore.agents" :default-agent-id="projectsStore.agentFor(currentProject)" :owner-name="ownerName" :move-menu="moveMenu" @open="openWork" @changed="loadTasks" />
       </div>
 
-      <!-- Tab: Инструкции -->
       <!-- Mounted only while open: the screen watches the project folder. -->
       <div v-if="activeTab === 'code' && !isGroup" class="tab-content"><CodeTab :project-id="currentProject.id" :task="codeTask" :default-agent-id="projectsStore.agentFor(currentProject)" @back="backToTask" /></div>
-      <div v-if="activeTab === 'review'" class="tab-content"><BranchReviewTab :key="currentProject.id" :project-id="currentProject.id" :members="isGroup ? projectsStore.members(currentProject.id) : undefined" @open-instructions="openReviewSkills" /></div>
-      <div v-if="activeTab === 'settings'" class="tab-content"><ProjectSettingsTab :key="currentProject.id" :project="currentProject" /></div>
-      <div v-show="activeTab === 'instructions'" class="tab-content instructions-tab">
-        <InstructionsWorkspace v-if="currentProject" :project-id="currentProject.id" :default-agent-id="projectsStore.agentFor(currentProject)" :requested="instructionsRequest" />
+      <div v-if="activeTab === 'review' && !isGroup" class="tab-content"><BranchReviewTab :key="currentProject.id" :project-id="currentProject.id" @open-instructions="openReviewSkills" /></div>
+      <div v-if="activeTab === 'settings'" class="tab-content">
+        <ProjectSettings :key="currentProject.id" :project="currentProject" :requested="settingsRequest" @delete="deleteProject" />
       </div>
-
     </div>
+
+    <DeleteGroupModal v-if="isGroup && currentProject && showDeleteGroup" v-model="showDeleteGroup" :group="currentProject" @deleted="afterDelete" />
 
     <ProjectFormModal
       v-if="currentProject?.kind === 'source'"
@@ -56,7 +57,7 @@
 </template>
 
 <script lang="ts">
-type HomeTab = 'agents' | 'projects' | 'tasks' | 'code' | 'review' | 'instructions' | 'settings'
+type HomeTab = 'agents' | 'projects' | 'tasks' | 'code' | 'review' | 'settings'
 // Module-level so it survives HomeView being unmounted while a task is open.
 const lastTab: { projectId: string | null; tab: HomeTab } = { projectId: null, tab: 'tasks' }
 </script>
@@ -72,13 +73,13 @@ import { useAppStore } from '@core/stores/app'
 import { useProjectsStore } from '../stores/projects'
 import { useAgentsStore } from '@features/agents'
 import type { Task } from '@contracts'
-import { type MenuItem } from '@shared/ui/AppMenu.vue'
+import type { MenuItem } from '@shared/ui/AppMenu.vue'
+import DeleteGroupModal from '../components/DeleteGroupModal.vue'
 import AppButton from '@shared/ui/AppButton.vue'
 import AppTabs from '@shared/ui/AppTabs.vue'
 import AppEmptyState from '@shared/ui/AppEmptyState.vue'
-import { InstructionsWorkspace } from '@features/library'
 import ProjectFormModal from '../components/ProjectFormModal.vue'
-import ProjectSettingsTab from '../components/ProjectSettingsTab.vue'
+import ProjectSettings, { type ProjectSettingsPage } from '../components/ProjectSettings.vue'
 import GroupProjects from '../components/GroupProjects.vue'
 import SourceView from '../components/SourceView.vue'
 import { WorkList, useWorkStore, workspacesApi } from '@features/tasks'
@@ -97,22 +98,30 @@ const group = computed(() => projectsStore.byId(currentProject.value?.group_id))
 const members = computed(() => isGroup.value ? projectsStore.members(currentProject.value!.id) : [])
 const tasks = ref<Task[]>([])
 
-// A freshly opened project starts on «Задачи»; coming back from a task restores the tab you left.
-const activeTab = ref<HomeTab>(lastTab.projectId && lastTab.projectId === appStore.currentProject?.id ? lastTab.tab : 'tasks')
+// Groups start on their projects; returning to the same entity restores an available tab.
+const defaultTab = (): HomeTab => isGroup.value ? 'projects' : 'tasks'
+const groupTabs: HomeTab[] = ['projects', 'agents', 'settings']
+const restoredTab = lastTab.projectId === currentProject.value?.id ? lastTab.tab : defaultTab()
+const activeTab = ref<HomeTab>(isGroup.value && !groupTabs.includes(restoredTab) ? 'projects' : restoredTab)
+// «Настройки» in the header opens the settings in place of the tabs' content; pressed again, it returns to the work tab.
+const workTab = ref<HomeTab>(activeTab.value === 'settings' ? defaultTab() : activeTab.value)
+watch(activeTab, tab => { if (tab !== 'settings') workTab.value = tab })
+function toggleSettings() { activeTab.value = activeTab.value === 'settings' ? workTab.value : 'settings' }
+// Deleting lives in Настройки → Основное.
+const showDeleteGroup = ref(false)
 watch(activeTab, tab => { if (currentProject.value) Object.assign(lastTab, { projectId: currentProject.value.id, tab }) }, { immediate: true })
 // «В чат» from the code panel on a tab without a chat: the project's «Чат» tab (a new message field when nothing was started).
 const homeRoot = ref<HTMLElement>()
 useComposerReveal(homeRoot, () => ({ projectId: currentProject.value?.id ?? '' }), () => { activeTab.value = 'agents' })
-type TabItem = { id: HomeTab; label: string; disabled: boolean; count?: number; countTitle?: string }
-const tabs = computed<TabItem[]>(() => [
-  { id: 'tasks' as const, label: 'Задачи', disabled: false },
-  ...(isGroup.value ? [{ id: 'projects' as const, label: `Проекты · ${members.value.length}`, disabled: false }] : []),
-  { id: 'agents' as const, label: 'Чат', disabled: false },
-  ...(isGroup.value ? [] : [{ id: 'code' as const, label: 'Код', disabled: false, count: codeAttentionCount.value, countTitle: 'Пункты, по которым нужно ваше решение' }]),
-  { id: 'review' as const, label: 'Ревью', disabled: false },
-  { id: 'instructions' as const, label: 'Инструкции', disabled: false },
-  { id: 'settings' as const, label: 'Настройки', disabled: false },
-])
+type TabItem = { id: HomeTab; label: string; count?: number; countTitle?: string }
+const tabs = computed<TabItem[]>(() => isGroup.value
+  ? [{ id: 'projects', label: `Проекты · ${members.value.length}` }, { id: 'agents', label: 'Чат' }]
+  : [
+      { id: 'tasks', label: 'Задачи' },
+      { id: 'agents', label: 'Чат' },
+      { id: 'code', label: 'Код', count: codeAttentionCount.value, countTitle: 'Пункты, по которым нужно ваше решение' },
+      { id: 'review', label: 'Ревью' },
+    ])
 
 // «Код» opened from a task (query set by the task's button or a notification) shows the way back to it.
 const codeAttentionStore = useCodeAttentionStore()
@@ -137,11 +146,11 @@ watch(() => route.query, query => {
   void router.replace({ path: '/' })
 }, { immediate: true })
 watch(activeTab, tab => { if (tab !== 'code') codeTaskId.value = null })
-// «Скиллы ревью…» in the Ревью tab: they are written in Инструкции → Ревью.
-const instructionsRequest = ref<{ view: 'review'; at: number } | null>(null)
+// «Скиллы ревью…» in the Ревью tab: they are written in Настройки → Ревью.
+const settingsRequest = ref<{ page: ProjectSettingsPage; at: number } | null>(null)
 function openReviewSkills() {
-  instructionsRequest.value = { view: 'review', at: Date.now() }
-  activeTab.value = 'instructions'
+  settingsRequest.value = { page: 'review', at: Date.now() }
+  activeTab.value = 'settings'
 }
 
 const showProjectModal = ref(false)
@@ -161,22 +170,25 @@ watch(() => (isGroup.value ? null : currentProject.value?.id), async id => {
 }, { immediate: true })
 watch(() => currentProject.value?.id, id => {
   // «Настройки» opened from a group's project list asks for its tab together with the project switch.
-  activeTab.value = route.query.tab === 'settings' ? 'settings' : 'tasks'
+  showDeleteGroup.value = false
+  settingsRequest.value = null
+  workTab.value = defaultTab()
+  activeTab.value = route.query.tab === 'settings' ? 'settings' : defaultTab()
   Object.assign(lastTab, { projectId: id ?? null, tab: activeTab.value })
 })
 
 async function loadTasks() {
   const p = currentProject.value
-  if (!p || p.kind === 'source') { tasks.value = []; return }
-  tasks.value = await tasksEndpoints.listTasks({ params: { projectId: p.id }, query: { members: p.kind === 'group' ? '1' : undefined } })
+  if (!p || p.kind !== 'project') { tasks.value = []; return }
+  tasks.value = await tasksEndpoints.listTasks({ params: { projectId: p.id } })
 }
 
 async function deleteProject() {
   const p = currentProject.value
   if (!p) return
-  const message = p.kind === 'group'
-    ? `Удалить группу «${p.name}»? Проекты останутся и выйдут из группы, а задачи и чаты самой группы будут удалены безвозвратно.`
-    : p.kind === 'source'
+  // A group asks what happens to its projects.
+  if (p.kind === 'group') { showDeleteGroup.value = true; return }
+  const message = p.kind === 'source'
       ? p.source_type === 'docs'
         ? `Удалить справочник @${p.key}? Скачанные документы будут удалены с диска; во внешнем сервисе ничего не изменится.`
         : `Удалить справочник @${p.key}? Папка на диске не изменится.`
@@ -185,11 +197,14 @@ async function deleteProject() {
   if (!ok) return
   try {
     await projectsStore.remove(p.id)
-    appStore.currentProject = projectsStore.workProjects[0] ?? projectsStore.projects[0] ?? null
-    appStore.toast('Удалено', 'success')
+    afterDelete()
   } catch (e: unknown) {
     appStore.toast(String(e), 'error')
   }
+}
+function afterDelete() {
+  appStore.currentProject = projectsStore.workProjects[0] ?? projectsStore.projects[0] ?? null
+  appStore.toast('Удалено', 'success')
 }
 
 // The task page works in the task's own project, also when opened from its group.
@@ -210,7 +225,7 @@ function moveTargets(t: Task) {
 }
 function moveMenu(t: Task): MenuItem[] {
   return [{ heading: 'Переместить задачу' }, ...moveTargets(t).map(target => ({
-    label: `${target.kind === 'group' ? '🗂' : '📁'} ${target.kind === 'group' ? `В группу «${target.name}»` : target.name}`,
+    label: `${target.kind === 'group' ? '🗂️' : '📁'} ${target.kind === 'group' ? `В группу «${target.name}»` : target.name}`,
     action: () => void moveTask(t, target.id),
   }))]
 }
@@ -228,22 +243,21 @@ async function moveTask(t: Task, targetId: string) {
 
 <style scoped>
 .home { height: 100%; display: flex; flex-direction: column; }
-.project-area { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+/* Align the header and the first tab's hover edge with the Chats heading. */
+.project-area { --page-inset: calc(var(--sp-2) + 10px); display: flex; flex-direction: column; height: 100%; overflow: hidden; }
 
 .project-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--sp-4);
-  padding: calc(var(--titlebar-h) + var(--sp-3)) var(--sp-6) var(--sp-3);
+  padding: calc(var(--titlebar-h) + var(--sp-3)) var(--page-inset) var(--sp-3);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
 .project-title { min-width: 0; }
-.project-header-actions { display: flex; gap: var(--sp-2); flex-shrink: 0; }
+.project-header-actions { display: flex; align-items: center; gap: var(--sp-2); flex-shrink: 0; align-self: center; }
 .title-icon { margin-right: 8px; }
-.crumb { background: none; border: none; padding: 0; margin-right: 6px; color: var(--text-muted); font: inherit; cursor: pointer; }
-.crumb:hover { color: var(--blue-hover); }
 .project-key { margin-right: 6px; color: var(--text); }
 .project-header h1 { font-size: var(--fs-xl); font-weight: 700; letter-spacing: -0.01em; margin-bottom: 2px; }
 .repo-path {
@@ -256,109 +270,14 @@ async function moveTask(t: Task, targetId: string) {
   white-space: nowrap;
 }
 
-/* Tab bar */
-.tab-bar {
-  display: flex;
-  gap: 2px;
-  padding: 0 var(--sp-6);
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-}
-.tab-btn {
-  background: none;
-  border: none;
-  border-bottom: 2px solid transparent;
-  color: var(--text-muted);
-  padding: 11px 14px;
-  cursor: pointer;
-  font-size: var(--fs-md);
-  font-weight: 500;
-  transition: color var(--motion-fast), border-color var(--motion-fast);
-  margin-bottom: -1px;
-}
-.tab-count { min-width: 18px; height: 18px; margin-left: 6px; padding: 0 5px; border-radius: var(--radius-pill); font-size: var(--fs-xs); font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
-.tab-count.warn { background: var(--warning); color: var(--bg); }
-.tab-btn:hover:not(:disabled) { color: var(--text); }
-.tab-btn.active { color: var(--text); border-bottom-color: var(--blue); }
-.tab-btn.disabled, .tab-btn:disabled { opacity: 0.35; cursor: default; }
+/* The first tab starts on the page's left edge, like the title and the content. */
+.tab-bar { padding-left: var(--page-inset); border-bottom: 1px solid var(--border); flex-shrink: 0; overflow-x: auto; }
 
-/* Tab content panels */
 .tab-content {
   flex: 1;
+  min-height: 0;
   overflow: hidden;
   display: flex;
   flex-direction: column;
 }
-
-/* Terminal tab */
-.terminal-tab { overflow: hidden; }
-
-.ql-controls {
-  display: flex;
-  gap: 8px;
-  padding: 12px 24px;
-  flex-shrink: 0;
-  border-bottom: 1px solid var(--border);
-}
-.ql-select { flex: 1; max-width: 280px; }
-
-.minimized-bar { flex-shrink: 0; }
-.minimized-item {
-  padding: 6px 24px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  background: var(--bg2);
-  border-bottom: 1px solid var(--border);
-}
-.minimized-label {
-  flex: 1;
-  font-size: var(--fs-sm);
-  color: var(--text-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.terminal-toggle-btn {
-  width: 96px;
-  flex: 0 0 96px;
-}
-
-.terminal-empty {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-muted);
-  font-size: var(--fs-md);
-}
-
-.terminal-slot { flex: 1; overflow: hidden; }
-
-/* Tasks tab */
-.tasks-tab { overflow: hidden; }
-
-.task-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 24px;
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-}
-
-.task-list {
-  flex: 1;
-  padding: var(--sp-4) var(--sp-6);
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-2);
-  overflow-y: auto;
-}
-
-
-.instructions-tab { overflow: hidden; }
-
-.form-field { display: flex; flex-direction: column; gap: 4px; }
-label { font-size: var(--fs-sm); color: var(--text-muted); }
 </style>

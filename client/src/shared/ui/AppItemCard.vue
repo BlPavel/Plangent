@@ -2,7 +2,7 @@
   <component
     :is="as"
     class="item-card"
-    :class="[accent && 'accent-' + accent, { nested, compact, interactive, selected, dimmed, highlighted }]"
+    :class="[accent && 'accent-' + accent, { nested, compact, interactive, selected, dimmed, highlighted, 'center-actions': actionsAlign === 'center' }]"
     :role="interactive ? 'button' : undefined"
     :tabindex="interactive ? 0 : undefined"
     @click="interactive && emit('click', $event)"
@@ -37,6 +37,7 @@ withDefaults(defineProps<{
   selected?: boolean
   dimmed?: boolean
   highlighted?: boolean
+  actionsAlign?: 'start' | 'center'
 }>(), { as: 'div', accent: undefined })
 const emit = defineEmits<{ click: [event: Event] }>()
 </script>
@@ -66,6 +67,7 @@ const emit = defineEmits<{ click: [event: Event] }>()
 .item-card-title { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2); font-size: var(--fs-md); font-weight: var(--fw-semibold); }
 .item-card-subtitle { font-size: var(--fs-sm); color: var(--text-muted); overflow-wrap: anywhere; }
 .item-card-actions { flex-shrink: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; max-width: 100%; }
+.item-card.center-actions .item-card-actions { align-self: center; }
 .item-card-body { display: flex; flex-direction: column; gap: var(--sp-2); min-width: 0; }
 .item-card.compact .item-card-body { gap: var(--sp-1); }
 </style>

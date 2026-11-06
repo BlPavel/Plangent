@@ -8,8 +8,10 @@
             <slot />
           </div>
           <div class="modal-actions">
-            <AppButton variant="ghost" @click="$emit('update:modelValue', false)">Отмена</AppButton>
-            <AppButton variant="primary" @click="$emit('confirm')">{{ confirmLabel ?? 'Сохранить' }}</AppButton>
+            <slot name="actions">
+              <AppButton variant="ghost" @click="$emit('update:modelValue', false)">Отмена</AppButton>
+              <AppButton variant="primary" @click="$emit('confirm')">{{ confirmLabel ?? 'Сохранить' }}</AppButton>
+            </slot>
           </div>
         </div>
       </div>

@@ -13,7 +13,7 @@
       <label class="op-field">Скилл ревью
         <span class="op-row">
           <AppSelect :model-value="currentSkill" :options="skillOptions" small label="Скилл ревью" @update:model-value="save({ skill_id: $event || null })" />
-          <AppButton variant="link" size="xs" type="button"  title="Скиллы ревью пишутся во вкладке «Инструкции» → «Ревью», в том числе вместе с агентом" @click="emit('open-instructions')">Скиллы ревью…</AppButton>
+          <AppButton variant="link" size="xs" type="button"  title="Скиллы ревью пишутся в настройках проекта → «Ревью» → «Merge request», в том числе вместе с агентом" @click="emit('open-instructions')">Скиллы ревью…</AppButton>
         </span>
       </label>
       <label class="op-field">Задача

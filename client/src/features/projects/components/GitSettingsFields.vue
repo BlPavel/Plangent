@@ -42,7 +42,8 @@ import BranchSelect from '@shared/ui/BranchSelect.vue'
 import AppSelect from '@shared/ui/AppSelect.vue'
 import { finishScenarioLabels } from '@features/finish'
 type Member = { value: string; login: string; name: string }
-const props = defineProps<{ modelValue: ProjectGitSettings; inherited: ProjectGitSettings; sources?: Record<string, string>; section: 'branches' | 'mr' | 'workspace'; branches?: string[]; members?: Member[]; membersNote?: string }>()
+/** `group`: a group has no repository of its own, so its branches and people are chosen per project. */
+const props = defineProps<{ modelValue: ProjectGitSettings; inherited: ProjectGitSettings; sources?: Record<string, string>; section: 'branches' | 'mr' | 'workspace'; branches?: string[]; members?: Member[]; membersNote?: string; group?: boolean }>()
 const emit = defineEmits<{ 'update:modelValue': [value: ProjectGitSettings] }>()
 const scenarios = finishScenarioLabels
 const DEFAULT_PREFIXES = ['feature', 'fix', 'hotfix']
@@ -67,7 +68,8 @@ const sections: Record<'branches' | 'mr' | 'workspace', Field[]> = {
   { key: 'mr_reviewers', label: 'Ревьюеры по умолчанию', kind: 'tags', placeholder: 'логин или ID' },
  ],
 }
-const fields = computed(() => sections[props.section])
+const PROJECT_ONLY: Key[] = ['base_branch', 'mr_assignees', 'mr_reviewers']
+const fields = computed(() => sections[props.section].filter(field => !props.group || !PROJECT_ONLY.includes(field.key)))
 const has = (key: Key) => Object.hasOwn(props.modelValue, key)
 // What applies now: the own value, else the group's or the built-in one.
 const value = (key: Key) => has(key) ? props.modelValue[key] : props.inherited[key]

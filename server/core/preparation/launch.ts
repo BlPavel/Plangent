@@ -22,9 +22,8 @@ export async function launchTaskAgent(projectId: string, taskId: string, input: 
   if (!task || task.project_id !== projectId) throw new DomainError('Task not found', 404);
   if (task.status === 'done') throw new DomainError('Завершённая задача доступна только для чтения', 409);
 
-  const agentId: string = input.agent_id ?? project.default_agent_id ?? '';
   const baseAgent = selectAgent(projectId, { explicit: input.agent_id });
-  if (!baseAgent) throw new DomainError('Agent not found: ' + agentId, 400);
+  if (!baseAgent) throw new DomainError('Agent not found: ' + (input.agent_id ?? project.default_agent_id ?? ''), 400);
   const agent = {
     ...baseAgent,
     model: input.model || baseAgent.model,

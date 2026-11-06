@@ -1,5 +1,6 @@
 /** ACP options as exposed to the composer, supporting both current and older adapters. */
 export interface AgentOptionsSource {
+    commands?: { name: string; description: string }[];
     configOptions?: RawConfigOption[] | null;
     modes?: { currentModeId?: string; availableModes: { id: string; name: string; description?: string | null }[] } | null;
     models?: { currentModelId?: string; availableModels: { modelId: string; name: string; description?: string | null }[] } | null;
@@ -71,7 +72,8 @@ export type AgentsGETIdLimitsResponse = {
     })[];
     "error"?: string;
 };
-export type AgentsGETIdAcpOptionsResponse = null | {
+export type AgentsGETIdAcpOptionsResponse = (Exclude<AgentAcpOptionsResponse, null> & { commands?: { name: string; description: string }[] }) | null;
+type AgentAcpOptionsResponse = null | {
     "configOptions"?: null | ({
         "currentValue": string;
         "options": ({

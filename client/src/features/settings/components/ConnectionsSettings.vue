@@ -11,7 +11,6 @@
     <p class="hint">{{ INTRO }}</p>
 
     <div v-if="storage && !storage.available" class="banner error" role="alert">{{ STORAGE.unavailable }}</div>
-    <div v-else-if="storage?.insecure_dev_storage" class="banner warn">{{ STORAGE.insecureDev }}</div>
     <div v-if="broken.length" class="banner warn" role="alert">
       <span>{{ NEEDS_UPDATE.banner(broken.map(b => '«' + b.name + '»').join(', ')) }}</span>
       <AppButton v-for="b in broken" :key="b.kind + b.id" size="xs" variant="update" @click="openPassword(b.kind, b.id, b.name)">{{ NEEDS_UPDATE.action }}<template v-if="broken.length > 1">: {{ b.name }}</template></AppButton>

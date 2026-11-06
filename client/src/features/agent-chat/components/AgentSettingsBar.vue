@@ -4,6 +4,7 @@
       :model-value="policy"
       :options="POLICIES"
       :heading="POLICY_HEADING"
+      :popup-max-width="220"
       size="sm"
       placement="top"
       variant="subtle"
@@ -17,6 +18,7 @@
       :options="select.options"
       :heading="select.heading"
       :prefix="select.prefix"
+      :popup-max-width="220"
       size="sm"
       placement="top"
       variant="subtle"
@@ -63,26 +65,4 @@ function togglePlan() {
 
 <style scoped>
 .settings { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; padding: 6px 2px 0; }
-.plan-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  height: var(--size-sm);
-  padding: 0 10px 0 8px;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius-btn);
-  color: var(--text-muted);
-  font: inherit;
-  font-size: var(--fs-sm);
-  cursor: pointer;
-  transition: background var(--motion-fast), color var(--motion-fast);
-}
-.plan-toggle:hover:not(:disabled) { background: var(--bg3); color: var(--text); }
-.plan-toggle:disabled { opacity: 0.5; cursor: not-allowed; }
-.plan-toggle.on { color: var(--blue-hover); }
-.switch { position: relative; width: 24px; height: 14px; border-radius: var(--radius-pill); background: var(--border-strong); transition: background var(--motion-modal); flex-shrink: 0; }
-.switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 10px; height: 10px; border-radius: var(--radius-round); background: var(--text); transition: transform var(--motion-modal); }
-.on .switch { background: var(--blue); }
-.on .switch::after { transform: translateX(10px); background: var(--on-accent); }
 </style>

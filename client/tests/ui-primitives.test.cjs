@@ -83,6 +83,31 @@ test('select teleports options, respects disabled choices and closes after a pic
     assert.deepEqual(picked, ['c']); assert.equal(document.querySelector('[role="listbox"]'), null)
   } finally { view.dispose() }
 })
+test('a select label toggles once and unrelated labels still dismiss the list', async () => {
+  const { FormField } = await compiled
+  const view = mount(FormField, { type: 'select', modelValue: 'a', label: 'Choice', options: [{ value: 'a', label: 'A' }] })
+  const other = document.createElement('label'); document.body.append(other)
+  try {
+    const button = view.host.querySelector('button')
+    const label = view.host.querySelector('label')
+    const caption = document.createElement('span'); label.append(caption)
+    // linkedom does not forward label activation, so dispatch the browser's
+    // pointerdown and subsequent control click explicitly, with Vue updates between.
+    async function clickLabel() {
+      caption.dispatchEvent(new window.Event('pointerdown', { bubbles: true }))
+      await settle()
+      button.click(); await settle()
+    }
+    await clickLabel()
+    assert.ok(document.querySelector('[role="listbox"]'))
+    await clickLabel()
+    assert.equal(document.querySelector('[role="listbox"]'), null)
+    button.click(); await settle()
+    other.dispatchEvent(new window.Event('pointerdown', { bubbles: true })); await settle()
+    assert.equal(document.querySelector('[role="listbox"]'), null)
+  } finally { view.dispose(); other.remove() }
+})
+
 test('Escape dismisses popovers and restores trigger focus', async () => {
   const { AppSelect } = await compiled
   const view = mount(AppSelect, { modelValue: 'a', options: [{ value: 'a', label: 'A' }] })

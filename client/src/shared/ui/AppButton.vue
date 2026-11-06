@@ -1,9 +1,9 @@
 <template>
-  <component :is="as" class="btn" :class="['btn-' + variant, size === 'md' ? '' : 'btn-' + size, { 'btn-icon': icon, pressed, block, multiline, start }, join && 'join-' + join]" :type="as === 'button' ? type : undefined" :disabled="as === 'button' ? disabled : undefined" :href="as === 'a' && !disabled ? href : undefined" :aria-disabled="disabled || undefined" :aria-pressed="pressed" :tabindex="disabled ? -1 : undefined" @click="click"><slot /></component>
+  <component :is="as" class="btn" :class="['btn-' + variant, size === 'md' ? '' : 'btn-' + size, { 'btn-icon': icon, pressed, block, multiline, wrap, start }, join && 'join-' + join]" :type="as === 'button' ? type : undefined" :disabled="as === 'button' ? disabled : undefined" :href="as === 'a' && !disabled ? href : undefined" :aria-disabled="disabled || undefined" :aria-pressed="pressed" :tabindex="disabled ? -1 : undefined" @click="click"><slot /></component>
 </template>
 <script setup lang="ts">
-export type ButtonVariant = 'primary' | 'blue' | 'update' | 'ghost' | 'subtle' | 'disclosure' | 'danger' | 'danger-ghost' | 'link' | 'danger-link'
-const props = withDefaults(defineProps<{ variant?: ButtonVariant; size?: 'md' | 'sm' | 'xs'; icon?: boolean; pressed?: boolean; block?: boolean; multiline?: boolean; start?: boolean; as?: 'button' | 'a'; href?: string; disabled?: boolean; type?: 'button' | 'submit' | 'reset'; join?: 'start' | 'end' }>(), { variant: 'ghost', size: 'md', as: 'button', type: 'button' })
+export type ButtonVariant = 'primary' | 'blue' | 'update' | 'ghost' | 'subtle' | 'suggestion' | 'danger-subtle' | 'disclosure' | 'danger' | 'danger-ghost' | 'link' | 'danger-link'
+const props = withDefaults(defineProps<{ variant?: ButtonVariant; size?: 'md' | 'sm' | 'xs'; icon?: boolean; pressed?: boolean; block?: boolean; multiline?: boolean; wrap?: boolean; start?: boolean; as?: 'button' | 'a'; href?: string; disabled?: boolean; type?: 'button' | 'submit' | 'reset'; join?: 'start' | 'end' }>(), { variant: 'ghost', size: 'md', as: 'button', type: 'button' })
 const emit = defineEmits<{ click: [event: MouseEvent] }>()
 function click(event: MouseEvent) { if (props.disabled) { event.preventDefault(); event.stopPropagation(); return }; emit('click', event) }
 </script>
@@ -43,8 +43,13 @@ function click(event: MouseEvent) { if (props.disabled) { event.preventDefault()
 .btn-ghost:not(:disabled):hover { background: var(--bg-hover); border-color: var(--text-faint); }
 
 /* Quiet/tertiary button — no fill until hover, for low-emphasis actions */
+.btn-suggestion { height: 30px; padding: 0 var(--sp-2); gap: var(--sp-2); justify-content: flex-start; text-align: left; font-family: var(--font-mono); font-size: var(--fs-md); font-weight: var(--fw-normal); background: transparent; color: var(--text); border-color: transparent; flex-shrink: 0; }
+.btn-suggestion.wrap { height: auto; min-height: 30px; padding-block: var(--sp-1); align-items: center; line-height: var(--lh-normal); white-space: normal; }
+.btn-suggestion:not(:disabled):hover { background: var(--bg-hover); }
 .btn-subtle { background: transparent; color: var(--text-muted); border-color: transparent; }
 .btn-subtle:not(:disabled):hover { background: var(--bg3); color: var(--text); }
+.btn-danger-subtle { background: transparent; color: var(--text-muted); border-color: transparent; }
+.btn-danger-subtle:not(:disabled):hover { background: var(--danger-soft); color: var(--danger-hover); }
 
 .btn-danger { background: var(--danger); color: var(--on-accent); border-color: var(--danger); }
 .btn-danger:not(:disabled):hover { background: var(--danger-hover); border-color: var(--danger-hover); }

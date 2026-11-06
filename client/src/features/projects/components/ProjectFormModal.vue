@@ -41,7 +41,7 @@
         </div>
         <FormField v-model="form.group_id" label="Группа" type="select" :disabled="!!groupId" :hint="groupId ? 'Проект создаётся в этой группе' : ''">
           <option value="">— без группы —</option>
-          <option v-for="g in projectsStore.groups" :key="g.id" :value="g.id">🗂 {{ g.name }}</option>
+          <option v-for="g in projectsStore.groups" :key="g.id" :value="g.id">🗂️ {{ g.name }}</option>
         </FormField>
       </template>
       <div v-else class="projects-note">

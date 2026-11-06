@@ -7,15 +7,15 @@
     </div>
 
     <div v-if="!members.length" class="gp-empty">В группе пока нет проектов. Создайте новый или добавьте существующий.</div>
-    <div v-for="p in members" :key="p.id" class="gp-card" @click="appStore.currentProject = p">
-      <span class="gp-icon">📁</span>
-      <span class="gp-text">
-        <span class="gp-name">{{ p.name }} <code class="gp-key">@{{ p.key }}</code></span>
-        <span class="gp-path">{{ p.repo_path }}</span>
-      </span>
-      <span v-if="p.active_tasks" class="gp-active" title="Активных задач">{{ p.active_tasks }}</span>
-      <span class="gp-menu" @click.stop><AppMenu :items="menu(p)" size="xs" title="Ещё" /></span>
-    </div>
+    <AppItemCard v-for="p in members" :key="p.id" class="gp-card" interactive actions-align="center" @click="appStore.currentProject = p">
+      <template #lead><span class="gp-icon" aria-hidden="true">📁</span></template>
+      <template #title>{{ p.name }} <code class="gp-key">@{{ p.key }}</code></template>
+      <template #subtitle>{{ p.repo_path }}</template>
+      <template #actions>
+        <AppCount v-if="p.active_tasks" :value="p.active_tasks" tone="info" title="Активных задач" />
+        <span class="gp-menu" @click.stop @keydown.stop><AppMenu :items="menu(p)" size="xs" title="Ещё" /></span>
+      </template>
+    </AppItemCard>
 
     <ProjectFormModal v-model="showForm" kind="project" :group-id="group.id" />
   </div>
@@ -26,7 +26,7 @@ import { computed, ref } from 'vue'
 import type { Project } from '@contracts'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '@core/stores/app'
-import AppButton from '@shared/ui/AppButton.vue'
+import { AppButton, AppCount, AppItemCard } from '@shared/ui'
 import AppMenu, { type MenuItem } from '@shared/ui/AppMenu.vue'
 import { useProjectsStore } from '../stores/projects'
 import ProjectFormModal from './ProjectFormModal.vue'
@@ -64,27 +64,12 @@ const addMenu = computed<MenuItem[]>(() => loose.value.map(p => ({ label: `📁 
 </script>
 
 <style scoped>
-.group-projects { display: flex; flex-direction: column; gap: 8px; padding: var(--sp-4); overflow-y: auto; }
+.group-projects { display: flex; flex-direction: column; gap: 8px; padding: var(--sp-4) var(--page-inset, var(--sp-4)); overflow-y: auto; }
 .gp-actions { display: flex; align-items: center; gap: 6px; }
 .gp-hint { font-size: var(--fs-sm); color: var(--text-faint); }
 .gp-empty { padding: 20px 0; font-size: var(--fs-md); color: var(--text-faint); }
-.gp-card {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  background: var(--bg2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  cursor: pointer;
-}
-.gp-card:hover { border-color: var(--border-strong); background: var(--bg3); }
 .gp-icon { font-size: var(--fs-lg); }
-.gp-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.gp-name { font-size: var(--fs-base); font-weight: 500; }
-.gp-key { margin-left: 6px; font-size: var(--fs-xs); color: var(--text-faint); }
-.gp-path { font-size: var(--fs-sm); color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.gp-active { min-width: 18px; height: 18px; padding: 0 5px; border-radius: var(--radius-pill); background: var(--blue-soft); color: var(--blue-hover); font-size: var(--fs-xs); font-weight: 600; display: inline-flex; align-items: center; justify-content: center; }
-.gp-menu { opacity: 0; transition: opacity var(--motion-fast); }
-.gp-card:hover .gp-menu, .gp-menu:has(.menu.open) { opacity: 1; }
+.gp-key { font-size: var(--fs-xs); font-weight: var(--fw-medium); color: var(--text-faint); }
+.gp-menu { display: flex; align-items: center; opacity: 0; transition: opacity var(--motion-fast); }
+.gp-card:hover .gp-menu, .gp-card:focus-within .gp-menu { opacity: 1; }
 </style>

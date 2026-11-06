@@ -8,6 +8,7 @@ export interface PopoverOptions {
         y: number;
     } | null;
     minWidth?: number;
+    maxWidth?: number;
     matchAnchor?: boolean;
 }
 export function usePopover(open: Ref<boolean>, anchor: Ref<HTMLElement | null | undefined>, panel: Ref<HTMLElement | undefined>, options: () => PopoverOptions, close: () => void) {
@@ -22,7 +23,7 @@ export function usePopover(open: Ref<boolean>, anchor: Ref<HTMLElement | null | 
         const point = opts.at;
         if (!rect && !point)
             return;
-        const edge = 8, gap = 6, width = Math.min(opts.matchAnchor && rect ? rect.width : Math.max(opts.minWidth ?? 0, rect?.width ?? 0, panel.value.offsetWidth), window.innerWidth - edge * 2);
+        const edge = 8, gap = 6, width = Math.min(opts.matchAnchor && rect ? rect.width : Math.max(opts.minWidth ?? 0, rect?.width ?? 0, panel.value.offsetWidth), opts.maxWidth ?? Infinity, window.innerWidth - edge * 2);
         const left = point?.x ?? (opts.align === 'right' ? rect!.right - width : rect!.left);
         const below = window.innerHeight - (point?.y ?? rect!.bottom) - gap - edge;
         const above = (point?.y ?? rect!.top) - gap - edge;
@@ -35,6 +36,12 @@ export function usePopover(open: Ref<boolean>, anchor: Ref<HTMLElement | null | 
     const schedule = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(() => void place()); };
     function outside(event: Event) {
         const target = event.target as Node;
+        // A label forwards its click to its control after pointerdown. Treat it
+        // as part of the anchor so that the forwarded click toggles only once.
+        const label = target instanceof Element ? target.closest('label') : null;
+        const controlId = label?.getAttribute('for');
+        const control = controlId ? document.getElementById(controlId) : label?.querySelector('button,input,select,textarea');
+        if (control && (anchor.value === control || anchor.value?.contains(control))) return;
         const nested = target instanceof Element ? target.closest<HTMLElement>('.popover') : null;
         const nestedAnchor = nested && popoverAnchors.get(nested);
         if (!panel.value?.contains(target) && !anchor.value?.contains(target) && !(nestedAnchor && panel.value?.contains(nestedAnchor))) close();

@@ -85,6 +85,7 @@ const probes = new Map<string, Promise<AcpOptions>>();
 export function agentOptions(agentId: string, refresh = false): Promise<AcpOptions> {
   const cached = cachedAgentOptions(agentId);
   const stale = !cached || Date.now() - cached.at > 24 * 60 * 60_000;
+  if (cached && !cached.commands) return probeAgent(agentId);
   if (cached && !refresh) { if (stale && !probes.has(agentId)) void probeAgent(agentId).catch(() => {}); return Promise.resolve(cached); }
   return probeAgent(agentId);
 }
@@ -96,13 +97,25 @@ function probeAgent(agentId: string): Promise<AcpOptions> {
     const env = agentEnv(process.env, agent.env);
     const { command, args } = await adapterCommand(agent, env);
     const child = startAdapter(command, args, env);
-    const connection = await connectAdapter(child, { update: () => {}, permission: async () => ({ outcome: { outcome: 'cancelled' } }) });
+    let commands: { name: string; description: string }[] = [];
+    let commandsReady: (() => void) | undefined;
+    const receivedCommands = new Promise<void>(resolve => { commandsReady = resolve; });
+    const connection = await connectAdapter(child, { update: event => {
+      if (event.update.sessionUpdate === 'available_commands_update') {
+        commands = event.update.availableCommands;
+        commandsReady?.();
+      }
+    }, permission: async () => ({ outcome: { outcome: 'cancelled' } }) });
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       return await Promise.race([
         (async () => {
           const init = await connection.initialize(APP_VERSION);
-          return saveAcpOptions(agentId, await connection.newSession({ cwd: os.tmpdir(), mcpServers: [], ...agentSessionSettings(agent) }), launchKey(agent), init);
+          const response = await connection.newSession({ cwd: os.tmpdir(), mcpServers: [], ...agentSessionSettings(agent) });
+          let commandsTimer: ReturnType<typeof setTimeout> | undefined;
+          await Promise.race([receivedCommands, new Promise<void>(resolve => { commandsTimer = setTimeout(resolve, 1500); })]);
+          clearTimeout(commandsTimer);
+          return saveAcpOptions(agentId, { ...response, commands }, launchKey(agent), init);
         })(),
         new Promise<never>((_, reject) => { child.on('error', reject); timer = setTimeout(() => reject(new Error('Агент не ответил за 90 секунд')), 90_000); }),
       ]);

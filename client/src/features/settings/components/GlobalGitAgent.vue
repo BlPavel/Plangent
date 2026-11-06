@@ -29,5 +29,5 @@ async function change(value: ProjectGitSettings) {
 </script>
 
 <style scoped>
-.global-git { display: flex; flex-direction: column; gap: 4px; max-width: 720px; padding-bottom: 12px; margin-bottom: 12px; border-bottom: 1px solid var(--border); }
+.global-git { display: flex; flex-direction: column; gap: 4px; max-width: 720px; }
 </style>

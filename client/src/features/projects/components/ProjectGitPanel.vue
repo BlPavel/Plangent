@@ -16,7 +16,7 @@
     </template>
     <GitSettingsFields
       v-else :model-value="gitSettings" :section="section" :branches="branchNames" :members="members" :members-note="membersNote"
-      :inherited="inherited" :sources="inheritedSources" @update:model-value="change"
+      :inherited="inherited" :sources="inheritedSources" :group="project.kind === 'group'" @update:model-value="change"
     />
     <p v-if="error" role="alert" class="git-error">{{ error }}</p>
     <SaveStatus :state="saveState" />
@@ -36,7 +36,7 @@ import { useProjectsStore } from '../stores/projects'
 import GitSettingsFields from './GitSettingsFields.vue'
 import GitAgentFields from './GitAgentFields.vue'
 
-/** One git topic of a project or group, shown as a sub-tab of «Инструкции»: branches or merge requests. Saves as you edit. */
+/** One git page of the project or group settings: agents, work place, branches or merge requests. Saves as you edit. */
 const props = defineProps<{ projectId: string; section: 'branches' | 'mr' | 'agent' | 'workspace' }>()
 const app = useAppStore(), projects = useProjectsStore()
 const project = computed(() => projects.byId(props.projectId))

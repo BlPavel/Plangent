@@ -16,7 +16,7 @@
         </div>
         <p v-if="text" class="new-chat-hint">{{ text }}</p>
       </template>
-      <ChatComposer v-if="!compact" :draft-key="draftKey!" :initial-text="initialText" :project-id="projectId" :workspace-id="workspaceId" :placeholder="placeholder" :disabled="!agentId || busy" @send="start" @error="localError = $event">
+      <ChatComposer v-if="!compact" :draft-key="draftKey!" :initial-text="initialText" :commands="commands" :project-id="projectId" :workspace-id="workspaceId" :placeholder="placeholder" :disabled="!agentId || busy" @send="start" @error="localError = $event">
         <template #status><UsageMeter v-if="agentId" :agent-id="agentId" /></template>
       </ChatComposer>
       <AgentSettingsBar :policy="fixedPolicy ?? policy" :selects="resolvedSelects" :locked="!!fixedPolicy" @policy="policy = $event" @change="pick">
@@ -77,7 +77,7 @@ const props = defineProps<({ compact: true; draftKey?: string } | { compact?: fa
 const emit = defineEmits<{ start: [request: NewChatRequest] }>()
 const agents = useAgentsStore()
 const agentId = ref(''), policy = ref('ask'), localError = ref('')
-const { resolvedSelects, state: optionsState, launch, pick, retry } = useAgentLaunchOptions(agentId)
+const { resolvedSelects, commands, state: optionsState, launch, pick, retry } = useAgentLaunchOptions(agentId)
 
 const agentList = computed(() => agents.agents.map(a => ({ value: a.id, label: a.name })))
 

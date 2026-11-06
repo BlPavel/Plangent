@@ -12,8 +12,15 @@ export const defaultGitSettings: GitSettings = {
   conflict_agent_id: '', conflict_agent_model: '', conflict_agent_effort: '',
 };
 
+/** A group has no repository: the base branch and the people on merge requests are each project's own. */
+const PROJECT_ONLY: (keyof GitSettings)[] = ['base_branch', 'mr_assignees', 'mr_reviewers'];
+export function withoutProjectOnly(settings: Partial<GitSettings> = {}): Partial<GitSettings> {
+  return Object.fromEntries(Object.entries(settings).filter(([key]) => !PROJECT_ONLY.includes(key as keyof GitSettings)));
+}
+
 /** Nearest wins: the project, its group, the app-wide values from «Настройки», the built-in defaults. */
-export function resolveGitSettings(group: Partial<GitSettings> = {}, project: Partial<GitSettings> = {}, global: Partial<GitSettings> = {}) {
+export function resolveGitSettings(groupSettings: Partial<GitSettings> = {}, project: Partial<GitSettings> = {}, global: Partial<GitSettings> = {}) {
+  const group = withoutProjectOnly(groupSettings);
   const values = { ...defaultGitSettings, ...global, ...group, ...project };
   const sources = Object.fromEntries(Object.keys(defaultGitSettings).map(key => [key,
     Object.hasOwn(project, key) ? 'project' : Object.hasOwn(group, key) ? 'group' : Object.hasOwn(global, key) ? 'global' : 'default']));

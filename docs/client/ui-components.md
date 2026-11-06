@@ -6,7 +6,11 @@ variants), AppInput, AppTextarea, AppSelect/Combobox, AppCheckbox, AppRadioGroup
 AppSwitch, AppTabs, AppSegmented, AppBadge/Count/Chip, AppModal and AppPopover.
 FormField wraps common fields; BranchSelect wraps the combobox. List entries with a title,
 badges, buttons on the right and meta lines below are AppItemCard (`nested` for a card inside
-a card); sidebar-style rows are AppTreeRow. Do not restyle such cards locally. See
+a card); sidebar-style rows are AppTreeRow. Do not restyle such cards locally.
+Settings-like screens (global settings, a project's or group's settings) are
+AppSettingsLayout: AppNavTree on the left, AppPageHeader and the page body in the
+middle, and an optional panel on the right (the chat with an agent) that takes
+the navigation's place on a narrow screen. See
 `client/src/shared/ui/index.ts` for the public exports.
 
 Chats with an agent about an entity (analysis, plan, library section) show the

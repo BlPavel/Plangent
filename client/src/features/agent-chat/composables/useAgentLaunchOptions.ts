@@ -39,5 +39,6 @@ export function useAgentLaunchOptions(agentId: Ref<string>) {
   }
   const pick = (select: AgentSelect, value: string) => { choices.value[select.configId] = value }
   const retry = () => store.fetchAgentOptions(agentId.value, true)
-  return { resolvedSelects, state, launch, pick, retry }
+  const commands = computed(() => reported.value && !('error' in reported.value) ? reported.value.commands ?? [] : [])
+  return { resolvedSelects, commands, state, launch, pick, retry }
 }

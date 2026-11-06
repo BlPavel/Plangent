@@ -4,19 +4,15 @@
       <h2>Настройки</h2>
     </div>
 
-    <div class="settings-content" :class="{ split: agentOpen }">
-    <aside class="settings-navigation"><SettingsNav v-model="tab" /></aside>
-
-    <div class="settings-main">
-    <div class="settings-page-bar"><AppPageHeader :parent="page.parent" :title="page.title">
+    <AppSettingsLayout>
+    <template #nav><AppNavTree :model-value="tab" :items="SETTINGS_NAV" label="Настройки" @update:model-value="tab = $event as Tab" /></template>
+    <template #header><AppPageHeader :parent="page.parent" :title="page.title" :description="description">
       <template #actions><AppButton v-if="tab === 'agents'" variant="primary" size="sm" @click="openCreate()">+ Добавить агента</AppButton></template>
-    </AppPageHeader></div>
+    </AppPageHeader></template>
 
     <div v-if="tab === 'connections'" class="tab-body"><ConnectionsSettings :fix="typeof route.query.fix === 'string' ? route.query.fix : undefined" /></div>
     <!-- Agents -->
     <div v-show="tab === 'agents'" class="tab-body">
-      <p class="hint">Агенты подключаются по ACP (Agent Client Protocol). Plangent сам отвечает на их запросы разрешений, поэтому режимы «без подтверждений» агента не нужны.</p>
-
       <div class="agent-list">
         <AppEmptyState v-if="!agentsStore.agents.length" >
           Нет агентов. Добавьте первого.
@@ -64,25 +60,21 @@
 
     <!-- Skills (global) -->
     <div v-if="tab === 'skills'" class="tab-body">
-      <p class="hint">Глобальные скиллы разработчика применяются ко всем агентам во всех проектах. Инструкции для конкретного проекта задаются во вкладке «Инструкции» внутри проекта.</p>
       <SkillsManager scope="global" :allowed-types="LIBRARY_SECTIONS.global.skills.types" />
     </div>
 
     <!-- Plan template (global) -->
     <div v-show="tab === 'plan-template'" class="tab-body plan-template-tab">
-      <p class="hint">Глобальный шаблон применяется ко всем проектам, если проект не переопределил его в своих инструкциях.</p>
       <PlanTemplateEditor scope="global" />
     </div>
 
     <!-- Instruction authoring guide (global) -->
     <div v-show="tab === 'instruction-guide'" class="tab-body">
-      <p class="hint">Глобальное руководство действует во всех проектах, если проект или группа не переопределили его во вкладке «Инструкции» → «Руководство для агента».</p>
       <InstructionGuideEditor scope="global" />
     </div>
 
     <!-- Code-fixer agent instruction (global) -->
     <div v-show="tab === 'code-fixer'" class="tab-body">
-      <p class="hint">Глобальная инструкция действует во всех проектах, если проект или группа не переопределили её во вкладке «Инструкции» → «Агент доработки».</p>
       <CodeFixerInstructionEditor scope="global" />
     </div>
 
@@ -93,7 +85,6 @@
 
     <!-- Plan review instruction (global) -->
     <div v-show="tab === 'plan-review'" class="tab-body">
-      <p class="hint">Общие проверки плана: действуют во всех проектах всегда. Свои требования проекта или группы (например, архитектурные) пишутся скиллами во вкладке «Инструкции» → «Ревью плана» внутри проекта.</p>
       <CodeFixerInstructionEditor scope="global" :type="LIBRARY_SECTIONS.global['plan-review'].types[0]" />
     </div>
 
@@ -104,19 +95,20 @@
     <div v-if="tab === 'interview'" class="tab-body"><CodeFixerInstructionEditor scope="global" :type="LIBRARY_SECTIONS.global['interview'].types[0]" /></div>
     <!-- Commit message rules (global) -->
     <div v-show="tab === 'commit-rules'" class="tab-body">
-      <p class="hint">Глобальные правила действуют во всех проектах, если проект или группа не переопределили их во вкладке «Инструкции» → «Коммиты».</p>
-      <GlobalGitAgent />
       <CodeFixerInstructionEditor scope="global" :type="LIBRARY_SECTIONS.global['commit-rules'].types[0]" />
     </div>
+
+    <div v-if="tab === 'git-agents'" class="tab-body"><GlobalGitAgent /></div>
 
     <!-- Personal improvement notes -->
     <div v-show="tab === 'notes'" class="tab-body">
       <ImprovementNotes />
     </div>
 
-    </div>
-    <LibrarianPanel v-if="agentOpen && agentProject" :key="tab" library-scope="global" :section="tab" class="agent-panel" :project-id="agentProject.id" :default-agent-id="projectsStore.agentFor(agentProject)" :request="agentRequest" @close="agentOpen = false" />
-    </div>
+    <template v-if="agentOpen && agentProject" #panel>
+      <LibrarianPanel :key="tab" library-scope="global" :section="tab" :project-id="agentProject.id" :default-agent-id="projectsStore.agentFor(agentProject)" :request="agentRequest" @close="agentOpen = false" />
+    </template>
+    </AppSettingsLayout>
     <!-- Agent create/edit modal -->
     <AppModal
       v-model="showAgentModal"
@@ -203,13 +195,12 @@ import AppModal from '@shared/ui/AppModal.vue'
 import FormField from '@shared/ui/FormField.vue'
 import AppSelect from '@shared/ui/AppSelect.vue'
 import AppButton from '@shared/ui/AppButton.vue'
-import { AppCheckbox, AppItemCard, AppPageHeader } from '@shared/ui'
+import { AppCheckbox, AppItemCard, AppNavTree, AppPageHeader, AppSettingsLayout, navTreePage } from '@shared/ui'
 import IconTrash from '@shared/ui/IconTrash.vue'
 import { CodeFixerInstructionEditor, InstructionGuideEditor, LibrarianPanel, PlanTemplateEditor, SkillsManager, libraryAgentKey, pageTitledKey } from '@features/library'
 import { useProjectsStore } from '@features/projects'
 import ConnectionsSettings from '../components/ConnectionsSettings.vue'
-import SettingsNav from '../components/SettingsNav.vue'
-import { settingsPage, type SettingsTab } from '../utils/nav'
+import { SETTINGS_NAV, type SettingsTab } from '../utils/nav'
 import ImprovementNotes from '../components/ImprovementNotes.vue'
 import GlobalGitAgent from '../components/GlobalGitAgent.vue'
 
@@ -240,7 +231,18 @@ provide(pageTitledKey, true)
 
 const tab = ref<Tab>(route.query.tab === 'connections' ? 'connections' : 'agents')
 watch(tab, () => { agentRequest.value = null })
-const page = computed(() => settingsPage(tab.value))
+const page = computed(() => navTreePage(SETTINGS_NAV, tab.value))
+// What the page is for, under its title — the same place a project's settings say it.
+const description = computed(() => ({
+  agents: 'Агенты подключаются по ACP (Agent Client Protocol). Plangent сам отвечает на их запросы разрешений, поэтому режимы «без подтверждений» агента не нужны.',
+  'git-agents': 'Действуют во всех проектах и группах, где агенты не выбраны в их настройках → «Git» → «Агенты».',
+  skills: 'Глобальные скиллы применяются ко всем агентам во всех проектах. Скиллы проекта или группы задаются в их настройках → «Инструкции».',
+  'instruction-guide': 'Действует во всех проектах, если проект или группа не переопределили его в своих настройках → «Инструкции».',
+  'code-fixer': 'Действует во всех проектах, если проект или группа не переопределили её в своих настройках → «Инструкции».',
+  'commit-rules': 'Действуют во всех проектах, если проект или группа не переопределили их в своих настройках → «Инструкции» → «Коммиты».',
+  'plan-template': 'Применяется ко всем проектам, если проект не переопределил шаблон в своих инструкциях.',
+  'plan-review': 'Общие проверки плана действуют во всех проектах всегда. Свои требования проекта или группы пишутся скиллами в их настройках → «Ревью» → «План».',
+} as Partial<Record<Tab, string>>)[tab.value])
 watch(() => route.query.tab, t => { if (t === 'connections') tab.value = t })
 
 // ── Agents ────────────────────────────────────────────────────────────────────
@@ -440,24 +442,6 @@ onMounted(() => {
   flex-shrink: 0;
 }
 .settings-header h2 { font-size: var(--fs-2xl); font-weight: 700; letter-spacing: -0.01em; margin-bottom: var(--sp-4); }
-.settings-content { display: flex; flex: 1; min-height: 0; }
-/* Like the chat list: the page background, set apart from the details by a border. */
-.settings-navigation { flex: 0 0 260px; overflow-y: auto; padding: var(--sp-5) var(--sp-2) var(--sp-2); border-right: 1px solid var(--border); }
-
-.settings-tabs {
-  display: flex;
-  gap: 2px;
-  overflow-x: auto;
-  padding: 0 var(--sp-6);
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-}
-
-.settings-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
-.settings-page-bar { flex-shrink: 0; padding: var(--sp-5) var(--sp-6) 0; }
-.settings-content.split .settings-main { flex: 0 1 46%; min-width: 360px; }
-.agent-panel { flex: 1 1 54%; min-width: 420px; border-left: 1px solid var(--border); }
-
 .tab-body {
   flex: 1;
   overflow-y: auto;
@@ -468,31 +452,6 @@ onMounted(() => {
 }
 
 .plan-template-tab { min-height: 0; overflow: hidden; }
-.plan-template-tab > .hint { flex-shrink: 0; }
-
-.stab {
-  flex-shrink: 0;
-  background: none;
-  border: none;
-  border-bottom: 2px solid transparent;
-  color: var(--text-muted);
-  padding: 9px 14px;
-  cursor: pointer;
-  font-size: var(--fs-md);
-  font-weight: 500;
-  transition: color var(--motion-fast), border-color var(--motion-fast);
-  margin-bottom: -1px;
-}
-.stab:hover { color: var(--text); }
-.stab.active { color: var(--text); border-bottom-color: var(--blue); }
-.stab:disabled { opacity: 0.4; cursor: default; }
-
-.section-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.section-title { font-weight: 600; font-size: var(--fs-base); }
 
 .agent-list { display: flex; flex-direction: column; gap: var(--sp-2); }
 .agent-cmd { font-size: var(--fs-sm); color: var(--text-muted); }

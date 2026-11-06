@@ -21,4 +21,4 @@ watchEffect(() => { if (input.value)
     input.value.indeterminate = !!props.indeterminate; });
 defineExpose({ focus: () => input.value?.focus() });
 </script>
-<style scoped>.check{display:inline-flex;align-items:center;gap:var(--sp-2);font:var(--fs-sm)/var(--lh-normal) var(--font-sans);color:var(--text);cursor:pointer}.check input{accent-color:var(--blue);width:16px;height:16px}.check input:focus-visible{outline:var(--focus-outline)}.check.block{display:flex;padding:var(--sp-2);border-radius:var(--radius-sm)}.check.block:hover{background:var(--bg-hover)}.disabled{opacity:.45;cursor:not-allowed}</style>
+<style scoped>.check{display:inline-flex;align-items:center;gap:var(--sp-2);font:var(--fs-sm)/var(--lh-normal) var(--font-sans);color:var(--text);cursor:pointer}.check input{cursor:inherit;accent-color:var(--blue);width:16px;height:16px}.check input:focus-visible{outline:var(--focus-outline)}.check.block{display:flex;padding:var(--sp-2);border-radius:var(--radius-sm)}.check.block:hover{background:var(--bg-hover)}.disabled{opacity:.45;cursor:not-allowed}</style>

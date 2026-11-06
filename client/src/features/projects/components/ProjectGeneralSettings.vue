@@ -1,8 +1,6 @@
 <template>
-  <div class="settings-tab">
-    <form class="settings-form" @submit.prevent>
-      <section class="block">
-        <h3>Основное</h3>
+  <form class="settings-form" @submit.prevent>
+      <section v-if="section === 'general'" class="block">
         <FormField v-model="form.name" label="Название" />
         <template v-if="isProject">
           <FormField v-model="form.key" label="Ключ (для @)" :placeholder="suggestedKey" hint="Другие проекты и группы ссылаются на этот проект как @ключ. Пусто — из названия." />
@@ -12,11 +10,11 @@
           </div>
           <FormField v-model="form.group_id" label="Группа" type="select">
             <option value="">— без группы —</option>
-            <option v-for="g in projectsStore.groups" :key="g.id" :value="g.id">🗂 {{ g.name }}</option>
+            <option v-for="g in projectsStore.groups" :key="g.id" :value="g.id">🗂️ {{ g.name }}</option>
           </FormField>
         </template>
-        <FormField v-model="form.default_agent_id" label="Агент по умолчанию" type="select" hint="Для чатов проекта.">
-          <option value="">— выбрать —</option>
+        <FormField v-model="form.default_agent_id" label="Агент по умолчанию" type="select" :hint="isProject ? 'Для чатов и работ проекта.' : 'Для чатов группы и её проектов, у которых нет своего.'">
+          <option value="">{{ groupAgent ? `Как в группе — ${groupAgent}` : '— выбрать —' }}</option>
           <option v-for="a in agentsStore.agents" :key="a.id" :value="a.id">{{ a.name }}</option>
         </FormField>
         <FormField
@@ -35,20 +33,7 @@
         />
       </section>
 
-      <section class="block">
-        <h3>Агент для коммитов и МР</h3>
-        <!-- Saves by itself, like the other git settings: not part of this form's «Сохранить». -->
-        <ProjectGitPanel :project-id="project.id" section="agent" />
-      </section>
-
-      <section v-if="isProject" class="block">
-        <h3>Рабочее место для задач и поручений</h3>
-        <!-- Saves by itself, like the other git settings. -->
-        <ProjectGitPanel :project-id="project.id" section="workspace" />
-      </section>
-
-      <section v-if="isProject" class="block">
-        <h3>Хостинг кода</h3>
+      <section v-if="section === 'hosting' && isProject" class="block">
         <p class="git-origin">Фактический origin: <code>{{ actualOrigin || 'не задан' }}</code></p>
         <p v-if="gitError" role="alert" class="git-error">{{ gitError }}</p>
         <FormField v-model="cloneUrl" label="Ссылка для клонирования" placeholder="Из origin папки" hint="Попадает в README группы, чтобы коллеги и агенты знали, откуда брать код." />
@@ -60,8 +45,7 @@
       </section>
 
       <div class="actions"><SaveStatus :state="saveState" /></div>
-    </form>
-  </div>
+  </form>
 </template>
 
 <script setup lang="ts">
@@ -77,15 +61,19 @@ import FormField from '@shared/ui/FormField.vue'
 import FolderPicker from './FolderPicker.vue'
 import { errorText } from '@shared/utils/errorText'
 import { useProjectsStore } from '../stores/projects'
-import ProjectGitPanel from './ProjectGitPanel.vue'
 
-/** «Настройки» tab of a project or group: its general fields and the code host; branch and merge-request rules live under «Инструкции». */
-const props = defineProps<{ project: Project }>()
+/** A page of the project or group settings: its general fields or, for a project, the code host. Saves as you type. */
+const props = defineProps<{ project: Project; section: 'general' | 'hosting' }>()
 const appStore = useAppStore()
 const agentsStore = useAgentsStore()
 const projectsStore = useProjectsStore()
 
 const isProject = computed(() => props.project.kind === 'project')
+// A project without its own default agent works with its group's.
+const groupAgent = computed(() => {
+  const id = projectsStore.byId(props.project.group_id)?.default_agent_id
+  return id ? agentsStore.agents.find(a => a.id === id)?.name ?? null : null
+})
 const form = ref({ name: '', key: '', repo_path: '', group_id: '', description: '', default_agent_id: '', dangerous_commands: '' })
 const cloneUrl = ref(''), hostPath = ref(''), connectionId = ref('')
 const connections = ref<{ id: string; name: string; organization_id: string | null }[]>([]), organizations = ref<{ id: string; name: string }[]>([])
@@ -169,10 +157,8 @@ async function save(id: string, data: NonNullable<ReturnType<typeof payload>>) {
 </script>
 
 <style scoped>
-.settings-tab { flex: 1; overflow-y: auto; padding: var(--sp-5) var(--sp-6); }
 .settings-form { display: flex; flex-direction: column; gap: 16px; max-width: 720px; }
 .block { display: flex; flex-direction: column; gap: 12px; }
-h3 { font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
 .form-field { display: flex; flex-direction: column; gap: 4px; }
 label { font-size: var(--fs-sm); color: var(--text-muted); }
 .git-origin { font-size: var(--fs-sm); color: var(--text-muted); overflow-wrap: anywhere; }

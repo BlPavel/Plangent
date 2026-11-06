@@ -10,7 +10,7 @@ export function writeSetting(key: string, value: string): void {
 
 import type { getProject, ProjectError } from '../projects';
 import { DomainError } from '../../models/domain-error';
-import { resolveGitSettings, validateGitSettings, type GitSettings } from './git-settings';
+import { resolveGitSettings, validateGitSettings, withoutProjectOnly, type GitSettings } from './git-settings';
 export * from './git-settings';
 /** Explicit choices take precedence over saved choices, purpose settings and project defaults. */
 export function resolveAgentChoice(projectId: string, choices: { explicit?: string | null; saved?: string | null; purpose?: 'git' | 'review' | 'conflict' } = {}) {
@@ -18,14 +18,17 @@ export function resolveAgentChoice(projectId: string, choices: { explicit?: stri
   const settings = choices.purpose ? effectiveGitSettings(projectId).values : null;
   const purpose = choices.purpose === 'conflict' && !settings?.conflict_agent_id ? 'git' : choices.purpose;
   const configured = settings && purpose ? settings[`${purpose}_agent_id`] : '';
-  const agentId = choices.explicit || choices.saved || configured || project?.default_agent_id || '';
+  // A project without its own default agent uses its group's.
+  const group = project?.group_id ? moduleDependencies.projects.getProject(project.group_id) : null;
+  const agentId = choices.explicit || choices.saved || configured || project?.default_agent_id || group?.default_agent_id || '';
   return { agentId, model: configured === agentId && settings && purpose ? settings[`${purpose}_agent_model`] : '',
     effort: configured === agentId && settings && purpose ? settings[`${purpose}_agent_effort`] : '' };
 }
 export function effectiveGitSettings(id: string) {
   const project = moduleDependencies.projects.getProject(id);
   if (!project) throw new moduleDependencies.projects.ProjectError('Project not found');
-  return resolveGitSettings(project.group_id ? moduleDependencies.projects.getProject(project.group_id)?.git_settings : {}, project.git_settings, globalGitSettings());
+  const own = project.kind === 'group' ? withoutProjectOnly(project.git_settings) : project.git_settings;
+  return resolveGitSettings(project.group_id ? moduleDependencies.projects.getProject(project.group_id)?.git_settings : {}, own, globalGitSettings());
 }
 
 /** App-wide git settings («Настройки»): the level under every group and project. */

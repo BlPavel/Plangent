@@ -12,6 +12,7 @@ const props = withDefaults(defineProps<{
     align?: 'left' | 'right';
     placement?: 'top' | 'bottom';
     minWidth?: number;
+    maxWidth?: number;
     /** Panel is exactly as wide as the anchor; content wraps. Otherwise it fits its content. */
     matchAnchor?: boolean;
     role?: string;
@@ -31,7 +32,7 @@ watch(() => props.modelValue, async (value) => { if (value && props.focusOnOpen)
     (panel.value?.querySelector<HTMLElement>('[aria-selected="true"]:not(:disabled)') ?? panel.value?.querySelector<HTMLElement>('button:not(:disabled)'))?.focus();
 } }, { immediate: true });
 const floatingOpen = computed(() => props.modelValue && !props.inline);
-const { style } = usePopover(floatingOpen, toRef(props, 'anchor'), panel, () => ({ align: props.align, placement: props.placement, at: props.at, minWidth: props.minWidth, matchAnchor: props.matchAnchor }), () => emit('update:modelValue', false));
+const { style } = usePopover(floatingOpen, toRef(props, 'anchor'), panel, () => ({ align: props.align, placement: props.placement, at: props.at, minWidth: props.minWidth, maxWidth: props.maxWidth, matchAnchor: props.matchAnchor }), () => emit('update:modelValue', false));
 function navigate(event: KeyboardEvent) {
     if (event.defaultPrevented) return;
     if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key) || event.target instanceof HTMLInputElement)

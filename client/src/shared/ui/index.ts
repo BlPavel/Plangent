@@ -35,4 +35,6 @@ export { default as StaleDraftNote } from './StaleDraftNote.vue';
 export { default as StatusBadge } from './StatusBadge.vue';
 export { default as TagListEditor } from './TagListEditor.vue';
 export { default as AppTreeRow } from './AppTreeRow.vue';
+export { default as AppNavTree, navTreePage, type NavTreeItem } from './AppNavTree.vue';
+export { default as AppSettingsLayout } from './AppSettingsLayout.vue';
 export * from './icons';

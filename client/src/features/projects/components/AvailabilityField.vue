@@ -11,7 +11,7 @@
       </div>
       <div class="targets">
         <AppCheckbox v-for="o in options" :key="o.id" :model-value="isChecked(o.id)" @update:model-value="toggle(o.id)">
-          <span>{{ o.kind === 'group' ? '🗂' : '📁' }} {{ o.name }}</span>
+          <span>{{ o.kind === 'group' ? '🗂️' : '📁' }} {{ o.name }}</span>
           <span v-if="o.kind === 'group'" class="hint">{{ ownFolder ? 'папка группы' : 'со всеми проектами' }}</span>
           <span v-else-if="o.group_id" class="hint">{{ projectsStore.byId(o.group_id)?.name }}</span>
         </AppCheckbox>
