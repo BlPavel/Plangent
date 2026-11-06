@@ -59,6 +59,7 @@
   </div>
 </template>
 <script setup lang="ts">
+import { useCodeScreen } from '@core/composables/useCodeScreen'
 import AppTextarea from '@shared/ui/AppTextarea.vue'
 import { AppButton, AppCheckbox, AppTabs } from '@shared/ui'
 import { useDraft } from '@core/composables/useDraft'
@@ -71,6 +72,8 @@ import { MessageMarkdown, useChatStore, type ChatSession } from '@features/agent
 import { CodeView, parseUnifiedDiff, type ViewerFile, type LineSelection } from '@shared/code-viewer'
 import type { CodeReviewItem} from '@features/code'
 import WorkChat from './WorkChat.vue'
+useCodeScreen()
+
 const props = defineProps<{ task: Task; defaultAgentId?: string | null }>()
 const emit = defineEmits<{ checked: [] }>()
 type CheckData = import('@contracts').WorkCheck

@@ -6,7 +6,7 @@ import type { SuggestItem } from '../components/SuggestMenu.vue'
 export interface MentionFile { path: string; dir: boolean; uri: string; ref?: boolean; section?: SuggestItem['section']; detail?: string }
 
 /** The chat and review composers share file/source search and menu rows. */
-export function useMentionFiles(projectId: () => string | null) {
+export function useMentionFiles(projectId: () => string | null, workspaceId: () => string | null | undefined = () => null) {
   const files = ref<MentionFile[]>([])
   const loading = ref(false)
   let request = 0
@@ -24,19 +24,20 @@ export function useMentionFiles(projectId: () => string | null) {
   function search(query: string) {
     clearTimeout(timer)
     const project = projectId()
+    const workspace = workspaceId()
     const revision = ++request
     files.value = []
     if (!project) { loading.value = false; return }
     loading.value = true
     timer = setTimeout(async () => {
       try {
-        const rows = await projectsEndpoints.getProjectsByIdMentions({ params: { id: project }, query: Object.fromEntries(new URLSearchParams("q=" + encodeURIComponent(query))) })
-        if (revision === request && project === projectId()) files.value = rows
+        const rows = await projectsEndpoints.getProjectsByIdMentions({ params: { id: project }, query: { q: query, workspace: workspace ?? undefined } })
+        if (revision === request && project === projectId() && workspace === workspaceId()) files.value = rows
       } catch { if (revision === request) files.value = [] }
       finally { if (revision === request) loading.value = false }
     }, query ? 70 : 0)
   }
-  watch(projectId, clear)
+  watch([projectId, workspaceId], clear)
   onScopeDispose(clear)
   return { files, suggestions, loading, search, clear }
 }

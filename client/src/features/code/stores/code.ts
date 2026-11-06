@@ -11,7 +11,7 @@ export type CompareBase = 'head' | 'agent' | 'review' | 'remote'
 /** «Продолжить» on the commit banner is remembered per review until HEAD moves again. */
 const continued = new Map<string, string | null>()
 
-export const useCodeStore = defineStore('code', () => {
+export const useCodeStore = (instance = 'main') => defineStore(instance === 'main' ? 'code' : 'code:' + instance, () => {
   const projectId = ref<string | null>(null)
   /** The work's folder the screen shows; undefined — the project's main folder. */
   const workspaceId = ref<string | undefined>(undefined)
@@ -274,4 +274,4 @@ export const useCodeStore = defineStore('code', () => {
     base, remoteRef, baseRound, baseData, screen, unresolved, liveReview, agentWorking, effectiveBase, shownChanges, shownStats, diffEnds, commitBannerShown, otherReview, runningElsewhere, setBase, continueReview,
     matches, searchSummary, searching, searchError, start, stop, refresh, loadTree, selectFile, openReview, loadHistory, setIncludeIgnored, search, cancelSearch, clearSearch, diff,
     messages, addDraft, updateDraft, removeItem, makeGeneral, addMessage, removeMessage, closeItem, sendRound, stopAgent, finish, removeReview }
-})
+})()

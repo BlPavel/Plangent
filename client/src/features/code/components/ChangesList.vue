@@ -13,6 +13,7 @@
         </div>
         <div
           v-for="change in group.items" :key="change.path" class="cl-row" :class="{ selected: change.path === selected }" role="option"
+          draggable="true" @dragstart="dragMention($event, change.path)"
           :aria-selected="change.path === selected" :title="change.originalPath ? `${change.originalPath} → ${change.path}` : change.path" @click="emit('open', change)" @contextmenu.prevent="openMenu($event, change)"
         >
           <AppCheckbox v-if="stageable" :model-value="staged(change)" :disabled="!!stageDisabled" :title="stageDisabled || 'К коммиту'" :aria-label="'К коммиту: ' + change.path" @click.stop @update:model-value="emit('toggle-stage', change)" />
@@ -32,12 +33,15 @@
 </template>
 
 <script setup lang="ts">
+import { useMentionDrag } from '../composables/useMentionDrag'
 import { computed, ref } from 'vue'
 import AppCheckbox from '@shared/ui/AppCheckbox.vue'
 import { fileIconName, iconSvg } from '@shared/code-viewer'
 import ContextMenu from '@shared/ui/ContextMenu.vue'
 import type { MenuItem } from '@shared/ui/AppMenu.vue'
 import type { GitChange, LineStat } from '../types'
+
+const dragMention = useMentionDrag()
 
 /** Changed files; with `stageable` they split into tracked and new, each with its «к коммиту» checkboxes. */
 const props = withDefaults(defineProps<{

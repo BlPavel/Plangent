@@ -19,6 +19,8 @@
           :aria-selected="row.entry.path === selected"
           :data-path="row.entry.path"
           :title="row.entry.path"
+          :draggable="draggable"
+          @dragstart="emit('drag-path', $event, row.entry.path, row.entry.directory)"
           @click="activate(row.entry)"
         >
           <span class="tree-chevron" :class="{ open: expanded.has(row.entry.path) }">{{ row.entry.directory ? '›' : '' }}</span>
@@ -46,12 +48,14 @@ const props = defineProps<{
   trees: Record<string, TreeNode[]>
   selected?: string | null
   showIgnored?: boolean
+  draggable?: boolean
   /** Badge counts by file path (e.g. review comments); folders show the sum of their files. */
   marks?: Record<string, number>
 }>()
 const emit = defineEmits<{
   load: [path: string]
   select: [path: string]
+  'drag-path': [event: DragEvent, path: string, directory: boolean]
   'update:showIgnored': [value: boolean]
 }>()
 

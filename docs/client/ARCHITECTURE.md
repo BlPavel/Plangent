@@ -32,6 +32,16 @@ See [the common contract](../CONTRACTS.md).
 `shared/code-viewer` owns code/diff rendering and text diffs. Domain help, platform
 access and server calls belong in their owning feature or core.
 
+Screens which already show code call `core/composables/useCodeScreen` for their
+mounted lifetime. The app store counts these screens so the application shell
+can decide whether side code is available without inspecting their local tabs.
+The shell owns the common work place used by terminal and code.
+
+Code and Git stores accept an instance name (`main` by default). Within code,
+owners call `provideCodeStores`; reusable `BaseSwitcher`, `SearchPanel` and
+`FileViewer` obtain the owner's stores from `stores/context`, falling back to
+the main instance. Each instance owns its subscriptions, requests and lifecycle.
+
 Rules and verification:
 
 - [UI components](ui-components.md): shared primitives and layout boundaries.

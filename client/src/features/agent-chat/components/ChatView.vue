@@ -105,6 +105,7 @@
           v-if="!noComposer"
           ref="composer"
           :project-id="snap.session.project_id"
+          :workspace-id="workspaceId"
           :draft-key="`session:${sessionId}`"
           :commands="commands"
           :busy="thinking"
@@ -113,7 +114,7 @@
           @error="error = $event"
         >
           <template #tools>
-            <AppButton v-if="canUseGit" type="button" variant="subtle" size="xs" class="git-chip" :class="{ active: gitForTurn }" :aria-pressed="gitForTurn" title="Разрешить Git-действия на один ход" @click="gitForTurn = !gitForTurn">Git</AppButton>
+            <AppButton v-if="canUseGit" type="button" variant="subtle" size="xs" :pressed="gitForTurn" title="Разрешить Git-действия на один ход" @click="gitForTurn = !gitForTurn">Git</AppButton>
           </template>
           <template #status>
             <UsageMeter :agent-id="snap.session.agent_id" :usage="usage" />
@@ -154,7 +155,7 @@ import { mergeCommands, type ChatCommand } from '../utils/commands'
 import { useChatStore, statusLabel, statusTone, type ChatEvent} from '../stores/sessions'
 
 // `cards`: event types the host feature renders itself through the `card` slot (e.g. library proposals).
-const props = defineProps<{ sessionId: string; initialContent?: ContentBlock[]; cards?: string[]; /** Shows «Сделать поручением»: the host turns the conversation into an errand. */ canErrand?: boolean; /** Messages are written elsewhere (e.g. a batch of review questions): no input field. */ noComposer?: boolean }>()
+const props = defineProps<{ sessionId: string; workspaceId?: string | null; initialContent?: ContentBlock[]; cards?: string[]; /** Shows «Сделать поручением»: the host turns the conversation into an errand. */ canErrand?: boolean; /** Messages are written elsewhere (e.g. a batch of review questions): no input field. */ noComposer?: boolean }>()
 const emit = defineEmits<{ session: [id: string]; errand: [text: string] }>()
 defineExpose({ setText: (text: string) => composer.value?.setText(text) })
 const store = useChatStore()
@@ -366,8 +367,6 @@ kbd { font-family: inherit; font-size: var(--fs-xs); padding: 1px 5px; border: 1
 .dock { flex-shrink: 0; padding: 0 var(--sp-5) var(--sp-4); }
 .dock-inner { max-width: 820px; margin: 0 auto; }
 .dock-error { display: flex; justify-content: space-between; gap: 8px; margin-top: 6px; font-size: var(--fs-sm); color: var(--danger-hover); }
-.git-chip { padding: 2px var(--sp-2); border: 1px solid var(--border-strong); border-radius: var(--radius-pill); background: var(--bg3); color: var(--text-muted); font-size: var(--fs-sm); cursor: pointer; }
-.git-chip.active { background: var(--blue-soft); border-color: var(--blue); color: var(--text); }
 
 .queue { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
 .queue-item { display: flex; align-items: center; gap: 8px; padding: 4px 6px 4px 10px; font-size: var(--fs-md); background: var(--bg2); border: 1px dashed var(--border-strong); border-radius: var(--radius); }

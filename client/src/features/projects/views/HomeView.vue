@@ -1,5 +1,5 @@
 <template>
-  <div class="home">
+  <div ref="homeRoot" class="home">
     <AppEmptyState v-if="!currentProject">
       <p>Выберите проект или создайте новый</p>
     </AppEmptyState>
@@ -63,7 +63,7 @@ const lastTab: { projectId: string | null; tab: HomeTab } = { projectId: null, t
 
 <script setup lang="ts">
 import { tasksEndpoints } from '@features/tasks'
-import { AgentChats } from '@features/agent-chat'
+import { AgentChats, useComposerReveal } from '@features/agent-chat'
 import { CodeTab, useCodeAttentionStore } from '@features/code'
 import { BranchReviewTab } from '@features/branch-review'
 import { ref, computed, watch, onMounted } from 'vue'
@@ -100,6 +100,9 @@ const tasks = ref<Task[]>([])
 // A freshly opened project starts on «Задачи»; coming back from a task restores the tab you left.
 const activeTab = ref<HomeTab>(lastTab.projectId && lastTab.projectId === appStore.currentProject?.id ? lastTab.tab : 'tasks')
 watch(activeTab, tab => { if (currentProject.value) Object.assign(lastTab, { projectId: currentProject.value.id, tab }) }, { immediate: true })
+// «В чат» from the code panel on a tab without a chat: the project's «Чат» tab (a new message field when nothing was started).
+const homeRoot = ref<HTMLElement>()
+useComposerReveal(homeRoot, () => ({ projectId: currentProject.value?.id ?? '' }), () => { activeTab.value = 'agents' })
 type TabItem = { id: HomeTab; label: string; disabled: boolean; count?: number; countTitle?: string }
 const tabs = computed<TabItem[]>(() => [
   { id: 'tasks' as const, label: 'Задачи', disabled: false },

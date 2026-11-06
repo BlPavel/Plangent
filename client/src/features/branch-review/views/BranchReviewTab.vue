@@ -142,6 +142,7 @@
   </section>
 </template>
 <script setup lang="ts">
+import { useCodeScreen } from '@core/composables/useCodeScreen'
 import AppEmptyState from '@shared/ui/AppEmptyState.vue'
 import AppBadge from '@shared/ui/AppBadge.vue'
 import AppTextarea from '@shared/ui/AppTextarea.vue'
@@ -168,6 +169,8 @@ import RemarksPanel from '../components/RemarksPanel.vue'
 import { useBranchReviewStore, type ReviewPanel } from '../stores/review'
 
 /** Passed for a group: the review works on one of its projects. */
+useCodeScreen()
+
 const props = defineProps<{ projectId: string; members?: { id: string; name: string }[] }>()
 const emit = defineEmits<{ 'open-instructions': [] }>()
 const app = useAppStore()

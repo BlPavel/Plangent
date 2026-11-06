@@ -8,7 +8,7 @@
     </div>
     <div v-if="error" class="chat-note error" role="alert">{{ error }}</div>
     <p v-if="shown && awaitingBrief" class="chat-note">Опишите агенту, что сделать: подробности, файлы через @, скриншоты. Агент начнёт работу после первого сообщения.</p>
-    <ChatView v-if="shown" :key="shown" :session-id="shown" :no-composer="closed || reviewOpened" />
+    <ChatView v-if="shown" :key="shown" :session-id="shown" :workspace-id="workspace?.id ?? null" :no-composer="closed || reviewOpened" />
     <p v-else-if="task.kind === 'errand' && !closed" class="chat-note">{{ workspace?.status === 'failed' ? 'Рабочее место не подготовлено: ' + workspace.error : 'Готовлю рабочее место и подключаю агента… Чат откроется сам.' }}</p>
     <AppButton variant="ghost" size="sm" v-else-if="!loading && !closed" class="chat-open" @click="open">Открыть чат задачи</AppButton>
     <span v-else-if="loading" class="chat-note">Подготовка чата…</span>

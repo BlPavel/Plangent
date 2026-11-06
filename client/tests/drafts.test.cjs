@@ -18,7 +18,7 @@ const mockSources = {
   '@features/agents': "export const useAgentsStore = () => ({ agents: [{ id: 'agent', name: 'Agent' }] }); export const permissionPolicy = () => 'ask'",
   '../composables/useAgentLaunchOptions': "import { ref } from 'vue'; export const useAgentLaunchOptions = () => ({ resolvedSelects: ref([]), state: ref(''), launch: () => ({}), pick() {}, retry() {} })",
   '../composables/useMentionFiles': "import { ref } from 'vue'; export const useMentionFiles = () => ({ files: ref([]), suggestions: ref([]), loading: ref(false), search() {}, clear() {} })",
-  '@features/agent-chat': "import { ref } from 'vue'; export const SuggestMenu = { render: () => null }; export const useMentionFiles = () => ({ suggestions: ref([]), loading: ref(false), search() {}, clear() {} }); export const MessageMarkdown = { render: () => null }; export const NewChatPanel = { render: () => null }",
+  '@features/agent-chat': "import { ref } from 'vue'; export const SuggestMenu = { render: () => null }; export const useMentionFiles = () => ({ suggestions: ref([]), loading: ref(false), search() {}, clear() {} }); export const MessageMarkdown = { render: () => null }; export const NewChatPanel = { render: () => null }; export const useComposerReveal = () => {}",
   '../stores/code': "export const useCodeStore = () => ({ projectId: 'project', review: { id: 'review' }, files: [] })",
   '@core/api': "export const api = { get: async () => [], post: async () => ({}), patch: async () => ({}), delete: async () => undefined }; export const workspaceApi = () => api",
   './UsageMeter.vue': stub, './AgentSettingsBar.vue': stub, './SuggestMenu.vue': stub,

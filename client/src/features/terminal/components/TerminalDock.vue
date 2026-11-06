@@ -19,10 +19,11 @@
         v-for="r in runningElsewhere" :key="r.workspaceId ?? 'main'" variant="subtle" size="sm"
         :title="'Запущено: ' + r.processes.join(', ') + ' — открыть этот терминал'" @click="showPlace(r)"
       >▶ {{ r.label }}</AppButton>
-      <AppButton variant="subtle" size="sm" :pressed="open" :aria-expanded="open" :disabled="!context" :title="context ? 'Терминал: ' + context.label + ' (Ctrl+`)' : 'Выберите проект'" @click="open = !open">
+      <AppButton variant="subtle" size="sm" :pressed="open" :aria-expanded="open" :disabled="!context" :title="context ? 'Терминал: ' + context.label + ' (Ctrl+`)' : 'Терминал доступен в проекте'" @click="open = !open">
         <UIIconTerminal />
         Терминал<span v-if="runningHere" class="status-dot" title="Здесь что-то запущено" />
       </AppButton>
+      <slot name="buttons" />
     </footer>
   </div>
 </template>

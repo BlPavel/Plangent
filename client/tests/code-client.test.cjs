@@ -7,6 +7,94 @@ function moduleAt(file, mocks = {}, globals = {}, sourceOverride) {
   return require('./client-test-loader.cjs').loader({ '@core/stores/drafts': require('./drafts-test-support.cjs'), '@core/composables/useDraft': require('./drafts-test-support.cjs'), ...mocks }, globals, false)(file, sourceOverride)
 }
 const plain = value => JSON.parse(JSON.stringify(value))
+
+test('side code availability follows mounted code screens and the current place', () => {
+  const { reactive, ref } = require('vue')
+  const appStore = reactive({ currentProject: { kind: 'project' }, codeScreenCount: 0 })
+  const terminalPlace = ref({ projectId: 'p' }), isSettingsRoute = ref(false)
+  const source = fs.readFileSync('client/src/app/App.vue', 'utf8')
+  const declaration = source.match(/const codeAvailable = computed\([\s\S]*?\)\r?\n/)[0]
+  const { available } = moduleAt('client/src/app/App.vue', {}, { appStore, terminalPlace, isSettingsRoute },
+    "import { computed } from 'vue';\n" + declaration + '\nexports.available = codeAvailable;')
+  const mounted = [], unmounted = []
+  const { useCodeScreen } = moduleAt('client/src/core/composables/useCodeScreen.ts', {
+    vue: { onMounted: fn => mounted.push(fn), onUnmounted: fn => unmounted.push(fn) },
+    '@core/stores/app': { useAppStore: () => appStore },
+  })
+  assert.equal(available.value, true)
+  useCodeScreen(); useCodeScreen()
+  mounted.forEach(fn => fn())
+  assert.equal(available.value, false)
+  unmounted[0]()
+  assert.equal(available.value, false, 'another code screen is still mounted')
+  unmounted[1]()
+  assert.equal(available.value, true)
+  for (const kind of ['group', 'source']) {
+    appStore.currentProject.kind = kind
+    assert.equal(available.value, false)
+  }
+  appStore.currentProject = null
+  assert.equal(available.value, false)
+  appStore.currentProject = { kind: 'project' }
+  terminalPlace.value = null
+  assert.equal(available.value, false)
+  terminalPlace.value = { projectId: 'p' }
+  isSettingsRoute.value = true
+  assert.equal(available.value, false)
+  isSettingsRoute.value = false
+  assert.equal(available.value, true)
+})
+
+test('side panel preserves tabs and comparison independently for each project and worktree', () => {
+  setActivePinia(createPinia())
+  const store = moduleAt('client/src/features/code/stores/side-panel.ts').useSidePanelStore()
+  const main = store.place('p', null), first = store.place('p', 'w1'), second = store.place('p', 'w2')
+  const other = store.place('other', null)
+  store.open(first, 'a.ts', 'file'); store.open(first, 'b.ts', 'diff')
+  first.list = 'search'; first.base = 'round'; first.baseRound = 'r1'
+  store.open(second, 'a.ts', 'diff'); store.open(main, 'main.ts', 'file')
+  assert.deepEqual(plain(store.place('p', 'w1')), plain(first))
+  assert.deepEqual(plain(first.files), [{ path: 'a.ts', mode: 'file' }, { path: 'b.ts', mode: 'diff' }])
+  assert.equal(first.baseRound, 'r1')
+  assert.equal(second.base, 'head'); assert.equal(second.list, 'changes')
+  store.open(first, 'a.ts', 'diff')
+  assert.equal(first.files.length, 2)
+  store.close(first, 'a.ts'); assert.equal(first.active, 'b.ts')
+  store.closeAll(second); assert.equal(second.active, null)
+  assert.equal(main.active, 'main.ts')
+  store.forgetWorkspace('w1')
+  assert.equal(store.place('p', 'w1').files.length, 0)
+  store.forgetProject('p')
+  assert.deepEqual(plain(Object.values(store.places)), [plain(other)])
+})
+
+test('send to chat picks the last typed visible field in the same workspace and cleans registrations', async () => {
+  setActivePinia(createPinia())
+  const store = moduleAt('client/src/features/agent-chat/stores/composer-targets.ts').useComposerTargetsStore()
+  const mention = { projectId: 'p', workspaceId: 'w', path: 'a.ts', dir: false }
+  const inserted = []
+  const register = (name, workspaceId = 'w', visible = true, projectId = 'p') => store.register({
+    projectId: () => projectId, workspaceId: () => workspaceId, visible: () => visible,
+    insert: async value => { inserted.push([name, value]); return true },
+  })
+  const first = register('first'), last = register('last')
+  store.touch(last); store.touch(register('hidden', 'w', false))
+  store.touch(register('main', null)); store.touch(register('foreign', 'w', true, 'other'))
+  assert.equal(await store.insertMention(mention), true)
+  assert.deepEqual(inserted, [['last', mention]])
+  store.unregister(last)
+  await store.insertMention(mention)
+  assert.equal(inserted[1][0], 'first')
+  store.unregister(first)
+  assert.equal(await store.insertMention(mention), false)
+  let revealed
+  const removeReveal = store.addReveal({ projectId: () => 'p', workspaceId: () => 'w', visible: () => true,
+    show: async () => { revealed = register('revealed') } })
+  assert.equal(await store.insertMention(mention), true)
+  assert.equal(inserted[2][0], 'revealed')
+  store.unregister(revealed); removeReveal()
+  assert.equal(await store.insertMention(mention), false)
+})
 function harness() {
   setActivePinia(createPinia())
   const handlers = new Set()
@@ -22,11 +110,12 @@ function harness() {
     file: async (p, path) => ({ path, kind: 'text', content: p }),
   }
   const codeReviewsApi = { current: async () => ({ review: null, items: [], rounds: [], other_reviews: [], file_views: [] }), attention: async () => [] }
-  const store = moduleAt('client/src/features/code/stores/code.ts', {
+  const { useCodeStore } = moduleAt('client/src/features/code/stores/code.ts', {
     '@core/api/events': events, '../events': events, '../api': { codeApi, codeReviewsApi },
     '../utils/screen-state': moduleAt('client/src/features/code/utils/screen-state.ts'),
-  }).useCodeStore()
-  return { store, codeApi, codeReviewsApi, handlers, stops, calls: () => calls,
+  })
+  const store = useCodeStore()
+  return { store, useCodeStore, codeApi, codeReviewsApi, handlers, stops, calls: () => calls,
     emit: event => { for (const handler of handlers) handler(event) } }
 }
 
@@ -558,4 +647,66 @@ test('group Git settings: overrides and resets stay in one project', () => {
  a.reset('mr_squash')
  assert.equal(Object.hasOwn(first.modelValue, 'mr_squash'), false)
  assert.equal(a.value('mr_squash'), true)
+})
+
+
+test('named code stores keep files, comparison, pending reads and subscriptions independent', async () => {
+  const h = harness(), main = h.store, side = h.useCodeStore('side')
+  assert.equal(h.useCodeStore(), main)
+  assert.equal(h.useCodeStore('side'), side)
+  assert.notEqual(main, side)
+  await main.start('p', 'main-work')
+  await side.start('p', 'side-work')
+  await main.selectFile('main.ts')
+  await side.selectFile('side.ts')
+  main.base = 'remote'; main.remoteRef = 'origin/main'
+  assert.equal(side.base, 'head')
+  assert.equal(main.selectedPath, 'main.ts')
+  assert.equal(side.selectedPath, 'side.ts')
+  let release
+  h.codeApi.file = async (_p, file) => new Promise(resolve => { release = () => resolve({ path: file, kind: 'text' }) })
+  const pending = side.selectFile('pending.ts')
+  main.stop()
+  assert.equal(h.handlers.size, 1)
+  assert.equal(side.projectId, 'p')
+  assert.equal(side.workspaceId, 'side-work')
+  release(); await pending
+  assert.equal(side.file.path, 'pending.ts')
+  await main.start('another')
+  assert.equal(side.selectedPath, 'pending.ts')
+  side.stop()
+  assert.equal(main.projectId, 'another')
+  assert.equal(h.handlers.size, 1)
+  main.stop()
+  assert.equal(h.handlers.size, 0)
+})
+
+test('mention search follows workspace changes and rejects a late result from the previous folder', async () => {
+  const { effectScope, ref, nextTick } = require('vue')
+  const workspace = ref('first'), pending = []
+  const mod = moduleAt('client/src/features/agent-chat/composables/useMentionFiles.ts', {
+    '@features/projects': { projectsEndpoints: { getProjectsByIdMentions: input => new Promise(resolve => pending.push({ input, resolve })) } },
+  })
+  const scope = effectScope()
+  const search = scope.run(() => mod.useMentionFiles(() => 'p', () => workspace.value))
+  try {
+    search.search('')
+    await new Promise(resolve => setTimeout(resolve, 10))
+    assert.equal(pending[0].input.query.workspace, 'first')
+    workspace.value = 'second'; await nextTick()
+    search.search('')
+    await new Promise(resolve => setTimeout(resolve, 10))
+    assert.equal(pending[1].input.query.workspace, 'second')
+    pending[1].resolve([{ path: 'second.ts', dir: false, uri: 'file:///second/second.ts' }])
+    await nextTick(); await nextTick()
+    pending[0].resolve([{ path: 'first.ts', dir: false, uri: 'file:///first/first.ts' }])
+    await nextTick(); await nextTick()
+    assert.equal(search.files.value[0].uri, 'file:///second/second.ts')
+    workspace.value = null; await nextTick()
+    assert.equal(search.files.value.length, 0)
+    search.search('')
+    await new Promise(resolve => setTimeout(resolve, 10))
+    assert.equal(pending[2].input.query.workspace, undefined)
+    pending[2].resolve([])
+  } finally { scope.stop() }
 })

@@ -63,7 +63,7 @@
           <CommitBox v-if="!store.openedReviewId" :key="projectId" :task-id="task?.id" />
         </template>
         <div v-show="leftTab === 'files'" class="ct-pane">
-          <FileTree
+          <FileTree draggable @drag-path="dragMention"
             ref="tree" :trees="store.trees" :selected="store.selectedPath" :show-ignored="store.includeIgnored" :marks="fileCounts"
             @load="store.loadTree($event)" @select="open($event, 'file')" @update:show-ignored="store.setIncludeIgnored($event)"
           />
@@ -140,6 +140,9 @@ const lastOpened = new Map<string, string>()
 </script>
 
 <script setup lang="ts">
+import { useMentionDrag } from '../composables/useMentionDrag'
+import { takeCodeOpen } from '../navigation'
+import { useCodeScreen } from '@core/composables/useCodeScreen'
 import AppBadge from '@shared/ui/AppBadge.vue'
 import AppButton from '@shared/ui/AppButton.vue'
 import AppTabs from '@shared/ui/AppTabs.vue'
@@ -154,6 +157,7 @@ import { FileTree, type CodeSide, type LineMarker, type LineSelection } from '@s
 import { useAppStore } from '@core/stores/app'
 import { codeReviewsApi } from '../api'
 import { useCodeStore } from '../stores/code'
+import { provideCodeStores } from '../stores/context'
 import { useReviewAgentStore } from '../stores/review-agent'
 import { threadState } from '../utils/thread'
 import type { CodeReviewItem, GitChange, ReviewHistory } from '../types'
@@ -178,6 +182,8 @@ import SearchPanel from '../components/SearchPanel.vue'
 import ConflictPanel from '../components/ConflictPanel.vue'
 import { useConflictsStore } from '../stores/conflicts'
 import { operationTitle } from '../utils/operation'
+
+useCodeScreen()
 
 const props = defineProps<{
   projectId: string
@@ -208,6 +214,8 @@ async function discardChange(change: GitChange) {
 const stageable = computed(() => !!store.repository && store.effectiveBase === 'head' && !store.openedReviewId)
 watch(() => props.projectId, id => { void git.start(id, props.workspaceId ?? undefined) }, { immediate: true })
 const store = useCodeStore()
+provideCodeStores(store, git)
+const dragMention = useMentionDrag(store)
 const app = useAppStore()
 const viewer = ref<InstanceType<typeof FileViewer>>()
 const tree = ref<InstanceType<typeof FileTree>>()
@@ -513,6 +521,13 @@ async function begin(projectId: string) {
   await store.start(projectId, props.workspaceId ?? undefined)
   loaded.value = true
   if (store.projectId !== projectId) return
+  // «Открыть в Коде» of the side panel: the same way back to a file as `lastOpened`, with its line and comparison.
+  const asked = takeCodeOpen(projectId, props.workspaceId ?? null)
+  if (asked) {
+    if (asked.base !== 'head') await store.setBase(asked.base, asked.round)
+    if (store.projectId !== projectId) return
+    if (asked.path) { await open(asked.path, asked.mode, asked.line ?? undefined); return }
+  }
   const remembered = lastOpened.get(projectId)
   if (remembered) { await open(remembered, store.changes.some(c => c.path === remembered) ? 'diff' : 'file'); return }
   const first = [...store.changes].sort((a, b) => a.path.localeCompare(b.path))[0]

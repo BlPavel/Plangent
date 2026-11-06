@@ -27,10 +27,10 @@
             </section>
           </template>
           <template #end>
-            <TaskChats class="chat-pane" :label="L.chat" :chats="chats" :selected="selectedChat" :initials="initials" @select="$emit('selectChat', $event)" @remove="(id, name) => $emit('removeChat', id, name)">
+            <TaskChats :workspace-id="workspaceId" class="chat-pane" :label="L.chat" :chats="chats" :selected="selectedChat" :initials="initials" @select="$emit('selectChat', $event)" @remove="(id, name) => $emit('removeChat', id, name)">
               <template #new>
                 <NewChatPanel :draft-key="`task:${taskId}:material-chat:${type}`"
-                  :project-id="projectId" :default-agent-id="defaultAgentId" :title="L.chatTitle" :text="material ? L.chatTextWith : L.chatTextEmpty"
+                  :project-id="projectId" :workspace-id="workspaceId" :default-agent-id="defaultAgentId" :title="L.chatTitle" :text="material ? L.chatTextWith : L.chatTextEmpty"
                   :placeholder="material ? L.placeholderWith : L.placeholderEmpty" fixed-policy="read-only" :initial-text="material ? '' : L.draft"
                   :busy="launching" :error="launchError" @start="$emit('launch', $event)"
                 />
@@ -99,7 +99,7 @@ import StaleDraftNote from '@shared/ui/StaleDraftNote.vue'
 import { computed, nextTick, ref, watch } from 'vue'
 import PlanReviewPanel from './plan-review/PlanReviewPanel.vue'
 import TaskChats from './TaskChats.vue'
-import { NewChatPanel, MessageMarkdown, type NewChatRequest, type ContentBlock } from '@features/agent-chat'
+import { NewChatPanel, MessageMarkdown, useComposerReveal, type NewChatRequest, type ContentBlock } from '@features/agent-chat'
 import AppButton from '@shared/ui/AppButton.vue'
 import SplitPane from '@shared/ui/SplitPane.vue'
 import type { Material, MaterialType, StageSummary } from '@contracts'
@@ -111,6 +111,7 @@ const props = defineProps<{
   openedIdentifier?: string
   stage?: StageSummary
   projectId: string
+  workspaceId?: string | null
   taskId: string
   defaultAgentId?: string | null
   /** Why the document cannot be changed now (running queue, finished task); empty — it can. */
@@ -191,6 +192,8 @@ const reviewOpen = ref(false), attention = ref(0)
 // The review applies to the saved document: it is hidden while an agent or a manual edit works on the text.
 const reviewShown = computed(() => reviewOpen.value && !agentOpen.value && !editing.value)
 const main = ref<HTMLElement>()
+// «В чат» without an open chat: the document switches to «with an agent», where the chat (or the new message field) is.
+useComposerReveal(main, () => props, () => { if (!props.done) agentOpen.value = true })
 function highlight(ids: string[]) {
   main.value?.querySelectorAll('.material-hl').forEach(el => el.classList.remove('material-hl'))
   const found = Array.from(main.value?.querySelectorAll('.material-doc strong') ?? []).filter(el => ids.includes(el.textContent?.trim() ?? ''))

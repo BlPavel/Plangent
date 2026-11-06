@@ -10,7 +10,7 @@
       <AppButton class="chat-new" :pressed="!selected" variant="subtle" size="xs" title="Начать новый чат" @click="$emit('select', null)">+ Новый чат</AppButton>
     </nav>
     <div class="chat-body">
-      <ChatView v-if="selected" :key="selected" :session-id="selected" :initial-content="initials[selected]" />
+      <ChatView v-if="selected" :key="selected" :session-id="selected" :workspace-id="workspaceId" :initial-content="initials[selected]" />
       <slot v-else name="new" />
     </div>
   </aside>
@@ -21,7 +21,7 @@ import { ChatView, type ContentBlock } from '@features/agent-chat'
 import AppButton from '@shared/ui/AppButton.vue'
 import AppTabs from '@shared/ui/AppTabs.vue'
 // The task's analysis or planning chats as tabs: switch between them, delete one, or start a new one (the `new` slot).
-defineProps<{ label: string; chats: { id: string; title: string }[]; selected: string | null; initials: Record<string, ContentBlock[]> }>()
+defineProps<{ workspaceId?: string | null; label: string; chats: { id: string; title: string }[]; selected: string | null; initials: Record<string, ContentBlock[]> }>()
 defineEmits<{ select: [id: string | null]; remove: [id: string, name: string] }>()
 </script>
 <style scoped>

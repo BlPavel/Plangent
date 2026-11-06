@@ -283,6 +283,8 @@ export interface ProjectsEndpoints {
     }, "json", never>;
     "GET /api/projects/:id/mentions": Endpoint<"GET /api/projects/:id/mentions", never, ProjectsGETIdMentionsResponse, {
         "q"?: string;
+        "workspace"?: string;
+        "path"?: string;
     }, "json", never>;
     "POST /api/projects/clone-cancel": Endpoint<"POST /api/projects/clone-cancel", ProjectsPOSTCloneCancelBody, void, Record<string, never>, "empty", never>;
     "POST /api/projects": Endpoint<"POST /api/projects", ProjectsPOSTBody, C.Project, Record<string, never>, "json", never>;

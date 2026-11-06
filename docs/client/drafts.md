@@ -18,6 +18,13 @@ requests retain it. Delete an owner's drafts with `clear`/`clearPrefix` only aft
 successful deletion; include a trailing delimiter in prefixes to protect siblings.
 Drafts survive view remounts for this app session; they do not persist across reloads.
 
+Code drags use the `MentionDrag` format exported by agent-chat. The composer
+resolves the exact path with the mentions API in its project and workspace,
+inserts `@path`, `@folder/` or `@path:start-end` at the current selection, and
+stores the returned URI with the draft's mentions. Sending keeps line numbers
+in the text and emits a resource link to the file itself. Disk-file drops stay
+attachments. A response arriving after the owner or text changes is ignored.
+
 Use `useDocumentDraft` for document editing: retain the version editing began
 against, show StaleDraftNote when the source changes, and reload only after the
 user chooses “Взять актуальный”.

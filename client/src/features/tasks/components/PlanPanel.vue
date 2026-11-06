@@ -35,6 +35,7 @@
           </template>
           <template #end>
             <TaskChats
+              :workspace-id="workspaceId"
               class="chat-pane"
               label="План"
               :chats="planningChats"
@@ -46,6 +47,7 @@
               <template #new>
                 <NewChatPanel :draft-key="`task:${taskId}:plan-chat`"
                   :project-id="projectId"
+                  :workspace-id="workspaceId"
                   :default-agent-id="defaultAgentId"
                   title="Планирование"
                   :text="plan ? 'Скажите, что изменить в плане. Агент изучит код и обновит план — в проекте он ничего не меняет.' : 'Опишите задачу — агент изучит код и составит план. В проекте он ничего не меняет, план появится слева.'"
@@ -132,7 +134,7 @@ import { computed, nextTick, ref } from 'vue'
 import PlanReviewPanel from './plan-review/PlanReviewPanel.vue'
 import AnalysisLinks from './AnalysisLinks.vue'
 import TaskChats from './TaskChats.vue'
-import { NewChatPanel, MessageMarkdown, type NewChatRequest, type ContentBlock } from '@features/agent-chat'
+import { NewChatPanel, MessageMarkdown, useComposerReveal, type NewChatRequest, type ContentBlock } from '@features/agent-chat'
 import AppButton from '@shared/ui/AppButton.vue'
 import AppTextarea from '@shared/ui/AppTextarea.vue'
 import SplitPane from '@shared/ui/SplitPane.vue'
@@ -142,6 +144,7 @@ const props = defineProps<{
   readonly?: boolean
   plan: Plan | null
   projectId: string
+  workspaceId?: string | null
   taskId: string
   queueFrozen: boolean
   defaultAgentId?: string | null
@@ -186,6 +189,8 @@ function focusStepCard(id: string) { if (props.planningOpen) return; reviewOpen.
 function openPlannerChat(id: string) { emit('openPlanning'); emit('selectPlanningChat', id) }
 const highlighted = ref<string[]>([])
 const planMain = ref<HTMLElement>()
+// «В чат» while the plan is shown alone: open the planning chat (its new message field when no conversation exists).
+useComposerReveal(planMain, () => props, () => { if (!props.readonly && !props.planningOpen) emit('openPlanning') })
 const reviewPanel = ref<InstanceType<typeof PlanReviewPanel>>()
 function highlightSteps(ids: string[]) {
   highlighted.value = ids
@@ -292,5 +297,4 @@ function stepsWord(n: number) {
 .checkbox-line code { flex-shrink: 0; border-color: var(--blue); color: var(--blue-hover); background: var(--blue-soft); font-weight: 600; }
 .plan-actions { display: flex; gap: 8px; }
 </style>
-
 

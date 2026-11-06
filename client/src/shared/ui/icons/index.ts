@@ -1,5 +1,6 @@
 export { default as IconAttach } from './IconAttach.vue';
 export { default as IconCheck } from './IconCheck.vue';
+export { default as IconCode } from './IconCode.vue';
 export { default as IconChevron } from './IconChevron.vue';
 export { default as IconChevronRight } from './IconChevronRight.vue';
 export { default as IconClose } from './IconClose.vue';
@@ -9,5 +10,6 @@ export { default as IconGitBranch } from './IconGitBranch.vue';
 export { default as IconPlus } from './IconPlus.vue';
 export { default as IconRefresh } from './IconRefresh.vue';
 export { default as IconSearch } from './IconSearch.vue';
+export { default as IconSidebar } from './IconSidebar.vue';
 export { default as IconTerminal } from './IconTerminal.vue';
 export { default as IconTrash } from './IconTrash.vue';

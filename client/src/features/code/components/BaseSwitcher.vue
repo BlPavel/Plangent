@@ -23,11 +23,10 @@ import AppButton from '@shared/ui/AppButton.vue'
 import AppSegmented from '@shared/ui/AppSegmented.vue'
 import BranchSelect from '@shared/ui/BranchSelect.vue'
 import AppSelect from '@shared/ui/AppSelect.vue'
-import { useGitStore } from '../stores/git'
-import { useCodeStore } from '../stores/code'
+import { useCodeContext, useGitContext } from '../stores/context'
 
 /** What the changes list shows: the folder against HEAD, the review's rounds, or the branch against another one. */
-const store = useCodeStore(), git = useGitStore()
+const store = useCodeContext(), git = useGitContext()
 const remoteBranches = computed(() => {
   const list = git.branches.filter(b => b.remote)
   // A ref typed before the last fetch stays selectable.

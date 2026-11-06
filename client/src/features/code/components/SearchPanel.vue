@@ -29,14 +29,14 @@
         <div class="sp-window" :style="{ transform: `translateY(${first * ROW}px)` }">
           <template v-for="index in visible" :key="rows[index].key">
             <div v-if="rows[index].kind === 'heading'" class="sp-heading">{{ rows[index].label }}</div>
-            <AppButton v-else-if="rows[index].kind === 'path'" variant="subtle" size="xs" block :title="rows[index].path" @click="emit('open', rows[index].path)">
+            <AppButton v-else-if="rows[index].kind === 'path'" draggable="true" @dragstart="dragMention($event, rows[index].path)" variant="subtle" size="xs" block :title="rows[index].path" @click="emit('open', rows[index].path)">
               <!-- eslint-disable-next-line vue/no-v-html -- bundled icon set, not user input -->
               <span class="sp-icon" v-html="iconSvg(fileIconName(rows[index].path.split('/').pop() ?? ''))" />
               <!-- eslint-disable-next-line vue/no-v-html -- escaped text with <mark> only -->
               <span class="sp-file-name" v-html="rows[index].html" />
               <span class="sp-file-dir">{{ dirOf(rows[index].path) }}</span>
             </AppButton>
-            <AppButton v-else-if="rows[index].kind === 'file'" variant="subtle" size="xs" block :title="rows[index].path" @click="toggle(rows[index].path)">
+            <AppButton v-else-if="rows[index].kind === 'file'" draggable="true" @dragstart="dragMention($event, rows[index].path)" variant="subtle" size="xs" block :title="rows[index].path" @click="toggle(rows[index].path)">
               <span class="sp-chevron" :class="{ open: !collapsed.has(rows[index].path) }">›</span>
               <!-- eslint-disable-next-line vue/no-v-html -- bundled icon set, not user input -->
               <span class="sp-icon" v-html="iconSvg(fileIconName(rows[index].path.split('/').pop() ?? ''))" />
@@ -44,7 +44,7 @@
               <span class="sp-file-dir">{{ dirOf(rows[index].path) }}</span>
               <span class="sp-count">{{ rows[index].count }}</span>
             </AppButton>
-            <AppButton v-else variant="subtle" size="xs" block @click="emit('open', rows[index].path, rows[index].line)">
+            <AppButton v-else draggable="true" @dragstart="dragMention($event, rows[index].path, false, rows[index].line)" variant="subtle" size="xs" block @click="emit('open', rows[index].path, rows[index].line)">
               <span class="sp-line">{{ rows[index].line }}</span>
               <!-- eslint-disable-next-line vue/no-v-html -- escaped text with <mark> only -->
               <span class="sp-text" v-html="rows[index].html" />
@@ -57,19 +57,21 @@
 </template>
 
 <script setup lang="ts">
+import { useMentionDrag } from '../composables/useMentionDrag'
 import AppInput from '@shared/ui/AppInput.vue'
 import AppButton from '@shared/ui/AppButton.vue'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { fileIconName, findInLine, findPattern, iconSvg, markHtml } from '@shared/code-viewer'
-import { useCodeStore } from '../stores/code'
+import { useCodeContext } from '../stores/context'
 
+const dragMention = useMentionDrag()
 const ROW = 22
 const OVERSCAN = 10
 const MAX_TEXT = 240
 
 const MAX_PATHS = 50
 const emit = defineEmits<{ open: [path: string, line?: number] }>()
-const store = useCodeStore()
+const store = useCodeContext()
 const input = ref<InstanceType<typeof AppInput>>()
 const scroller = ref<HTMLElement>()
 const query = ref('')

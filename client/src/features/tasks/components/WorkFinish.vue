@@ -11,6 +11,7 @@
   </div>
 </template>
 <script setup lang="ts">
+import { useCodeScreen } from '@core/composables/useCodeScreen'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import type { Task, Workspace } from '@contracts'
 import { useAppStore } from '@core/stores/app'
@@ -18,6 +19,8 @@ import { useGitStore } from '@features/code'
 import { FinishPanel } from '@features/finish'
 import AppButton from '@shared/ui/AppButton.vue'
 import { useWorkActions } from '../composables/useWorkActions'
+
+useCodeScreen()
 
 const props = defineProps<{ task: Task; workspace?: Workspace | null }>()
 const emit = defineEmits<{ closed: [Task] }>()

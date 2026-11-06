@@ -9,6 +9,9 @@ export { useChatStore, statusLabel, statusTone, type ChatSession } from './store
 export { modelAndEffort } from './utils/agent-options'
 export { default as SuggestMenu, type SuggestItem } from './components/SuggestMenu.vue'
 export { useMentionFiles } from './composables/useMentionFiles'
+export { MENTION_DRAG_TYPE, mentionText, readMentionDrag, writeMentionDrag, type MentionDrag } from './utils/mention-drag'
+export { useComposerTargetsStore } from './stores/composer-targets'
+export { useComposerReveal } from './composables/useComposerReveal'
 export { default as UsageMeter, type UsageInfo } from './components/UsageMeter.vue'
 
 export { agentChatEndpoints } from './api'

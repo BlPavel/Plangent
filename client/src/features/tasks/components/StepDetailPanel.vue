@@ -18,7 +18,7 @@
       </div>
     </header>
 
-    <ChatView v-if="chatId" :key="chatId" class="chat" :session-id="chatId" />
+    <ChatView v-if="chatId" :key="chatId" class="chat" :session-id="chatId" :workspace-id="workspaceId" />
     <AppEmptyState small v-else >
       {{ emptyText }}
     </AppEmptyState>
@@ -39,7 +39,7 @@ import { TaskQueueKey, liveSessionMenu } from '../composables/useTaskQueue'
 import { pointsLabel, remarksLabel, sessionState } from '../utils/queue-status'
 
 
-const props = defineProps<{ session?: OrchestratorQueueSession; stageNumber: number; agents: Agent[]; steps: PlanStep[] }>()
+const props = defineProps<{ workspaceId?: string | null; session?: OrchestratorQueueSession; stageNumber: number; agents: Agent[]; steps: PlanStep[] }>()
 
 const queue = inject(TaskQueueKey)!
 const chatStore = useChatStore()

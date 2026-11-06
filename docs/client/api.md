@@ -27,6 +27,13 @@ Preserve AbortSignal and structured errors when wrapping requests. Low-level
 `api`, `workspaceApi` and endpoint bindings are used only in feature `api.ts`
 (their implementation is internal to core transport).
 
+Chat hosts pass the work's `workspaceId` through `ChatView` / `NewChatPanel` to
+`ChatComposer`. Mention search sends it as `workspace` to
+`GET /api/projects/:id/mentions`; omitting it explicitly means the main project
+folder, independent of the global viewing selection. An optional `path` query
+resolves one existing file or directory safely in the same folder instead of
+running fuzzy search. Reference searches by `key/…` keep their own roots.
+
 `npm run lint` enforces the transport boundary and type-only contract imports;
 `npm run typecheck` checks request/response shapes, `npm run check:routes` compares
 server registrations, and `npm run test:ui-primitives` tests transport behavior.

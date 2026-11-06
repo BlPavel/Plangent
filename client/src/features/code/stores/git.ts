@@ -4,7 +4,7 @@ import { onServerEvent } from '@core/api/events'
 import { gitApi } from '../api'
 import type { GitTracking, GitBranch, GitPreferences, Coauthor } from '../git-types'
 
-export const useGitStore = defineStore('code-git', () => {
+export const useGitStore = (instance = 'main') => defineStore(instance === 'main' ? 'code-git' : 'code-git:' + instance, () => {
   const projectId = ref(''), workspaceId = ref<string | undefined>(), repository = ref<GitTracking | null>(null), branches = ref<GitBranch[]>([])
   const settings = ref<GitPreferences | null>(null), coauthors = ref<Coauthor[]>([])
   /** lastAction lets each panel show the result of its own operation (commit — in the commit panel, the rest — in the header). */
@@ -87,4 +87,4 @@ export const useGitStore = defineStore('code-git', () => {
   /** Hides the result of the finished operation. */
   function dismiss() { if (!operationId.value) { error.value = ''; output.value = ''; lastAction.value = '' } }
   return { projectId, workspaceId, repository, branches, settings, coauthors, operationId, output, error, lastAction, blocked, operationBlock, writeBlocked, baseRef, start, stop, refresh, refreshBranches, run, cancel, dismiss }
-})
+})()

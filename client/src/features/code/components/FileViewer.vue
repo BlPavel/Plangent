@@ -24,7 +24,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { CodeView, parseUnifiedDiff, type CodeSide, type DiffHunk, type LineMarker, type LineSelection, type ViewerFile } from '@shared/code-viewer'
 import { codeApi } from '../api'
-import { useCodeStore } from '../stores/code'
+import { useCodeContext } from '../stores/context'
 
 const props = withDefaults(defineProps<{
   projectId: string
@@ -41,7 +41,7 @@ defineSlots<{
 }>()
 const mode = defineModel<'diff' | 'file'>('mode', { default: 'file' })
 
-const store = useCodeStore()
+const store = useCodeContext()
 const view = ref<InstanceType<typeof CodeView>>()
 const hunks = ref<DiffHunk[] | undefined>()
 const loadError = ref<string | null>(null)

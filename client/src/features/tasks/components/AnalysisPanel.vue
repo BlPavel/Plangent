@@ -1,5 +1,5 @@
 <template>
-  <div class="analysis-tab" :class="{ readonly: done, 'chat-hidden': chatHidden }">
+  <div ref="root" class="analysis-tab" :class="{ readonly: done, 'chat-hidden': chatHidden }">
     <header class="analysis-bar">
       <span class="section-label">Документ анализа</span>
       <span v-if="sections.length" class="analysis-meta">
@@ -45,9 +45,9 @@
         </template>
       </section>
 
-      <TaskChats v-if="!done" class="analysis-chat-pane" label="Анализ" :chats="chats" :selected="selectedChat" :initials="initials" @select="$emit('selectChat', $event)" @remove="(id, name) => $emit('removeChat', id, name)">
+      <TaskChats :workspace-id="workspaceId" v-if="!done" class="analysis-chat-pane" label="Анализ" :chats="chats" :selected="selectedChat" :initials="initials" @select="$emit('selectChat', $event)" @remove="(id, name) => $emit('removeChat', id, name)">
         <template #new>
-          <NewChatPanel :draft-key="`task:${taskId}:analysis-chat`" :project-id="projectId" :default-agent-id="defaultAgentId" title="Анализ задачи" text="Обсудите материалы. Агент сохранит результаты в разделы анализа." fixed-policy="read-only" :busy="launching" :error="launchError" @start="$emit('launch', $event)" />
+          <NewChatPanel :draft-key="`task:${taskId}:analysis-chat`" :project-id="projectId" :workspace-id="workspaceId" :default-agent-id="defaultAgentId" title="Анализ задачи" text="Обсудите материалы. Агент сохранит результаты в разделы анализа." fixed-policy="read-only" :busy="launching" :error="launchError" @start="$emit('launch', $event)" />
         </template>
       </TaskChats>
     </div>
@@ -66,15 +66,18 @@ import { useDraftsStore } from '@core/stores/drafts'
 import { useDraft } from '@core/composables/useDraft'
 import { ref, watch } from 'vue'
 const chatHidden = ref(false)
+const root = ref<HTMLElement>()
 import { tasksEndpoints } from '../api'
 import { useAppStore } from '@core/stores/app'
 import type { AnalysisSection, AnalysisFile } from '@contracts'
-import { NewChatPanel, type NewChatRequest, type ContentBlock } from '@features/agent-chat'
+import { NewChatPanel, useComposerReveal, type NewChatRequest, type ContentBlock } from '@features/agent-chat'
 import AppButton from '@shared/ui/AppButton.vue'
 import AnalysisSectionGroup from './AnalysisSectionGroup.vue'
 import AnalysisFileView from './AnalysisFileView.vue'
 import TaskChats from './TaskChats.vue'
-const props = defineProps<{ projectId: string; taskId: string; defaultAgentId?: string | null; sections: AnalysisSection[]; done: boolean; lockedReason: string; highlights: string[]; opened: string | null; openFile?: string; agentRevision: number; chats: { id: string; title: string }[]; selectedChat: string | null; initials: Record<string, ContentBlock[]>; launching: boolean; launchError: string }>()
+const props = defineProps<{ projectId: string; workspaceId?: string | null; taskId: string; defaultAgentId?: string | null; sections: AnalysisSection[]; done: boolean; lockedReason: string; highlights: string[]; opened: string | null; openFile?: string; agentRevision: number; chats: { id: string; title: string }[]; selectedChat: string | null; initials: Record<string, ContentBlock[]>; launching: boolean; launchError: string }>()
+// «В чат» with the chat folded away: unfold it; without a conversation it shows the new message field.
+useComposerReveal(root, () => props, () => { if (!props.done) chatHidden.value = false })
 const emit = defineEmits<{ reload: []; selectChat: [id: string | null]; removeChat: [id: string, name: string]; launch: [request: NewChatRequest] }>()
 const app = useAppStore()
 const kinds = ['source', 'worked'] as const

@@ -1,7 +1,7 @@
 <template>
   <div :role="segmented ? 'group' : 'tablist'" :aria-label="label" :aria-orientation="variant === 'side' ? 'vertical' : 'horizontal'" class="tabs" :class="[variant, { segmented, rich, bare }]">
     <template v-for="item in items" :key="item.value">
-      <div v-if="rich" role="tab" :data-id="item.value" :aria-selected="modelValue === item.value" :aria-disabled="item.disabled || undefined" :title="item.title" :tabindex="modelValue === item.value || (!items.some(i => i.value === modelValue && !i.disabled) && items.find(i => !i.disabled) === item) ? 0 : -1" :class="{ active: modelValue === item.value, disabled: item.disabled }" @click="!item.disabled && emit('update:modelValue', item.value)" @dblclick="emit('tab-dblclick', item.value)" @contextmenu.prevent="emit('tab-contextmenu', item.value, $event)" @mousedown.middle.prevent="emit('tab-middle', item.value)" @keydown="key($event, item.value)"><slot name="item" :item="item">{{ item.label }}</slot></div>
+      <div v-if="rich" :draggable="draggable && !item.disabled" @dragstart="emit('tab-dragstart', item.value, $event)" role="tab" :data-id="item.value" :aria-selected="modelValue === item.value" :aria-disabled="item.disabled || undefined" :title="item.title" :tabindex="modelValue === item.value || (!items.some(i => i.value === modelValue && !i.disabled) && items.find(i => !i.disabled) === item) ? 0 : -1" :class="{ active: modelValue === item.value, disabled: item.disabled }" @click="!item.disabled && emit('update:modelValue', item.value)" @dblclick="emit('tab-dblclick', item.value)" @contextmenu.prevent="emit('tab-contextmenu', item.value, $event)" @mousedown.middle.prevent="emit('tab-middle', item.value)" @keydown="key($event, item.value)"><slot name="item" :item="item">{{ item.label }}</slot></div>
       <button v-else type="button" :role="segmented ? undefined : 'tab'" :aria-selected="segmented ? undefined : modelValue === item.value" :aria-pressed="segmented ? modelValue === item.value : undefined" :disabled="item.disabled" :title="item.title" :tabindex="modelValue === item.value || (!items.some(i => i.value === modelValue && !i.disabled) && items.find(i => !i.disabled) === item) ? 0 : -1" :class="{ active: modelValue === item.value }" @click="emit('update:modelValue', item.value)" @keydown="key($event, item.value)">{{ item.label }}<AppCount v-if="item.count !== undefined" :value="item.count" /></button>
     </template>
   </div>
@@ -20,6 +20,7 @@ const props = withDefaults(defineProps<{
     label?: string;
     segmented?: boolean;
     rich?: boolean;
+    draggable?: boolean;
     /** No bottom line, for tabs that sit inside a bar which draws its own. */
     bare?: boolean;
 }>(), { variant: 'line' });
@@ -27,6 +28,7 @@ const emit = defineEmits<{
     'tab-dblclick': [value: string];
     'tab-contextmenu': [value: string, event: MouseEvent];
     'tab-middle': [value: string];
+    'tab-dragstart': [value: string, event: DragEvent];
     'update:modelValue': [
         value: string
     ];

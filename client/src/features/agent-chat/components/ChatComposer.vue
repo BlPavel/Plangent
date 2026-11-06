@@ -1,5 +1,5 @@
 <template>
-  <form class="chat-composer" :class="{ focused, dragging }" @submit.prevent="submit" @dragover.prevent="dragging = true" @dragleave="dragging = false" @drop.prevent="drop">
+  <form ref="root" class="chat-composer" :class="{ focused, dragging, flashing }" @submit.prevent="submit" @dragover="dragover" @dragleave="dragleave" @drop.prevent="drop">
     <SuggestMenu
       v-if="suggest"
       :anchor="input"
@@ -26,11 +26,11 @@
       v-model="text"
       rows="1"
       :placeholder="placeholder"
-      @input="changed"
+      @input="typed"
       @keydown="keydown"
       @click="detect"
       @keyup="caretMoved"
-      @focus="focused = true"
+      @focus="focused = true; touch()"
       @blur="blur"
       @paste="paste"
     />
@@ -64,10 +64,13 @@ import { IconAttach as UIIconAttach } from '@shared/ui/icons'
 import AppChip from '@shared/ui/AppChip.vue'
 import AppInput from '@shared/ui/AppInput.vue'
 import AppTextarea from '@shared/ui/AppTextarea.vue'
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useMentionFiles } from '../composables/useMentionFiles'
+import { projectsEndpoints } from '@features/projects'
+import { MENTION_DRAG_TYPE, mentionText, readMentionDrag, type MentionDrag } from '../utils/mention-drag'
 import { useDraft } from '@core/composables/useDraft'
 import { emptyDraft } from '../stores/drafts'
+import { useComposerTargetsStore, type ComposerTarget } from '../stores/composer-targets'
 import { commandSuggestions, type ChatCommand } from '../utils/commands'
 import AppButton from '@shared/ui/AppButton.vue'
 import SuggestMenu, { type SuggestItem } from './SuggestMenu.vue'
@@ -76,13 +79,14 @@ export type ContentBlock = NonNullable<import('@contracts').AgentSessionsPOSTIdA
 
 const props = withDefaults(defineProps<{
   projectId: string
+  workspaceId?: string | null
   draftKey: string
   commands?: ChatCommand[]
   busy?: boolean
   disabled?: boolean
   initialText?: string
   placeholder?: string
-}>(), { initialText: undefined, commands: () => [], busy: false, disabled: false, placeholder: 'Напишите агенту…  @ — файл, / — команда' })
+}>(), { workspaceId: undefined, initialText: undefined, commands: () => [], busy: false, disabled: false, placeholder: 'Напишите агенту…  @ — файл, / — команда' })
 const emit = defineEmits<{ send: [content: ContentBlock[]]; cancel: []; error: [message: string] }>()
 
 const inputComponent = ref<InstanceType<typeof AppTextarea>>()
@@ -92,12 +96,13 @@ const draft = useDraft(() => props.draftKey, () => emptyDraft(props.initialText)
 const text = computed({ get: () => draft.value.text, set: value => { draft.value.touched = true; draft.value.text = value } })
 watch(() => props.initialText, value => { if (value !== undefined && !draft.value.touched && !draft.value.attachments.length) draft.value.text = value })
 const attachments = computed({ get: () => draft.value.attachments, set: value => { draft.value.attachments = value } })
-const focused = ref(false), dragging = ref(false)
+const root = ref<HTMLElement>()
+const focused = ref(false), dragging = ref(false), flashing = ref(false)
 const canSend = computed(() => !!text.value.trim() || attachments.value.length > 0)
 
 // ── @files and /commands suggestions ──────────────────────────────────────
 const suggest = ref<{ kind: 'file' | 'command'; start: number; end: number; query: string } | null>(null)
-const { files, suggestions: fileSuggestions, loading: loadingFiles, search: searchFiles, clear: clearFiles } = useMentionFiles(() => props.projectId)
+const { files, suggestions: fileSuggestions, loading: loadingFiles, search: searchFiles, clear: clearFiles } = useMentionFiles(() => props.projectId, () => props.workspaceId)
 const active = ref(0)
 const mentions = computed(() => draft.value.mentions) // inserted path -> file URI
 let dismissedAt = -1
@@ -203,7 +208,8 @@ function submit() {
   const links: ContentBlock[] = []
   const seen = new Set<string>()
   for (const match of value.matchAll(/(?:^|\s)@(\S+)/g)) {
-    const path = match[1].replace(/\/$/, '')
+    const token = match[1].replace(/\/$/, '')
+    const path = mentions.value.has(token) ? token : token.replace(/:\d+(?:-\d+)?$/, '')
     const uri = mentions.value.get(path)
     if (uri && !seen.has(path)) { seen.add(path); links.push({ type: 'resource_link', uri, name: path }) }
   }
@@ -227,7 +233,73 @@ async function addFiles(list: File[]) {
   }
 }
 function filesSelected(event: Event) { const el = event.target as HTMLInputElement; void addFiles(Array.from(el.files ?? [])); el.value = '' }
-function drop(event: DragEvent) { dragging.value = false; void addFiles(Array.from(event.dataTransfer?.files ?? [])) }
+function dragover(event: DragEvent) {
+  if (!event.dataTransfer?.types.some(type => type === MENTION_DRAG_TYPE || type === 'Files')) return
+  event.preventDefault()
+  dragging.value = true
+  event.dataTransfer.dropEffect = 'copy'
+}
+function dragleave(event: DragEvent) {
+  if (!(event.relatedTarget instanceof Node) || !(event.currentTarget as HTMLElement).contains(event.relatedTarget)) dragging.value = false
+}
+async function drop(event: DragEvent) {
+  dragging.value = false
+  const transfer = event.dataTransfer
+  if (!transfer?.types.includes(MENTION_DRAG_TYPE)) { void addFiles(Array.from(transfer?.files ?? [])); return }
+  const mention = readMentionDrag(transfer)
+  if (!mention || props.disabled) return
+  void insertMention(mention)
+}
+
+/** Resolves the exact path in the field's own folder and puts `@path` at the caret; false when nothing was inserted. */
+async function insertMention(mention: MentionDrag): Promise<boolean> {
+  if (mention.projectId !== props.projectId || mention.workspaceId !== (props.workspaceId ?? null)) {
+    emit('error', 'Упоминание относится к другой рабочей папке')
+    return false
+  }
+  const target = draft.value
+  const projectId = props.projectId, workspaceId = props.workspaceId, draftKey = props.draftKey
+  const before = text.value
+  const start = input.value?.selectionStart ?? before.length
+  const end = input.value?.selectionEnd ?? start
+  try {
+    const rows = await projectsEndpoints.getProjectsByIdMentions({ params: { id: projectId }, query: { path: mention.path, workspace: workspaceId ?? undefined } })
+    if (draft.value !== target || props.draftKey !== draftKey || props.projectId !== projectId || props.workspaceId !== workspaceId || text.value !== before) return false
+    const hit = rows.find(row => row.path.replace(/\/$/, '') === mention.path.replace(/\/$/, '') && row.dir === mention.dir)
+    if (!hit) { emit('error', 'Файл или папка для упоминания не найдены'); return false }
+    const path = hit.path.replace(/\/$/, '')
+    mentions.value.set(path, hit.uri)
+    suggest.value = null
+    clearFiles()
+    await replaceRange(start, end, `${start > 0 && !/\s/.test(before[start - 1]) ? ' ' : ''}${mentionText({ ...mention, path })} `)
+    return true
+  } catch (cause) {
+    if (draft.value === target) emit('error', cause instanceof Error ? cause.message : String(cause))
+    return false
+  }
+}
+
+// ── «В чат» from the code panel ───────────────────────────────────────────
+const composerTargets = useComposerTargetsStore()
+const entry: ComposerTarget = composerTargets.register({
+  projectId: () => props.projectId,
+  workspaceId: () => props.workspaceId ?? null,
+  visible: () => !!root.value && root.value.getClientRects().length > 0,
+  insert: async mention => {
+    const done = await insertMention(mention)
+    if (done) flash()
+    return done
+  },
+})
+const touch = () => composerTargets.touch(entry)
+function typed() { touch(); changed() }
+let flashTimer: ReturnType<typeof setTimeout> | undefined
+function flash() {
+  flashing.value = true
+  clearTimeout(flashTimer)
+  flashTimer = setTimeout(() => { flashing.value = false }, 1200)
+}
+onBeforeUnmount(() => { composerTargets.unregister(entry); clearTimeout(flashTimer) })
 function paste(event: ClipboardEvent) { if (event.clipboardData?.files.length) { event.preventDefault(); void addFiles(Array.from(event.clipboardData.files)) } }
 
 watch(() => props.projectId, () => { clearFiles() })
@@ -251,6 +323,7 @@ defineExpose({
   transition: border-color var(--motion-fast), box-shadow var(--motion-fast);
 }
 .chat-composer.focused { border-color: var(--blue); box-shadow: 0 0 0 3px var(--blue-soft); }
+.chat-composer.flashing { border-color: var(--blue); box-shadow: 0 0 0 3px var(--blue-soft); }
 .chat-composer.dragging { border-style: dashed; border-color: var(--blue-hover); }
 .toolbar { display: flex; align-items: flex-end; gap: 8px; padding: 4px 8px 8px; }
 .tools { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 2px; }

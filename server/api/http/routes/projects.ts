@@ -8,10 +8,13 @@ import { broadcast } from '../../../core/shared/events';
 import { GitOperationError } from '../../../core/git/repo/operations';
 import { Router, Request, Response, NextFunction } from 'express';
 import path from 'path';
+import fs from 'node:fs/promises';
 import { pathToFileURL } from 'url';
 import { listProjects, getProject, getProjectByKey, createProjectFromFolder, ExistingCloneError, updateProject, deleteProject, groupMembers, inspectProjectGit, ProjectError } from '../../../core/projects';
 import { effectiveGitSettings, globalGitSettings, saveGlobalGitSettings } from '../../../core/settings';
-import { searchFiles } from '../../../core/files/mentions';
+import { searchFiles, resolveProjectPath } from '../../../core/files';
+import { rootForViewing } from '../../../core/workspaces';
+import { DomainError } from '../../../models/domain-error';
 import { resyncAfterRegroup } from '../../../core/library/syncer';
 import { listProjectsWithActiveTasks } from '../../../core/projects';
 import { docsRouter } from './docs-sources';
@@ -66,6 +69,17 @@ projectsRouterRoutes.json('GET /api/projects/:id/mentions', async (req, res) => 
   if (!project) return res.status(404).json({ error: 'Not found' });
   const q = (typeof req.query.q === 'string' ? req.query.q : '').replace(/\\/g, '/');
   try {
+    if (req.query.path !== undefined && typeof req.query.path !== 'string') throw new DomainError('Invalid path');
+    // An omitted workspace means the main folder, regardless of the global viewing selection.
+    const directory = rootForViewing(project.id, req.query.workspace ?? null);
+    if (typeof req.query.path === 'string') {
+      let target: string;
+      try { target = resolveProjectPath(directory, req.query.path); }
+      catch { throw new DomainError('Invalid project path'); }
+      const stat = await fs.stat(target);
+      const relative = path.relative(await fs.realpath(directory), target).replace(/\\/g, '/');
+      return res.json([{ path: relative + (stat.isDirectory() ? '/' : ''), dir: stat.isDirectory(), uri: pathToFileURL(target).href }]);
+    }
     const slash = q.indexOf('/');
     const inside = slash > 0 ? getProjectByKey(q.slice(0, slash)) : null;
     if (inside && inside.id !== project.id) {
@@ -79,11 +93,14 @@ projectsRouterRoutes.json('GET /api/projects/:id/mentions', async (req, res) => 
     const needle = q.toLowerCase();
     const matches = (p: Project) => !needle || p.key!.includes(needle) || p.name.toLowerCase().includes(needle);
     const members = project.kind === 'group' ? groupMembers(project.id) : [];
-    const own: Mention[] = project.kind === 'group' ? members.filter(matches).map(p => root(p, false)) : await searchFiles(project.repo_path, q);
+    const own: Mention[] = project.kind === 'group' ? members.filter(matches).map(p => root(p, false)) : await searchFiles(directory, q);
     const refs = listProjects().filter(p => p.kind !== 'group' && p.id !== project.id && !members.some(m => m.id === p.id) && matches(p))
       .sort((a, b) => Number(b.kind === 'source') - Number(a.kind === 'source') || a.key!.localeCompare(b.key!)).map(p => root(p));
     res.json([...own, ...refs]);
-  } catch (e) { res.status(500).json({ error: String(e) }); }
+  } catch (e) {
+    const status = e instanceof DomainError ? e.status : (e as NodeJS.ErrnoException).code === 'ENOENT' ? 404 : 500;
+    res.status(status).json({ error: status === 500 ? 'Mention lookup failed' : (e as Error).message });
+  }
 });
 
 const clones = new Map<string, AbortController>();

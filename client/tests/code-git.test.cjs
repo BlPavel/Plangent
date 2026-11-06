@@ -113,6 +113,8 @@ test('changes list splits tracked and new files and stages a whole group', async
   ]
   const comp = component('client/src/features/code/components/ChangesList.vue', {
     '@shared/code-viewer': { fileIconName: () => '', iconSvg: () => '' },
+    '@features/agent-chat': require('./client-test-loader.cjs').loader()('client/src/features/agent-chat/utils/mention-drag.ts'),
+    '../stores/context': { useCodeContext: () => ({ projectId: 'p', workspaceId: 'work' }) },
   })
   const screen = mount(comp, {
     changes, stats: {}, selected: null, emptyText: '', stageable: true,
@@ -125,6 +127,12 @@ test('changes list splits tracked and new files and stages a whole group', async
     toggle(screen.root.querySelector('[aria-label="К коммиту: Отслеживаемые"]'), true)
     assert.equal(JSON.stringify(many), JSON.stringify([[['src/a.ts', 'src/b.ts'], true]]), 'a partly ticked group is ticked whole')
     screen.root.querySelector('.cl-row').click(); assert.deepEqual(opened, ['src/a.ts'])
+    const data = new Map()
+    const drag = new window.Event('dragstart', { bubbles: true })
+    drag.dataTransfer = { setData: (type, value) => data.set(type, value) }
+    screen.root.querySelector('.cl-row').dispatchEvent(drag)
+    assert.equal(data.get('text/plain'), '@src/a.ts')
+    assert.equal(JSON.parse(data.get('application/x-plangent-mention')).workspaceId, 'work')
     assert.equal(screen.root.textContent.includes('Просмотрено'), false)
   } finally { screen.close() }
 })
@@ -318,4 +326,89 @@ test('commit draft survives tab remounts and stays separate for each workspace',
   await nextTick()
   assert.equal(view.root.querySelector('textarea').value, '')
   view.close()
+})
+
+
+test('code contexts use the owner stores and fall back to the main instance', () => {
+  const main = reactive({ name: 'main' }), side = reactive({ name: 'side' })
+  const mainGit = reactive({ name: 'main-git' }), sideGit = reactive({ name: 'side-git' })
+  const context = require('./client-test-loader.cjs').loader({
+    './code': { useCodeStore: () => main }, './git': { useGitStore: () => mainGit },
+  })('client/src/features/code/stores/context.ts')
+  const Child = { setup() { const code = context.useCodeContext(), git = context.useGitContext(); return () => h('span', code.name + ':' + git.name) } }
+  const Owner = { setup() { context.provideCodeStores(side, sideGit); return () => h(Child) } }
+  const screen = mount({ render: () => h('div', [h(Child), h(Owner)]) })
+  try { assert.equal(screen.root.textContent, 'main:main-gitside:side-git') } finally { screen.close() }
+})
+
+test('code screen count survives overlapping mounts and returns to zero after navigation', () => {
+  const state = reactive({ codeScreenCount: 0 })
+  const { useCodeScreen } = require('./client-test-loader.cjs').loader({
+    '@core/stores/app': { useAppStore: () => state },
+  })('client/src/core/composables/useCodeScreen.ts')
+  const Screen = { setup() { useCodeScreen(); return () => h('div') } }
+  const first = mount(Screen), second = mount(Screen)
+  assert.equal(state.codeScreenCount, 2)
+  first.close(); assert.equal(state.codeScreenCount, 1)
+  second.close(); assert.equal(state.codeScreenCount, 0)
+  const returned = mount(Screen)
+  assert.equal(state.codeScreenCount, 1)
+  returned.close(); assert.equal(state.codeScreenCount, 0)
+})
+
+test('named git stores keep their branches and lifecycle separate', async () => {
+  const handlers = new Set()
+  const { useGitStore } = require('./client-test-loader.cjs').loader({
+    '@core/api/events': { onServerEvent: fn => { handlers.add(fn); return () => handlers.delete(fn) } },
+    '../api': { gitApi: {
+      repository: async (_p, w) => ({ branch: w }), branches: async (_p, w) => [{ name: w, remote: false }],
+      settings: async () => ({}), coauthors: async () => [],
+    } },
+  })('client/src/features/code/stores/git.ts')
+  const main = useGitStore(), side = useGitStore('side')
+  await main.start('p', 'first'); await side.start('p', 'second')
+  assert.equal(main.repository.branch, 'first')
+  assert.equal(side.repository.branch, 'second')
+  main.stop()
+  assert.equal(handlers.size, 1)
+  await side.refresh()
+  assert.equal(side.branches[0].name, 'second')
+  assert.equal(side.workspaceId, 'second')
+  side.stop(); assert.equal(handlers.size, 0)
+})
+
+
+test('tree paths, file tabs and search hits produce references with their owning workspace', async () => {
+  const load = require('./client-test-loader.cjs').loader
+  const mentions = load()('client/src/features/agent-chat/utils/mention-drag.ts')
+  const code = reactive({ projectId: 'p', workspaceId: 'work', files: ['src/a.ts'], matches: [{ path: 'src/a.ts', line: 12, text: 'match' }], cancelSearch() {}, clearSearch() {}, search() {} })
+  const mocks = {
+    '@features/agent-chat': mentions,
+    '../stores/context': { useCodeContext: () => code },
+    '@shared/code-viewer': { fileIconName: () => '', iconSvg: () => '', ...load()('client/src/shared/code-viewer/find.ts') },
+  }
+  const modules = load(mocks, { ResizeObserver: class { observe() {} disconnect() {} } })
+  const drag = element => {
+    assert.equal(element.getAttribute('draggable'), 'true')
+    const values = new Map()
+    const dataTransfer = { setData: (type, value) => values.set(type, value), getData: type => values.get(type) || '' }
+    const event = new window.Event('dragstart', { bubbles: true }); event.dataTransfer = dataTransfer
+    element.dispatchEvent(event)
+    return mentions.readMentionDrag(dataTransfer)
+  }
+  const Tree = modules('client/src/shared/code-viewer/FileTree.vue').default
+  const tree = mount(Tree, { trees: { '': [{ name: 'src', path: 'src', directory: true, changes: 0 }] }, draggable: true,
+    onDragPath: (event, path, dir) => mentions.writeMentionDrag(event.dataTransfer, { projectId: 'p', workspaceId: 'work', path, dir }) })
+  try { const payload = drag(tree.root.querySelector('[role=treeitem]')); assert.equal(payload.path, 'src'); assert.equal(payload.dir, true) }
+  finally { tree.close() }
+  const tabs = mount(modules('client/src/features/code/components/CodeFileTabs.vue').default, { files: [{ path: 'src/a.ts' }], active: 'src/a.ts', statuses: {} })
+  try { const payload = drag(tabs.root.querySelector('[role=tab]')); assert.equal(payload.path, 'src/a.ts'); assert.equal(payload.workspaceId, 'work') }
+  finally { tabs.close() }
+  const search = mount(modules('client/src/features/code/components/SearchPanel.vue').default)
+  try {
+    const payload = drag(search.root.querySelector('.sp-line').closest('button'))
+    assert.equal(payload.startLine, 12); assert.equal(payload.path, 'src/a.ts'); assert.equal(payload.workspaceId, 'work')
+    const file = drag(search.root.querySelector('.sp-file-name').closest('button'))
+    assert.equal(file.startLine, undefined); assert.equal(file.path, 'src/a.ts')
+  } finally { search.close() }
 })

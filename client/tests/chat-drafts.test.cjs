@@ -10,6 +10,7 @@ Object.defineProperty(window.HTMLTextAreaElement.prototype, 'value', {
   get() { return this.testValue ?? '' },
   set(value) { this.testValue = String(value) },
 })
+window.HTMLTextAreaElement.prototype.setSelectionRange = function(start, end) { this.selectionStart = start; this.selectionEnd = end }
 const { createApp, h, reactive, nextTick } = require('vue')
 global.requestAnimationFrame = fn => setTimeout(fn, 0)
 global.cancelAnimationFrame = clearTimeout
@@ -27,7 +28,7 @@ const compiled = (async () => {
         const { descriptor } = parse(fs.readFileSync(args.path, 'utf8'), { filename: args.path })
         let contents = compileScript(descriptor, { id: args.path, inlineTemplate: true }).content
         if (args.path === entry) contents = "import { useDraftsStore } from '@core/stores/drafts';\n" + contents;
-        if (args.path === entry) contents += '\nexport { useDraftsStore as testDraftsStore }'
+        if (args.path === entry) contents += '\nexport { useDraftsStore as testDraftsStore }; export { writeMentionDrag, readMentionDrag } from "../utils/mention-drag"'
         return { contents, loader: 'ts', resolveDir: path.dirname(args.path) }
       })
     } }],
@@ -43,16 +44,16 @@ async function harness(initialProps) {
   const { default: Composer, testDraftsStore } = await compiled
   const pinia = createPinia()
   const props = reactive({ projectId: 'project-a', ...initialProps })
-  const sent = []
+  const sent = [], errors = []
   let app
   function mount() {
-    app = createApp({ render: () => h(Composer, { ...props, onSend: content => sent.push(content) }) })
+    app = createApp({ render: () => h(Composer, { ...props, onSend: content => sent.push(content), onError: message => errors.push(message) }) })
     app.use(pinia)
     app.mount('#app')
   }
   mount()
   return {
-    props, sent, store: { ...testDraftsStore(pinia), get: (key) => testDraftsStore(pinia).get(key, () => ({ text: '', touched: false, attachments: [], mentions: new Map() })) },
+    props, sent, errors, store: { ...testDraftsStore(pinia), get: (key) => testDraftsStore(pinia).get(key, () => ({ text: '', touched: false, attachments: [], mentions: new Map() })) },
     unmount: () => app.unmount(),
     remount: async () => { app.unmount(); mount(); await nextTick() },
     value: () => document.querySelector('textarea').value,
@@ -156,5 +157,91 @@ test('attachments and mention links survive remount and are cleared with the sen
     ])
     assert.equal(draft.attachments.length, 0)
     assert.equal(draft.mentions.size, 0)
+  } finally { chat.unmount() }
+})
+
+function transfer() {
+  const values = new Map()
+  return { files: [], get types() { return [...values.keys()] }, setData: (type, value) => values.set(type, value), getData: type => values.get(type) ?? '' }
+}
+function dragEvent(type, data) {
+  const event = new window.Event(type, { bubbles: true, cancelable: true })
+  event.dataTransfer = data
+  document.querySelector('form').dispatchEvent(event)
+  return event
+}
+const flushDrop = async () => { await new Promise(resolve => setImmediate(resolve)); await nextTick() }
+
+test('dragged range and directory resolve in the workspace, survive remount and send file links', async () => {
+  const { writeMentionDrag } = await compiled
+  const chat = await harness({ draftKey: 'drop:work', workspaceId: 'work' })
+  const previousFetch = global.fetch, calls = []
+  global.fetch = async url => {
+    calls.push(url)
+    const path = new URL(url, 'http://localhost').searchParams.get('path').replace(/\/$/, '')
+    return { ok: true, json: async () => [{ path: path + (path === 'src' ? '/' : ''), dir: path === 'src', uri: 'file:///work/' + path }] }
+  }
+  try {
+    await chat.type('Check here')
+    document.querySelector('textarea').setSelectionRange(6, 10)
+    const range = transfer()
+    writeMentionDrag(range, { projectId: 'project-a', workspaceId: 'work', path: 'src/a.ts', dir: false, startLine: 12, endLine: 30 })
+    const over = dragEvent('dragover', range)
+    assert.equal(over.defaultPrevented, true)
+    await nextTick()
+    assert.ok(document.querySelector('form').classList.contains('dragging'))
+    dragEvent('drop', range); await flushDrop()
+    assert.equal(chat.value(), 'Check @src/a.ts:12-30 ')
+    assert.equal(document.querySelector('form').classList.contains('dragging'), false)
+    const folder = transfer()
+    writeMentionDrag(folder, { projectId: 'project-a', workspaceId: 'work', path: 'src', dir: true })
+    dragEvent('drop', folder); await flushDrop()
+    assert.equal(chat.value(), 'Check @src/a.ts:12-30 @src/ ')
+    for (const url of calls) assert.equal(new URL(url, 'http://localhost').searchParams.get('workspace'), 'work')
+    await chat.remount(); await chat.submit()
+    assert.deepEqual(chat.sent[0], [
+      { type: 'text', text: 'Check @src/a.ts:12-30 @src/' },
+      { type: 'resource_link', uri: 'file:///work/src/a.ts', name: 'src/a.ts' },
+      { type: 'resource_link', uri: 'file:///work/src', name: 'src' },
+    ])
+    assert.deepEqual(chat.errors, [])
+  } finally { global.fetch = previousFetch; chat.unmount() }
+})
+
+test('foreign folders, invalid payloads and late mention responses do not change the current draft', async () => {
+  const { writeMentionDrag, readMentionDrag } = await compiled
+  const chat = await harness({ draftKey: 'drop:first', workspaceId: 'work' })
+  const previousFetch = global.fetch
+  let resolve
+  global.fetch = () => new Promise(done => { resolve = done })
+  try {
+    const foreign = transfer()
+    writeMentionDrag(foreign, { projectId: 'project-a', workspaceId: null, path: 'a.ts', dir: false })
+    dragEvent('drop', foreign); await flushDrop()
+    assert.equal(chat.errors.length, 1)
+    assert.equal(chat.value(), '')
+    assert.equal(resolve, undefined)
+    foreign.setData('application/x-plangent-mention', '{invalid')
+    assert.equal(readMentionDrag(foreign), null)
+    dragEvent('drop', foreign); await flushDrop()
+    assert.equal(resolve, undefined)
+    const valid = transfer()
+    writeMentionDrag(valid, { projectId: 'project-a', workspaceId: 'work', path: 'a.ts', dir: false })
+    dragEvent('drop', valid)
+    chat.props.draftKey = 'drop:second'; await nextTick()
+    resolve({ ok: true, json: async () => [{ path: 'a.ts', dir: false, uri: 'file:///work/a.ts' }] })
+    await flushDrop()
+    assert.equal(chat.value(), '')
+    assert.equal(chat.store.get('drop:first').mentions.size, 0)
+    assert.equal(chat.store.get('drop:second').mentions.size, 0)
+  } finally { global.fetch = previousFetch; chat.unmount() }
+})
+
+test('disk files dropped on the composer remain attachments', async () => {
+  const chat = await harness({ draftKey: 'drop:attachment' })
+  try {
+    dragEvent('drop', { types: ['Files'], files: [{ name: 'note.txt', size: 5, type: 'text/plain', text: async () => 'notes' }] })
+    await flushDrop(); await chat.submit()
+    assert.deepEqual(chat.sent[0], [{ type: 'resource', resource: { uri: 'file:///note.txt', mimeType: 'text/plain', text: 'notes' } }])
   } finally { chat.unmount() }
 })

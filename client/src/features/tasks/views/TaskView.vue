@@ -1,5 +1,5 @@
 <template>
-  <div class="task-view">
+  <div ref="viewRoot" class="task-view">
     <WorkHeader v-if="task" :task="task" :state="entry?.state ?? null" :branch="workspace?.branch ?? task.branch_name" :main-folder="inMainFolder" :menu="menuItems" @back="goBack" />
     <WorkStages v-if="task" :task="task" :state="entry?.state ?? null" :has-plan="!!plan" :active="activeTab" :tabs="tabs" :stages="task.kind === 'errand' ? [] : stages" :exec-done="execDone" :locked="!!analysisLockedReason" @select="activeTab = $event as Tab" @complete="completeStage" @skip="skipStage" />
 
@@ -31,6 +31,7 @@
     <div v-if="activeTab === 'finish' && task" class="tab-body"><WorkFinish :key="task.id" :task="task" :workspace="workspace" @closed="onClosed" /></div>
     <div v-show="activeTab === 'analysis'" class="tab-body">
       <AnalysisPanel
+        :workspace-id="workspace?.id ?? null"
         :project-id="pid ?? ''" :task-id="tid ?? ''" :default-agent-id="defaultAgentId"
         :sections="analysisSections" :done="taskDone" :locked-reason="analysisLockedReason" :highlights="analysisHighlights"
         :opened="openedAnalysis" :open-file="openedAnalysisFile" :agent-revision="agentRevision"
@@ -42,6 +43,7 @@
     <!-- Tabs: Архитектура and QA are the same panel for two kinds of document -->
     <div v-for="t in materialTypes" :key="t" v-show="activeTab === t" class="tab-body">
       <MaterialPanel
+        :workspace-id="workspace?.id ?? null"
         :type="t" :material="materials[t]" :opened-identifier="openedMaterial?.type === t ? openedMaterial.identifier : undefined" :stage="stages.find(s => s.stage === t)" :project-id="pid ?? ''" :task-id="tid ?? ''" :default-agent-id="defaultAgentId"
         :locked-reason="analysisLockedReason" :done="taskDone" :chats="materialChats(t)" :selected-chat="shownMaterialChat(t)" :initials="chatInitials"
         :launching="materialLaunch[t].launching.value" :launch-error="materialLaunch[t].error.value" :live="materialChats(t).some(c => ['starting', 'thinking'].includes(c.status))"
@@ -51,6 +53,7 @@
     <!-- Tab: План -->
     <div v-show="activeTab === 'plan'" class="tab-body">
       <PlanPanel
+        :workspace-id="workspace?.id ?? null"
         @review-attention="planAttention = $event"
         :task-id="tid ?? ''"
         :queue-frozen="queue.frozen.value"
@@ -114,7 +117,7 @@
           />
         </template>
         <template #agent>
-          <StepDetailPanel :session="selectedSession" :stage-number="selectedStage + 1" :agents="agents" :steps="plan.steps" />
+          <StepDetailPanel :workspace-id="workspace?.id ?? null" :session="selectedSession" :stage-number="selectedStage + 1" :agents="agents" :steps="plan.steps" />
         </template>
       </ExecutionWorkspace>
     </div>
@@ -164,7 +167,7 @@ import AppModal from '@shared/ui/AppModal.vue'
 import { type MenuItem } from '@shared/ui/AppMenu.vue'
 import FormField from '@shared/ui/FormField.vue'
 import { CodeTab } from '@features/code'
-import { useChatStore, type NewChatRequest, type ContentBlock } from '@features/agent-chat'
+import { useChatStore, useComposerReveal, type NewChatRequest, type ContentBlock } from '@features/agent-chat'
 import { useTaskQueue, TaskQueueKey } from '../composables/useTaskQueue'
 import { sessionState } from '../utils/queue-status'
 
@@ -437,6 +440,11 @@ function applyRouteTab() {
   if (typeof wanted === 'string' && tabs.value.some(t => t.id === wanted)) activeTab.value = wanted as Tab
 }
 watch(() => route.query.tab, applyRouteTab)
+// «В чат» on a tab without a chat (queue, finish): go to the work's chat — the errand's one, else the plan's.
+const viewRoot = ref<HTMLElement>()
+useComposerReveal(viewRoot, () => ({ projectId: task.value?.project_id ?? '', workspaceId: workspace.value?.id }), () => {
+  if (task.value) activeTab.value = task.value.kind === 'errand' ? 'chat' : 'plan'
+})
 
 const menuItems = computed<MenuItem[]>(() => {
   const t = task.value
