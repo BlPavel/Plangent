@@ -25,6 +25,9 @@ export const useReviewAgentStore = defineStore('code-review-agent', () => {
   const setup = ref<{ ids: string[] | null } | null>(null)
   const starting = ref<string | null>(null)
   const sending = ref(false)
+  /** A batch has been handed over but the agent has not started thinking yet: no gap where it looks idle. */
+  const awaiting = ref(false)
+  let awaitTimer: ReturnType<typeof setTimeout> | undefined
   const error = ref('')
   /**
    * Проверка of a work: by default the work's own chat (its executor, with all the context) takes the
@@ -41,7 +44,7 @@ export const useReviewAgentStore = defineStore('code-review-agent', () => {
   const session = computed<ChatSession | null>(() => chats.sessions.find(s => s.id === sessionId.value) ?? null)
   const snapshot = computed(() => (sessionId.value ? chats.snapshots[sessionId.value] ?? null : null))
   const permissions = computed(() => snapshot.value?.permissions ?? [])
-  const busy = computed(() => BUSY.includes(session.value?.status ?? '') || permissions.value.length > 0 || code.agentWorking)
+  const busy = computed(() => BUSY.includes(session.value?.status ?? '') || permissions.value.length > 0 || code.agentWorking || awaiting.value)
   const stopping = ref(false)
   /** The item the agent said it works on (start_review_item) during the current turn. */
   const focusItem = computed(() => {
@@ -52,6 +55,19 @@ export const useReviewAgentStore = defineStore('code-review-agent', () => {
     }
     return null
   })
+
+  /** Marks the turn as expected until the session reports «thinking» (or a while passes, so a lost event cannot stick). */
+  function expectTurn() {
+    clearTimeout(awaitTimer)
+    if (BUSY.includes(session.value?.status ?? '')) { awaiting.value = false; return }
+    awaiting.value = true
+    awaitTimer = setTimeout(() => { awaiting.value = false; if (starting.value && !hasRound(starting.value)) starting.value = null }, 20_000)
+  }
+  const hasRound = (id: string) => code.rounds.some(r => r.session_id === id)
+  // «ready» and «starting» are still the wait; anything else means the turn began (or ended without beginning).
+  watch(() => session.value?.status, status => { if (awaiting.value && !['ready', 'starting', undefined].includes(status)) { awaiting.value = false; clearTimeout(awaitTimer) } })
+  // The new session stays «the review's agent» until its round is known: no flash of the agent picker in between.
+  watch(() => code.rounds.length, () => { if (starting.value && hasRound(starting.value)) starting.value = null })
 
   void chats.connect()
   // The snapshot carries permission requests and focus events; it follows the review's session.
@@ -74,16 +90,18 @@ export const useReviewAgentStore = defineStore('code-review-agent', () => {
       }
       const role = chats.sessions.find(s => s.id === id)?.role
       await code.sendRound(review.id, id!, '', ids ?? (role === 'code-fixer' ? undefined : pendingIds()))
+      expectTurn()
     }
     catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause) }
     finally { sending.value = false }
   }
 
   /** Setup form submitted: creates the agent session and sends the waiting batch to it. */
-  async function start(projectId: string, { content, ...options }: NewChatRequest, defaultNote: string) {
+  async function start(projectId: string, { content, ...options }: NewChatRequest, defaultNote: string, only?: string[] | null) {
     const review = code.review
     if (!review) return
-    const ids = setup.value?.ids ?? null
+    // Started from the agent bar there is no setup form: `only` names the items (null — all waiting ones).
+    const ids = only !== undefined ? only : setup.value?.ids ?? null
     error.value = ''
     sending.value = true
     let created: ChatSession | null = null
@@ -96,12 +114,14 @@ export const useReviewAgentStore = defineStore('code-review-agent', () => {
       void chats.load(created.id).catch(() => undefined)
       const note = content.flatMap(block => (block.type === 'text' && typeof block.text === 'string' ? [block.text] : [])).join('\n').trim()
       await code.sendRound(review.id, created.id, note === defaultNote ? '' : note, ids ?? undefined)
+      expectTurn()
     } catch (cause) {
       error.value = cause instanceof Error ? cause.message : String(cause)
       setup.value = { ids }
+      starting.value = null
       // A session that never got a round would be an orphan nobody can find.
       if (created) await chats.remove(created.id).catch(() => undefined)
-    } finally { starting.value = null; sending.value = false }
+    } finally { sending.value = false; if (starting.value && hasRound(starting.value)) starting.value = null }
   }
 
   async function answerPermission(permissionId: string, optionId: string) {
@@ -124,5 +144,5 @@ export const useReviewAgentStore = defineStore('code-review-agent', () => {
     finally { stopping.value = false }
   }
 
-  return { work, setup, sending, stopping, error, sessionId, session, busy, permissions, focusItem, send, start, answerPermission, stop }
+  return { work, setup, sending, awaiting, stopping, error, sessionId, session, busy, permissions, focusItem, send, start, answerPermission, stop }
 })

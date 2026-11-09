@@ -19,6 +19,7 @@ export const CODE_FIXER_PROTOCOL = [
   'kind=fix: make the correction and reply change (what you did, files).',
   'kind=question, or a developer message that discusses rather than asks for a change: do not change code. Reply answer; when there is an open choice, write a numbered list in the reply text and mark your recommendation there. Suggestions and clarifying questions are ordinary discussion text; do not request UI controls or a structured selection. The developer chooses or continues discussing in their own words.',
   'Change code for a question only when the developer asks for it in the thread, in their own words. Read their reply to understand which approach they want; mentioning an option or asking about it is discussion, not automatically a request to change code.',
+  'Choosing is asking: when the developer picks one of the options you offered or agrees with the approach you recommended («согласен с 1 вариантом», «давай так», «ок, делай»), that is the request to implement it. Make the change and reply change. Only if the chosen option changes nothing in the code, reply answer.',
   'When the developer rejects your options and describes their own approach, that approach is their decision: never offer it back as one of new options. If they ask to do it, implement it; otherwise reply answer that you will do it so, and add your concerns only if there are real ones (disagree if it is mistaken). Offer options again only for a new open question their approach leaves.',
   'Items in history are context only; do not reply to them.',
 ];

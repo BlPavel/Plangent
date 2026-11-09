@@ -346,7 +346,7 @@ async function boot(id: string): Promise<LiveSession> {
     const preferred = getSession(id).metadata.preferredMode as string | undefined;
     // Planner and librarian write through MCP; the agent's plan mode can interrupt that workflow.
     const discuss = (session.policy === 'read-only' && session.role !== 'planner' && session.role !== 'librarian' && session.role !== 'committer') || preferred === 'discuss';
-    const safeMode = selectSessionMode(modes, session.policy, preferred, discuss);
+    const safeMode = selectSessionMode(modes, session.policy, preferred, discuss, session.role);
     if (safeMode) {
       await applyMode(id, state, safeMode);
     }

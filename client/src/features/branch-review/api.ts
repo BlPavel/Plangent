@@ -40,7 +40,7 @@ export const branchReviewApi = {
   publish: (scope: string, id: string, ids: string[]) => api.post<Endpoints['POST /api/projects/:projectId/branch-review/:id/remarks/publish']['response']>(review(scope, id) + '/remarks/publish', { ids, confirmed: true }),
   markSent: (scope: string, id: string, ids: string[]) => api.post<Endpoints['POST /api/projects/:projectId/branch-review/:id/remarks/mark-sent']['response']>(review(scope, id) + '/remarks/mark-sent', { ids }),
 
-  analyze: (scope: string, id: string, input: { note?: string }) => api.post<Endpoints['POST /api/projects/:projectId/branch-review/:id/analyze']['response']>(review(scope, id) + '/analyze', input),
+  analyze: (scope: string, id: string, input: { note?: string; agent_id?: string; model?: string; reasoning_effort?: string }) => api.post<Endpoints['POST /api/projects/:projectId/branch-review/:id/analyze']['response']>(review(scope, id) + '/analyze', input),
   restart: (scope: string, id: string) => api.post<Endpoints['POST /api/projects/:projectId/branch-review/:id/restart']['response']>(review(scope, id) + '/restart', {}),
   checkFixes: (scope: string, id: string) => api.post<Endpoints['POST /api/projects/:projectId/branch-review/:id/check-fixes']['response']>(review(scope, id) + '/check-fixes', {}),
   questions: (scope: string, id: string) => api.get<Endpoints['GET /api/projects/:projectId/branch-review/:id/questions']['response']>(review(scope, id) + '/questions'),

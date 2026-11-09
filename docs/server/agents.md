@@ -1,4 +1,4 @@
-﻿# Server agents
+# Server agents
 
 `core/agents/catalog/` owns presets, installation, limits and ACP options.
 `core/agents/sessions/` owns state, prompt queues, modes and permissions.
@@ -25,3 +25,8 @@ message starts a new conversation when session loading is unavailable.
 
 `completeAgentWork` and `markAgentWorkFinished` record completed work for this
 policy. Idle-policy and session tests run through `npm test`.
+
+Code fixer sessions with allow-edits or allow-all use an execution mode with workspace writes.
+Their review picker leaves mode selection to the server. Ignore a saved read-only, plan or
+discuss preference for these sessions: older clients inherited it from the option probe.
+Explicit read-only policies and other session roles keep their mode preferences.

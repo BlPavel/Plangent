@@ -46,7 +46,12 @@ export function saveGlobalGitSettings(value: unknown) {
 /** Who does the git work (commit messages, commit split, MR description): the configured agent, else the project's. */
 export function gitAgent(id: string) { return configuredAgent(id, 'git', 'Выберите агента для коммитов и МР в настройках'); }
 /** Who reviews code with the developer: the configured review agent, else the project's. */
-export function reviewAgent(id: string) { return configuredAgent(id, 'review', 'Выберите агента для ревью в настройках проекта'); }
+export function reviewAgent(id: string, explicit?: { agentId?: string; model?: string; effort?: string }) {
+  const choice = resolveAgentChoice(id, { purpose: 'review', explicit: explicit?.agentId });
+  if (!choice.agentId) throw new DomainError('Выберите агента для ревью в настройках проекта');
+  // A model or reasoning picked for this review wins over the configured ones.
+  return { agentId: choice.agentId, model: explicit?.model || choice.model, effort: explicit?.effort || choice.effort };
+}
 /** Who resolves merge/rebase conflicts: the configured conflict agent, else the git agent, else the project's. */
 export function conflictAgent(id: string) {
   const choice = resolveAgentChoice(id, { purpose: 'conflict' });

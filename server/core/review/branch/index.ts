@@ -26,6 +26,8 @@ export interface ReviewRow {
   /** The developer's wish for the review, shown with the report. */
   analysis_note: string;
 }
+/** The agent picked for a review instead of the project's review agent. */
+export interface AgentChoice { agentId?: string; model?: string; effort?: string }
 interface Thread { id: string; review_id: string; head: string; path: string; side: string; line: number; session_id: string }
 
 export function repo(projectId: string) {
@@ -142,9 +144,9 @@ export function threads(projectId: string, id: string): Thread[] {
  * The thread to send a prompt to. A session that has just been created is `starting` only because nothing was sent to it yet,
  * so only an already existing session can be busy.
  */
-export async function openIdleThread(projectId: string, id: string, busyMessage: string) {
+export async function openIdleThread(projectId: string, id: string, busyMessage: string, choice?: AgentChoice) {
   const known = new Set(threads(projectId, id).map(t => t.session_id));
-  const thread = await openThread(projectId, id, {});
+  const thread = await openThread(projectId, id, {}, choice);
   if (known.has(thread.session_id) && ['starting', 'thinking'].includes(getSession(thread.session_id).status)) throw new DomainError(busyMessage, 409);
   return thread;
 }
@@ -153,10 +155,10 @@ const briefing = (r: ReviewRow, head: string) =>
   'Developer questions arrive in batches: call get_branch_questions and reply in each thread through reply_branch_question, not in chat. ' +
   'The branch is available in the current worktree (commit ' + head + '), compared with ' + r.base + '; use git diff and git log there. Respond in the developer’s language, Russian by default.';
 /** A chat about the whole branch (no path) or about one line of one file. Code lives in a detached read-only worktree. */
-export async function openThread(projectId: string, id: string, input: { path?: unknown; side?: unknown; line?: unknown }) {
+export async function openThread(projectId: string, id: string, input: { path?: unknown; side?: unknown; line?: unknown }, choice?: AgentChoice) {
   const project = repo(projectId), r = row(projectId, id);
-  // Who reviews is a project setting (like the agent for commits), not a choice made in the review.
-  const agent = reviewAgent(projectId);
+  // Who reviews is the project's review agent (like the agent for commits) unless the developer picked another when starting.
+  const agent = reviewAgent(projectId, choice);
   if (!getAgent(agent.agentId)) throw new DomainError('Агент для ревью не найден: выберите другого в настройках проекта', 409);
   const s = await state(project, r);
   const wholeBranch = input.path === undefined || input.path === '';

@@ -217,7 +217,7 @@ export function createReviewService(records = createCodeReviewRepository(), depe
    */
   function releaseUnanswered(reviewId: string) {
     if (activeSessions(reviewId).length) return false;
-    const stuck = store.listItems(reviewId).filter(item => item.status === 'sent');
+    const stuck = store.listItems(reviewId).filter(item => item.status === 'sent' && !item.closed);
     if (!stuck.length) return false;
     records.transaction(() => {
       for (const item of stuck) {
@@ -268,7 +268,7 @@ export function createReviewService(records = createCodeReviewRepository(), depe
     const items = store.listItems(reviewId);
     broadcast({ type: 'code_review_updated', projectId: review.project_id, reviewId, item,
       attention: waitingItems(reviewId).length, unresolved: items.filter(unresolved).length });
-    if (item?.status === 'needs_decision') broadcast({ type: 'code_review_needs_decision',
+    if (item?.status === 'needs_decision' && !item.closed) broadcast({ type: 'code_review_needs_decision',
       projectId: review.project_id, reviewId, itemId: item.id, reason: item.answer });
   }
   function attention(projectId: string) {
@@ -339,7 +339,7 @@ export function createReviewService(records = createCodeReviewRepository(), depe
         ...(m.options.length ? { options: m.options } : {}), ...(m.choice !== null ? { choice: m.choice } : {}),
         ...(m.files.length ? { files: m.files } : {}) })) });
     const sent = store.listItems(review.id).filter(item => item.round_id);
-    const assigned = (item: CodeReviewItem) => mine.has(item.round_id!) && item.status === 'sent';
+    const assigned = (item: CodeReviewItem) => mine.has(item.round_id!) && item.status === 'sent' && !item.closed;
     return reviewBrief(CODE_FIXER_PROTOCOL, null, {
       review: { id: review.id, number: review.number, branch: review.branch },
       assigned: sent.filter(assigned).map(brief),
@@ -357,7 +357,7 @@ export function createReviewService(records = createCodeReviewRepository(), depe
   /** start_review_item: the item the agent works on now, so its permission requests show in that card. */
   function focusItem(session: AgentSession, itemId: string) {
     const { item } = assignedItem(session, itemId);
-    if (item.status !== 'sent') throw new DomainError('Item is not waiting for you', 409);
+    if (item.status !== 'sent' || item.closed) throw new DomainError('Item is not waiting for you', 409);
     return { id: item.id, text: item.text };
   }
   const REPLY_STATUS: Record<string, CodeReviewItem['status']> = { change: 'done', answer: 'answered', options: 'answered', questions: 'answered', disagree: 'needs_decision' };
@@ -380,7 +380,7 @@ export function createReviewService(records = createCodeReviewRepository(), depe
         throw new DomainError('Do not change code for a question until the developer asks for it in the thread; answer it or offer options', 409);
       const updated = records.transaction(() => {
         store.createMessage({ item_id: item.id, author: 'agent', kind: kind as CodeReviewMessageKind, text, options, files, round_id: item.round_id, sent: true });
-        return store.updateItem(item.id, { status: REPLY_STATUS[kind], answer: text, closed: false })!;
+        return store.updateItem(item.id, { status: REPLY_STATUS[kind], answer: text, closed: item.closed })!;
       });
       notify(review.id, updated);
       return updated;
@@ -399,6 +399,7 @@ export function createReviewService(records = createCodeReviewRepository(), depe
       const choice = Number.isInteger(input.choice) ? Number(input.choice) : null;
       const message = records.transaction(() => {
         const created = store.createMessage({ item_id: item.id, author: 'developer', kind, text, choice });
+        if (kind === 'implement' && item.kind === 'question') store.updateItem(item.id, { kind: 'fix' });
         if (item.closed) store.updateItem(item.id, { closed: false, ...(item.status === 'rejected' ? { status: 'needs_decision' as const } : {}) });
         return created;
       });
@@ -420,7 +421,7 @@ export function createReviewService(records = createCodeReviewRepository(), depe
   }
   /**
    * The developer's verdict on a thread: accept (a change), answered (a reply is enough), reject
-   * (agree with the agent / drop the item), reopen. Queued replies must be sent or removed first.
+   * (agree with the agent / drop the item), reopen. Closing preserves queued replies as history; they are not dispatched while closed.
    */
   async function closeItem(projectId: string, reviewId: string, itemId: string, resolution: string) {
     return exclusive(projectId, async () => {
@@ -428,11 +429,8 @@ export function createReviewService(records = createCodeReviewRepository(), depe
       editable(reviewFor(projectId, reviewId), info);
       const item = itemFor(reviewId, itemId);
       if (!['accept', 'answered', 'reject', 'reopen'].includes(resolution)) throw new DomainError('Invalid resolution');
-      if ((item.status === 'draft' && !(item.author === 'agent' && resolution === 'reject')) || item.status === 'sent') throw new DomainError('Wait for the agent\'s reply first', 409);
-      if (resolution !== 'reopen' && store.listMessages(reviewId, itemId).some(m => m.author === 'developer' && !m.sent))
-        throw new DomainError('Send or remove your queued reply first', 409);
       const updated = store.updateItem(itemId, resolution === 'reopen' ? { closed: false }
-        : { closed: true, ...(resolution === 'reject' ? { status: 'rejected' as const } : {}) })!;
+        : { closed: true, ...(resolution === 'reject' || item.status === 'draft' ? { status: 'rejected' as const } : {}) })!;
       notify(reviewId, updated);
       return updated;
     });
@@ -450,7 +448,7 @@ export function createReviewService(records = createCodeReviewRepository(), depe
       if (pending.length && mode === 'require_resolved') throw new DomainError('Unresolved review items', 409);
       if (mode === 'carry' && review.status === 'abandoned') throw new DomainError('Cannot carry from a missing branch', 409);
       await ensureSame(root, info);
-      return records.transaction(() => {
+      const result = records.transaction(() => {
         // A deleted branch cannot be resolved: retain the last known review endpoint.
         const closed = store.updateReview(reviewId, { status: 'closed',
           head_end: review.status === 'abandoned' ? review.head_last || review.head_start : info?.head ?? noGitHead })!;
@@ -464,6 +462,14 @@ export function createReviewService(records = createCodeReviewRepository(), depe
         }
         return { review: closed, next_review: next };
       });
+      const sessions = [...new Set(store.listRounds(reviewId).map(round => round.session_id).filter((id): id is string => !!id))];
+      if (queries.sessionTableSelectSqliteMaster()) {
+        for (const id of sessions) {
+          if (!queries.removeReviewSelectAgentSessions(id)) continue;
+          await (dependencies.closeSession ?? (await import('../../agents')).closeSession)(id);
+        }
+      }
+      return result;
     });
   }
   async function contentHash(root: string, file: string): Promise<string | null> {

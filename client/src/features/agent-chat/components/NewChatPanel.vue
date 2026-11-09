@@ -62,6 +62,11 @@ const props = defineProps<({ compact: true; draftKey?: string } | { compact?: fa
   workspaceId?: string | null
   draftKey?: string
   defaultAgentId?: string | null
+  /** Model and reasoning preselected for the default agent (the agent's own settings otherwise). */
+  defaultModel?: string
+  defaultEffort?: string
+  /** Permission policy preselected (the settings' choice for the review agent). */
+  defaultPolicy?: string
   title: string
   text: string
   initialText?: string
@@ -76,14 +81,16 @@ const props = defineProps<({ compact: true; draftKey?: string } | { compact?: fa
 }>()
 const emit = defineEmits<{ start: [request: NewChatRequest] }>()
 const agents = useAgentsStore()
-const agentId = ref(''), policy = ref('ask'), localError = ref('')
-const { resolvedSelects, commands, state: optionsState, launch, pick, retry } = useAgentLaunchOptions(agentId)
+const agentId = ref(''), policy = ref(props.defaultPolicy || 'ask'), localError = ref('')
+const { resolvedSelects, commands, state: optionsState, launch, pick, retry } = useAgentLaunchOptions(agentId, () => ({ agentId: props.defaultAgentId, model: props.defaultModel, effort: props.defaultEffort }))
 
 const agentList = computed(() => agents.agents.map(a => ({ value: a.id, label: a.name })))
 
 const fallbackAgent = () => props.defaultAgentId || agents.agents[0]?.id || ''
 watch(() => props.projectId, () => { agentId.value = fallbackAgent() }, { immediate: true })
 watch(() => agents.agents.length, () => { if (!agentId.value) agentId.value = fallbackAgent() })
+// The default may arrive late (settings are fetched); it replaces only a pick that is still the old default.
+watch(() => props.defaultAgentId, (_, old) => { if (!agentId.value || agentId.value === (old || agents.agents[0]?.id)) agentId.value = fallbackAgent() })
 
 function start(content: ContentBlock[]) {
   localError.value = ''

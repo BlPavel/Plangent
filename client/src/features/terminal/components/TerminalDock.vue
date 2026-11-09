@@ -16,10 +16,10 @@
     <footer class="status">
       <span class="status-spacer" />
       <AppButton
-        v-for="r in runningElsewhere" :key="r.workspaceId ?? 'main'" variant="subtle" size="sm"
+        v-for="r in runningElsewhere" :key="r.workspaceId ?? 'main'" variant="subtle" size="xs"
         :title="'Запущено: ' + r.processes.join(', ') + ' — открыть этот терминал'" @click="showPlace(r)"
       >▶ {{ r.label }}</AppButton>
-      <AppButton variant="subtle" size="sm" :pressed="open" :aria-expanded="open" :disabled="!context" :title="context ? 'Терминал: ' + context.label + ' (Ctrl+`)' : 'Терминал доступен в проекте'" @click="open = !open">
+      <AppButton variant="subtle" size="xs" :pressed="open" :aria-expanded="open" :disabled="!context" :title="context ? 'Терминал: ' + context.label + ' (Ctrl+`)' : 'Терминал доступен в проекте'" @click="open = !open">
         <UIIconTerminal />
         Терминал<span v-if="runningHere" class="status-dot" title="Здесь что-то запущено" />
       </AppButton>
@@ -111,7 +111,7 @@ onBeforeUnmount(() => { clearInterval(timer); window.removeEventListener('keydow
 .dock-spacer { flex: 1; }
 .dock-blocked { padding: 16px; font-size: var(--fs-md); color: var(--text-muted); }
 .dock-body { flex: 1; min-height: 0; }
-.status { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 5px 12px; border-top: 1px solid var(--border); background: var(--bg2); font-size: var(--fs-md); }
+.status { display: flex; align-items: center; gap: 6px; min-height: 28px; padding: 2px 12px; border-top: 1px solid var(--border); background: var(--bg2); font-size: var(--fs-sm); }
 .status-spacer { flex: 1; }
 .status-dot { width: 6px; height: 6px; border-radius: var(--radius-round); background: var(--accent-hover); }
 </style>

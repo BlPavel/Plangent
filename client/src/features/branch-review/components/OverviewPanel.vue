@@ -25,9 +25,12 @@
       <label class="op-field">На что смотреть особенно
         <AppInput v-model="note"  placeholder="Необязательно: например, только архитектура" spellcheck="false" @keydown.enter.prevent="start" />
       </label>
+      <div class="op-field">
+        <ReviewAgentBar read-only :project-id="scope" :fallback-agent-id="projectsStore.agentFor(projectsStore.byId(scope))" :disabled="sending || busy" @change="agentPick = $event" />
+      </div>
       <div class="op-row">
-        <AppButton size="sm" variant="blue" :disabled="sending || busy" :title="busy ? 'Агент отвечает на вопросы: дождитесь конца ответа' : 'Агент из настроек проекта напишет сводку и черновики замечаний'" @click="start">{{ sending ? 'Запуск…' : 'Начать ревью' }}</AppButton>
-        <span class="op-muted">Агент — из настроек проекта. Он только читает код.</span>
+        <AppButton size="sm" variant="blue" :disabled="sending || busy || !agentPick?.agent_id" :title="busy ? 'Агент отвечает на вопросы: дождитесь конца ответа' : 'Выбранный агент напишет сводку и черновики замечаний'" @click="start">{{ sending ? 'Запуск…' : 'Начать ревью' }}</AppButton>
+        <span class="op-muted">По умолчанию — агент для ревью из настроек проекта; здесь его можно сменить. Он только читает код.</span>
       </div>
     </section>
 
@@ -69,9 +72,10 @@ import AppInput from '@shared/ui/AppInput.vue'
 import { useDraft } from '@core/composables/useDraft'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { tasksEndpoints } from '@features/tasks'
+import { useProjectsStore } from '@features/projects'
 import type { Task } from '@contracts'
 import { useAppStore } from '@core/stores/app'
-import { useChatStore } from '@features/agent-chat'
+import { ReviewAgentBar, useChatStore, type ReviewAgentPick } from '@features/agent-chat'
 import { useAgentsStore } from '@features/agents'
 import AppButton from '@shared/ui/AppButton.vue'
 import { MessageMarkdown } from '@shared/markdown'
@@ -86,7 +90,9 @@ import { plural } from '../utils'
 const props = defineProps<{ screenKey: string; scope: string; detail: BranchReview; info: MrInfo | null; tasksProjectId: string; includeMembers: boolean }>()
 const emit = defineEmits<{ 'open-instructions': []; 'open-remarks': []; asked: [] }>()
 const { screen, busy } = useReviewAgent(props.screenKey, computed(() => props.detail.review.head))
-const app = useAppStore(), chats = useChatStore(), agents = useAgentsStore()
+const app = useAppStore(), chats = useChatStore(), agents = useAgentsStore(), projectsStore = useProjectsStore()
+// The review agent starts as the project's one from the settings; ReviewAgentBar reports what the developer left or changed.
+const agentPick = ref<ReviewAgentPick | null>(null)
 const skills = ref<ReviewSkill[]>([]), tasks = ref<Task[]>([])
 const context = useDraft(() => `branch-review:${props.detail.review.id}:overview:context`, () => props.detail.review.context), note = useDraft(() => `branch-review:${props.detail.review.id}:overview:note`, () => ''), error = ref(''), sending = ref(false), restarting = ref(false), descriptionOpen = ref(false)
 watch(() => props.detail.review.context, (value, previous) => { if (context.value === previous) context.value = value })
@@ -154,7 +160,7 @@ async function start() {
   sending.value = true; error.value = ''
   try {
     if (context.value !== props.detail.review.context) await save({ context: context.value })
-    screen.thread = (await branchReviewApi.analyze(props.scope, props.detail.review.id, { note: note.value })).thread
+    screen.thread = (await branchReviewApi.analyze(props.scope, props.detail.review.id, { note: note.value, ...(agentPick.value ? { agent_id: agentPick.value.agent_id, model: agentPick.value.model, reasoning_effort: agentPick.value.effort } : {}) })).thread
     note.value = ''
     screen.detail = await branchReviewApi.detail(props.scope, props.detail.review.id)
   } catch (cause) { error.value = errorText(cause) } finally { sending.value = false }

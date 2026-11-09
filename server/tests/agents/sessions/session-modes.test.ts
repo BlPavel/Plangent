@@ -23,6 +23,17 @@ test('execution selects workspace writes for Codex and the ordinary mode for Cla
   assert.equal(selectSessionMode([], 'allow-all'), undefined);
 });
 
+test('code fixers with editing permission ignore inherited read-only probe modes', () => {
+  const modes = ['read-only', 'workspace-write', 'agent-full-access'];
+  for (const policy of ['allow-edits', 'allow-all'] as const) {
+    for (const preferred of ['read-only', 'discuss', 'plan'])
+      assert.equal(selectSessionMode(modes, policy, preferred, true, 'code-fixer'), 'workspace-write');
+  }
+  assert.equal(selectSessionMode(modes, 'read-only', 'read-only', true, 'code-fixer'), 'read-only');
+  assert.equal(selectSessionMode(modes, 'ask', 'read-only', false, 'code-fixer'), 'read-only');
+  assert.equal(selectSessionMode(modes, 'allow-edits', 'read-only', false, 'chat'), 'read-only');
+});
+
 test('ACP applies the execution mode on start, after discussion and after restoring a session', async () => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'plangent-modes-'));
   process.env.PLANGENT_DATA_DIR = temp;
@@ -53,6 +64,13 @@ test('ACP applies the execution mode on start, after discussion and after restor
         await new Promise(resolve => setTimeout(resolve, 20));
       }
       assert.equal(sessions.history(session.id).find(e => e.type === 'assistant')?.payload.text, 'workspace-write');
+      const fixer = sessions.createSession({ project_id: project.id, agent_id: agent.id, role: 'code-fixer', policy: 'allow-edits', metadata: { preferredMode: 'read-only' } });
+      const fixerMode = () => (sessions.getSession(fixer.id).metadata.configOptions as { currentValue: string }[])[0].currentValue;
+      await host.startSession(fixer.id);
+      assert.equal(fixerMode(), 'workspace-write', 'editing permission wins over the hidden read-only preference');
+      await host.closeSession(fixer.id);
+      await host.startSession(fixer.id);
+      assert.equal(fixerMode(), 'workspace-write', 'restoring an old session also repairs the mode');
       const discussion = sessions.createSession({ project_id: project.id, agent_id: agent.id, role: 'executor', policy: 'read-only', metadata: { preferredMode: 'discuss' } });
       await host.startSession(discussion.id);
       await host.enableExecution(discussion.id, 'allow-all');

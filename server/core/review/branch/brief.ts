@@ -58,10 +58,11 @@ export async function setOverview(session: AgentSession, text: unknown) {
 }
 
 /** Starts the agent on the whole review: an overview and draft remarks, following the chosen skill. One review per start: again only after «Новое ревью». */
-export async function analyze(projectId: string, id: string, input: { note?: unknown }) {
+export async function analyze(projectId: string, id: string, input: { note?: unknown; agent_id?: unknown; model?: unknown; reasoning_effort?: unknown }) {
   const status = reviewTransition(row(projectId, id).analysis_status, 'start',
     { idle: '', running: 'running', reported: 'done' }, 'Ревью уже проведено: начните новое');
-  const thread = await openIdleThread(projectId, id, 'Агент работает: дождитесь конца ответа');
+  const text = (value: unknown) => (typeof value === 'string' ? value.trim().slice(0, 200) : undefined);
+  const thread = await openIdleThread(projectId, id, 'Агент работает: дождитесь конца ответа', { agentId: text(input.agent_id), model: text(input.model), effort: text(input.reasoning_effort) });
   const wish = typeof input.note === 'string' ? input.note.trim().slice(0, 4000) : '';
   setAnalysis(id, status, thread.session_id, wish);
   notify(projectId, id);

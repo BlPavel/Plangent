@@ -8,9 +8,9 @@ import type { CodeReviewItem, CodeReviewMessage } from '../types'
 export type ThreadState = 'draft' | 'queued' | 'agent' | 'waiting' | 'closed'
 
 export function threadState(item: CodeReviewItem, messages: CodeReviewMessage[]): ThreadState {
+  if (item.closed) return 'closed'
   if (item.status === 'draft') return 'draft'
   if (messages.some(m => m.item_id === item.id && m.author === 'developer' && !m.sent)) return 'queued'
-  if (item.closed) return 'closed'
   return item.status === 'sent' ? 'agent' : 'waiting'
 }
 

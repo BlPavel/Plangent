@@ -1,14 +1,14 @@
 <template>
   <span ref="root" class="fr" :class="{ inline }">
-    <AppButton :variant="variant" size="xs" :disabled="busy || store.agentWorking" :title="store.agentWorking ? 'Агент работает: дождитесь конца ответа' : 'Зафиксировать конец ревью и убрать его в историю'" @click="start">{{ label }}</AppButton>
+    <AppButton :variant="variant" size="xs" :disabled="busy || store.agentWorking || empty" :title="store.agentWorking ? 'Агент работает: дождитесь конца ответа' : empty ? 'В ревью пока нет замечаний: завершать нечего' : 'Зафиксировать конец ревью и убрать его в историю'" @click="start">{{ label }}</AppButton>
     <AppPopover :model-value="choosing && !inline" :anchor="root" role="group" label="Что сделать с незакрытыми пунктами" @update:model-value="choosing = $event">
         <div class="fr-head">Не закрыто пунктов: <b>{{ unresolved }}</b></div>
-        <AppButton variant="subtle" size="sm" block :disabled="busy" title="Станут черновиками следующего ревью этой ветки" @click="run('carry')">Перенести в следующее ревью</AppButton>
+        <AppButton variant="ghost" size="sm" block :disabled="busy" title="Станут черновиками следующего ревью этой ветки" @click="run('carry')">Перенести в следующее ревью</AppButton>
         <span class="fr-opt-hint">Станут черновиками следующего ревью этой ветки</span>
-        <AppButton variant="subtle" size="sm" block :disabled="busy" title="Будут отклонены, история сохранится" @click="run('close')">Закрыть их</AppButton>
+        <AppButton variant="ghost" size="sm" block :disabled="busy" title="Будут отклонены, история сохранится" @click="run('close')">Закрыть их</AppButton>
         <span class="fr-opt-hint">Будут отклонены, история сохранится</span>
         <div class="fr-sep" />
-        <AppButton variant="link" size="xs" type="button"  @click="choosing = false; emit('open-items')">Открыть замечания</AppButton>
+        <AppButton variant="link" size="xs" type="button" @click="choosing = false; emit('open-items')">Открыть замечания</AppButton>
     </AppPopover>
     <span v-if="choosing && inline" class="fr-choice" role="group" aria-label="Что сделать с незакрытыми пунктами">
       <span class="fr-text">Не закрыто пунктов: {{ unresolved }}</span>
@@ -33,6 +33,8 @@ const app = useAppStore()
 const choosing = ref(false)
 const busy = ref(false)
 const unresolved = computed(() => store.unresolved)
+/** A review without a single item has nothing to finish. */
+const empty = computed(() => !store.items.length)
 const root = ref<HTMLElement | null>(null)
 
 function onDocClick(e: MouseEvent) {
@@ -75,15 +77,11 @@ async function start() {
 .fr-choice { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .fr-text { font-size: var(--fs-sm); color: var(--text-muted); }
 .fr-pop { position: absolute; right: 0; top: calc(100% + 6px); z-index: var(--z-suggestions); width: 270px; padding: 5px; background: var(--bg2); border: 1px solid var(--border-strong); border-radius: var(--radius); box-shadow: var(--shadow-md); }
-.fr-head { padding: 6px 10px 4px; font-size: var(--fs-sm); color: var(--text-muted); }
+.fr-head { padding: 6px 10px 6px; font-size: var(--fs-sm); color: var(--text-muted); }
 .fr-head b { color: var(--warning-text); font-weight: 600; }
-.fr-opt { display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 7px 10px; background: none; border: none; border-radius: var(--radius-sm); color: var(--text); font-size: var(--fs-md); font-family: inherit; text-align: left; cursor: pointer; }
-.fr-opt:hover:not(:disabled) { background: var(--bg3); }
-.fr-opt:disabled { color: var(--text-faint); cursor: default; }
-.fr-opt-hint { font-size: var(--fs-sm); color: var(--text-faint); line-height: 1.35; }
+/* The two actions are bordered buttons; their hints stay quiet text under them. */
+.fr-opt-hint { display: block; margin: 4px 2px 10px; padding: 0 8px; font-size: var(--fs-sm); color: var(--text-faint); line-height: 1.35; }
 .fr-sep { height: 1px; margin: 4px 2px; background: var(--border); }
-.fr-link { width: 100%; padding: 6px 10px; background: none; border: none; border-radius: var(--radius-sm); color: var(--blue-hover); font-size: var(--fs-md); font-family: inherit; text-align: left; cursor: pointer; }
-.fr-link:hover { background: var(--blue-soft); }
 .fr-pop-enter-active, .fr-pop-leave-active { transition: opacity var(--motion-fast), transform var(--motion-fast); }
 .fr-pop-enter-from, .fr-pop-leave-to { opacity: 0; transform: translateY(-4px); }
 </style>

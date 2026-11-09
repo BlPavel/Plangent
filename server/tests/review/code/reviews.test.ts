@@ -68,6 +68,7 @@ test('review lifecycle, branch isolation, relocation, hashes and carry on a real
     git('switch', '-c', 'feature');
     assert.equal((await service.current('project')).review, null);
     assert.equal((await service.detail('project', review.id)).read_only, true);
+
     assert.match(await service.reviewDiff('project', review.id, file), /\+gone/);
     await assert.rejects(service.updateDraft('project', review.id, item.id, { text: 'Wrong branch' }), /read-only/);
     await assert.rejects(service.finish('project', review.id, 'carry'), /read-only/);
@@ -160,6 +161,7 @@ test('HTTP contract, no-Git projects, immutable history and chat cleanup', async
     assert.equal((await service.detail('project', review.id)).chats[0].events.length, 1);
     assert.equal((await request('/' + review.id + '/finish', 'POST', { mode: 'carry' })).status, 200);
     assert.equal((await service.detail('project', review.id)).read_only, true);
+    assert.deepEqual(stopped, ['session'], 'finishing immediately stops the agent');
     const next = (await service.current('project')).review!;
     assert.equal(store.listItems(next.id).length, 2);
     assert.equal((await service.openFile('project', review.id, 'file.txt')).length, 1);
@@ -168,7 +170,7 @@ test('HTTP contract, no-Git projects, immutable history and chat cleanup', async
     assert.equal(store.getItem(fresh.item.id), null);
     assert.equal((await request('/' + review.id + '/items/' + item.id, 'DELETE')).status, 409);
     assert.equal((await request('/' + review.id, 'DELETE')).status, 204);
-    assert.deepEqual(stopped, ['session']);
+    assert.deepEqual(stopped, ['session', 'session']);
     assert.equal(db.prepare('SELECT 1 FROM agent_sessions').get(), undefined);
     assert.equal(db.prepare('SELECT 1 FROM agent_session_events').get(), undefined);
     assert.equal(store.listRounds(review.id).length, 0);

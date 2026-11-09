@@ -11,7 +11,7 @@
           <span class="cv-nav-count">{{ currentBlock >= 0 ? currentBlock + 1 : '–' }}/{{ blockRows.length }}</span>
           <AppButton size="xs" variant="subtle" type="button" title="Следующее изменение" @click="step(1)">↓</AppButton>
         </span>
-        <AppCheckbox v-if="effectiveMode === 'diff' && ignoreWhitespace !== undefined" :model-value="!!ignoreWhitespace" title="Игнорировать пробелы и переводы строк" @update:model-value="ignoreWhitespace = $event">без пробелов</AppCheckbox>
+        <AppCheckbox v-if="effectiveMode === 'diff' && ignoreWhitespace !== undefined" small :model-value="!!ignoreWhitespace" title="Игнорировать пробелы и переводы строк" @update:model-value="ignoreWhitespace = $event">без пробелов</AppCheckbox>
         <AppButton size="xs" variant="subtle" v-if="effectiveMode === 'diff' && hasFolds" type="button" class="cv-link" @click="expandAll = !expandAll">{{ expandAll ? 'Свернуть' : 'Развернуть всё' }}</AppButton>
         <AppSegmented v-model="mode" :options="[{value:'diff',label:'Diff'},{value:'file',label:'Файл'}]" label="Режим просмотра" />
       </template>
@@ -72,7 +72,7 @@
               <!-- eslint-disable-next-line vue/no-v-html -- highlight.js output is escaped -->
               <code class="cv-text hljs" v-html="htmlOf(rows[index], index) || ' '" />
             </div>
-            <div v-if="widgetSet.has(widgetKey(rows[index]))" :ref="el => watchWidget(el as HTMLElement | null, widgetKey(rows[index]))" class="cv-widget">
+            <div v-if="widgetRowSet.has(index)" :ref="el => watchWidget(el as HTMLElement | null, widgetKey(rows[index]))" class="cv-widget">
               <slot name="widget" :line="lineOf(rows[index])" :side="sideOf(rows[index])" :path="file.path" />
             </div>
           </template>
@@ -270,10 +270,16 @@ watch(hits, list => { if (activeHit.value >= list.length) activeHit.value = 0 })
 const widgetSet = computed(() => new Set([...props.widgetLines.map(l => 'new:' + l), ...props.oldWidgetLines.map(l => 'old:' + l)]))
 /** Indexes of the rows that carry a widget underneath. */
 const widgetOrder = computed(() => {
-  const result: number[] = []
-  if (widgetSet.value.size) rows.value.forEach((row, index) => { if (row.kind !== 'fold' && widgetSet.value.has(widgetKey(row))) result.push(index) })
+  // One per line: a line number met twice (odd hunks) must not repeat its comments.
+  const result: number[] = [], seen = new Set<string>()
+  if (widgetSet.value.size) rows.value.forEach((row, index) => {
+    if (row.kind === 'fold') return
+    const key = widgetKey(row)
+    if (widgetSet.value.has(key) && !seen.has(key)) { seen.add(key); result.push(index) }
+  })
   return result
 })
+const widgetRowSet = computed(() => new Set(widgetOrder.value))
 const widgetHeightAt = (index: number) => widgetHeights.get(widgetKey(rows.value[index])) ?? WIDGET_ESTIMATE
 
 const totalHeight = computed(() => rows.value.length * LINE_HEIGHT + widgetOrder.value.reduce((sum, i) => sum + widgetHeightAt(i), 0))

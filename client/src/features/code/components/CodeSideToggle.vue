@@ -1,5 +1,5 @@
 <template>
-  <AppButton variant="subtle" size="sm" :pressed="open && available" :aria-expanded="open && available" :disabled="!available" title="Код (Ctrl+Shift+E)" @click="open = !open">
+  <AppButton variant="subtle" size="xs" :pressed="open && available" :aria-expanded="open && available" :disabled="!available" title="Код (Ctrl+Shift+E)" @click="open = !open">
     <UIIconCode />
     Код
   </AppButton>

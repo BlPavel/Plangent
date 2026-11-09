@@ -148,7 +148,8 @@ test('code fixer rounds, MCP isolation, developer decisions and instruction inhe
     await service.addMessage(project.id, review.id, question.id, { kind: 'text', text: 'Сделай вариант B' });
     assert.deepEqual(service.attention(project.id), [], 'queued developer replies no longer need their attention');
     assert.equal((await service.current(project.id)).attention, 0);
-    await assert.rejects(service.closeItem(project.id, review.id, question.id, 'accept'), /queued reply/);
+    assert.equal((await service.closeItem(project.id, review.id, question.id, 'accept')).closed, true);
+    await service.closeItem(project.id, review.id, question.id, 'reopen');
     const quiet = createReviewService((await import('../../../infrastructure/db/repositories/review/code/service-repository')).createCodeReviewRepository(getDb()), { sendPrompt: async () => {} });
     const batch = await quiet.sendRound(project.id, review.id, id);
     assert.deepEqual(batch.items.map(i => i.id).sort(), [item.id, question.id].sort());
@@ -212,6 +213,11 @@ test('code fixer rounds, MCP isolation, developer decisions and instruction inhe
     fs.mkdirSync(outside);
     fs.symlinkSync(outside, path.join(project.repo_path, 'external'), process.platform === 'win32' ? 'junction' : 'dir');
     assert.equal(permissionDecision('allow-all', edit('external/new.ts'), undefined, scope, 'code-fixer'), 'deny');
+    assert.notEqual(host.snapshot(id).streaming, null, 'the review agent process is alive before finishing');
+    await service.finish(project.id, review.id, 'close');
+    assert.equal(host.snapshot(id).streaming, null, 'finishing stops the agent immediately');
+    assert.equal(host.snapshot(other.id).streaming, null, 'agents from earlier rounds also stop');
+    assert.ok(sessions.history(id).length, 'finishing preserves chat history');
     // Deleting a chat retains its items and clears only the round's session pointer.
     sessions.deleteSession(id);
     assert.equal(store.getItem(item.id)!.status, 'rejected');

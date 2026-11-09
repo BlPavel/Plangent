@@ -14,6 +14,7 @@ export interface ProjectGitSettings {
     review_agent_id?: string;
     review_agent_model?: string;
     review_agent_effort?: string;
+    review_agent_policy?: string;
     conflict_agent_id?: string;
     conflict_agent_model?: string;
     conflict_agent_effort?: string;
@@ -94,6 +95,7 @@ export type ProjectsGETGitDefaultsResponse = {
         "review_agent_id"?: string;
         "review_agent_model"?: string;
         "review_agent_effort"?: string;
+        "review_agent_policy"?: string;
         "conflict_agent_id"?: string;
         "conflict_agent_model"?: string;
         "conflict_agent_effort"?: string;
@@ -119,6 +121,7 @@ export type ProjectsGETGitDefaultsResponse = {
         "review_agent_id": string;
         "review_agent_model": string;
         "review_agent_effort": string;
+        "review_agent_policy": string;
         "conflict_agent_id": string;
         "conflict_agent_model": string;
         "conflict_agent_effort": string;
@@ -149,6 +152,7 @@ export type ProjectsGETIdGitSettingsResponse = {
         "review_agent_id": string;
         "review_agent_model": string;
         "review_agent_effort": string;
+        "review_agent_policy": string;
         "conflict_agent_id": string;
         "conflict_agent_model": string;
         "conflict_agent_effort": string;
@@ -214,6 +218,7 @@ export type ProjectsPOSTBody = {
         "review_agent_id"?: string;
         "review_agent_model"?: string;
         "review_agent_effort"?: string;
+        "review_agent_policy"?: string;
         "conflict_agent_id"?: string;
         "conflict_agent_model"?: string;
         "conflict_agent_effort"?: string;
@@ -259,6 +264,7 @@ export type ProjectsPATCHIdBody = {
         "review_agent_id"?: string;
         "review_agent_model"?: string;
         "review_agent_effort"?: string;
+        "review_agent_policy"?: string;
         "conflict_agent_id"?: string;
         "conflict_agent_model"?: string;
         "conflict_agent_effort"?: string;

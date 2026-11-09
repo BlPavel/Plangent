@@ -123,6 +123,7 @@ export type GitGETSettingsResponse = {
     "review_agent_id": string;
     "review_agent_model": string;
     "review_agent_effort": string;
+    "review_agent_policy": string;
     "conflict_agent_id": string;
     "conflict_agent_model": string;
     "conflict_agent_effort": string;

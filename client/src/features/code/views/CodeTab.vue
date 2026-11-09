@@ -50,8 +50,7 @@
               <AppButton variant="ghost" size="xs" v-if="stageable && git.baseRef" type="button"  :title="'Все изменения ветки относительно ' + git.baseRef" @click="store.setBase('remote', git.baseRef)">Diff ветки</AppButton>
             </template>
             <template #badges="{ change }">
-              <AppBadge v-if="store.effectiveBase === 'agent' && !fileCounts[change.path]"  title="Агент тронул этот файл, хотя замечаний к нему не было">без замечаний</AppBadge>
-              <AppBadge v-if="fileCounts[change.path]"  :title="`Замечаний: ${fileCounts[change.path]}`">💬{{ fileCounts[change.path] }}</AppBadge>
+                            <span v-if="fileCounts[change.path]" class="ct-file-notes" :title="`Замечаний: ${fileCounts[change.path]}`">💬{{ fileCounts[change.path] }}</span>
             </template>
           </ChangesList>
         </div>
@@ -140,7 +139,6 @@ const lastOpened = new Map<string, string>()
 import { useMentionDrag } from '../composables/useMentionDrag'
 import { takeCodeOpen } from '../navigation'
 import { useCodeScreen } from '@core/composables/useCodeScreen'
-import AppBadge from '@shared/ui/AppBadge.vue'
 import AppButton from '@shared/ui/AppButton.vue'
 import AppTabs from '@shared/ui/AppTabs.vue'
 import { useDraftsStore } from '@core/stores/drafts'
@@ -566,10 +564,14 @@ watch(() => props.projectId, id => { void begin(id) }, { immediate: true })
 .ct-resizer::before { content: ''; position: absolute; top: 0; bottom: 0; left: -3px; width: 6px; opacity: 0.6; transition: background var(--motion-fast); }
 .ct-resizer:hover::before, .ct-resizer:focus-visible::before { background: var(--blue); }
 .ct-left { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--border); background: var(--bg); }
-.ct-tabs { display: flex; flex-shrink: 0; border-bottom: 1px solid var(--border); }
+.ct-tabs { display: flex; flex-shrink: 0; align-items: center; gap: 4px; padding-right: 4px; border-bottom: 1px solid var(--border); }
+/* The tabs take the row, the collapse button sits at its end on the tabs' centre line; the bar draws the line itself. */
+.ct-tabs > :first-child { flex: 1; min-width: 0; border-bottom: 0; }
 .ct-tab { flex: 1; padding: 7px 4px; font: inherit; font-size: var(--fs-sm); font-weight: 500; color: var(--text-muted); background: none; border: none; border-bottom: 2px solid transparent; margin-bottom: -1px; cursor: pointer; white-space: nowrap; }
 .ct-tab:hover { color: var(--text); }
 .ct-tab.active { color: var(--text); border-bottom-color: var(--blue); }
+/* The remark count of a file: smaller than a shared badge so it does not outweigh the file name. */
+.ct-file-notes { display: inline-flex; align-items: center; gap: 2px; height: 16px; padding: 0 5px; font-size: var(--fs-xs); font-weight: var(--fw-medium); line-height: var(--lh-tight); white-space: nowrap; border-radius: var(--radius-pill); background: var(--bg3); color: var(--text-muted); }
 .ct-count.warning { background: var(--warning-text); color: var(--bg); }
 .ct-collapse { flex-shrink: 0; width: 28px; font: inherit; font-size: var(--fs-md); color: var(--text-faint); background: none; border: none; cursor: pointer; }
 .ct-collapse:hover { color: var(--text); }

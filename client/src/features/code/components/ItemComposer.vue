@@ -132,7 +132,9 @@ function onKey(event: KeyboardEvent) {
 function cancel() { text.value = ''; files.value = []; kind.value = 'fix'; emit('cancel') }
 function save() {
   const attached = files.value.map(file => '📎 ' + file.name + ': ' + file.path).join('\n')
-  const value = [text.value.trim(), attached].filter(Boolean).join('\n\n')
+  // The leading «?» only chose the kind: the saved question keeps the kind, not the mark.
+  const body = kind.value === 'question' ? text.value.trimStart().replace(/^\?+\s*/, '') : text.value
+  const value = [body.trim(), attached].filter(Boolean).join('\n\n')
   if (!value || props.busy || uploading.value) return
   emit('save', { kind: kind.value, text: value, refs: extractRefs(value, new Set([...store.files, ...knownRefs]), paths.value.dirs) })
 }

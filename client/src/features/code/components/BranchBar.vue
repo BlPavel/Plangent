@@ -14,7 +14,7 @@
     <div class="bb-row">
       <div class="bb-branch">
         <AppButton
-          class="bb-trigger" variant="subtle" size="sm" :disabled="!!git.writeBlocked" :aria-expanded="choosing"
+          class="bb-trigger" variant="subtle" size="xs" :disabled="!!git.writeBlocked" :aria-expanded="choosing"
           :title="git.writeBlocked || 'Переключить ветку или создать новую'" @click="choosing = !choosing"
         ><span class="bb-icon">⎇</span><span class="bb-label">{{ branchName }}</span><span class="bb-caret">▾</span></AppButton>
         <BranchPicker v-if="choosing" :task="task" up @close="choosing = false" />
@@ -24,7 +24,7 @@
       </span>
       <span v-else class="bb-sync" title="Ветки нет в origin">локальная</span>
       <span class="bb-spacer" />
-      <SplitButton :items="menu" :disabled="!!git.writeBlocked || git.repository.detached" :menu-disabled="!!git.blocked" :title="git.writeBlocked || primary.title" @click="run(primary.id)">
+      <SplitButton size="xs" :items="menu" :disabled="!!git.writeBlocked || git.repository.detached" :menu-disabled="!!git.blocked" :title="git.writeBlocked || primary.title" @click="run(primary.id)">
         {{ running === primary.id ? primary.label + '…' : primary.label }}
       </SplitButton>
     </div>
@@ -84,17 +84,18 @@ async function run(action: string) { try { await git.run(action) } catch { /* sh
 </script>
 
 <style scoped>
-.branch-bar { flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; padding: 6px 10px; border-top: 1px solid var(--border); font-size: var(--fs-sm); }
-.bb-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.branch-bar { flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; padding: 6px 10px; border-top: 1px solid var(--border); font-size: var(--fs-xs); }
+.bb-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
 .bb-branch { position: relative; flex: 0 1 auto; min-width: 0; }
 .bb-trigger { max-width: 100%; min-width: 0; }
-.bb-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bb-label { min-width: 10ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bb-name { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; padding: 2px 4px; font: inherit; font-weight: 600; color: var(--text); background: none; border: none; border-radius: var(--radius-sm); cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bb-name:hover:not(:disabled) { background: var(--bg3); }
 .bb-name:disabled { cursor: default; color: var(--text-muted); }
-.bb-icon, .bb-caret { flex-shrink: 0; font-weight: 400; color: var(--text-muted); }
+.bb-icon { transform: translateY(-1px); }
+.bb-icon, .bb-caret { display: inline-flex; align-items: center; line-height: 1; flex-shrink: 0; font-weight: 400; color: var(--text-muted); }
 .bb-caret { font-size: var(--fs-xs); }
-.bb-sync { flex-shrink: 0; color: var(--text-faint); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.bb-sync { display: inline-flex; align-items: center; gap: 4px; line-height: 1; flex-shrink: 0; color: var(--text-faint); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .bb-sync .on { color: var(--warning-text); font-weight: 600; }
 .bb-spacer { flex: 1; }
 .bb-feedback { padding: 6px 8px; border-radius: var(--radius-sm); background: var(--bg2); color: var(--text-muted); }

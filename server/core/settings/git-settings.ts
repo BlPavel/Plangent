@@ -8,7 +8,7 @@ export const defaultGitSettings: GitSettings = {
   include_description: false, finish_scenario: 'nothing', branch_prefixes: ['feature', 'fix', 'hotfix'],
   base_branch: '', mr_description_prompt: '', mr_remove_branch: false, mr_squash: false, mr_reviewers: [], mr_assignees: [],
   git_agent_id: '', git_agent_model: '', git_agent_effort: '',
-  review_agent_id: '', review_agent_model: '', review_agent_effort: '',
+  review_agent_id: '', review_agent_model: '', review_agent_effort: '', review_agent_policy: '',
   conflict_agent_id: '', conflict_agent_model: '', conflict_agent_effort: '',
 };
 
@@ -43,6 +43,7 @@ export function validateGitSettings(value: unknown): Partial<GitSettings> {
       }
     } else if (typeof item !== typeof defaultGitSettings[key as keyof GitSettings]) throw new Error('Invalid git setting: ' + key);
     if (key === 'commit_pattern' && item) new RegExp(item as string, 'm');
+    if (key === 'review_agent_policy' && !['', 'ask', 'allow-edits', 'allow-all'].includes(item as string)) throw new Error('Invalid review agent policy');
     if (key === 'finish_scenario' && !['nothing', 'commits', 'push', 'full'].includes(item as string)) throw new Error('Invalid finish scenario');
   }
   return settings as Partial<GitSettings>;

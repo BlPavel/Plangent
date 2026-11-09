@@ -449,6 +449,10 @@ export type BranchReviewPOSTIdAnalyzeResponse = {
 };
 export type BranchReviewPOSTIdAnalyzeBody = {
     note?: string;
+    /** Agent for this review; without it the review agent of the project settings. */
+    agent_id?: string;
+    model?: string;
+    reasoning_effort?: string;
 };
 export type BranchReviewPOSTIdCheckFixesResponse = {
     "thread": {

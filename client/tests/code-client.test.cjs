@@ -384,7 +384,7 @@ test('review item stops showing work after a reply even while its agent remains 
   const script = fs.readFileSync(file, 'utf8').match(/<script setup lang="ts">([\s\S]*?)<\/script>/)[1]
   const view = moduleAt(file, {
     '@core/stores/app': { useAppStore: () => ({}) },
-    '../stores/code': { useCodeStore: () => code },
+    '../stores/context': { useCodeContext: () => code },
     '../stores/review-agent': { useReviewAgentStore: () => agent },
     '../utils/thread': moduleAt('client/src/features/code/utils/thread.ts'),
     './ItemCard.vue': {}, './ItemComposer.vue': {},
@@ -709,4 +709,27 @@ test('mention search follows workspace changes and rejects a late result from th
     assert.equal(pending[2].input.query.workspace, undefined)
     pending[2].resolve([])
   } finally { scope.stop() }
+})
+
+test('review agent launch leaves the hidden sandbox mode to the server permission policy', () => {
+  const { ref } = require('vue')
+  const file = 'client/src/features/agent-chat/components/ReviewAgentBar.vue'
+  const script = fs.readFileSync(file, 'utf8').match(/<script setup lang="ts">([\s\S]*?)<\/script>/)[1]
+  for (const readOnly of [false, true]) {
+    const changes = []
+    moduleAt(file, {
+      '@features/agents': { useAgentsStore: () => ({ agents: [{ id: 'codex', name: 'Codex' }] }) },
+      '@features/projects': { useReviewAgentChoice: () => ({ choice: ref({ agentId: 'codex', policy: 'allow-edits' }), loaded: ref(true) }) },
+      '@shared/ui/AppButton.vue': {}, '@shared/ui/AppSelect.vue': {}, './UsageMeter.vue': {},
+      '../composables/useAgentLaunchOptions': { useAgentLaunchOptions: () => ({
+        resolvedSelects: ref([]), state: ref(''),
+        launch: () => ({ mode: 'read-only', model: 'model', config: { effort: 'low' } }), pick() {}, retry() {},
+      }) },
+    }, { defineProps: () => ({ projectId: 'project', readOnly }), defineEmits: () => (_event, pick) => changes.push(pick) }, script)
+    assert.equal(changes.length, 1)
+    assert.equal(changes[0].mode, '')
+    assert.equal(changes[0].policy, readOnly ? 'read-only' : 'allow-edits')
+    assert.equal(changes[0].model, 'model')
+    assert.deepEqual(plain(changes[0].config), { effort: 'low' })
+  }
 })

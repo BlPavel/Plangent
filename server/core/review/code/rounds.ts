@@ -9,7 +9,7 @@ import { createReviewStore } from '../../../infrastructure/db/repositories/revie
 /** What the next batch carries: new drafts and threads with the developer's queued replies. */
 export function pendingItems(store: ReturnType<typeof createReviewStore>, reviewId: string): CodeReviewItem[] {
   const messages = store.listMessages(reviewId);
-  return pendingThreads(store.listItems(reviewId), item => messages.filter(m => m.item_id === item.id), item => item.status === 'draft' && !item.outdated);
+  return pendingThreads(store.listItems(reviewId).filter(item => !item.closed), item => messages.filter(m => m.item_id === item.id), item => item.status === 'draft' && !item.outdated);
 }
 
 /**
