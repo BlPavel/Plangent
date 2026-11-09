@@ -5,7 +5,7 @@
 
       <template v-if="banner.id === 'opened'">
         <AppButton variant="ghost" size="xs" @click="store.openReview(null)">← К текущему</AppButton>
-        <AppButton v-if="abandoned" variant="ghost" size="xs" title="Брошенное ревью: незакрытые пункты будут отклонены" @click="finishAbandoned">Завершить</AppButton>
+        <AppButton v-if="unfinished" variant="ghost" size="xs" :title="abandoned ? 'Брошенное ревью: незакрытые пункты будут отклонены' : 'Завершить ревью: незакрытые пункты будут отклонены, ревью уйдёт в историю'" @click="finishOpened">Завершить</AppButton>
         <AppButton variant="danger-ghost" size="xs" title="Удалить ревью вместе с его чатами с агентом" @click="removeOpened">Удалить</AppButton>
       </template>
       <AppButton
@@ -42,6 +42,7 @@ const agent = useReviewAgentStore()
 type Banner = { id: 'opened' | 'other' | 'elsewhere' | 'working' | 'committed' | 'summary'; tone: 'info' | 'warn'; text: string }
 const short = (hash: string | null | undefined) => (hash ? hash.slice(0, 7) : '—')
 const abandoned = computed(() => store.openedReview?.review.status === 'abandoned')
+const unfinished = computed(() => ['open', 'abandoned'].includes(store.openedReview?.review.status ?? ''))
 
 const banners = computed<Banner[]>(() => {
   const list: Banner[] = []
@@ -83,9 +84,10 @@ async function removeOpened() {
     try { await store.removeReview(review.id) } catch (cause) { app.toast(cause instanceof Error ? cause.message : 'Не удалось удалить', 'error') }
   }
 }
-async function finishAbandoned() {
+async function finishOpened() {
   const review = store.openedReview?.review
   if (!review) return
+  if (!abandoned.value && store.unresolved && !await app.confirm(`Завершить ревью #${review.number}? Незакрытые пункты (${store.unresolved}) будут отклонены.`, { confirmLabel: 'Завершить' })) return
   try { await store.finish(review.id, 'close'); app.toast(`Ревью #${review.number} завершено`, 'success') }
   catch (cause) { app.toast(cause instanceof Error ? cause.message : 'Не удалось завершить', 'error') }
 }

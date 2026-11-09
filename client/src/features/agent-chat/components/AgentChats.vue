@@ -89,7 +89,7 @@ const router = useRouter()
 const error = ref(''), creating = ref(false), renameId = ref(''), title = ref('')
 const initial = ref<{ id: string; content: ContentBlock[] } | null>(null)
 
-const sessions = computed(() => store.sessions.filter(s => s.project_id === props.projectId && s.role === 'chat'))
+const sessions = computed(() => store.sessions.filter(s => s.project_id === props.projectId && s.role === 'chat' && !s.metadata.mr_private && !s.metadata.branch_review))
 const agentName = (id: string) => agents.agents.find(a => a.id === id)?.name ?? ''
 
 watch(() => props.projectId, () => { void store.connect() }, { immediate: true })

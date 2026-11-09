@@ -18,9 +18,6 @@
       <span class="ct-spacer" />
       <span v-if="store.watchError" class="ct-warn" :title="store.watchError">авто-обновление недоступно</span>
       <slot name="actions" />
-      <AppButton :variant="finishAttention ? 'blue' : 'ghost'" size="sm" v-if="store.repository && !work" type="button" title="Коммиты, push и МР — агент сделает их по настройкам проекта" @click="showRight('finish')">
-        {{ finish.run && !finishDone ? 'Завершение · ' + (finishStages[finish.run.stage] || finish.run.stage) : 'Завершить работу' }}
-      </AppButton>
       <AppButton variant="subtle" size="sm" icon :disabled="store.loading" title="Обновить: статус, дерево и открытый файл" :aria-busy="store.loading" aria-label="Обновить" @click="store.refresh()">⟳</AppButton>
       <HistoryMenu :history="store.history" :opened-id="store.openedReviewId" @open="store.loadHistory()" @select="store.openReview($event)" @remove="removeHistoryItem" />
     </header>
@@ -468,7 +465,7 @@ async function openConflicts() {
 const rightTabs = computed(() => [
   ...(conflicts.operation ? [{ id: 'conflicts' as const, label: 'Конфликты', count: conflictAttention.value || conflicts.conflicted.length, warning: !!conflictAttention.value, hint: conflictAttention.value ? `Агент ждёт ответа: ${conflictAttention.value}` : 'Конфликтных файлов' }] : []),
   { id: 'remarks' as const, label: 'Замечания', count: attention.value || store.items.length, warning: !!attention.value, hint: attention.value ? `Ждут вашего ответа: ${attention.value}` : '' },
-  ...(props.work ? [] : [{ id: 'finish' as const, label: 'Завершение', count: finishAttention.value ? 1 : 0, warning: true, hint: 'Ждёт вашего решения' }]),
+  ...(props.work ? [] : [{ id: 'finish' as const, label: 'Завершение', count: finishAttention.value ? 1 : 0, warning: true, hint: finishAttention.value ? 'Ждёт вашего решения' : finish.run && !finishDone.value ? 'Идёт завершение · ' + (finishStages[finish.run.stage] || finish.run.stage) : 'Коммиты, push и МР' }]),
   { id: 'mr' as const, label: 'МР', count: 0, warning: false, hint: '' },
 ])
 const rightRail = computed(() => [

@@ -18,6 +18,8 @@ export interface FinishOptions {
     }[];
     targetBranch?: string;
     branchName?: string;
+    /** The branch the new working branch starts from; the current one by default. */
+    baseBranch?: string;
     /** single — everything in one commit; split — the agent decides how many commits. */
     commitMode?: 'single' | 'split';
     /** Continue the selected scenario without pausing for review. */

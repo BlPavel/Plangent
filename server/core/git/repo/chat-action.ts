@@ -12,7 +12,8 @@ export async function prepareChatGitAction(session: AgentSession, args: Record<s
   const actions = ['commit', 'branch', 'switch', 'fetch', 'pull', 'push', 'stash', 'discard', 'merge', 'rebase'];
   if (typeof action !== 'string' || !actions.includes(action)) throw new Error('Invalid Git action');
   const allowedFields: Record<string, string[]> = { commit: ['paths', 'title', 'body'], branch: ['name', 'base'], switch: ['branch'], fetch: [], pull: [], push: [], stash: ['stashAction', 'reference'], discard: ['paths'], merge: ['branch'], rebase: ['branch'] };
-  if (Object.keys(args).some(key => key !== 'action' && !allowedFields[action].includes(key))) throw new Error('Unexpected Git action argument');
+  const unexpected = Object.keys(args).filter(key => key !== 'action' && !allowedFields[action].includes(key));
+  if (unexpected.length) throw new Error(`Unexpected Git action argument for ${action}: ${unexpected.join(', ')}. Allowed fields: ${['action', ...allowedFields[action]].join(', ')}. Omit all other fields, including empty or null values.`);
   const required = (key: string) => { if (typeof args[key] !== 'string' || !String(args[key]).trim()) throw new Error(`Invalid ${key}`); return String(args[key]); };
   const paths = () => { if (!Array.isArray(args.paths) || !args.paths.length || args.paths.some(p => typeof p !== 'string' || !p)) throw new Error('Invalid paths'); return args.paths as string[]; };
   if (['commit', 'discard'].includes(action)) paths();

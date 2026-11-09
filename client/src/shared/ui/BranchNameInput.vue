@@ -4,7 +4,7 @@
       v-if="prefixes.length" class="prefix" :model-value="prefix" :options="[{ value: '', label: 'без префикса' }, ...prefixes.map(item => ({ value: item, label: item + '/' }))]" small :disabled="disabled" label="Префикс ветки"
       @update:model-value="emit('update:modelValue', join($event, rest))"
     />
-    <AppInput size="sm" :model-value="rest" :placeholder="placeholder" :disabled="disabled" :aria-label="label" @update:model-value="emit('update:modelValue', join(prefix, $event))" @keydown.enter="emit('enter', $event)" />
+    <AppInput block size="sm" :model-value="rest" :placeholder="placeholder" :disabled="disabled" :aria-label="label" @update:model-value="emit('update:modelValue', join(prefix, $event))" @keydown.enter="emit('enter', $event)" />
   </span>
 </template>
 <script setup lang="ts">
@@ -32,7 +32,7 @@ const rest = computed(() => prefix.value ? props.modelValue.slice(prefix.value.l
 const join = (head: string, tail: string) => head ? head + '/' + tail : tail;
 </script>
 <style scoped>
-.branch-name { display: flex; gap: 4px; min-width: 0; }
-.prefix { flex: 0 0 130px; max-width: 45%; }
+.branch-name { display: flex; gap: 4px; min-width: 0; width: 100%; }
+.prefix { flex: 0 0 auto; max-width: 45%; }
 
 </style>

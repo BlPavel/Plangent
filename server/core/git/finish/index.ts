@@ -153,11 +153,11 @@ export function createFinishService(dependencies: {
     if (input.autoContinue !== undefined && typeof input.autoContinue !== 'boolean') throw new DomainError('Invalid autoContinue');
     const scenario = input.scenario;
     if (scenario === 'full') await resolveHost(projectId).catch(error => { throw new DomainError('«Полный цикл» недоступен без подключения к хостингу: ' + (error instanceof Error ? error.message : failure(error))); });
-    for (const key of ['targetBranch', 'branchName', 'task_id'] as const) {
+    for (const key of ['targetBranch', 'branchName', 'baseBranch', 'task_id'] as const) {
       if (input[key] !== undefined && typeof input[key] !== 'string') throw new DomainError('Invalid ' + key);
     }
     const params: FinishOptions = {
-      scenario, task_id: input.task_id, branchName: input.branchName,
+      scenario, task_id: input.task_id, branchName: input.branchName, baseBranch: input.baseBranch || undefined,
       includeDescription: input.includeDescription ?? defaults.include_description,
       includeCoauthors: input.includeCoauthors ?? false, coauthors: input.coauthors,
       targetBranch: input.targetBranch || defaults.base_branch, commitMode: input.commitMode ?? 'split', autoContinue: input.autoContinue ?? false,
@@ -184,8 +184,10 @@ export function createFinishService(dependencies: {
         session_id: null, note: '', error: '', output: '', pushed: false, mr_url: null, mr_draft: null, created_at: now, updated_at: now });
       try {
         if (params.branchName) {
-          await createBranch(root, params.branchName, info.branch, optionsFor(run));
-          run = updateFinish(run.id, { branch: params.branchName });
+          await createBranch(root, params.branchName, params.baseBranch || info.branch, optionsFor(run));
+          // The new branch may start elsewhere than the current one: the commits are counted from its own head.
+          const created = await repositoryInfo(root);
+          run = updateFinish(run.id, { branch: params.branchName, ...(created?.head ? { base_head: created.head } : {}) });
         }
         run = updateFinish(run.id, transition(run, 'branch_ready'));
         await beginAgent(run); return getFinish(run.id);

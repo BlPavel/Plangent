@@ -14,7 +14,7 @@
 
       <fieldset class="fp-field fp-scenarios">
         <legend>Сценарий завершения</legend>
-        <AppRadioGroup :model-value="options.scenario" :options="scenarioOptions" label="Сценарий завершения" @update:model-value="options.scenario = $event as typeof options.scenario" />
+        <AppRadioGroup :model-value="options.scenario" :options="scenarioOptions" label="Сценарий завершения" vertical @update:model-value="options.scenario = $event as typeof options.scenario" />
       </fieldset>
 
       <div class="fp-settings">
@@ -34,16 +34,27 @@
             <span class="fp-branch-name" :title="branch || branchPlaceholder">⎇ {{ branch || branchPlaceholder }}</span>
             <AppBadge v-if="branch && !published"  title="Ветки ещё нет в origin">локальная</AppBadge>
           </div>
-          <AppButton v-if="!sameBranch && !workspaceId" type="button" size="sm" class="fp-branch-action" :aria-expanded="newBranch" @click="newBranch = !newBranch">{{ newBranch ? 'Оставить текущую' : 'Новая ветка' }}</AppButton>
-          <BranchNameInput v-if="needsBranchName" v-model="branchName" :prefixes="prefixes" placeholder="ABC-1-short-name" label="Имя новой ветки" />
+          <div v-if="!workspaceId" class="fp-branch-actions">
+            <AppButton v-if="!sameBranch" type="button" size="sm" :aria-expanded="newBranch" @click="newBranch = !newBranch">{{ newBranch ? 'Оставить текущую' : 'Новая ветка' }}</AppButton>
+            <AppButton type="button" size="sm" :disabled="!!git.writeBlocked || !git.repository" :aria-expanded="switching" :title="git.writeBlocked || 'Переключиться на существующую ветку'" @click="switching = !switching">{{ switching ? 'Не менять' : 'Сменить ветку' }}</AppButton>
+          </div>
+          <template v-if="switching && !workspaceId">
+            <BranchSelect block :model-value="branch ?? ''" :options="branchOptions" small placeholder="Выберите ветку" label="Переключиться на ветку" :disabled="switchBusy" @update:model-value="switchTo" />
+            <small v-if="switchError" role="alert" class="fp-warn">{{ switchError }}</small>
+          </template>
+          <template v-if="needsBranchName">
+            <BranchNameInput v-model="branchName" :prefixes="prefixes" placeholder="ABC-1-short-name" label="Имя новой ветки" />
+            <span class="fp-caption">Создать от ветки</span>
+            <BranchSelect block v-model="baseBranch" :options="branchOptions" small placeholder="Текущая ветка" label="Создать от ветки" />
+          </template>
           <small v-if="sameBranch && workspaceId" class="fp-warn">Ветка работы совпадает с целевой веткой МР: выберите другую цель.</small>
           <small v-else-if="sameBranch">Вы на целевой ветке: коммиты лягут в новую рабочую ветку.</small>
-          <small v-else-if="newBranch">Ветка создастся от текущей, коммиты лягут в неё.</small>
+          <small v-else-if="newBranch">Ветка создастся от выбранной ниже (по умолчанию от текущей), коммиты лягут в неё.</small>
           <small v-if="options.scenario !== 'commits' && (!published || newBranch || sameBranch)">При push ветка будет опубликована в origin.</small>
 
           <div v-if="options.scenario === 'full'" class="fp-field fp-target">
             <span class="fp-caption">Целевая ветка МР</span>
-            <BranchSelect v-model="options.targetBranch" :options="targets.map(name => ({ value: name, label: 'origin/' + name }))" small placeholder="Выберите ветку" label="Целевая ветка МР" />
+            <BranchSelect block v-model="options.targetBranch" :options="targets.map(name => ({ value: name, label: 'origin/' + name }))" small placeholder="Выберите ветку" label="Целевая ветка МР" />
             <AppButton type="button" size="sm" class="fp-branch-action" :disabled="refreshingBranches" @click="refreshBranches">{{ refreshingBranches ? 'Обновление из origin…' : 'Обновить ветки из origin' }}</AppButton>
             <small v-if="branchesError" role="alert" class="fp-warn">{{ branchesError }}</small>
             <small>{{ mrDefaults }}</small>
@@ -51,17 +62,16 @@
         </section>
       </div>
 
-      <AppCheckbox :model-value="!!options.autoContinue" @update:model-value="options.autoContinue = $event">
-        <span><span class="fp-choice-label">Завершить автоматически</span><small>Выполнить выбранный сценарий целиком без подтверждения коммитов и МР.</small></span>
-      </AppCheckbox>
-
       <div class="fp-footer">
+        <AppCheckbox :model-value="!!options.autoContinue" @update:model-value="options.autoContinue = $event">
+          <span class="fp-auto"><span class="fp-choice-label">Завершить автоматически</span><small>Выполнить выбранный сценарий целиком без подтверждения коммитов и МР.</small></span>
+        </AppCheckbox>
         <div class="fp-launch">
           <div class="fp-launch-copy">
             <span class="fp-label">{{ FINISH_SCENARIOS[options.scenario].label }}</span>
             <p>{{ options.autoContinue ? (options.scenario === 'commits' ? 'Коммиты будут созданы локально.' : options.scenario === 'push' ? 'После создания коммитов — push в origin.' : 'После создания коммитов — push и МР в целевую ветку.') : options.scenario === 'commits' ? 'Коммиты останутся локально после вашего подтверждения.' : options.scenario === 'push' ? 'После подтверждения коммиты отправятся в origin.' : 'После подтверждения — push и МР в целевую ветку.' }}</p>
           </div>
-          <AppButton type="submit" variant="blue" :disabled="!canStart" :title="startHint">{{ store.busy ? 'Запуск…' : 'Начать завершение' }}</AppButton>
+          <AppButton type="submit" variant="blue" block :disabled="!canStart" :title="startHint">{{ store.busy ? 'Запуск…' : 'Начать завершение' }}</AppButton>
         </div>
         <p v-if="startHint" class="fp-hint fp-warn" role="status">{{ startHint }}</p>
         <GitAgentNote />
@@ -159,6 +169,16 @@ const app = useAppStore(), store = useFinishStore(), git = useGitStore()
 const localError = ref(''), branchesError = ref(''), refreshingBranches = ref(false)
 const scenarioOptions = (['commits', 'push', 'full'] as const).map(value => ({ value, ...FINISH_SCENARIOS[value] }))
 const options = useDraft<FinishOptions>(() => `task:${props.task?.id ?? 'project-' + props.projectId}:finish:${props.workspaceId ?? 'main'}:options`, () => ({ scenario: 'commits', autoContinue: true, commitMode: 'split', includeDescription: false, includeCoauthors: false, coauthors: [], targetBranch: '' }))
+const switching = ref(false), switchBusy = ref(false), switchError = ref(''), baseBranch = ref('')
+const branchOptions = computed(() => git.branches.map(b => ({ value: b.name, label: b.name })))
+/** The picked branch becomes the working one: no extra new branch on top of it. */
+async function switchTo(name: string) {
+  if (!name || name === git.repository?.branch || switchBusy.value) return
+  switchBusy.value = true; switchError.value = ''
+  try { await git.run('switch', { branch: name }); newBranch.value = false; switching.value = false }
+  catch (cause) { switchError.value = message(cause) }
+  finally { switchBusy.value = false }
+}
 const newBranch = ref(false), branchName = useDraft(() => `task:${props.task?.id ?? "project-" + props.projectId}:finish:${props.workspaceId ?? "main"}:branchName`, () => '')
 const prefixes = computed(() => git.settings?.branch_prefixes ?? [])
 /** A workspace has its own branch: it is published when origin has a branch of that name. */
@@ -284,7 +304,7 @@ watch(() => store.run?.status, status => { if (status === 'waiting' || status ==
 async function start() {
   if (!canStart.value) return
   try {
-    await store.start({ ...options.value, includeCoauthors: options.value.coauthors.length > 0, task_id: props.task?.id, branchName: needsBranchName.value ? branchName.value.trim() : undefined })
+    await store.start({ ...options.value, includeCoauthors: options.value.coauthors.length > 0, task_id: props.task?.id, branchName: needsBranchName.value ? branchName.value.trim() : undefined, baseBranch: needsBranchName.value && baseBranch.value ? baseBranch.value : undefined })
     draft.value = copy(store.run?.commits ?? [])
   } catch { /* store error */ }
 }
@@ -388,9 +408,11 @@ textarea.control { height: auto; padding: 6px 10px; resize: vertical; line-heigh
 .fp-branch { padding: 9px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); }
 .fp-branch-name { flex: 1; font-family: var(--font-mono); font-size: var(--fs-sm); }
 .fp-branch-action { align-self: flex-start; }
+.fp-branch-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .fp-target { margin-top: 4px; padding-top: 16px; border-top: 1px solid var(--border); gap: 10px; }
-.fp-footer { padding: 12px 16px; gap: 6px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg2); text-align: center; }
-.fp-launch { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.fp-footer { padding: 14px; gap: 12px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg2); }
+.fp-auto { display: flex; flex-direction: column; gap: 2px; }
+.fp-launch { display: flex; flex-direction: column; gap: 10px; padding-top: 12px; border-top: 1px solid var(--border); }
 .fp-launch-copy { min-width: 0; }
 .fp-launch-copy p { margin-top: 4px; font-size: var(--fs-sm); color: var(--text-muted); }
 .fp-launch > .btn { flex-shrink: 0; }

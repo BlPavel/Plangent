@@ -101,6 +101,8 @@ test('stdio ACP lifecycle persists coalesced messages, serializes queue, resolve
       for (const args of [{ action: 'discard', paths: ['chat-file.txt'] }, { action: 'stash', stashAction: 'drop' }, { action: 'merge', branch: 'main' }, { action: 'rebase', branch: 'main' }])
         assert.equal((await prepareChatGitAction(session, args)).alwaysAsk, true);
       await assert.rejects(prepareChatGitAction(session, { action: 'push', force: true }), /Unexpected/);
+      await assert.rejects(prepareChatGitAction(session, { action: 'rebase', branch: 'origin/main', base: '', name: null }),
+        /Unexpected Git action argument for rebase: base, name\. Allowed fields: action, branch\. Omit all other fields, including empty or null values\./);
       await assert.rejects(prepareChatGitAction(session, { action: 'reset' }), /Invalid/);
       await assert.rejects(prepareChatGitAction(session, { action: 'commit', paths: ['chat-file.txt'], title: 'x', amend: true }), /Unexpected/);
       const pendingGit = callTool(session.id, 'git_action', { action: 'commit', paths: ['chat-file.txt'], title: 'chat change' });

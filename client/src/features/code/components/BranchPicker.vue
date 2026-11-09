@@ -1,12 +1,12 @@
 <template>
   <div ref="root" class="branches" :class="{ up }" role="dialog" aria-label="Ветки" @keydown.esc.stop.prevent="emit('close')">
-    <AppInput ref="searchInput" v-model="search" size="sm" placeholder="Поиск ветки (локальная или origin/*)" aria-label="Поиск ветки" @keydown.enter.prevent="pickFirst" />
-    <AppButton variant="subtle" size="sm" type="button"  :disabled="refreshing" @click="refreshBranches">{{ refreshing ? 'Обновление из origin…' : 'Обновить ветки из origin' }}</AppButton>
+    <div class="search"><AppInput ref="searchInput" block v-model="search" size="sm" placeholder="Поиск ветки (локальная или origin/*)" aria-label="Поиск ветки" @keydown.enter.prevent="pickFirst" /></div>
+    <AppButton class="bp-item" variant="subtle" size="sm" block start type="button" :disabled="refreshing" @click="refreshBranches">{{ refreshing ? 'Обновление из origin…' : 'Обновить ветки из origin' }}</AppButton>
     <div class="list">
       <template v-for="group in groups" :key="group.title">
         <div v-if="group.items.length" class="group-title">{{ group.title }}</div>
         <AppButton
-          v-for="branch in group.items" :key="branch.ref" variant="subtle" size="sm" block :pressed="branch.name === current || branch.name === base"
+          v-for="branch in group.items" :key="branch.ref" class="bp-item" variant="subtle" size="sm" block start :pressed="branch.name === current || branch.name === base"
           :disabled="!!git.writeBlocked || selecting || (branch.name === current && !onSelectBranch)" :title="git.writeBlocked || (branch.remote ? 'Переключиться на ветку из origin' : branch.name === current ? 'Текущая ветка' : 'Переключиться')" @click="pick(branch)"
         >{{ branch.name }}<AppBadge v-if="branch.name === current" >текущая</AppBadge></AppButton>
       </template>
@@ -15,14 +15,15 @@
     <form class="create" @submit.prevent="create">
       <div class="group-title">Новая ветка</div>
       <BranchNameInput v-model="name" :prefixes="prefixes" placeholder="Имя новой ветки" label="Имя новой ветки" />
-      <label class="from">от
-        <BranchSelect v-model="base" :options="baseOptions" small placeholder="Ветка-источник" label="От ветки" />
-      </label>
+      <div class="from">
+        <span>от</span>
+        <div class="from-select"><BranchSelect block v-model="base" :options="baseOptions" small placeholder="Ветка-источник" label="От ветки" /></div>
+      </div>
       <div v-if="error" role="alert" class="error">{{ error }}</div>
       <div class="actions">
         <span class="muted hint">Esc — закрыть</span>
         <AppButton variant="subtle" size="sm" type="button"  @click="emit('close')">Закрыть</AppButton>
-        <AppButton variant="blue" size="sm" type="submit"  :disabled="selecting || !name.trim() || name.endsWith('/') || !base || !!git.writeBlocked" :title="git.writeBlocked">Создать и переключиться</AppButton>
+        <AppButton variant="blue" size="sm" type="submit"  :disabled="selecting || !name.trim() || name.endsWith('/') || !base || !!git.writeBlocked" :title="git.writeBlocked || 'Создать ветку и переключиться на неё'">Создать</AppButton>
       </div>
     </form>
   </div>
@@ -99,7 +100,9 @@ onBeforeUnmount(() => { disposed = true; document.removeEventListener('pointerdo
 <style scoped>
 .branches { position: absolute; z-index: var(--z-dropdown); top: calc(100% + 4px); left: 0; width: 380px; padding: 10px; display: flex; flex-direction: column; gap: 8px; background: var(--bg2); border: 1px solid var(--border-strong); border-radius: var(--radius); box-shadow: var(--shadow-md); font-size: var(--fs-sm); }
 .branches.up { top: auto; bottom: calc(100% + 4px); }
-.list { max-height: 240px; overflow: auto; display: flex; flex-direction: column; gap: 1px; }
+.search { padding: 0 0 var(--sp-2); border-bottom: 1px solid var(--border); }
+.bp-item, .group-title { flex-shrink: 0; }
+.list { max-height: 240px; overflow: auto; display: flex; flex-direction: column; gap: 2px; }
 .group-title { padding: 4px 6px 2px; font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-faint); }
 .item { display: flex; align-items: center; gap: 6px; padding: 4px 8px; font: inherit; text-align: left; color: var(--text); background: none; border: none; border-radius: var(--radius-sm); cursor: pointer; overflow-wrap: anywhere; }
 .item:hover:not(:disabled) { background: var(--bg-hover); }
@@ -110,12 +113,12 @@ onBeforeUnmount(() => { disposed = true; document.removeEventListener('pointerdo
 .empty { padding: 6px 8px; }
 .create { display: flex; flex-direction: column; gap: 6px; padding-top: 8px; border-top: 1px solid var(--border); }
 .from { display: flex; align-items: center; gap: 8px; color: var(--text-muted); }
-.from select { flex: 1; min-width: 0; }
+.from-select { flex: 1; min-width: 0; }
 .error { color: var(--danger-hover); overflow-wrap: anywhere; white-space: pre-wrap; max-height: 160px; overflow: auto; }
 .hint { flex: 1; font-size: var(--fs-xs); color: var(--text-faint); }
 
 /* Local layout for action groups. */
-.actions { display: flex; gap: var(--sp-2); align-items: center; }
+.actions { display: flex; gap: var(--sp-2); align-items: center; justify-content: flex-end; }
 
 /* Local secondary text. */
 .muted { color: var(--text-muted); font-size: var(--fs-sm); }

@@ -60,7 +60,9 @@
         </div>
       </div>
 
-      <AppTabs v-if="items.length" :model-value="filter" :items="filters.map(f => ({ value: f.id, label: f.label, count: f.count }))" label="Какие пункты показать" @update:model-value="filter = $event as typeof filter" />
+      <div v-if="items.length" class="rp-filters">
+        <AppTabs compact bare :model-value="filter" :items="filters.map(f => ({ value: f.id, label: f.label, count: f.count }))" label="Какие пункты показать" @update:model-value="filter = $event as typeof filter" />
+      </div>
       <div class="rp-meta">
         <template v-if="review">Ревью #{{ review.number }}<template v-if="rounds"> · отправок {{ rounds }}</template></template>
         <span v-if="readOnly" class="rp-ro" title="Это ревью другой ветки или завершено: только чтение">только чтение</span>
@@ -192,13 +194,13 @@ async function saveGeneral(value: { kind: 'fix' | 'question'; text: string; refs
 .rp-permission-head { font-size: var(--fs-xs); font-weight: 600; color: var(--text-muted); }
 .rp-permission-title { margin: 2px 0 6px; font-family: var(--font-mono); font-size: var(--fs-sm); overflow-wrap: anywhere; }
 .rp-permission-actions { display: flex; flex-wrap: wrap; gap: 4px; }
-.rp-filters { display: flex; flex-wrap: wrap; gap: 4px; flex-shrink: 0; padding: 4px 12px; }
+.rp-filters { flex-shrink: 0; padding: 4px 12px 0; overflow-x: auto; border-bottom: 1px solid var(--border); }
 .rp-filter { display: inline-flex; align-items: center; gap: 5px; padding: 1px 8px; font: inherit; font-size: var(--fs-xs); color: var(--text-muted); background: none; border: 1px solid var(--border-strong); border-radius: var(--radius-pill); cursor: pointer; }
 .rp-filter:hover { color: var(--text); }
 .rp-filter.on { color: var(--text); border-color: var(--blue); background: var(--blue-soft); }
 .rp-filter.warn .rp-filter-count { background: var(--warning-text); color: var(--bg); }
 .rp-filter-count { min-width: 14px; padding: 0 4px; font-size: var(--fs-xs); font-weight: 600; text-align: center; border-radius: var(--radius-pill); background: var(--bg3); }
-.rp-meta { display: flex; align-items: center; gap: 8px; flex-shrink: 0; min-height: 20px; padding: 0 12px 4px; font-size: var(--fs-xs); color: var(--text-muted); }
+.rp-meta { display: flex; align-items: center; gap: 8px; flex-shrink: 0; min-height: 20px; padding: 8px 12px 6px; font-size: var(--fs-xs); color: var(--text-muted); }
 .rp-ro { padding: 0 6px; font-size: var(--fs-xs); border-radius: var(--radius-pill); background: var(--bg3); color: var(--warning-text); }
 .rp-list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding: 0 12px 12px; }
 .rp-empty { font-size: var(--fs-sm); color: var(--text-muted); line-height: 1.5; }

@@ -30,6 +30,7 @@
       :model-value="split.plan.active"
       :disabled="locked && split.plan.select.kind === 'mode'"
       :title="split.plan.active ? 'Сначала план — включено. Агент изучает код и предлагает план, ничего не меняя.' : 'Сначала план: агент изучит код и предложит план, ничего не меняя'"
+      small
       @update:model-value="togglePlan"
     >
       План
@@ -64,5 +65,5 @@ function togglePlan() {
 </script>
 
 <style scoped>
-.settings { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; padding: 6px 2px 0; }
+.settings { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 6px 2px 0; }
 </style>

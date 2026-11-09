@@ -134,7 +134,7 @@ function ago(value: string) {
 .ml-sub { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: var(--fs-sm); line-height: 16px; color: var(--text-muted); white-space: nowrap; }
 .ml-author { flex-shrink: 0; }
 .ml-branches { display: inline-flex; align-items: center; gap: 4px; min-width: 0; font-family: var(--font-mono); font-size: var(--fs-xs); line-height: 16px; }
-.ml-branch { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ml-branch { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ml-arrow { flex-shrink: 0; color: var(--text-faint); }
 .ml-project { flex-shrink: 0; padding: 0 6px; border-radius: var(--radius-pill); background: var(--bg3); }
 .ml-status { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }

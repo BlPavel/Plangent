@@ -216,7 +216,7 @@ async function submitFollowUp() {
 .work-state.live { color: var(--blue-hover); }
 .work-state.live::before { content: ''; display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: var(--radius-round); background: currentColor; vertical-align: 1px; animation: work-pulse 1.4s ease-in-out infinite; }
 @keyframes work-pulse { 50% { opacity: 0.3; } }
-.work-branch { max-width: 280px; overflow: hidden; text-overflow: ellipsis; font-family: var(--font-mono); color: var(--text-muted); }
+.work-branch { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); color: var(--text-muted); }
 .work-main-folder { color: var(--warning-text); }
 .work-stage { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; min-width: 120px; }
 .work-bars { display: flex; gap: 3px; }

@@ -26,7 +26,7 @@ export function insertFinish(run: FinishRun): FinishRun {
   return getFinish(run.id);
 }
 export function updateFinish(id: string, patch: Partial<FinishRun>): FinishRun {
-  const columns = ['stage','status','commits','session_id','note','error','output','pushed','mr_url','mr_draft','branch','snapshot_tree'];
+  const columns = ['stage','status','commits','session_id','note','error','output','pushed','mr_url','mr_draft','branch','base_head','snapshot_tree'];
   const entries = Object.entries(patch).filter(([key]) => columns.includes(key));
   if (entries.length) getDb().prepare('UPDATE finish_runs SET ' + entries.map(([key]) => key + '=?').join(',') + ",updated_at=datetime('now') WHERE id=?")
     .run(...entries.map(([key,value]) => ['commits', 'mr_draft'].includes(key) ? JSON.stringify(value) : key === 'pushed' ? +!!value : value), id);

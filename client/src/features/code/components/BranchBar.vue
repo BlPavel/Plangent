@@ -14,9 +14,9 @@
     <div class="bb-row">
       <div class="bb-branch">
         <AppButton
-          variant="subtle" size="sm" :disabled="!!git.writeBlocked" :aria-expanded="choosing"
+          class="bb-trigger" variant="subtle" size="sm" :disabled="!!git.writeBlocked" :aria-expanded="choosing"
           :title="git.writeBlocked || 'Переключить ветку или создать новую'" @click="choosing = !choosing"
-        ><span class="bb-icon">⎇</span>{{ branchName }}<span class="bb-caret">▾</span></AppButton>
+        ><span class="bb-icon">⎇</span><span class="bb-label">{{ branchName }}</span><span class="bb-caret">▾</span></AppButton>
         <BranchPicker v-if="choosing" :task="task" up @close="choosing = false" />
       </div>
       <span v-if="git.repository.upstream" class="bb-sync" :title="`Относительно ${git.repository.upstream}: ↑ не отправлено, ↓ ещё не подтянуто`">
@@ -86,7 +86,9 @@ async function run(action: string) { try { await git.run(action) } catch { /* sh
 <style scoped>
 .branch-bar { flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; padding: 6px 10px; border-top: 1px solid var(--border); font-size: var(--fs-sm); }
 .bb-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.bb-branch { position: relative; min-width: 0; }
+.bb-branch { position: relative; flex: 0 1 auto; min-width: 0; }
+.bb-trigger { max-width: 100%; min-width: 0; }
+.bb-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bb-name { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; padding: 2px 4px; font: inherit; font-weight: 600; color: var(--text); background: none; border: none; border-radius: var(--radius-sm); cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bb-name:hover:not(:disabled) { background: var(--bg3); }
 .bb-name:disabled { cursor: default; color: var(--text-muted); }
