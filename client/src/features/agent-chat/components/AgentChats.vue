@@ -121,7 +121,7 @@ async function create({ content, ...options }: NewChatRequest) {
 function startRename(session: ChatSession) { renameId.value = session.id; title.value = session.title }
 async function rename() { store.put(await agentChatEndpoints.patchAgentSessionsById({ params: { id: renameId.value }, body: { title: title.value } })); renameId.value = '' }
 async function remove(session: ChatSession) {
-  if (!(await app.confirm(`Удалить чат "${session.title}"?`))) return
+  if (!(await app.confirm(`Удалить чат "${session.title}"?`, { confirmLabel: "Удалить", danger: true }))) return
   try { await store.remove(session.id); if (selected.value === session.id) selected.value = '' }
   catch (e) { app.toast(String(e), 'error') }
 }

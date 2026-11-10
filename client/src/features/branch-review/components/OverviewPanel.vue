@@ -10,20 +10,15 @@
     <!-- Before the review: what the agent should know. After the start none of it can change, only «Новое ревью». -->
     <section v-if="stage === 'setup'" class="op-section">
       <div class="op-label">Ревью агентом</div>
-      <label class="op-field">Скилл ревью
-        <span class="op-row">
-          <AppSelect :model-value="currentSkill" :options="skillOptions" small label="Скилл ревью" @update:model-value="save({ skill_id: $event || null })" />
-          <AppButton variant="link" size="xs" type="button"  title="Скиллы ревью пишутся в настройках проекта → «Ревью» → «Merge request», в том числе вместе с агентом" @click="emit('open-instructions')">Скиллы ревью…</AppButton>
-        </span>
-      </label>
-      <label class="op-field">Задача
-        <AppSelect :model-value="detail.review.task_id ?? ''" :options="taskOptions" small label="Задача" empty-label="Задач нет" @update:model-value="save({ task_id: $event || null })" />
-      </label>
-      <label class="op-field">Что ещё знать агенту
-        <AppTextarea v-model="context" block rows="4" placeholder="Например: это первый шаг миграции на новый API, обратная совместимость не нужна" spellcheck="false" @blur="saveContext" />
-      </label>
-      <label class="op-field">На что смотреть особенно
-        <AppInput v-model="note"  placeholder="Необязательно: например, только архитектура" spellcheck="false" @keydown.enter.prevent="start" />
+      <div class="op-field">Скилл ревью
+        <AppSelect :model-value="currentSkill" :options="skillOptions" small block :popup-max-width="480" label="Скилл ревью" @update:model-value="save({ skill_id: $event || null })" />
+        <AppButton variant="link" size="xs" type="button"  title="Скиллы ревью пишутся в настройках проекта → «Ревью» → «Merge request», в том числе вместе с агентом" @click="emit('open-instructions')">Скиллы ревью…</AppButton>
+      </div>
+      <div class="op-field">Задача
+        <AppSelect :model-value="detail.review.task_id ?? ''" :options="taskOptions" small block :popup-max-width="480" label="Задача" empty-label="Задач нет" @update:model-value="save({ task_id: $event || null })" />
+      </div>
+      <label class="op-field">Что знать агенту и на что обратить внимание
+        <AppTextarea v-model="context" block rows="5" placeholder="Например: это первый шаг миграции на новый API, обратная совместимость не нужна. Особенно посмотри архитектуру" spellcheck="false" @blur="saveContext" />
       </label>
       <div class="op-field">
         <ReviewAgentBar read-only :project-id="scope" :fallback-agent-id="projectsStore.agentFor(projectsStore.byId(scope))" :disabled="sending || busy" @change="agentPick = $event" />
@@ -53,7 +48,7 @@
     <section v-if="detail.round_commits && stage !== 'running'" class="op-section op-round">
       <span>Автор добавил {{ detail.round_commits }} {{ plural(detail.round_commits, 'коммит', 'коммита', 'коммитов') }} после ваших замечаний, {{ changedCount }} {{ plural(changedCount, 'файл изменён', 'файла изменено', 'файлов изменено') }}.</span>
       <div class="op-row">
-        <AppButton size="sm" variant="blue" :disabled="busy || sending" :title="busy ? 'Агент отвечает: дождитесь конца ответа' : 'Агент сверит ваши опубликованные замечания с новыми коммитами и ответит во вкладке «Агент»'" @click="checkFixes">Проверить исправления</AppButton>
+        <AppButton size="sm" variant="blue" :disabled="busy || sending" :title="busy ? 'Агент отвечает: дождитесь конца ответа' : 'Агент сверит ваши опубликованные замечания с новыми коммитами и ответит во вкладке «Замечания»'" @click="checkFixes">Проверить исправления</AppButton>
         <AppButton variant="link" size="xs" type="button"  @click="screen.onlyChanged = !screen.onlyChanged">{{ screen.onlyChanged ? 'Показать все файлы' : 'Только изменённые' }}</AppButton>
       </div>
     </section>
@@ -68,7 +63,6 @@
 </template>
 <script setup lang="ts">
 import AppTextarea from '@shared/ui/AppTextarea.vue'
-import AppInput from '@shared/ui/AppInput.vue'
 import { useDraft } from '@core/composables/useDraft'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { tasksEndpoints } from '@features/tasks'
@@ -94,7 +88,7 @@ const app = useAppStore(), chats = useChatStore(), agents = useAgentsStore(), pr
 // The review agent starts as the project's one from the settings; ReviewAgentBar reports what the developer left or changed.
 const agentPick = ref<ReviewAgentPick | null>(null)
 const skills = ref<ReviewSkill[]>([]), tasks = ref<Task[]>([])
-const context = useDraft(() => `branch-review:${props.detail.review.id}:overview:context`, () => props.detail.review.context), note = useDraft(() => `branch-review:${props.detail.review.id}:overview:note`, () => ''), error = ref(''), sending = ref(false), restarting = ref(false), descriptionOpen = ref(false)
+const context = useDraft(() => `branch-review:${props.detail.review.id}:overview:context`, () => props.detail.review.context), error = ref(''), sending = ref(false), restarting = ref(false), descriptionOpen = ref(false)
 watch(() => props.detail.review.context, (value, previous) => { if (context.value === previous) context.value = value })
 
 const origin = { direct: 'проект', group: 'группа', global: 'везде' }
@@ -160,8 +154,7 @@ async function start() {
   sending.value = true; error.value = ''
   try {
     if (context.value !== props.detail.review.context) await save({ context: context.value })
-    screen.thread = (await branchReviewApi.analyze(props.scope, props.detail.review.id, { note: note.value, ...(agentPick.value ? { agent_id: agentPick.value.agent_id, model: agentPick.value.model, reasoning_effort: agentPick.value.effort } : {}) })).thread
-    note.value = ''
+    screen.thread = (await branchReviewApi.analyze(props.scope, props.detail.review.id, { note: '', ...(agentPick.value ? { agent_id: agentPick.value.agent_id, model: agentPick.value.model, reasoning_effort: agentPick.value.effort } : {}) })).thread
     screen.detail = await branchReviewApi.detail(props.scope, props.detail.review.id)
   } catch (cause) { error.value = errorText(cause) } finally { sending.value = false }
 }

@@ -3,7 +3,8 @@
     <AppButton class="it-head" variant="subtle" size="sm" block start :aria-expanded="open" @click="open = !open">
       <span class="it-dot" :title="label" />
       <span v-if="location" class="it-loc">{{ location }}</span>
-      <span v-if="item.author === 'agent' || permissions.length" class="it-flags">
+      <span v-if="item.author === 'agent' || permissions.length || kindLabel" class="it-flags">
+        <span v-if="kindLabel" class="it-kind">{{ kindLabel }}</span>
         <span v-if="item.author === 'agent'" class="it-flag">агент</span>
         <span v-if="item.author === 'agent' && item.origin === 'task'" class="it-flag">ревью задачи{{ item.task_key ? ' ' + item.task_key : '' }}</span>
         <span v-if="permissions.length" class="it-flag" title="Агент ждёт вашего разрешения">разрешение</span>
@@ -54,8 +55,9 @@
           v-model="text" :disabled="actionBusy" block rows="2" :placeholder="state === 'closed' ? 'Написать агенту (пункт откроется снова)…' : 'Ответить агенту…'"
           @keydown.enter.ctrl.prevent="submitText" @keydown.enter.meta.prevent="submitText"
         />
-        <div v-if="canGoto || item.outdated || mode !== 'none' || canReopen || (!readOnly && !item.closed)" class="it-actions">
+        <div v-if="canGoto || item.outdated || mode !== 'none' || canReopen || (!readOnly && !item.closed) || $slots.extra" class="it-actions">
           <AppButton v-if="canGoto" class="it-act" size="xs" variant="ghost" type="button" @click="emit('goto')"><UIIconCode />К коду</AppButton>
+          <slot name="extra" />
           <AppButton v-if="item.outdated && !readOnly" class="it-act" size="xs" variant="ghost" type="button" @click="act('general')">Сделать общим</AppButton>
           <span class="it-spacer" />
           <AppButton v-if="canReopen" class="it-act" size="xs" variant="blue" type="button" :disabled="actionBusy" title="Вернуть карточку к вашему решению" @click="reopenThread">Вернуть в доработку</AppButton>
@@ -68,11 +70,11 @@
             <AppButton class="it-act" size="xs" variant="ghost" type="button" :disabled="actionBusy" title="Убрать написанное из очереди: текст вернётся в поле ответа" @click="cancelQueued">Отменить</AppButton>
           </template>
           <template v-else-if="mode === 'typing'">
-            <AppButton v-if="item.kind === 'question'" class="it-act" size="xs" variant="primary" type="button" :disabled="actionBusy" title="Написанное станет заданием: агент внесёт изменения в код" @click="requestChange">Исправить</AppButton>
+            <AppButton v-if="item.kind === 'question' && !noImplement" class="it-act" size="xs" variant="primary" type="button" :disabled="actionBusy" title="Написанное станет заданием: агент внесёт изменения в код" @click="requestChange">Исправить</AppButton>
             <AppButton type="submit" class="it-act" size="xs" variant="blue" :disabled="actionBusy" title="Продолжить обсуждение: ответ уйдёт агенту со следующей отправкой">{{ item.kind === 'question' ? 'Обсудить' : 'В очередь' }}</AppButton>
           </template>
           <template v-else-if="mode === 'idle'">
-            <AppButton v-if="item.kind === 'question'" class="it-act" size="xs" variant="primary" type="button" :disabled="actionBusy" title="Попросить агента внести в код то, о чём договорились (уйдёт со следующей отправкой)" @click="requestChange">Исправить</AppButton>
+            <AppButton v-if="item.kind === 'question' && !noImplement" class="it-act" size="xs" variant="primary" type="button" :disabled="actionBusy" title="Попросить агента внести в код то, о чём договорились (уйдёт со следующей отправкой)" @click="requestChange">Исправить</AppButton>
           </template>
         </div>
         <div v-if="error" class="it-note" role="alert">{{ error }}</div>
@@ -102,6 +104,10 @@ const props = defineProps<{
   showLocation?: boolean
   busy?: boolean
   error?: string
+  /** Where the agent only reads (a merge request review) there is nothing to «Исправить». */
+  noImplement?: boolean
+  /** A flag in the head that names what the item is («вопрос»), for screens where the kinds are mixed. */
+  kindLabel?: string
   /** The agent said it works on this item now. */
   working?: boolean
   permissions?: { permissionId: string; toolCall: { title?: string | null }; options: { optionId: string; name: string; kind: string }[] }[]
@@ -230,6 +236,7 @@ function sendReply(message: string, kind: 'text' | 'implement' = 'text') {
 /* The button's line-height is 1 and its content is clipped: texts inside take a normal one so descenders stay whole. */
 .it-summary { flex: 1 1 0; min-width: 0; line-height: var(--lh-normal); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); }
 .it.open .it-summary { display: none; }
+.it-kind { flex-shrink: 0; padding: 1px 8px; line-height: var(--lh-normal); font-size: var(--fs-xs); font-weight: var(--fw-medium); border: 1px solid var(--accent-hover); border-radius: var(--radius-pill); color: var(--accent-hover); white-space: nowrap; }
 .it-flag { flex: 0 1 auto; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 6px; font-size: var(--fs-xs); font-weight: 600; border-radius: var(--radius-pill); background: var(--blue); color: var(--on-accent); }
 /* Smaller type centred in the same row sits a hair high: the nudge puts its baseline on the text's. */
 .it-status { flex-shrink: 0; margin-left: auto; transform: translateY(1.25px); line-height: var(--lh-normal); font-size: var(--fs-xs); color: var(--text-muted); }

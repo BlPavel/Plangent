@@ -20,7 +20,7 @@ const PROTOCOL = [
   'Follow the review instruction: it describes what matters and what to skip. If a review skill is given, it adds the requirements of this project; apply both and do not report things they exclude.',
   'When asked to review the MR, inspect the entire diff (git diff range.from..HEAD in the worktree) and surrounding code. Then call set_review_overview once with a concise Markdown summary: what changes and why, how the parts fit together, and where to focus the review (files and lines). Do not summarize every file.',
   'Call add_review_remark for each finding. For a line remark, provide path and line from the diff (side old for deleted lines). Omit path for an MR-wide remark. Write text as a concrete, polite MR comment from the developer, explaining the problem and suggested change.',
-  'Do not duplicate existing threads or remarks. Prefer fewer substantive findings. Write in Russian unless the instruction, the skill or MR description requires another language.',
+  'The developer may discuss a remark with you; when the discussion changes it, rewrite it with revise_review_remark. Remarks with status rejected were rejected by the developer: do not suggest them again without new evidence. Do not duplicate existing threads or remarks. Prefer fewer substantive findings. Write in Russian unless the instruction, the skill or MR description requires another language.',
 ];
 
 /** get_review_brief: everything the agent needs to know about the review besides the code. */
@@ -33,7 +33,7 @@ export async function brief(session: AgentSession) {
     try {
       const info = await mrReviews().info(r.project_id, r.id);
       mr = info.mr;
-      threads = info.threads.map(t => ({ where: t.path ? t.path + ':' + t.line : 'весь МР', resolved: t.resolved, notes: t.notes.map(n => ({ author: n.author, mine: n.mine, body: n.body })) }));
+      threads = info.threads.map(t => ({ id: t.id, where: t.path ? t.path + ':' + t.line : 'весь МР', resolved: t.resolved, notes: t.notes.map(n => ({ author: n.author, mine: n.mine, body: n.body })) }));
     } catch (e) { mr = { error: e instanceof Error ? e.message : 'Не удалось загрузить МР' }; }
   }
   return reviewBrief(PROTOCOL, skill ? { title: skill.title, content: skill.content } : null, {
@@ -43,7 +43,7 @@ export async function brief(session: AgentSession) {
     developer_context: r.context || null,
     task: task ? { key: task.key, title: task.title ?? '', description: task.description ?? '', plan: getLatestPlan(task.id)?.content ?? '' } : null,
     threads,
-    remarks: (await remarks().list(r.project_id, r.id)).remarks.map(m => ({ where: m.path ? m.path + ':' + m.line : 'весь МР', author: m.author, status: m.status, text: m.body })),
+    remarks: (await remarks().list(r.project_id, r.id)).remarks.map(m => ({ id: m.id, where: m.path ? m.path + ':' + m.line : 'весь МР', author: m.author, status: m.status, text: m.body })),
     overview: r.overview || null,
   });
 }

@@ -78,7 +78,7 @@ watch([feedback, () => git.operationId, () => git.error, logOpen], () => {
 }, { immediate: true })
 onBeforeUnmount(() => clearTimeout(hideTimer))
 async function forcePush() {
-  if (await app.confirm('Перезаписать ветку в origin вашей версией? Если там появились чужие коммиты, git откажется.', { confirmLabel: 'Force push' })) await run('push-force')
+  if (await app.confirm('Перезаписать ветку в origin вашей версией? Если там появились чужие коммиты, git откажется.', { confirmLabel: 'Force push', danger: true })) await run('push-force')
 }
 async function run(action: string) { try { await git.run(action) } catch { /* shown in the feedback block */ } }
 </script>

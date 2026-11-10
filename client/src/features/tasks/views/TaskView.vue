@@ -299,7 +299,7 @@ const planningLive = computed(() => planningChats.value.some(c => ['starting', '
 // The first message of a just-launched chat; ChatView sends it once the chat opens.
 const chatInitials = ref<Record<string, ContentBlock[]>>({})
 async function removeChat(id: string, name: string) {
-  if (!(await appStore.confirm(`Удалить чат «${name}»? Переписка с агентом будет удалена, агент остановлен.`))) return
+  if (!(await appStore.confirm(`Удалить чат «${name}»? Переписка с агентом будет удалена, агент остановлен.`, { confirmLabel: "Удалить", danger: true }))) return
   try {
     await chatStore.remove(id)
     if (selectedAnalysisChat.value === id) selectedAnalysisChat.value = undefined

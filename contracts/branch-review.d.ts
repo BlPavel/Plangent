@@ -71,6 +71,10 @@ export interface BranchQuestion {
     path: string;
     side: 'old' | 'new';
     line: number;
+    /** The remark this discussion is about; empty for a question of its own. */
+    remark_id: string;
+    /** The colleague's GitLab thread this discussion is about; empty otherwise. */
+    thread_id: string;
     closed: boolean;
     created_at: string;
 }
@@ -158,7 +162,9 @@ export interface BranchReviewRemark {
     body: string;
     author: 'developer' | 'agent';
     remote_id: number | null;
-    status: 'draft' | 'sent' | 'uncertain';
+    status: 'draft' | 'sent' | 'uncertain' | 'rejected';
+    /** The text from before a discussion or an edit changed it; null if it never changed. */
+    original: string | null;
     error: string;
     created_at: string;
     /** The developer has changed the text (of an agent's draft too). */
@@ -376,7 +382,8 @@ export type BranchReviewGETIdRemarksResponse = {
         "body": string;
         "author": "developer" | "agent";
         "remote_id": null | number;
-        "status": "draft" | "sent" | "uncertain";
+        "status": "draft" | "sent" | "uncertain" | "rejected";
+        "original": null | string;
         "error": string;
         "created_at": string;
     })[];
@@ -386,6 +393,9 @@ export type BranchReviewPOSTIdRemarksBody = {
     path?: string | null;
     side?: 'old' | 'new';
     line?: number;
+};
+export type BranchReviewPOSTIdRemarksRidRejectBody = {
+    rejected: boolean;
 };
 export type BranchReviewPOSTIdRemarksPublishResponse = {
     "remarks": ({
@@ -400,7 +410,8 @@ export type BranchReviewPOSTIdRemarksPublishResponse = {
         "body": string;
         "author": "developer" | "agent";
         "remote_id": null | number;
-        "status": "draft" | "sent" | "uncertain";
+        "status": "draft" | "sent" | "uncertain" | "rejected";
+        "original": null | string;
         "error": string;
         "created_at": string;
     })[];
@@ -418,7 +429,8 @@ export type BranchReviewPOSTIdRemarksPublishResponse = {
         "body": string;
         "author": "developer" | "agent";
         "remote_id": null | number;
-        "status": "draft" | "sent" | "uncertain";
+        "status": "draft" | "sent" | "uncertain" | "rejected";
+        "original": null | string;
         "error": string;
         "created_at": string;
     })[];
@@ -470,6 +482,8 @@ export type BranchReviewPOSTIdCheckFixesResponse = {
         "path": string;
         "side": "new" | "old";
         "line": number;
+        "remark_id": string;
+        "thread_id": string;
         "closed": boolean;
         "created_at": string;
     })[];
@@ -490,6 +504,8 @@ export type BranchReviewGETIdQuestionsResponse = {
         "path": string;
         "side": "new" | "old";
         "line": number;
+        "remark_id": string;
+        "thread_id": string;
         "closed": boolean;
         "created_at": string;
     })[];
@@ -508,6 +524,8 @@ export type BranchReviewPOSTIdQuestionsBody = {
     path?: string;
     side?: 'old' | 'new';
     line?: number;
+    remark_id?: string;
+    thread_id?: string;
 };
 export type BranchReviewPOSTIdQuestionsSendBody = {
     question_ids?: string[];
@@ -553,6 +571,7 @@ export interface BranchReviewEndpoints {
     "POST /api/projects/:projectId/branch-review/:id/remarks/mark-sent": Endpoint<"POST /api/projects/:projectId/branch-review/:id/remarks/mark-sent", BranchReviewPOSTIdRemarksMarkSentBody, BranchReviewGETIdRemarksResponse, Record<string, never>, "json", never>;
     "PUT /api/projects/:projectId/branch-review/:id/remarks/:rid": Endpoint<"PUT /api/projects/:projectId/branch-review/:id/remarks/:rid", BranchReviewPUTIdRemarksRidBody, BranchReviewGETIdRemarksResponse, Record<string, never>, "json", never>;
     "DELETE /api/projects/:projectId/branch-review/:id/remarks/:rid": Endpoint<"DELETE /api/projects/:projectId/branch-review/:id/remarks/:rid", never, BranchReviewGETIdRemarksResponse, Record<string, never>, "json", never>;
+    "POST /api/projects/:projectId/branch-review/:id/remarks/:rid/reject": Endpoint<"POST /api/projects/:projectId/branch-review/:id/remarks/:rid/reject", BranchReviewPOSTIdRemarksRidRejectBody, BranchReviewGETIdRemarksResponse, Record<string, never>, "json", never>;
     "POST /api/projects/:projectId/branch-review/:id/remarks/:rid/detach": Endpoint<"POST /api/projects/:projectId/branch-review/:id/remarks/:rid/detach", never, BranchReviewGETIdRemarksResponse, Record<string, never>, "json", never>;
     "POST /api/projects/:projectId/branch-review/:id/remarks/:rid/recover": Endpoint<"POST /api/projects/:projectId/branch-review/:id/remarks/:rid/recover", BranchReviewPOSTIdRemarksRidRecoverBody, BranchReviewGETIdRemarksResponse, Record<string, never>, "json", never>;
     "POST /api/projects/:projectId/branch-review/:id/analyze": Endpoint<"POST /api/projects/:projectId/branch-review/:id/analyze", BranchReviewPOSTIdAnalyzeBody, BranchReviewPOSTIdAnalyzeResponse, Record<string, never>, "json", never>;
@@ -564,6 +583,7 @@ export interface BranchReviewEndpoints {
     "POST /api/projects/:projectId/branch-review/:id/questions/:qid/messages": Endpoint<"POST /api/projects/:projectId/branch-review/:id/questions/:qid/messages", BranchReviewPOSTIdQuestionsQidMessagesBody, BranchReviewGETIdQuestionsResponse, Record<string, never>, "json", never>;
     "PUT /api/projects/:projectId/branch-review/:id/questions/:qid/messages/:mid": Endpoint<"PUT /api/projects/:projectId/branch-review/:id/questions/:qid/messages/:mid", BranchReviewPUTIdQuestionsQidMessagesMidBody, BranchReviewGETIdQuestionsResponse, Record<string, never>, "json", never>;
     "DELETE /api/projects/:projectId/branch-review/:id/questions/:qid/messages/:mid": Endpoint<"DELETE /api/projects/:projectId/branch-review/:id/questions/:qid/messages/:mid", never, BranchReviewGETIdQuestionsResponse, Record<string, never>, "json", never>;
+    "DELETE /api/projects/:projectId/branch-review/:id/questions/:qid": Endpoint<"DELETE /api/projects/:projectId/branch-review/:id/questions/:qid", never, BranchReviewGETIdQuestionsResponse, Record<string, never>, "json", never>;
     "POST /api/projects/:projectId/branch-review/:id/questions/:qid/close": Endpoint<"POST /api/projects/:projectId/branch-review/:id/questions/:qid/close", BranchReviewPOSTIdQuestionsQidCloseBody, BranchReviewGETIdQuestionsResponse, Record<string, never>, "json", never>;
     "POST /api/projects/:projectId/branch-review/:id/questions/stop": Endpoint<"POST /api/projects/:projectId/branch-review/:id/questions/stop", never, BranchReviewGETIdQuestionsResponse, Record<string, never>, "json", never>;
 }

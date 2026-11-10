@@ -2,7 +2,7 @@ import { reactive } from 'vue'
 import { defineStore } from 'pinia'
 import type { BranchQuestion, BranchQuestionMessage, BranchRef, BranchReview, MrInfo, MrList, Remark, ReviewThread } from '../types'
 
-export type ReviewPanel = 'overview' | 'remarks' | 'agent' | 'threads'
+export type ReviewPanel = 'overview' | 'remarks' | 'threads'
 export interface MrFilters {
   /** all: every open MR; mine: written by me; review: I am a reviewer; unapproved: without my approval. */
   who: 'all' | 'mine' | 'review' | 'unapproved'

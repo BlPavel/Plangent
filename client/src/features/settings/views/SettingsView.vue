@@ -371,7 +371,7 @@ async function saveAgent() {
 }
 
 async function remove(id: string) {
-  if (!(await appStore.confirm('Удалить агента?'))) return
+  if (!(await appStore.confirm('Удалить агента?', { confirmLabel: 'Удалить', danger: true }))) return
   try { await agentsStore.remove(id); appStore.toast('Удалён') }
   catch (e: unknown) { appStore.toast(String(e), 'error') }
 }

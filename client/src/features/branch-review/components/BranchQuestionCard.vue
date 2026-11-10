@@ -8,11 +8,14 @@
   </form>
   <div v-else class="qc">
     <ItemCard :draft-key="`branch-review:${reviewId}:question:${question.id}:reply`"
-      :item="item" :thread="thread" :state="state" show-location :busy="busy" :agent-busy="agentBusy" :working="state === 'agent' && agentBusy"
-      @edit="startEdit" @remove="removeFirst" @goto="emit('goto')" @send-now="emit('send-now')"
+      :item="item" :thread="thread" :state="state" show-location no-implement kind-label="вопрос" :busy="busy" :agent-busy="agentBusy" :working="state === 'agent' && agentBusy"
+      @edit="startEdit" @remove="removeFirst" @goto="emit('goto')"
       @reply="reply" @remove-message="removeMessage" @close="close"
-    />
-    <AppButton variant="link" size="xs" v-if="lastAnswer" type="button"  title="Открыть черновик замечания с текстом ответа агента — отредактируйте его перед сохранением" @click="emit('to-remark', lastAnswer.text)">→ В замечание</AppButton>
+    >
+      <template v-if="lastAnswer" #extra>
+        <AppButton class="qc-act" variant="ghost" size="xs" type="button" :disabled="busy" title="Сделать из ответа агента черновик замечания: вопрос исчезнет, замечание можно править" @click="emit('to-remark', lastAnswer.text)">В замечание</AppButton>
+      </template>
+    </ItemCard>
   </div>
 </template>
 <script setup lang="ts">
@@ -29,7 +32,7 @@ import { useBranchReviewStore } from '../stores/review'
 
 /** A question thread of the branch review drawn by the same card as the code review's items. */
 const props = defineProps<{ question: BranchQuestion; messages: BranchQuestionMessage[]; screenKey: string; scope: string; reviewId: string; agentBusy?: boolean }>()
-const emit = defineEmits<{ goto: []; 'send-now': []; 'to-remark': [text: string] }>()
+const emit = defineEmits<{ goto: []; 'to-remark': [text: string] }>()
 const screen = useBranchReviewStore().of(props.screenKey)
 const app = useAppStore()
 const busy = ref(false), editing = useDraft(() => `branch-review:${props.reviewId}:question:${props.question.id}:editing`, () => false), draft = useDraft(() => `branch-review:${props.reviewId}:question:${props.question.id}:draft`, () => '')
@@ -71,5 +74,6 @@ const close = (resolution: string) => run(() => branchReviewApi.closeQuestion(pr
 .qc { display: flex; flex-direction: column; gap: 2px; }
 .qc-remark { align-self: flex-end; padding: 0 4px; font: inherit; font-size: var(--fs-sm); color: var(--blue-hover); background: none; border: none; cursor: pointer; }
 .qc-edit { display: flex; flex-direction: column; gap: 6px; padding: 8px; background: var(--bg2); border: 1px solid var(--blue); border-radius: var(--radius-sm); }
+.qc-act { min-width: 76px; }
 .qc-bar { display: flex; justify-content: flex-end; gap: 6px; }
 </style>

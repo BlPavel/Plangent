@@ -5,7 +5,7 @@
       <span class="ml-below"><AppSelect :model-value="String(filters.below)" :options="belowOptions" size="sm" block label="Аппрувы" @update:model-value="filters.below = Number($event)" /></span>
       <span class="ml-search"><AppInput v-model="filters.search" size="sm" block placeholder="Поиск: название, автор, ветка, !номер" spellcheck="false" /></span>
       <span class="ml-spacer" />
-      <AppButton variant="subtle" size="sm" type="button"  :disabled="loading" title="Загрузить открытые МР из GitLab" @click="emit('refresh')">{{ loading ? 'Загрузка…' : 'Обновить' }}</AppButton>
+      <AppButton variant="subtle" size="sm" type="button"  :disabled="loading" title="Загрузить открытые МР из GitLab" @click="emit('refresh')"><IconRefresh />{{ loading ? 'Загрузка…' : 'Обновить' }}</AppButton>
     </div>
     <div v-for="e in errors" :key="e.project_id" role="alert" class="ml-error">{{ many ? e.project_name + ': ' : '' }}{{ e.message }}</div>
     <AppEmptyState small v-if="loading && !items.length" >Загрузка МР…</AppEmptyState>
@@ -13,6 +13,7 @@
     <ul v-else class="ml-list">
       <li v-for="mr in shown" :key="key(mr)">
         <AppButton variant="subtle" block multiline start :disabled="!!opening" @click="emit('open', mr)">
+          <span class="ml-row">
           <span class="ml-main">
             <span class="ml-title"><span class="ml-iid">!{{ mr.iid }}</span> {{ mr.title }}</span>
             <span class="ml-sub">
@@ -30,6 +31,7 @@
           <span class="ml-notes" title="Комментариев">💬 {{ mr.notes }}</span>
           <span v-if="opening === key(mr)" class="ml-time ml-opening"><span class="ml-spin" />Открываю</span>
           <span v-else class="ml-time" :title="'Обновлён ' + formatDateTime(mr.updated_at)">{{ ago(mr.updated_at) }}</span>
+          </span>
         </AppButton>
       </li>
     </ul>
@@ -41,6 +43,7 @@ import AppEmptyState from '@shared/ui/AppEmptyState.vue'
 import AppInput from '@shared/ui/AppInput.vue'
 import AppButton from '@shared/ui/AppButton.vue'
 import AppSegmented from '@shared/ui/AppSegmented.vue'
+import { IconRefresh } from '@shared/ui/icons'
 import { computed } from 'vue'
 import AppSelect from '@shared/ui/AppSelect.vue'
 import { formatDateTime } from '@shared/utils/datetime'
@@ -116,25 +119,20 @@ function ago(value: string) {
 .ml-seg button + button { border-left: 1px solid var(--border-strong); }
 .ml-seg button.on { color: var(--text); background: var(--blue-soft); }
 .ml-seg-count { font-size: var(--fs-xs); color: var(--text-faint); }
-.ml-below { width: 150px; flex-shrink: 0; }
+.ml-below { width: 170px; flex-shrink: 0; }
 .ml-search { flex: 0 0 280px; }
 .ml-spacer { flex: 1; }
 .ml-error { flex-shrink: 0; padding: 6px 10px; font-size: var(--fs-sm); color: var(--danger-hover); background: var(--danger-soft); border-radius: var(--radius-sm); overflow-wrap: anywhere; }
 .ml-list { flex: 1; min-height: 0; overflow: auto; list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: var(--radius); }
 .ml-list li + li { border-top: 1px solid var(--border); }
-.ml-row { display: grid; grid-template-columns: minmax(0, 1fr) 230px 56px 48px 76px; align-items: center; gap: 12px; width: 100%; padding: 8px 12px 8px 9px; font: inherit; text-align: left; color: var(--text); background: none; border: none; border-left: 3px solid transparent; cursor: pointer; }
-.ml-row:hover:not(:disabled) { background: var(--bg-hover); }
-.ml-row:disabled { cursor: default; }
-.ml-row:disabled:not(.opening) { opacity: 0.55; }
-.ml-row.mine { border-left-color: var(--blue); }
-.ml-row.opening { background: var(--blue-soft); }
-.ml-main { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-.ml-title { font-size: var(--fs-md); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ml-row { display: grid; grid-template-columns: minmax(0, 1fr) auto 56px 48px 76px; align-items: center; gap: 12px; width: 100%; padding: 8px 0; }
+.ml-main { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.ml-title { font-size: var(--fs-md); font-weight: var(--fw-semibold); color: var(--text); line-height: var(--lh-normal); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ml-iid { color: var(--text-muted); font-weight: 400; }
-.ml-sub { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: var(--fs-sm); line-height: 16px; color: var(--text-muted); white-space: nowrap; }
+.ml-sub { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: var(--fs-sm); line-height: 16px; color: var(--text-muted); font-weight: var(--fw-normal); white-space: nowrap; }
 .ml-author { flex-shrink: 0; }
 .ml-branches { display: inline-flex; align-items: center; gap: 4px; min-width: 0; font-family: var(--font-mono); font-size: var(--fs-xs); line-height: 16px; }
-.ml-branch { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ml-branch { min-width: 0; line-height: var(--lh-normal); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ml-arrow { flex-shrink: 0; color: var(--text-faint); }
 .ml-project { flex-shrink: 0; padding: 0 6px; border-radius: var(--radius-pill); background: var(--bg3); }
 .ml-status { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }

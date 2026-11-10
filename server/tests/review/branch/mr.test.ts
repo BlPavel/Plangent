@@ -99,7 +99,7 @@ test('MR review: list with approvals, open from origin, remarks on diff lines, p
   // The review agent drafts remarks and the overview through its own tools only.
   const mock = createAgent({ name: 'Mock', command: process.execPath });
   const session = createSession({ project_id: 'p1', agent_id: mock.id, role: 'chat', policy: 'read-only', metadata: { mr_private: true, branch_review: id } });
-  assert.deepEqual(allowed(session), ['get_review_brief', 'get_branch_questions', 'reply_branch_question', 'set_review_overview', 'add_review_remark']);
+  assert.deepEqual(allowed(session), ['get_review_brief', 'get_branch_questions', 'reply_branch_question', 'set_review_overview', 'add_review_remark', 'revise_review_remark']);
   await assert.rejects(agentRemark(session, { text: 'x', path: 'a.txt', line: 15 }), /not in the diff/);
   assert.equal((await agentRemark(session, { text: 'Нет теста', path: 'a.txt', line: 2 })).saved, true);
   await agent.setOverview(session, 'Меняет вторую строку.');

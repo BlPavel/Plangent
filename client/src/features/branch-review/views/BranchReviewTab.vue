@@ -11,16 +11,16 @@
         <MrList v-if="screen.entry === 'mr'" :screen-key="props.projectId" :items="screen.mrs?.items ?? []" :errors="screen.mrs?.errors ?? []" :loading="loadingMrs" :opening="opening" @open="openMr" @refresh="loadMrs" />
         <template v-else>
           <label v-if="isGroup" class="rt-pick">Проект группы
-            <AppSelect :model-value="memberId" :options="(members ?? []).map(m => ({ value: m.id, label: m.name }))" small placeholder="Выберите проект" label="Проект группы" @update:model-value="memberId = $event; reset()" />
+            <AppSelect :model-value="memberId" :options="(members ?? []).map(m => ({ value: m.id, label: m.name }))" small block placeholder="Выберите проект" label="Проект группы" @update:model-value="memberId = $event; reset()" />
           </label>
           <AppEmptyState small v-if="!scope" >Выберите проект, чтобы посмотреть ветку.</AppEmptyState>
           <form v-else class="rt-form" @submit.prevent="open">
             <span class="muted">Без МР замечания не публикуются: их можно скопировать и вставить на хостинге (так работает и с GitHub).</span>
             <label>Ветка для ревью
-              <BranchSelect v-model="branch" :options="branchOptions" placeholder="Выберите ветку" label="Ветка для ревью" :disabled="busy" />
+              <BranchSelect v-model="branch" block :options="branchOptions" placeholder="Выберите ветку" label="Ветка для ревью" :disabled="busy" />
             </label>
             <label>Сравнить с
-              <BranchSelect v-model="baseRef" :options="branchOptions" placeholder="Выберите ветку" label="Сравнить с" :disabled="busy" />
+              <BranchSelect v-model="baseRef" block :options="branchOptions" placeholder="Выберите ветку" label="Сравнить с" :disabled="busy" />
             </label>
             <div class="rt-row">
               <AppButton variant="blue" size="md" type="submit" :disabled="busy || !branch || !baseRef">Открыть ревью</AppButton>
@@ -45,8 +45,8 @@
             <span class="rt-approvals" :class="{ mine: info.approvals?.mine }" :title="approvalsTitle">{{ approvalsText }}</span>
             <AppButton size="sm" :variant="info.approvals?.mine ? 'ghost' : 'blue'" :disabled="busy || headBehind" :title="headBehind ? 'Сначала подтяните новые коммиты МР' : info.approvals?.mine ? 'Снять ваш аппрув в GitLab' : 'Аппрувнуть МР в GitLab на просмотренной версии'" @click="approve(!info.approvals?.mine)">{{ info.approvals?.mine ? 'Снять аппрув' : 'Аппрув' }}</AppButton>
           </template>
-          <AppButton variant="ghost" size="sm" type="button"  :disabled="busy" title="git fetch origin и пересчёт изменений" @click="refresh">{{ busy ? 'Загрузка…' : 'Подтянуть изменения' }}</AppButton>
-          <AppButton variant="subtle" size="sm" type="button"  :disabled="busy" title="Закрыть агента и удалить копию кода для него; замечания и чаты останутся" @click="finish">Завершить</AppButton>
+          <AppButton variant="ghost" size="sm" type="button"  :disabled="busy" title="git fetch origin и пересчёт изменений" @click="refresh"><IconRefresh />{{ busy ? 'Загрузка…' : 'Подтянуть изменения' }}</AppButton>
+          <AppButton variant="danger" size="sm" type="button"  :disabled="busy" title="Закрыть агента и удалить копию кода для него; замечания и чаты останутся" @click="finish">Завершить</AppButton>
         </div>
         <div class="rt-row rt-meta">
           <span>Коммитов: {{ detail.commit_count }} · файлов: {{ detail.files.length }}</span>
@@ -70,22 +70,21 @@
             Файлы
             <AppButton v-if="detail.round_commits" variant="subtle" size="xs" :pressed="screen.onlyChanged" title="Только файлы, изменённые после вашего последнего ревью" @click="screen.onlyChanged = !screen.onlyChanged">новое</AppButton>
           </div>
-          <div v-for="file in visibleFiles" :key="file.path" class="file" :class="{ selected: path === file.path }">
-            <!-- The first line is the file and what is said about it, the second where it lives and how much changed. -->
-            <AppButton variant="subtle" size="sm" block multiline start :title="file.path" @click="choose(file.path)">
-              <span class="file-line">
-                <span class="file-name">{{ baseName(file.path) }}</span>
-                <span v-if="remarksIn(file.path)" class="file-count" title="Замечания: черновики и отправленные">{{ remarksIn(file.path) }}</span>
-                <span v-if="threadsIn(file.path)" class="file-count thread" title="Обсуждения в МР">{{ threadsIn(file.path) }}</span>
-                <span v-if="questionsIn(file.path)" class="file-count agent" title="Вопросы агенту">{{ questionsIn(file.path) }}</span>
-              </span>
-              <span class="file-line">
-                <span class="file-dir">{{ dirName(file.path) }}</span>
-                <span class="file-stat"><span v-if="file.added" class="add">+{{ file.added }}</span> <span v-if="file.deleted" class="del">−{{ file.deleted }}</span></span>
-                <AppBadge v-if="file.status !== 'M'"  :tone="file.status === 'A' ? 'add' : file.status === 'D' ? 'del' : ''">{{ file.status }}</AppBadge>
-                <span v-if="file.changed_since" class="file-dot" title="Изменён после вашего последнего ревью" />
-              </span>
-            </AppButton>
+          <!-- The first line is the file and what is said about it, the second where it lives and how much changed. -->
+          <div v-for="file in visibleFiles" :key="file.path" class="file" :class="{ selected: path === file.path }" role="option" tabindex="0" :aria-selected="path === file.path" :title="file.path" @click="choose(file.path)" @keydown.enter.prevent="choose(file.path)" @keydown.space.prevent="choose(file.path)">
+            <span class="file-line">
+              <span class="file-name" :class="{ deleted: file.status === 'D' }">{{ baseName(file.path) }}</span>
+              <span v-if="remarksIn(file.path)" class="file-count" title="Замечания: черновики и отправленные">{{ remarksIn(file.path) }}</span>
+              <span v-if="threadsIn(file.path, false)" class="file-count thread" title="Открытые обсуждения в МР">{{ threadsIn(file.path, false) }}</span>
+              <span v-if="threadsIn(file.path, true)" class="file-count resolved" title="Решённые обсуждения в МР">{{ threadsIn(file.path, true) }}</span>
+              <span v-if="questionsIn(file.path)" class="file-count agent" title="Вопросы агенту">{{ questionsIn(file.path) }}</span>
+              <span v-if="file.changed_since" class="file-dot" title="Изменён после вашего последнего ревью" />
+              <span v-if="file.status !== 'M'" class="file-tag" :class="file.status === 'A' ? 'add' : file.status === 'D' ? 'del' : ''">{{ file.status }}</span>
+            </span>
+            <span class="file-line">
+              <span class="file-dir">{{ dirName(file.path) }}</span>
+              <span class="file-stat"><span v-if="file.added" class="add">+{{ file.added }}</span> <span v-if="file.deleted" class="del">−{{ file.deleted }}</span></span>
+            </span>
           </div>
         </nav>
         <div class="rt-resizer" role="separator" aria-orientation="vertical" aria-label="Ширина списка файлов" title="Потяните, чтобы изменить ширину; двойной клик — сбросить" tabindex="0" @pointerdown="startResize($event, 'files')" @dblclick="filesWidth = 260" @keydown="resizeKey($event, 'files')" />
@@ -100,7 +99,7 @@
                   <strong>Строка {{ selection?.startLine }}{{ selection && selection.endLine !== selection.startLine ? '–' + selection.endLine : '' }}</strong>
                   <AppSegmented :model-value="kind" :options="[{ value: 'remark', label: 'Замечание' }, { value: 'question', label: 'Вопрос агенту' }]" label="Что написать" @update:model-value="kind = $event as 'remark' | 'question'" />
                 </div>
-                <AppTextarea v-model="draft" block rows="3" :placeholder="kind === 'remark' ? 'Замечание к этой строке. Ctrl+Enter — в черновики' : 'Вопрос агенту по этой строке. Ctrl+Enter — в очередь'" spellcheck="false" @keydown.ctrl.enter.prevent="submit" @keydown.meta.enter.prevent="submit" />
+                <AppTextarea v-model="draft" block rows="3" :placeholder="kind === 'remark' ? 'Замечание к этой строке (? в начале — вопрос агенту). Ctrl+Enter — в черновики' : 'Вопрос агенту по этой строке. Ctrl+Enter — в очередь'" spellcheck="false" @keydown.ctrl.enter.prevent="submit" @keydown.meta.enter.prevent="submit" />
                 <div class="rt-row">
                   <AppButton variant="blue" size="sm" type="submit" :disabled="!draft.trim()">{{ kind === 'remark' ? 'В черновики' : 'В очередь' }}</AppButton>
                   <AppButton variant="subtle" size="sm" type="button"  @click="selection = null">Закрыть</AppButton>
@@ -109,11 +108,13 @@
             </template>
             <template #items="{ line, side }">
               <div class="line-items">
-                <RemarkCard v-for="r in remarksAt(selectedFile.path, side, line)" :key="r.id" :remark="r" :screen-key="props.projectId" :scope="scope" :review-id="detail.review.id" />
-                <ExternalThreadCard v-for="t in threadsAt(selectedFile.path, side, line)" :key="t.id" :thread="t" :actions="threadActions" />
+                <RemarkCard v-for="r in remarksAt(selectedFile.path, side, line)" :key="r.id" :remark="r" :screen-key="props.projectId" :scope="scope" :review-id="detail.review.id" where="diff" />
+                <ExternalThreadCard v-for="t in threadsAt(selectedFile.path, side, line)" :key="t.id" :thread="t" :actions="threadActions">
+                  <template #after><ThreadDiscussion :thread="t" :screen-key="props.projectId" :scope="scope" :review-id="detail.review.id" where="diff" /></template>
+                </ExternalThreadCard>
                 <BranchQuestionCard
                   v-for="q in questionsAt(selectedFile.path, side, line)" :key="q.id" :question="q" :messages="messagesOf(q.id)" :screen-key="props.projectId" :scope="scope" :review-id="detail.review.id"
-                  @send-now="screen.panel = 'agent'" @to-remark="toRemark(q, $event)"
+                  @to-remark="toRemark(q, $event)"
                 />
               </div>
             </template>
@@ -125,16 +126,19 @@
           <AppTabs :model-value="screen.panel" :items="panels.map(t => ({ value: t.id, label: t.label, count: t.count || undefined, title: t.working ? 'Агент проводит ревью' : undefined }))" label="Ревью" @update:model-value="screen.panel = $event as typeof screen.panel" />
           <OverviewPanel
             v-if="screen.panel === 'overview'" :screen-key="props.projectId" :scope="scope" :detail="detail" :info="info" :tasks-project-id="projectId" :include-members="isGroup"
-            @open-instructions="emit('open-instructions')" @open-remarks="screen.panel = 'remarks'" @asked="screen.panel = 'agent'"
+            @open-instructions="emit('open-instructions')" @open-remarks="screen.panel = 'remarks'" @asked="screen.panel = 'remarks'"
           />
-          <RemarksPanel v-else-if="screen.panel === 'remarks'" :screen-key="props.projectId" :scope="scope" :review-id="detail.review.id" :mr="!!detail.review.mr_iid" @goto="gotoRemark" />
-          <DiscussPanel
-            v-else-if="screen.panel === 'agent'" :screen-key="props.projectId" :scope="scope" :review-id="detail.review.id" :head="detail.review.head"
-            @goto="goto" @to-remark="toRemark"
-          />
+          <RemarksPanel v-else-if="screen.panel === 'remarks'" :screen-key="props.projectId" :scope="scope" :review-id="detail.review.id" :head="detail.review.head" :mr="!!detail.review.mr_iid" :embedded="embedded" @goto="gotoRemark" @goto-question="goto" @to-remark="toRemark" />
           <div v-else class="side-threads">
+            <QueueBar :screen-key="props.projectId" :scope="scope" :review-id="detail.review.id" :head="detail.review.head" class="side-queue" />
             <div v-if="!info?.threads.length" class="side-empty">В МР пока нет обсуждений.</div>
-            <ExternalThreadCard v-for="t in info?.threads ?? []" :key="t.id" :thread="t" :actions="threadActions" show-location @goto="gotoThread(t)" />
+            <template v-else>
+              <p class="side-summary">Решено {{ threadStats.resolved }} из {{ threadStats.all }}<template v-if="threadStats.waiting"> · <span class="waiting">ждут ответа: {{ threadStats.waiting }}</span></template></p>
+              <AppSegmented :model-value="threadFilter" :options="[{ value: 'open', label: 'Открытые (' + threadStats.open + ')' }, { value: 'resolved', label: 'Решённые (' + threadStats.resolved + ')' }, { value: 'all', label: 'Все' }]" label="Какие треды" @update:model-value="threadFilter = $event as typeof threadFilter" />
+            </template>
+            <ExternalThreadCard v-for="t in shownThreads" :key="t.id" :thread="t" :actions="threadActions" show-location @goto="gotoThread(t)">
+              <template #after><ThreadDiscussion :thread="t" :screen-key="props.projectId" :scope="scope" :review-id="detail.review.id" /></template>
+            </ExternalThreadCard>
           </div>
         </aside>
       </div>
@@ -147,6 +151,7 @@ import AppEmptyState from '@shared/ui/AppEmptyState.vue'
 import AppBadge from '@shared/ui/AppBadge.vue'
 import AppTextarea from '@shared/ui/AppTextarea.vue'
 import { AppSegmented, AppTabs } from '@shared/ui'
+import { IconRefresh } from '@shared/ui/icons'
 import { useDraft } from '@core/composables/useDraft'
 import { computed, onBeforeUnmount, ref, toRefs, watch } from 'vue'
 import { onServerEvent } from '@core/api/events'
@@ -161,10 +166,11 @@ import { branchReviewApi } from '../api'
 import type { BranchQuestion, BranchRef, BranchReview, MrInfo, MrListItem, Remark } from '../types'
 import BranchDiff from '../components/BranchDiff.vue'
 import BranchQuestionCard from '../components/BranchQuestionCard.vue'
-import DiscussPanel from '../components/DiscussPanel.vue'
 import MrList from '../components/MrList.vue'
 import OverviewPanel from '../components/OverviewPanel.vue'
 import RemarkCard from '../components/RemarkCard.vue'
+import QueueBar from '../components/QueueBar.vue'
+import ThreadDiscussion from '../components/ThreadDiscussion.vue'
 import RemarksPanel from '../components/RemarksPanel.vue'
 import { useBranchReviewStore, type ReviewPanel } from '../stores/review'
 
@@ -181,6 +187,8 @@ const screen = useBranchReviewStore().of(props.projectId)
 const { memberId, list, branch, baseRef, detail, info, path } = toRefs(screen)
 const error = ref(''), busy = ref(false), loadingMrs = ref(false), opening = ref<string | null>(null), selection = useDraft<LineSelection | null>(() => `branch-review:${detail.value?.review.id ?? props.projectId}:composer:selection`, () => null), draft = useDraft(() => `branch-review:${detail.value?.review.id ?? props.projectId}:composer:draft`, () => '')
 const kind = ref<'remark' | 'question'>('remark')
+// «?» at the start of the text makes it a question to the agent, as in the Код tab; the mark only chooses the kind and is not saved.
+watch(draft, value => { if (value.trimStart().startsWith('?')) kind.value = 'question' })
 let alive = true
 onBeforeUnmount(() => { alive = false })
 
@@ -220,28 +228,37 @@ const approvalsTitle = computed(() => {
   const a = info.value?.approvals
   return !a ? 'GitLab не отдал аппрувы' : a.left ? 'Нужно ещё аппрувов: ' + a.left : a.required ? 'Аппрувов достаточно' : 'Аппрувы МР'
 })
+const threadFilter = ref<'open' | 'resolved' | 'all'>('all')
+/** How far the discussions are: closed, still open, and of those the ones where the last word is a colleague's. */
+const threadStats = computed(() => {
+  const list = info.value?.threads ?? []
+  const open = list.filter(t => !t.resolved)
+  return { all: list.length, resolved: list.length - open.length, open: open.length, waiting: open.filter(t => !t.notes.at(-1)?.mine).length }
+})
+const shownThreads = computed(() => (info.value?.threads ?? []).filter(t => threadFilter.value === 'all' || (threadFilter.value === 'resolved') === t.resolved))
 const panels = computed<{ id: ReviewPanel; label: string; count: number; working?: boolean }[]>(() => [
   { id: 'overview', label: 'Обзор', count: 0, working: detail.value?.review.analysis_status === 'running' },
-  { id: 'remarks', label: 'Замечания', count: screen.remarks.filter(r => r.status !== 'sent').length },
-  { id: 'agent', label: 'Агент', count: screen.questions.length },
+  { id: 'remarks', label: 'Замечания', count: screen.remarks.filter(r => r.status === 'draft' || r.status === 'uncertain').length + screen.questions.filter(q => !embedded(q) && !q.closed).length },
   ...(detail.value?.review.mr_iid ? [{ id: 'threads' as const, label: 'Треды', count: info.value?.threads.filter(t => !t.resolved).length ?? 0 }] : []),
 ])
 
 // What sits under a line of the diff: the developer's and the agent's remarks and colleagues' GitLab threads.
 // A published remark of an MR comes back as a GitLab thread: the diff shows the thread, not both.
-const inDiff = (r: Remark) => !r.outdated && !(r.status === 'sent' && detail.value?.review.mr_iid)
+const inDiff = (r: Remark) => !r.outdated && r.status !== 'rejected' && !(r.status === 'sent' && detail.value?.review.mr_iid)
 const remarksAt = (file: string, side: CodeSide, line: number) => screen.remarks.filter(r => r.path === file && r.side === side && r.line === line && inDiff(r))
 const threadsAt = (file: string, side: CodeSide, line: number) => (info.value?.threads ?? []).filter(t => t.path === file && t.side === side && t.line === line)
-const questionsAt = (file: string, side: CodeSide, line: number) => screen.questions.filter(q => q.path === file && q.side === side && q.line === line)
+/** A conversation about a remark or a colleague's thread lives inside that card, not in a card of its own. */
+const embedded = (q: BranchQuestion) => (!!q.remark_id && screen.remarks.some(r => r.id === q.remark_id)) || (!!q.thread_id && !!info.value?.threads.some(t => t.id === q.thread_id))
+const questionsAt = (file: string, side: CodeSide, line: number) => screen.questions.filter(q => q.path === file && q.side === side && q.line === line && !embedded(q) && !q.closed)
 const messagesOf = (id: string) => screen.messages.filter(m => m.question_id === id)
 const itemsOf = (file: string) => [
-  ...screen.questions.filter(q => q.path === file).map(q => ({ side: q.side, line: q.line })),
+  ...screen.questions.filter(q => q.path === file && !embedded(q) && !q.closed).map(q => ({ side: q.side, line: q.line })),
   ...screen.remarks.filter(r => r.path === file && inDiff(r)).map(r => ({ side: r.side, line: r.line })),
   ...(info.value?.threads ?? []).filter(t => t.path === file && t.line).map(t => ({ side: t.side, line: t.line! })),
 ]
-const questionsIn = (file: string) => screen.questions.filter(q => q.path === file).length
+const questionsIn = (file: string) => screen.questions.filter(q => q.path === file && !embedded(q) && !q.closed).length
 const remarksIn = (file: string) => screen.remarks.filter(r => r.path === file && inDiff(r)).length
-const threadsIn = (file: string) => (info.value?.threads ?? []).filter(t => t.path === file && t.line).length
+const threadsIn = (file: string, resolved: boolean) => (info.value?.threads ?? []).filter(t => t.path === file && t.line && t.resolved === resolved).length
 
 async function run<T>(fn: () => Promise<T>, accept?: (value: T) => void) {
   if (busy.value) return undefined
@@ -294,7 +311,8 @@ function gotoThread(thread: ExternalThread) { if (thread.path) revealFile(thread
 
 /** A remark goes to the drafts on the right; a question waits in the agent's queue. Nothing leaves until the developer sends it. */
 async function submit() {
-  const line = selection.value, text = draft.value.trim(), id = detail.value?.review.id
+  const line = selection.value, id = detail.value?.review.id
+  const text = (kind.value === 'question' ? draft.value.trimStart().replace(/^\?+\s*/, '') : draft.value).trim()
   if (!line || !text || !id) return
   try {
     if (kind.value === 'remark') screen.remarks = (await branchReviewApi.addRemark(scope.value, id, { path: line.path, side: line.side, line: line.startLine, body: text })).remarks
@@ -306,15 +324,17 @@ async function submit() {
     selection.value = null
   } catch (cause) { error.value = errorText(cause) }
 }
-/** The agent's answer becomes a draft remark at the question's place; the developer edits it there. */
+/** The agent's answer becomes a draft remark at the question's place and the question goes; the developer edits the remark there. */
 async function toRemark(question: BranchQuestion, text: string) {
   const id = detail.value?.review.id
   if (!id) return
   try {
     const place = question.path ? { path: question.path, side: question.side, line: question.line } : {}
     screen.remarks = (await branchReviewApi.addRemark(scope.value, id, { ...place, body: text })).remarks
+    // The answer lives on as a remark: the question is gone.
+    const left = await branchReviewApi.removeQuestion(scope.value, id, question.id)
+    screen.questions = left.questions; screen.messages = left.messages
     screen.panel = 'remarks'
-    app.toast('Черновик замечания создан — отредактируйте его', 'success')
   } catch (cause) { error.value = errorText(cause) }
 }
 const threadActions: ExternalThreadActions = {
@@ -375,6 +395,7 @@ watch(() => screen.entry, entry => {
 .rt-alert { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 16px; font-size: var(--fs-sm); color: var(--danger-hover); background: var(--danger-soft); border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
 .rt-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .rt-pick, .rt-form label { display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-sm); color: var(--text-muted); }
+.rt-pick { max-width: 720px; }
 .rt-spacer { flex: 1; }
 .rt-entry { flex: 1; display: flex; flex-direction: column; gap: 14px; width: 100%; max-width: 1100px; margin: 0 auto; padding: 24px 20px 16px; overflow: auto; min-height: 0; box-sizing: border-box; }
 .rt-entry.listing { overflow: hidden; }
@@ -407,14 +428,17 @@ code { font-size: var(--fs-sm); }
 .files-head { display: flex; align-items: center; gap: 6px; padding: 8px 10px; font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); border-bottom: 1px solid var(--border); }
 .files-filter { margin-left: auto; padding: 0 6px; font: inherit; font-size: var(--fs-xs); text-transform: none; letter-spacing: 0; color: var(--warning-text); background: none; border: 1px solid var(--warning-soft); border-radius: var(--radius-pill); cursor: pointer; }
 .files-filter.on { background: var(--warning-soft); }
-.file { padding: 3px 8px 3px 10px; }
-.file:hover { background: var(--bg-hover); }
+.file { display: flex; flex-direction: column; gap: 2px; padding: 6px 10px; color: var(--text); cursor: pointer; outline: none; }
+.file:hover { background: var(--bg3); }
 .file.selected { background: var(--blue-soft); }
+.file:focus-visible { outline: var(--focus-outline); outline-offset: -2px; }
 .file-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .file-name { flex: 1; min-width: 0; font-size: var(--fs-md); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-name.deleted { text-decoration: line-through; color: var(--text-muted); }
 .file-dir { flex: 1; min-width: 0; font-size: var(--fs-xs); color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .file-count { flex-shrink: 0; min-width: 16px; padding: 0 5px; font-size: var(--fs-xs); font-weight: 600; text-align: center; border-radius: var(--radius-pill); background: var(--blue-outline-soft); color: var(--blue-hover); }
 .file-count.thread { background: var(--warning-outline-soft); color: var(--warning-text); }
+.file-count.resolved { background: var(--bg3); color: var(--text-muted); }
 .file-count.agent { background: var(--accent-outline-soft); color: var(--accent-hover); }
 .file-stat { flex-shrink: 0; font-size: var(--fs-xs); }
 .file-stat .add, .file-tag.add { color: var(--syntax-added); }
@@ -432,6 +456,9 @@ code { font-size: var(--fs-sm); }
 @keyframes side-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 .side-count { margin-left: 4px; padding: 0 5px; font-size: var(--fs-xs); font-weight: 600; border-radius: var(--radius-pill); background: var(--blue-soft); color: var(--blue-hover); }
 .side-threads { flex: 1; min-height: 0; overflow: auto; padding: 4px 10px 10px; }
+.side-queue { margin-inline: 0; }
+.side-summary { margin: 6px 0; color: var(--text-muted); }
+.side-summary .waiting { color: var(--warning-text); font-weight: 600; }
 .side-empty { padding: 8px 2px; color: var(--text-muted); }
 
 /* Local secondary text. */

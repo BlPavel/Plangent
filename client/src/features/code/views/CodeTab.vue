@@ -23,8 +23,7 @@
     </header>
     <div v-if="conflicts.operation" class="ct-op" role="status">
       <span class="ct-op-text">{{ operationTitle(conflicts.operation) }} · {{ conflicts.conflicted.length ? 'конфликтов: ' + conflicts.conflicted.length : 'конфликтов нет' }}<template v-if="conflicts.mode === 'working'"> · агент работает</template><template v-else-if="conflicts.mode === 'answer'"> · агент ждёт ответа</template></span>
-      <AppButton variant="blue" size="xs" v-if="conflicts.mode === 'start' && conflicts.conflicted.length" type="button"  @click="openConflicts">Разрешить с агентом</AppButton>
-      <AppButton variant="ghost" size="xs" v-else type="button"  @click="showRight('conflicts')">Конфликты</AppButton>
+      <AppButton variant="ghost" size="xs" type="button" @click="showRight('conflicts')">Конфликты</AppButton>
     </div>
     <ReviewBanners @open-items="openFirstUnresolved" />
     <div v-if="store.error" class="ct-error">{{ store.error }} <AppButton variant="link" size="xs" type="button"  @click="store.refresh()">Повторить</AppButton></div>
@@ -108,7 +107,7 @@
           <AppButton variant="subtle" size="xs" icon title="Свернуть панель (Ctrl+Alt+B)" aria-label="Свернуть правую панель" @click="rightCollapsed = true">»</AppButton>
         </div>
         <div v-if="rightTab === 'conflicts'" class="ct-scroll">
-          <ConflictPanel ref="conflictPanel" @open="path => open(path, 'diff')" />
+          <ConflictPanel @open="path => open(path, 'diff')" />
         </div>
         <template v-if="rightTab === 'remarks'">
           <ExternalThreadsPanel :can-discuss="canDiscuss" @goto="gotoExternal" @discuss="discussExternal" />
@@ -453,13 +452,6 @@ const conflicts = useConflictsStore()
 watch(() => props.projectId, id => { void conflicts.start(id, props.workspaceId ?? undefined) }, { immediate: true })
 const conflictAttention = computed(() => conflicts.mode === 'answer' ? conflicts.questions.length : 0)
 watch(() => conflicts.operation, operation => { if (!operation && rightTab.value === 'conflicts') rightTab.value = 'remarks' })
-const conflictPanel = ref<InstanceType<typeof ConflictPanel>>()
-/** Brings up the card; the agent starts from there, after an optional wish. */
-async function openConflicts() {
-  showRight('conflicts')
-  await nextTick()
-  conflictPanel.value?.focus()
-}
 const rightTabs = computed(() => [
   ...(conflicts.operation ? [{ id: 'conflicts' as const, label: 'Конфликты', count: conflictAttention.value || conflicts.conflicted.length, warning: !!conflictAttention.value, hint: conflictAttention.value ? `Агент ждёт ответа: ${conflictAttention.value}` : 'Конфликтных файлов' }] : []),
   { id: 'remarks' as const, label: 'Замечания', count: attention.value || store.items.length, warning: !!attention.value, hint: attention.value ? `Ждут вашего ответа: ${attention.value}` : '' },

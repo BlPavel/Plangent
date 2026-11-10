@@ -28,6 +28,10 @@ export interface Remark {
   remote_id: number | null; status: 'draft' | 'sent' | 'uncertain'; error: string; created_at: string;
   /** 1 once the developer has changed the text. */
   edited: number;
+  /** 1 once the developer has rejected it: kept for the record, never published. */
+  rejected: number;
+  /** The text from before a discussion or an edit by the agent changed it; empty if it was never revised. */
+  original: string;
 }
 const notify = (projectId: string, reviewId: string) => broadcast({ type: 'branch_review_updated', projectId, reviewId });
 const all = (reviewId: string) => queries.allSelectBranchReviewRemarks(reviewId) as Remark[];
@@ -56,12 +60,18 @@ export function createRemarks(resolve: Resolve = resolveCodeHost) {
   }
   async function list(projectId: string, id: string) {
     const s = await state(repo(projectId), row(projectId, id));
-    return { remarks: all(id).map(r => ({ ...r, edited: r.edited === 1, outdated: !!r.path && r.head !== s.headSha })) };
+    return { remarks: all(id).map(({ rejected, original, ...r }) => ({ ...r, status: rejected === 1 ? 'rejected' as const : r.status, original: original || null, edited: r.edited === 1, outdated: !!r.path && r.head !== s.headSha })) };
   }
-  function draft(id: string, key: string): Remark {
+  function load(id: string, key: string): Remark {
     const r = queries.rSelectBranchReviewRemarks(key, id) as Remark | undefined;
     if (!r) throw new DomainError('Замечание не найдено', 404);
+    return r;
+  }
+  /** A remark that can still be changed or published: a draft the developer has not rejected. */
+  function draft(id: string, key: string): Remark {
+    const r = load(id, key);
     if (r.status !== 'draft') throw new DomainError('Замечание уже отправлено или требует проверки в GitLab', 409);
+    if (r.rejected === 1) throw new DomainError('Замечание отклонено: сначала верните его', 409);
     return r;
   }
   async function insert(projectId: string, id: string, input: { path?: unknown; side?: unknown; line?: unknown; body?: unknown }, author: Remark['author']) {
@@ -84,6 +94,39 @@ export function createRemarks(resolve: Resolve = resolveCodeHost) {
       const d = draft(id, key), text = input.body === undefined ? d.body : body(input.body);
       if (d.remote_id !== null && r.mr_iid) await (await resolve(projectId)).host.updateDraft(r.mr_iid, d.remote_id, { body: text });
       queries.editUpdateBranchReviewRemarks(text, '', text !== d.body || d.edited ? 1 : 0, key);
+      if (text !== d.body && !d.original) queries.reviseUpdateBranchReviewRemarks(text, d.body, key);
+      notify(projectId, id);
+      return list(projectId, id);
+    });
+  }
+  /**
+   * The text changes after a discussion; the first version stays in `original`. Used for the agent's rewrite, so the
+   * remark is complete on its own: the hosting never sees the conversation.
+   */
+  async function revise(projectId: string, id: string, key: string, input: { body?: unknown }) {
+    const r = row(projectId, id);
+    return exclusive(id, async () => {
+      const d = draft(id, key), text = body(input.body);
+      if (text !== d.body) {
+        if (d.remote_id !== null && r.mr_iid) await (await resolve(projectId)).host.updateDraft(r.mr_iid, d.remote_id, { body: text });
+        queries.reviseUpdateBranchReviewRemarks(text, d.original || d.body, key);
+        notify(projectId, id);
+      }
+      return list(projectId, id);
+    });
+  }
+  /** A rejected remark stays in the review but is never published; rejecting takes back what was uploaded to the hosting as a draft. */
+  async function reject(projectId: string, id: string, key: string, rejected: unknown) {
+    const r = row(projectId, id);
+    if (typeof rejected !== 'boolean') throw new DomainError('Invalid rejected');
+    return exclusive(id, async () => {
+      const d = load(id, key);
+      if (d.status !== 'draft') throw new DomainError('Замечание уже отправлено или требует проверки в GitLab', 409);
+      if (rejected && d.remote_id !== null && r.mr_iid) {
+        await (await resolve(projectId)).host.deleteDraft(r.mr_iid, d.remote_id);
+        queries.saveUpdateBranchReviewRemarks(null, 'draft', '', key);
+      }
+      queries.rejectUpdateBranchReviewRemarks(rejected ? 1 : 0, key);
       notify(projectId, id);
       return list(projectId, id);
     });
@@ -179,7 +222,7 @@ export function createRemarks(resolve: Resolve = resolveCodeHost) {
     notify(projectId, id);
     return list(projectId, id);
   }
-  return { list, add, insert, edit, remove, detach, publish, recover, markSent };
+  return { list, add, insert, edit, revise, reject, remove, detach, publish, recover, markSent };
 }
 let service: ReturnType<typeof createRemarks> | undefined;
 export const remarks = () => service ??= createRemarks();
@@ -190,6 +233,12 @@ export function sessionReview(session: AgentSession): ReviewRow {
   const r = typeof id === 'string' ? queries.rSelectBranchReviews(id) as ReviewRow | undefined : undefined;
   if (!r) throw new DomainError('Это не сессия ревью ветки');
   return r;
+}
+/** revise_review_remark: after a discussion the agent rewrites the draft so that it stands on its own; the developer sees what it was. */
+export async function agentRevise(session: AgentSession, input: Record<string, unknown>) {
+  const r = sessionReview(session);
+  await remarks().revise(r.project_id, r.id, String(input.id ?? ''), { body: input.text });
+  return { saved: true };
 }
 /** add_review_remark: the agent drafts a remark; the developer edits or removes it before publishing. */
 export async function agentRemark(session: AgentSession, input: Record<string, unknown>) {

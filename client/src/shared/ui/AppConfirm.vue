@@ -10,7 +10,7 @@
               {{ state.cancelLabel ?? 'Отмена' }}
             </AppButton>
             <AppButton
-              :variant="state.danger === false ? 'primary' : 'danger'"
+              :variant="state.danger ? 'danger' : 'primary'"
               @click="emit('resolve', true)"
             >
               {{ state.confirmLabel ?? 'Удалить' }}

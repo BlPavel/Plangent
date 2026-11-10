@@ -2,13 +2,13 @@
   <div class="et" :class="{ resolved: thread.resolved }">
     <div class="et-head">
       <AppBadge  title="Комментарий из GitLab, не тред с агентом">GitLab</AppBadge>
-      <span v-if="thread.resolved" class="et-muted">решено</span>
-      <AppButton variant="link" size="xs" v-if="showLocation && thread.path" type="button"  @click="emit('goto')">{{ thread.path }}<template v-if="thread.line">:{{ thread.line }}</template></AppButton>
+      <span class="et-state" :class="state.tone">{{ state.label }}</span>
       <span class="et-spacer" />
       <AppButton variant="link" size="xs" v-if="canDiscuss" type="button"  title="Создать пункт ревью с этим комментарием и разобрать его с агентом" @click="emit('discuss', thread)">Разобрать с агентом</AppButton>
       <AppButton variant="link" size="xs" type="button"  :disabled="resolving" :title="thread.resolved ? 'Снова открыть обсуждение в GitLab' : 'Пометить обсуждение решённым в GitLab'" @click="toggleResolved">{{ thread.resolved ? 'Открыть снова' : 'Решено' }}</AppButton>
       <AppButton variant="link" size="xs" v-if="!replying" type="button"  @click="replying = true">Ответить</AppButton>
     </div>
+    <AppButton v-if="showLocation && thread.path" class="et-place" variant="link" size="xs" block start multiline type="button" :title="thread.path" @click="emit('goto')"><span class="et-path">{{ thread.path }}<template v-if="thread.line">:{{ thread.line }}</template></span></AppButton>
     <div v-for="note in thread.notes" :key="note.id" class="et-note">
       <div class="et-note-head">
         <span class="et-author">{{ note.author }}</span>
@@ -29,6 +29,7 @@
       <div v-else class="et-body">{{ note.body }}</div>
     </div>
     <div v-if="error && !replying && editingId === null" class="et-error">{{ error }}</div>
+    <div v-if="$slots.after" class="et-after"><slot name="after" /></div>
     <form v-if="replying" class="et-reply" @submit.prevent="send" @keydown.esc.stop.prevent="replying = false">
       <AppTextarea block v-model="text"  rows="3" placeholder="Ответ уйдёт в обсуждение GitLab. Ctrl+Enter — отправить" spellcheck="false" @keydown.ctrl.enter.prevent="send" @keydown.meta.enter.prevent="send" />
       <div class="et-actions">
@@ -45,7 +46,7 @@
 import AppBadge from '@shared/ui/AppBadge.vue'
 import AppTextarea from '@shared/ui/AppTextarea.vue'
 import { useDraft } from '@core/composables/useDraft'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import AppButton from '@shared/ui/AppButton.vue'
 import { useAppStore } from '@core/stores/app'
 import { useExternalThreadsStore } from '../stores/external'
@@ -56,6 +57,9 @@ const emit = defineEmits<{ goto: []; discuss: [thread: ExternalThread] }>()
 const store: ExternalThreadActions = props.actions ?? useExternalThreadsStore()
 const app = useAppStore()
 const replying = ref(false), text = useDraft(() => `external-thread:${props.thread.id}:reply:text`, () => ''), busy = ref(false), error = ref(''), resolving = ref(false)
+
+/** Where the discussion stands: closed, waiting for the developer's answer or answered and waiting for the colleague. */
+const state = computed(() => props.thread.resolved ? { label: 'решено', tone: 'done' } : props.thread.notes.at(-1)?.mine ? { label: 'вы ответили', tone: '' } : { label: 'ждёт ответа', tone: 'wait' })
 
 const editingId = useDraft<number | null>(() => `external-thread:${props.thread.id}:reply:editingId`, () => null), editText = useDraft(() => `external-thread:${props.thread.id}:reply:editText`, () => ''), noteBusy = ref(false)
 
@@ -68,7 +72,7 @@ async function saveEdit(note: ExternalNote) {
   finally { noteBusy.value = false }
 }
 async function removeNote(note: ExternalNote) {
-  if (!(await app.confirm('Удалить комментарий в GitLab? Это нельзя отменить.', { confirmLabel: 'Удалить' }))) return
+  if (!(await app.confirm('Удалить комментарий в GitLab? Это нельзя отменить.', { confirmLabel: 'Удалить', danger: true }))) return
   noteBusy.value = true; error.value = ''
   try { await store.deleteNote(props.thread.id, note.id) }
   catch (cause) { error.value = cause instanceof Error ? cause.message : 'Не удалось удалить комментарий' }
@@ -99,6 +103,12 @@ async function send() {
 .et-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .et-badge { padding: 0 6px; font-size: var(--fs-xs); font-weight: 600; border-radius: var(--radius-pill); background: var(--bg3); color: var(--text-muted); }
 .et-spacer { flex: 1; }
+.et-after { margin-top: 6px; }
+.et-state { font-size: var(--fs-xs); color: var(--text-muted); }
+.et-state.wait { color: var(--warning-text); font-weight: 600; }
+.et-state.done { color: var(--accent-hover); }
+.et-place { max-width: 100%; margin-top: 4px; }
+.et-path { min-width: 0; line-height: var(--lh-normal); overflow-wrap: anywhere; text-align: left; }
 .et-muted { font-size: var(--fs-xs); color: var(--text-muted); }
 .et-link { padding: 0; font: inherit; font-size: var(--fs-sm); color: var(--blue-hover); background: none; border: none; cursor: pointer; overflow-wrap: anywhere; text-align: left; }
 .et-note { margin-top: 6px; }

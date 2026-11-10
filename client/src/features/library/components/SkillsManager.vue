@@ -218,7 +218,7 @@ async function removeItem(item: LibraryItem) {
   const question = shared ? `Убрать ${name} из этого проекта? В группе и в других проектах он останется.`
     : scope.value === 'global' ? `Удалить ${name} для всех проектов? Агенты больше не будут получать этот элемент, его файлы уберутся из их папок.`
     : `Удалить ${name}? Его файлы уберутся из папок агентов, где он был доступен.`
-  if (!(await appStore.confirm(question, { confirmLabel: shared ? 'Убрать' : 'Удалить' }))) return
+  if (!(await appStore.confirm(question, { confirmLabel: shared ? 'Убрать' : 'Удалить', danger: true }))) return
   try {
     if (shared) await store.exclude(item.id, props.projectId!)
     else await store.remove(item.id)

@@ -12,6 +12,12 @@ and persistence; consumers use each module's public API.
 - `review/branch/`: colleagues' merge requests, private worktrees, threads,
   questions and publication through the code host.
 
+Branch review remarks stay drafts until the developer publishes them. A rejected remark
+is kept (`rejected`) and never published. A conversation about a remark or a colleague's
+thread is a question thread linked by `remark_id` / `thread_id`: its messages queue and go
+to the agent in one batch; the agent may rewrite a discussed remark with
+`revise_review_remark`, and the first text stays in `original`.
+
 Compose review protocols, library instructions and task-specific briefs per
 workflow. MCP access is scoped to the review and delivered batch. Failed
 dispatch retains unsent work. Domain services check queue conflicts,

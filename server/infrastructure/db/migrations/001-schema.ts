@@ -1,4 +1,5 @@
 import { removeRuns } from './011-remove-runs';
+import { addBranchQuestionRemark } from './012-branch-question-remark';
 import { migrateBranchReviewTables } from './010-branch-review-tables';
 import type Database from 'better-sqlite3';
 import { migrateTaskWorkspaces } from './002-migrateTaskWorkspaces';
@@ -252,5 +253,6 @@ export function migrate(db: Database.Database): void {
       FROM tasks WHERE description_migrated=0 AND trim(coalesce(description, '')) <> ''`).run();
     db.prepare("UPDATE tasks SET description=NULL, description_migrated=1 WHERE description_migrated=0").run();
   })();
+  addBranchQuestionRemark(db);
 }
 

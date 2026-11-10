@@ -10,8 +10,13 @@
 
     <!-- One main action per state: start, wait, answer the agent's questions, or (once everything is handled) ask for a redo. -->
     <form v-if="store.mode === 'start'" class="cp-send" @submit.prevent="send">
-      <AppInput ref="noteInput" v-model="note" class="cp-note-input" size="sm" placeholder="Пожелание агенту (необязательно)" aria-label="Пожелание агенту" />
-      <AppButton type="submit" variant="blue" size="sm" :disabled="store.busy">Разрешить с агентом</AppButton>
+      <AppTextarea
+        v-model="note" block size="sm" rows="3" placeholder="Пожелание агенту (необязательно)" aria-label="Пожелание агенту"
+        @keydown.enter.ctrl.exact.prevent="send"
+      />
+      <div class="cp-send-actions">
+        <AppButton type="submit" variant="blue" size="xs" :disabled="store.busy" title="Ctrl+Enter">Разрешить с агентом</AppButton>
+      </div>
     </form>
     <div v-else-if="store.mode === 'working'" class="cp-status" role="status">
       <span>Агент разбирает конфликты…</span>
@@ -24,8 +29,8 @@
           @keydown.esc="redoing = false" @keydown.enter.ctrl.exact.prevent="note.trim() && send()"
         />
         <div class="cp-redo-actions">
-          <AppButton variant="ghost" size="sm" @click="redoing = false">Отмена</AppButton>
-          <AppButton type="submit" variant="blue" size="sm" :disabled="store.busy || !note.trim()" title="Ctrl+Enter">Переделать</AppButton>
+          <AppButton variant="ghost" size="xs" @click="redoing = false">Отмена</AppButton>
+          <AppButton type="submit" variant="blue" size="xs" :disabled="store.busy || !note.trim()" title="Ctrl+Enter">Переделать</AppButton>
         </div>
       </form>
       <div v-else-if="store.conflicted.length" class="cp-status">
@@ -38,8 +43,8 @@
     <ul v-else class="cp-files">
       <li v-for="file in files" :key="file.path" class="cp-file">
         <div class="cp-row">
-          <AppButton variant="link" size="sm" :title="'Открыть ' + file.path" @click="emit('open', file.path)">{{ file.path }}</AppButton>
-          <AppBadge  :tone="badgeOf(file).tone" :title="CODES[file.code] ?? ''">{{ badgeOf(file).label }}</AppBadge>
+          <AppButton variant="link" size="sm" :title="'Открыть ' + file.path + (CODES[file.code] ? ' · ' + CODES[file.code] : '')" @click="emit('open', file.path)">{{ file.path }}</AppButton>
+          <AppBadge v-if="badgeOf(file)" :tone="badgeOf(file)!.tone">{{ badgeOf(file)!.label }}</AppBadge>
         </div>
         <p v-if="file.note" class="cp-note">{{ file.note.text }}</p>
         <p v-if="file.note?.answer && file.note.answer_sent" class="cp-answer">Ваш ответ: {{ file.note.answer }}</p>
@@ -50,7 +55,7 @@
       </li>
     </ul>
     <div v-if="store.mode === 'answer'" class="cp-answers">
-      <AppButton variant="blue" size="sm" :disabled="store.busy || !answered" @click="sendAnswers">
+      <AppButton variant="blue" size="xs" :disabled="store.busy || !answered" @click="sendAnswers">
         {{ answered ? `Отправить ответы (${answered})` : 'Ответьте на вопросы агента' }}
       </AppButton>
     </div>
@@ -60,7 +65,6 @@
 <script setup lang="ts">
 import AppBadge from '@shared/ui/AppBadge.vue'
 import AppTextarea from '@shared/ui/AppTextarea.vue'
-import AppInput from '@shared/ui/AppInput.vue'
 import { useDraft } from '@core/composables/useDraft'
 import { computed, nextTick, ref, watch } from 'vue'
 import AppButton from '@shared/ui/AppButton.vue'
@@ -74,9 +78,7 @@ const store = useConflictsStore()
 const op = computed(() => store.operation)
 const session = computed(() => store.state?.session ?? null)
 const files = computed(() => store.state?.files ?? [])
-const note = useDraft(() => `project:${store.projectId}:conflict:${op.value?.id ?? "current"}:note`, () => ''), noteInput = ref<InstanceType<typeof AppInput>>(), redoInput = ref<InstanceType<typeof AppTextarea>>(), redoing = ref(false)
-/** «Разрешить с агентом» in the banner only brings the card up: the developer may add a wish before starting. */
-defineExpose({ focus: () => noteInput.value?.focus() })
+const note = useDraft(() => `project:${store.projectId}:conflict:${op.value?.id ?? "current"}:note`, () => ''), redoInput = ref<InstanceType<typeof AppTextarea>>(), redoing = ref(false)
 async function redo() { redoing.value = true; note.value = ''; await nextTick(); redoInput.value?.focus() }
 watch(() => store.mode, () => { redoing.value = false })
 
@@ -89,12 +91,13 @@ const CODES: Record<string, string> = {
   UU: 'Изменён с обеих сторон', AA: 'Добавлен с обеих сторон', DD: 'Удалён с обеих сторон',
   DU: 'Удалён в ours, изменён в theirs', UD: 'Изменён в ours, удалён в theirs', AU: 'Добавлен только в ours', UA: 'Добавлен только в theirs',
 }
-function badgeOf(file: ConflictFile): { label: string; tone: string } {
+/** A plain unresolved conflict needs no badge: the tab itself says so. */
+function badgeOf(file: ConflictFile): { label: string; tone: string } | null {
   if (!file.conflicted) return { label: 'добавлен к коммиту', tone: 'ok' }
   if (file.note?.outcome === 'resolved') return { label: 'решён — проверьте', tone: 'info' }
   if (file.note?.outcome === 'question') return file.note.answer_sent ? { label: 'ответ отправлен', tone: 'info' } : { label: 'вопрос', tone: 'warn' }
   if (file.note?.outcome === 'recommend') return { label: 'нужно ваше действие', tone: 'warn' }
-  return { label: 'конфликт', tone: 'bad' }
+  return null
 }
 async function send() {
   await store.resolve({ note: note.value.trim() || undefined })
@@ -115,10 +118,10 @@ async function sendAnswers() {
 .cp-status { display: flex; align-items: center; gap: 8px; color: var(--text-muted); }
 .cp-status span { flex: 1; min-width: 0; }
 .cp-error { padding: 6px 8px; border-radius: var(--radius-sm); color: var(--danger-hover); background: var(--danger-soft); white-space: pre-wrap; }
-.cp-send { display: flex; gap: 6px; }
-.cp-note-input { flex: 1; }
-.cp-files { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
-.cp-file { display: flex; flex-direction: column; gap: 4px; padding: 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg2); }
+.cp-send { display: flex; flex-direction: column; gap: 6px; }
+.cp-send-actions { display: flex; justify-content: flex-end; }
+.cp-files { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
+.cp-file { display: flex; flex-direction: column; gap: 4px; padding: 8px 0; border-top: 1px solid var(--border); }
 .cp-row { display: flex; align-items: center; gap: 6px; }
 .cp-path { flex: 1; min-width: 0; padding: 0; font: inherit; text-align: left; color: var(--blue-hover); background: none; border: none; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cp-path:hover { text-decoration: underline; }

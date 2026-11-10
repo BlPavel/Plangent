@@ -5,7 +5,8 @@ export const rowSelectBranchQuestions = (...params: unknown[]) => getDb().prepar
 export const questionsSelectBranchQuestions = (...params: unknown[]) => getDb().prepare('SELECT * FROM branch_questions WHERE review_id=? ORDER BY created_at,rowid').all(...params);
 export const messagesSelectBranchQuestionMessages = (...params: unknown[]) => getDb().prepare('SELECT m.* FROM branch_question_messages m JOIN branch_questions q ON q.id=m.question_id WHERE q.review_id=? ORDER BY m.created_at,m.rowid').all(...params);
 export const threadSelectBranchQuestionMessages = (...params: unknown[]) => getDb().prepare('SELECT * FROM branch_question_messages WHERE question_id=? ORDER BY created_at,rowid').all(...params);
-export const addInsertBranchQuestions = (...params: unknown[]) => getDb().prepare('INSERT INTO branch_questions(id,review_id,path,side,line) VALUES (?,?,?,?,?)').run(...params);
+export const remarkSelectBranchReviewRemarks = (...params: unknown[]) => getDb().prepare('SELECT author,body FROM branch_review_remarks WHERE id=? AND review_id=?').get(...params);
+export const addInsertBranchQuestions = (...params: unknown[]) => getDb().prepare('INSERT INTO branch_questions(id,review_id,path,side,line,remark_id,thread_id) VALUES (?,?,?,?,?,?,?)').run(...params);
 export const addInsertBranchQuestionMessages = (...params: unknown[]) => getDb().prepare("INSERT INTO branch_question_messages(id,question_id,author,kind,text) VALUES (?,?,'developer','text',?)").run(...params);
 export const replyInsertBranchQuestionMessages = (...params: unknown[]) => getDb().prepare("INSERT INTO branch_question_messages(id,question_id,author,kind,text) VALUES (?,?,'developer','text',?)").run(...params);
 export const replyUpdateBranchQuestions = (...params: unknown[]) => getDb().prepare('UPDATE branch_questions SET closed=0 WHERE id=?').run(...params);

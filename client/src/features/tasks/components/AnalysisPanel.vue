@@ -94,7 +94,7 @@ async function create() { await action(async () => { await tasksEndpoints.create
 async function save(section: AnalysisSection, data: { title: string; description: string }, finish: (saved: boolean) => void) { finish(await action(() => tasksEndpoints.updateAnalysis({ params: { ...params(), sectionId: section.id }, body: data }))) }
 function move(section: AnalysisSection, kind: AnalysisSection['kind']) { return action(() => tasksEndpoints.updateAnalysis({ params: { ...params(), sectionId: section.id }, body: { kind } })) }
 async function remove(section: AnalysisSection) {
-  if (await app.confirm('Удалить раздел «' + section.title + '» и его файлы?') && await deleteWithWarning(section.id)) { useDraftsStore().clear(`task:${props.taskId}:section:${section.id}`) }
+  if (await app.confirm('Удалить раздел «' + section.title + '» и его файлы?', { confirmLabel: 'Удалить', danger: true }) && await deleteWithWarning(section.id)) { useDraftsStore().clear(`task:${props.taskId}:section:${section.id}`) }
 }
 async function deleteWithWarning(sectionId: string, fileId?: string) {
   return action(async () => {
@@ -105,13 +105,13 @@ async function deleteWithWarning(sectionId: string, fileId?: string) {
     try { await remove(); return } catch (cause) { data = cause as Error & import('@contracts').ApiError }
     if (data.confirmation_required) {
       const steps = (data.references ?? []).map((s: { id?: string; text: string }) => (s.id ?? '') + ' ' + s.text).join('\n')
-      if (!await app.confirm('На материал ссылаются шаги плана:\n' + steps + '\nУдалить?')) throw new Error('Удаление отменено')
+      if (!await app.confirm('На материал ссылаются шаги плана:\n' + steps + '\nУдалить?', { confirmLabel: 'Удалить', danger: true })) throw new Error('Удаление отменено')
       await remove('true')
     } else throw new Error(data.error)
   })
 }
 async function deleteFile(section: AnalysisSection, file: AnalysisFile) {
-  if (await app.confirm('Удалить файл «' + file.name + '»?')) await deleteWithWarning(section.id, file.id)
+  if (await app.confirm('Удалить файл «' + file.name + '»?', { confirmLabel: 'Удалить', danger: true })) await deleteWithWarning(section.id, file.id)
 }
 function shift(section: AnalysisSection, direction: number) {
   const group = props.sections.filter(s => s.kind === section.kind)

@@ -12,7 +12,7 @@ import { checkLine, openIdleThread } from './index';
  * The developer's questions about a branch, as threads with the agent: replies wait (sent=0) and leave in
  * one batch; the agent answers each thread through MCP (reply_branch_question), never in the chat.
  */
-export interface BranchQuestion { id: string; review_id: string; path: string; side: 'old' | 'new'; line: number; closed: boolean; created_at: string }
+export interface BranchQuestion { id: string; review_id: string; path: string; side: 'old' | 'new'; line: number; remark_id: string; thread_id: string; closed: boolean; created_at: string }
 export interface BranchQuestionMessage { id: string; question_id: string; author: 'developer' | 'agent'; kind: string; text: string; sent: boolean; created_at: string }
 type QuestionRow = Omit<BranchQuestion, 'closed'> & { closed: number };
 type MessageRow = Omit<BranchQuestionMessage, 'sent'> & { sent: number };
@@ -50,14 +50,16 @@ const cleanText = (value: unknown) => {
   return text;
 };
 
-export async function add(projectId: string, reviewId: string, input: { path?: unknown; side?: unknown; line?: unknown; text?: unknown }) {
+export async function add(projectId: string, reviewId: string, input: { path?: unknown; side?: unknown; line?: unknown; text?: unknown; remark_id?: unknown; thread_id?: unknown }) {
   ownReview(projectId, reviewId);
   const text = cleanText(input.text);
   const general = input.path === undefined || input.path === '';
   if (!general) await checkLine(projectId, reviewId, input.path, input.side, input.line);
+  // A discussion of a remark of this review; anything else is a question of its own.
+  const remark = typeof input.remark_id === 'string' && queries.remarkSelectBranchReviewRemarks(input.remark_id, reviewId) ? input.remark_id : '';
   const id = randomUUID();
   transaction(() => {
-    queries.addInsertBranchQuestions(id, reviewId, general ? '' : String(input.path), general ? 'new' : String(input.side), general ? 0 : Number(input.line));
+    queries.addInsertBranchQuestions(id, reviewId, general ? '' : String(input.path), general ? 'new' : String(input.side), general ? 0 : Number(input.line), remark, typeof input.thread_id === 'string' ? input.thread_id.slice(0, 200) : '');
     queries.addInsertBranchQuestionMessages(randomUUID(), id, text);
   });
   notify(reviewId);
@@ -88,6 +90,14 @@ export function removeMessage(projectId: string, reviewId: string, questionId: s
   const changed = queries.changedDeleteBranchQuestionMessages(messageId, questionId).changes;
   if (!changed) throw new DomainError('Сообщение уже отправлено', 409);
   if (!thread(questionId).length) queries.removeMessageDeleteBranchQuestions(questionId);
+  notify(reviewId);
+  return list(projectId, reviewId);
+}
+/** Removes a thread with all its messages: its answer became a remark, or the question is not needed. Not while the agent owes an answer. */
+export function removeQuestion(projectId: string, reviewId: string, questionId: string) {
+  ownReview(projectId, reviewId); question(reviewId, questionId);
+  if (awaiting(questionId)) throw new DomainError('Агент ещё отвечает на этот вопрос: дождитесь ответа', 409);
+  queries.removeMessageDeleteBranchQuestions(questionId);
   notify(reviewId);
   return list(projectId, reviewId);
 }
@@ -124,7 +134,7 @@ export async function send(projectId: string, reviewId: string, input: { questio
 }
 
 const PROTOCOL = 'You answer the developer’s questions about the branch in a read-only worktree; do not change code or git. ' +
-  'Each question is a separate thread. Call reply_branch_question exactly once per thread per turn; do not answer in chat. ' +
+  'Each question is a separate thread. A thread with about_remark discusses that remark of the review (the developer wants it explained or reconsidered): answer about it, and if the discussion changes what the remark should say, rewrite it with revise_review_remark (the full text in the developer’s voice: the hosting never sees the conversation); if you keep it, only answer. A thread with about_thread discusses a colleague’s MR thread with that id (find it in get_review_brief threads): say whether the colleague is right. Call reply_branch_question exactly once per thread per turn; do not answer in chat. ' +
   'Use kind answer for an ordinary answer, options for a list of choices with your recommendation, and questions for clarifications. Be concise and cite files and lines. Respond in the developer’s language, Russian by default.';
 function sessionReview(session: AgentSession): string {
   const id = session.metadata.branch_review;
@@ -135,7 +145,11 @@ function sessionReview(session: AgentSession): string {
 export function agentView(session: AgentSession) {
   const reviewId = sessionReview(session);
   const all = list(reviewProject(reviewId), reviewId);
-  const view = (q: BranchQuestion) => ({ id: q.id, where: q.path ? `${q.path}:${q.line} (${q.side === 'old' ? 'версия до изменений' : 'новая версия'})` : 'вся ветка',
+  const aboutRemark = (q: BranchQuestion) => {
+    const remark = q.remark_id ? queries.remarkSelectBranchReviewRemarks(q.remark_id, reviewId) as { author: string; body: string } | undefined : undefined;
+    return remark ? { about_remark: { id: q.remark_id, author: remark.author, text: remark.body } } : {};
+  };
+  const view = (q: BranchQuestion) => ({ id: q.id, ...aboutRemark(q), ...(q.thread_id ? { about_thread: q.thread_id } : {}), where: q.path ? `${q.path}:${q.line} (${q.side === 'old' ? 'версия до изменений' : 'новая версия'})` : 'вся ветка',
     thread: all.messages.filter(m => m.question_id === q.id && m.sent).map(m => ({ author: m.author, kind: m.kind, text: m.text })) });
   return {
     protocol: PROTOCOL,

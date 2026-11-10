@@ -11,7 +11,8 @@
     "get_branch_questions",
     "reply_branch_question",
     "set_review_overview",
-    "add_review_remark"
+    "add_review_remark",
+    "revise_review_remark"
   ],
   "plan-reviewer": [
     "get_plan_review_brief",

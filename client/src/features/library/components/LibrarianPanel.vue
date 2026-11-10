@@ -122,7 +122,7 @@ async function create({ content, ...options }: NewChatRequest) {
 
 async function remove(id: string, name: string) {
   const session = sessions.value.find(s => s.id === id)
-  if (!session || !(await app.confirm(`Удалить чат «${name}»? Применённые изменения останутся в библиотеке.`))) return
+  if (!session || !(await app.confirm(`Удалить чат «${name}»? Применённые изменения останутся в библиотеке.`, { confirmLabel: "Удалить", danger: true }))) return
   try { await chats.remove(session.id); if (selected.value === id) selected.value = sessions.value[0]?.id ?? '' }
   catch (e) { app.toast(String(e), 'error') }
 }
