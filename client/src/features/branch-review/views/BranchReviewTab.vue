@@ -374,9 +374,13 @@ let reload: ReturnType<typeof setTimeout> | undefined
 const stopEvents = onServerEvent<{ type: string; reviewId?: string }>(event => {
   const id = detail.value?.review.id
   if (!id || event.type !== 'branch_review_updated' || event.reviewId !== id) return
-  void loadThreads(id)
-  clearTimeout(reload)
-  reload = setTimeout(() => { void branchReviewApi.detail(scope.value, id).then(value => { if (alive && detail.value?.review.id === id) detail.value = value }).catch(() => undefined) }, 400)
+  // The agent reports in bursts (one event per remark): events within the window share one reload.
+  if (reload) return
+  reload = setTimeout(() => {
+    reload = undefined
+    void loadThreads(id)
+    void branchReviewApi.detail(scope.value, id).then(value => { if (alive && detail.value?.review.id === id) detail.value = value }).catch(() => undefined)
+  }, 400)
 })
 onBeforeUnmount(() => { stopEvents(); clearTimeout(reload) })
 if (detail.value) {

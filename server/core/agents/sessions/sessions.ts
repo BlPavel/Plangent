@@ -1,7 +1,7 @@
 import * as repository from '../../../infrastructure/db/repositories/agents/sessions';
 import { broadcast } from '../../shared';
 import type { AgentSession, SessionEvent } from './types';
-export { initSessions, getSession, listSessions, history, findings } from '../../../infrastructure/db/repositories/agents/sessions';
+export { initSessions, getSession, listSessions, history, toolCallPayload, findings } from '../../../infrastructure/db/repositories/agents/sessions';
 export type { ReviewFinding } from '../../../infrastructure/db/repositories/agents/sessions';
 import { getSession } from '../../../infrastructure/db/repositories/agents/sessions';
 export function createSession(data: Parameters<typeof repository.createSession>[0]): AgentSession {

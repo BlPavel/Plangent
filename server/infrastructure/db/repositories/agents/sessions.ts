@@ -76,6 +76,12 @@ export function history(id: string): SessionEvent[] {
   return (getDb().prepare('SELECT * FROM agent_session_events WHERE session_id=? ORDER BY seq').all(id) as (SessionEvent & { payload: string })[])
     .map(e => ({ ...e, payload: JSON.parse(e.payload) }));
 }
+/** Payload of the latest `tool_call` event with this id, read without loading the whole transcript. */
+export function toolCallPayload(id: string, toolCallId: string): Record<string, unknown> | undefined {
+  const row = getDb().prepare("SELECT payload FROM agent_session_events WHERE session_id=? AND type='tool_call' AND json_extract(payload,'$.toolCallId')=? ORDER BY seq DESC LIMIT 1")
+    .get(id, toolCallId) as { payload: string } | undefined;
+  return row ? JSON.parse(row.payload) : undefined;
+}
 export function deleteSession(id: string): void {
   const db = getDb();
   db.transaction(() => {

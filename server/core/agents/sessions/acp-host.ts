@@ -17,7 +17,7 @@ import type { listAnalysisSections } from '../../preparation';
 import { readOnlyRoots, workspaceBriefing, mentionedReferences, WORKSPACE_BRIEFING_VERSION } from '../../projects';
 import type { rootForSession, writableRootsForSession, assertTaskWorkspaceReady } from '../../workspaces';
 import { broadcast } from '../../shared';
-import { addEvent, getSession, history, updateSession, updateAgentTitle } from './sessions';
+import { addEvent, getSession, history, toolCallPayload, updateSession, updateAgentTitle } from './sessions';
 import { getAcpOptions, saveAcpOptions, type AcpOptions } from '../catalog/acp-options';
 import { enqueue, queuedPrompts, editQueued } from './prompt-queue';
 import { permissionDecision, shellGitDecision } from './permissions';
@@ -197,7 +197,7 @@ export async function requestDeveloperPermission(id: string, request: ACP.Reques
   const project = getProject(session.project_id);
   // Codex asks with little more than the toolCallId; what the call is was sent in the earlier tool_call update.
   const sessionRoot = await moduleDependencies.workspaces.rootForSession(session);
-  const announced = history(id).filter(e => e.type === 'tool_call' && e.payload.toolCallId === request.toolCall.toolCallId).pop()?.payload;
+  const announced = toolCallPayload(id, request.toolCall.toolCallId);
   const toolCall = { ...(announced as Partial<ACP.ToolCallUpdate> | undefined), ...Object.fromEntries(Object.entries(request.toolCall).filter(([, v]) => v != null)) } as ACP.ToolCallUpdate;
   const conflictFiles = session.role === 'conflict-resolver' && project
     ? ((session.metadata.conflict_paths as string[] | undefined) ?? []).map(file => path.resolve(sessionRoot, file)) : undefined;

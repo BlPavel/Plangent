@@ -122,10 +122,11 @@ async function prepare(id: string, options: { timeoutMs?: number; signal?: Abort
   const workspace = getWorkspace(id), project = getProject(workspace.project_id);
   if (!project || workspace.status === 'removed') throw new Error('Workspace is unavailable');
   const settings = effectiveGitSettings(project.id).values;
-  let output = '';
+  let output = '', written: ReturnType<typeof setTimeout> | undefined;
+  // The log can reach 1 MB and every write is sent to all clients: write it at most a few times a second.
   const log = (text: string) => {
     output = (output + text).slice(-1024 * 1024);
-    updateWorkspace(id, { setup_log: output });
+    written ??= setTimeout(() => { written = undefined; try { updateWorkspace(id, { setup_log: output }); } catch { /* the workspace was removed meanwhile */ } }, 300);
   };
   updateWorkspace(id, { status: 'preparing', error: '', setup_log: '' });
   try {
@@ -138,8 +139,10 @@ async function prepare(id: string, options: { timeoutMs?: number; signal?: Abort
         { ...process.env, ...project.config.extra_env }, log, options.timeoutMs ?? 10 * 60_000, options.signal);
     }
     options.signal?.throwIfAborted();
-    return updateWorkspace(id, { status: 'ready' });
+    clearTimeout(written);
+    return updateWorkspace(id, { status: 'ready', setup_log: output });
   } catch (error) {
+    clearTimeout(written);
     return updateWorkspace(id, { status: 'failed', error: String(error), setup_log: output });
   }
 }

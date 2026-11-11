@@ -34,9 +34,12 @@ export function splitLines(html: string): string[] {
   return lines
 }
 
-/** Per-line HTML of a source file; unknown languages are escaped without highlighting. */
+// Highlighting runs synchronously on the UI thread; a lockfile or bundle would freeze the window for seconds.
+const HIGHLIGHT_LIMIT = 400_000
+
+/** Per-line HTML of a source file; unknown languages and very large files are escaped without highlighting. */
 export function highlightLines(path: string, content: string, enabled = true): string[] {
-  const language = enabled ? languageFor(path) : undefined
+  const language = enabled && content.length <= HIGHLIGHT_LIMIT ? languageFor(path) : undefined
   const html = language ? hljs.highlight(content, { language, ignoreIllegals: true }).value : escapeHtml(content)
   const lines = splitLines(html)
   // A trailing newline does not start a new visible line.

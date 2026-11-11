@@ -196,33 +196,43 @@ const selects = computed(() => agentSelects(meta.value).map(select => {
 const usage = computed(() => meta.value.usage ?? null)
 
 type Row = ChatEvent & { live?: boolean }
-const rows = computed(() => {
+// Committed events change rarely; the streamed text changes many times a second and must not rebuild them.
+const committedRows = computed(() => {
   const list: Row[] = []
+  const tools = new Map<unknown, Row>(), operations = new Map<unknown, Row>()
   for (const event of snap.value?.events ?? []) {
     if (event.type === 'tool_call_update') {
-      const tool = list.find(e => e.type === 'tool_call' && e.payload.toolCallId === event.payload.toolCallId)
+      const tool = tools.get(event.payload.toolCallId)
       if (tool) tool.payload = { ...tool.payload, ...event.payload }
     } else if (event.type === 'git_action_progress') {
-      const operation = list.find(e => e.type === 'git_action_progress' && e.payload.operationId === event.payload.operationId)
+      const operation = operations.get(event.payload.operationId)
       if (operation) operation.payload = { ...operation.payload, ...event.payload, output: (operation.payload.output ?? '') + (event.payload.output ?? '') }
-      else list.push({ ...event, payload: { ...event.payload } })
+      else {
+        const row: Row = { ...event, payload: { ...event.payload } }
+        list.push(row); operations.set(event.payload.operationId, row)
+      }
     } else if (event.type === 'plan') {
       const old = list.findIndex(e => e.type === 'plan'); if (old >= 0) list.splice(old, 1)
       list.push(event)
-    } else list.push({ ...event, payload: { ...event.payload } })
+    } else {
+      const row: Row = { ...event, payload: { ...event.payload } }
+      list.push(row)
+      if (event.type === 'tool_call' && !tools.has(event.payload.toolCallId)) tools.set(event.payload.toolCallId, row)
+    }
   }
   for (const event of list) if (event.type === 'permission_result' && event.payload.gitReason) {
-    const tool = list.find(e => e.type === 'tool_call' && e.payload.toolCallId === event.payload.toolCallId)
+    const tool = tools.get(event.payload.toolCallId)
     if (tool) tool.payload.gitReason = event.payload.gitReason
   }
+  return list
+})
+const rows = computed(() => {
   // The in-flight chunk becomes a row keyed by the seq its final event will get, so the same
   // component instance keeps typing when the message is committed — no jump at the end.
   const streaming = snap.value?.streaming
-  if (streaming?.text) {
-    const seq = (snap.value!.events[snap.value!.events.length - 1]?.seq ?? 0) + 1
-    list.push({ seq, session_id: props.sessionId, type: streaming.type === 'thought' ? 'thought' : 'assistant', payload: { text: streaming.text }, live: true })
-  }
-  return list
+  if (!streaming?.text) return committedRows.value
+  const seq = (snap.value!.events[snap.value!.events.length - 1]?.seq ?? 0) + 1
+  return [...committedRows.value, { seq, session_id: props.sessionId, type: streaming.type === 'thought' ? 'thought' : 'assistant', payload: { text: streaming.text }, live: true } as Row]
 })
 const hasConversation = computed(() => rows.value.some(r => r.type === 'user' && r.payload.text))
 // The whole conversation becomes the errand's first message; the oldest part is dropped if it is too long for one.

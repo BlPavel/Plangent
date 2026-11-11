@@ -38,7 +38,14 @@
 
       <!-- Mounted only while open: the screen watches the project folder. -->
       <div v-if="activeTab === 'code' && !isGroup" class="tab-content"><CodeTab :project-id="currentProject.id" :task="codeTask" :default-agent-id="projectsStore.agentFor(currentProject)" @back="backToTask" /></div>
-      <div v-if="activeTab === 'review' && !isGroup" class="tab-content"><BranchReviewTab :key="currentProject.id" :project-id="currentProject.id" @open-instructions="openReviewSkills" /></div>
+      <div v-if="activeTab === 'review' && !isGroup" class="tab-content">
+        <!-- A render error would otherwise leave the tab blank with no explanation. -->
+        <AppEmptyState v-if="reviewFailure">
+          <p>Не удалось отобразить вкладку: {{ reviewFailure }}</p>
+          <AppButton size="sm" @click="reviewFailure = ''">Повторить</AppButton>
+        </AppEmptyState>
+        <BranchReviewTab v-else :key="currentProject.id" :project-id="currentProject.id" @open-instructions="openReviewSkills" />
+      </div>
       <div v-if="activeTab === 'settings'" class="tab-content">
         <ProjectSettings :key="currentProject.id" :project="currentProject" :requested="settingsRequest" @delete="deleteProject" />
       </div>
@@ -67,7 +74,7 @@ import { tasksEndpoints } from '@features/tasks'
 import { AgentChats, useComposerReveal } from '@features/agent-chat'
 import { CodeTab, useCodeAttentionStore } from '@features/code'
 import { BranchReviewTab } from '@features/branch-review'
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onErrorCaptured } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '@core/stores/app'
 import { useProjectsStore } from '../stores/projects'
@@ -107,6 +114,14 @@ const activeTab = ref<HomeTab>(isGroup.value && !groupTabs.includes(restoredTab)
 const workTab = ref<HomeTab>(activeTab.value === 'settings' ? defaultTab() : activeTab.value)
 watch(activeTab, tab => { if (tab !== 'settings') workTab.value = tab })
 function toggleSettings() { activeTab.value = activeTab.value === 'settings' ? workTab.value : 'settings' }
+const reviewFailure = ref('')
+onErrorCaptured((error, _instance, info) => {
+  if (activeTab.value !== 'review') return
+  console.error('Review tab failed', info, error)
+  reviewFailure.value = error instanceof Error ? error.message : String(error)
+  return false
+})
+watch(activeTab, () => { reviewFailure.value = '' })
 // Deleting lives in Настройки → Основное.
 const showDeleteGroup = ref(false)
 watch(activeTab, tab => { if (currentProject.value) Object.assign(lastTab, { projectId: currentProject.value.id, tab }) }, { immediate: true })
