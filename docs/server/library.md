@@ -4,8 +4,14 @@
 section IDs separately for global and project editors, their target types,
 labels, allowed scopes, text types and per-level uniqueness. Client and server
 import it directly; it has no server dependencies or built-in text. A group's
-editor uses project scope. Global plan review targets `plan-review-instruction`;
-project plan review targets `plan-review-skill`.
+editor uses project scope. The review instructions (`mr-review-instruction`,
+`plan-review-instruction`, `architecture-review-instruction`,
+`qa-review-instruction`) and the templates exist at every level like the
+code-fixer instruction: the nearest of project, group, global and built-in text
+applies (`resolveInstructionText` in `section-settings.ts`; the review resolvers
+take the project id). Project settings no longer offer review skills
+(`review-skill`, `plan-review-skill`, `architecture-review-skill`,
+`qa-review-skill`); existing ones still apply as an addition through the pickers.
 
 `core/library/operations.ts` owns saves, deletes, exclusions, detached project
 copies and agent overrides. HTTP handlers and proposal application call these

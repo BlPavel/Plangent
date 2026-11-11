@@ -161,10 +161,10 @@ watch(() => route.query, query => {
   void router.replace({ path: '/' })
 }, { immediate: true })
 watch(activeTab, tab => { if (tab !== 'code') codeTaskId.value = null })
-// «Скиллы ревью…» in the Ревью tab: they are written in Настройки → Ревью.
+// «Инструкции» in the Ревью tab: the review instruction is written in Настройки → Ревью.
 const settingsRequest = ref<{ page: ProjectSettingsPage; at: number } | null>(null)
 function openReviewSkills() {
-  settingsRequest.value = { page: 'review', at: Date.now() }
+  settingsRequest.value = { page: 'mr-review', at: Date.now() }
   activeTab.value = 'settings'
 }
 

@@ -6,7 +6,7 @@ import type * as workspaces from '../workspaces';
 export const moduleDependencies = {} as {
   preparation: Pick<typeof preparation, 'buildLibrarianPrompt' | 'listAnalysisSections'>;
   tasks: Pick<typeof tasks, 'getTask'>;
-  workspaces: Pick<typeof workspaces, 'rootForSession' | 'writableRootsForSession' | 'assertTaskWorkspaceReady'>;
+  workspaces: Pick<typeof workspaces, 'rootForSession' | 'writableRootsForSession' | 'assertTaskWorkspaceReady' | 'envForSession'>;
 };
 
 export function configureDependencies(dependencies: typeof moduleDependencies): void {

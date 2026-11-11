@@ -12,23 +12,27 @@
       <template v-else-if="field.kind === 'boolean'" />
       <BranchSelect
         v-else-if="field.kind === 'branch' && branches?.length" :model-value="String(value(field.key) ?? '')" :options="branchOptions(String(value(field.key) ?? '')).map(name => ({ value: name, label: name }))"
-        small empty-label="Не задана" placeholder="Не задана" :label="field.label" @update:model-value="set(field.key, $event)"
+        small :popup-max-width="260" empty-label="Не задана" placeholder="Не задана" :label="field.label" @update:model-value="set(field.key, $event)"
       />
       <AppInput v-else-if="field.kind === 'branch'" size="sm" :model-value="String(value(field.key) ?? '')" :placeholder="field.placeholder" @update:model-value="set(field.key, $event)" />
       <template v-else-if="field.kind === 'tags'">
         <div class="gs-tags">
-          <AppChip v-for="tag in tags(field.key)" :key="tag" removable :remove-label="'Убрать ' + tag" @remove="removeTag(field.key, tag)">{{ tagLabel(field.key, tag) }}</AppChip>
+          <div class="gs-chips">
+            <span v-if="!tags(field.key).length" class="gs-empty">Пока ничего не добавлено</span>
+            <AppChip v-for="tag in tags(field.key)" :key="tag" removable :remove-label="'Убрать ' + tag" @remove="removeTag(field.key, tag)">{{ tagLabel(field.key, tag) }}</AppChip>
+          </div>
+          <!-- People come only from the code host: without its members the button stays, disabled. -->
+          <MemberPicker v-if="isPeople(field.key)" :members="freeMembers(field.key)" @pick="set(field.key, [...tags(field.key), $event])" />
           <AppInput
-            v-if="!(isPeople(field.key) && members?.length)" class="gs-tag-input" :placeholder="tags(field.key).length ? 'Добавить…' : field.placeholder"
+            v-else class="gs-tag-input" size="sm" :placeholder="tags(field.key).length ? 'Добавить…' : field.placeholder"
             @keydown.enter.prevent="addTag(field.key, $event)" @blur="addTag(field.key, $event)"
           />
-          <MemberPicker v-else :members="freeMembers(field.key)" @pick="set(field.key, [...tags(field.key), $event])" />
         </div>
         <AppButton v-if="field.defaults && !tags(field.key).length" variant="link" size="xs" @click="set(field.key, [...field.defaults])">Применить дефолтные: {{ field.defaults.join(', ') }}</AppButton>
       </template>
       <AppTextarea block v-else rows="4" :placeholder="field.placeholder" :model-value="String(value(field.key) ?? '')" @update:model-value="set(field.key, $event)" />
 
-      <small v-if="isPeople(field.key) && membersNote" class="gs-hint">{{ membersNote }}</small>
+      <small v-if="isPeople(field.key) && (membersNote || !members?.length)" class="gs-hint">{{ membersNote || 'Список людей берётся с хостинга: выберите подключение в «Хостинг кода».' }}</small>
       <small v-if="field.hint" class="gs-hint">{{ field.hint }}</small>
     </div>
   </div>
@@ -42,18 +46,47 @@ import BranchSelect from '@shared/ui/BranchSelect.vue'
 import AppSelect from '@shared/ui/AppSelect.vue'
 import { finishScenarioLabels } from '@features/finish'
 type Member = { value: string; login: string; name: string }
+type Section = 'branches' | 'mr' | 'workspace-files' | 'workspace-setup' | 'review'
 /** `group`: a group has no repository of its own, so its branches and people are chosen per project. */
-const props = defineProps<{ modelValue: ProjectGitSettings; inherited: ProjectGitSettings; sources?: Record<string, string>; section: 'branches' | 'mr' | 'workspace'; branches?: string[]; members?: Member[]; membersNote?: string; group?: boolean }>()
+const props = defineProps<{ modelValue: ProjectGitSettings; inherited: ProjectGitSettings; sources?: Record<string, string>; section: Section; branches?: string[]; members?: Member[]; membersNote?: string; group?: boolean }>()
 const emit = defineEmits<{ 'update:modelValue': [value: ProjectGitSettings] }>()
 const scenarios = finishScenarioLabels
 const DEFAULT_PREFIXES = ['feature', 'fix', 'hotfix']
 type Key = keyof ProjectGitSettings
 type Field = { key: Key; label: string; kind?: 'tags' | 'boolean' | 'branch'; placeholder?: string; hint?: string; defaults?: string[] }
-const sections: Record<'branches' | 'mr' | 'workspace', Field[]> = {
- workspace: [
-  { key: 'workspace_copy_files', label: 'Файлы для копирования', kind: 'tags', placeholder: '.env', hint: 'Путь или маска от корня проекта, например .env. Копируется из основной папки в каждое новое рабочее место: в git этих файлов нет.' },
-  { key: 'workspace_setup_command', label: 'Команда подготовки', placeholder: 'npm install', hint: 'Plangent запускает её в новом рабочем месте после копирования; агент этим не занимается. Пусто — ничего не запускать. Действует на рабочие места, созданные после сохранения.' },
-  { key: 'auto_review', label: 'Ревью агентом: автоматически', kind: 'boolean', hint: 'Выключено по умолчанию. Можно переключить для отдельной работы; ручной запуск ревью доступен всегда.' },
+const sections: Record<Section, Field[]> = {
+ 'workspace-files': [
+  {
+    key: 'workspace_copy_files', label: 'Файлы и папки для копирования', kind: 'tags', placeholder: '.env',
+    hint: 'Пути и маски от корня проекта; Enter — добавить следующий. Примеры: .env, config/local.json, .claude/skills/мой-скилл. Папка копируется целиком, с вложенным; вложенные файлы задаются масками: packages/*/.env (* — любое имя), apps/**/.env.local (** — любая вложенность), config/*.{json,yml}.\n'
+      + 'Не начинайте маску с ** — это обход всего проекта вместе с node_modules; лучше указать папку. Чего нет в основной папке, пропускается без ошибки. Папка .git не копируется; ссылки (symlink) копировать нельзя — рабочее место не подготовится.\n'
+      + 'Скиллы и инструкции, созданные в Plangent для проекта или группы, копировать не нужно: Plangent сам раскладывает их в рабочее место. Свои файлы с ними, которых нет в git, добавьте здесь.',
+  },
+  {
+    key: 'workspace_link_dirs', label: 'Папки зависимостей из основной папки', kind: 'tags', placeholder: 'node_modules',
+    hint: 'Любая папка из основной папки проекта переносится в рабочее место жёсткими ссылками: за секунды и почти без места на диске. Команда подготовки после этого доставляет только то, что добавила ветка. Например: node_modules, client/node_modules, vendor; без масок. Пусто — ничего не переносится.\n'
+      + 'Файлы общие с основной папкой: всё, что перезапишет файл на месте, изменит его и там. Подходит для папок, где менеджер пакетов заменяет пакеты целиком (node_modules, composer vendor). Не подходит для того, что пересобирается или правится на месте: Python .venv (его pip ставит пакеты в основной venv), bin/obj в .NET, target в Rust. Не правьте эти файлы вручную в рабочем месте.\n'
+      + 'Нативные модули Node (*.node, build/Release), файлы в корне папки (служебные файлы менеджера пакетов) и кэши .cache и .vite копируются отдельно. Ссылки возможны, только если рабочие места на том же диске, что и проект; иначе файлы копируются, это видно в логе подготовки.',
+  },
+ ],
+ 'workspace-setup': [
+  {
+    key: 'workspace_setup_command', label: 'Команда подготовки', placeholder: 'npm install',
+    hint: 'Выполняется один раз в новом рабочем месте, после копирования файлов: так ставятся зависимости и собирается то, что не лежит в git. Например: npm install или pnpm i && pnpm build. Запускается в оболочке из папки рабочего места, с переменными окружения проекта; вывод сохраняется в логе рабочего места. Агент этим не занимается.\n'
+      + 'Пусто — ничего не запускать. Если команда завершилась ошибкой или шла дольше 10 минут, рабочее место помечается неготовым. Действует на рабочие места, созданные после сохранения.',
+  },
+  {
+    key: 'workspace_ports', label: 'Порты', kind: 'tags', placeholder: 'PORT=3001',
+    hint: 'Переменная и её порт в основной папке: PORT=3001, VITE_PORT=5173. Каждое рабочее место получает свой номер, и порты сдвигаются на номер × 10: в первом PORT=3011, во втором 3021. Номер не занят другими рабочими местами, а порты свободны на момент создания.\n'
+      + 'Переменные получают терминалы рабочего места, команда подготовки и агенты; ещё есть PLANGENT_PORT_SLOT с номером. Приложение должно брать порты из этих переменных.\n'
+      + 'Несколько приложений (микрофронтенды) — по переменной на каждое, порты подряд. Например, добавьте пять значений:\n'
+      + '    SHELL_PORT=4200\n    CART_PORT=4201\n    CATALOG_PORT=4202\n    PROFILE_PORT=4203\n    ADMIN_PORT=4204\n'
+      + 'В рабочем месте №1 они станут 4210–4214, в №2 — 4220–4224. В конфиге каждого приложения порт берётся из своей переменной: port: Number(process.env.CART_PORT ?? 4201); хост собирает адреса остальных так же: `http://localhost:${process.env.CART_PORT}/remoteEntry.js`.\n'
+      + 'Порты не должны различаться на 10, 20…: 3000 и 3010 в рабочем месте №1 станут 3010 и 3020, и первый совпадёт со вторым из основной папки.',
+  },
+ ],
+ review: [
+  { key: 'auto_review', label: 'Автоматически ревьюить поручения', kind: 'boolean', hint: 'Когда агент закончил ход в поручении, Plangent сам запускает ревью его изменений агентом для ревью. Выключено по умолчанию; это начальное значение для новых поручений, у отдельного его можно переключить. Ручной запуск ревью доступен всегда.' },
  ],
  branches: [
   { key: 'branch_prefixes', label: 'Префиксы веток', kind: 'tags', placeholder: 'feature', defaults: DEFAULT_PREFIXES, hint: 'Доступны при создании ветки: feature/ABC-1. Enter — добавить, первый подставляется по умолчанию.' },
@@ -64,8 +97,8 @@ const sections: Record<'branches' | 'mr' | 'workspace', Field[]> = {
   { key: 'mr_description_prompt', label: 'Как описывать МР', placeholder: 'Коротко: что и зачем изменено. Без списка файлов. Упомяни миграции и breaking changes.', hint: 'Инструкция для агента, который пишет описание. Пусто — агент решает сам.' },
   { key: 'mr_remove_branch', label: 'Удалять исходную ветку после слияния', kind: 'boolean' },
   { key: 'mr_squash', label: 'Объединять коммиты при слиянии (squash)', kind: 'boolean' },
-  { key: 'mr_assignees', label: 'Исполнители по умолчанию', kind: 'tags', placeholder: 'логин или ID', hint: 'Назначаются на МР при создании (Assignees).' },
-  { key: 'mr_reviewers', label: 'Ревьюеры по умолчанию', kind: 'tags', placeholder: 'логин или ID' },
+  { key: 'mr_assignees', label: 'Исполнители по умолчанию', kind: 'tags', hint: 'Назначаются на МР при создании (Assignees).' },
+  { key: 'mr_reviewers', label: 'Ревьюеры по умолчанию', kind: 'tags' },
  ],
 }
 const PROJECT_ONLY: Key[] = ['base_branch', 'mr_assignees', 'mr_reviewers']
@@ -97,7 +130,10 @@ function removeTag(key: Key, tag: string) { set(key, tags(key).filter(item => it
 .setting { display: flex; flex-direction: column; gap: 4px; }
 .gs-head { display: flex; align-items: center; gap: 8px; min-height: 18px; }
 .gs-label { font-size: var(--fs-md); font-weight: 500; color: var(--text); }
-.gs-hint { font-size: var(--fs-xs); color: var(--text-faint); overflow-wrap: anywhere; }
-.gs-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 4px 6px; background: var(--bg3); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); }
-.gs-tag-input { flex: 1; }
+.gs-hint { font-size: var(--fs-xs); color: var(--text-faint); overflow-wrap: anywhere; white-space: pre-line; }
+.gs-tags { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.gs-empty { font-size: var(--fs-sm); color: var(--text-faint); }
+.gs-tag-input { width: 280px; max-width: 100%; }
+/* A row is always reserved, so the first chip does not push the input down. */
+.gs-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-height: var(--size-sm); }
 </style>

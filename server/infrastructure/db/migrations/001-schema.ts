@@ -1,5 +1,6 @@
 import { removeRuns } from './011-remove-runs';
 import { addBranchQuestionRemark } from './012-branch-question-remark';
+import { addWorkspacePortSlot } from './013-workspace-port-slot';
 import { migrateBranchReviewTables } from './010-branch-review-tables';
 import type Database from 'better-sqlite3';
 import { migrateTaskWorkspaces } from './002-migrateTaskWorkspaces';
@@ -254,5 +255,6 @@ export function migrate(db: Database.Database): void {
     db.prepare("UPDATE tasks SET description=NULL, description_migrated=1 WHERE description_migrated=0").run();
   })();
   addBranchQuestionRemark(db);
+  addWorkspacePortSlot(db);
 }
 

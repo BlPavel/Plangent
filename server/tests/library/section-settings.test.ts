@@ -22,7 +22,7 @@ test('section settings: project text beats group and global, built-in applies wi
     const group = createProject({ name: 'Group', kind: 'group' });
     const project = createProject({ name: 'Project', repo_path: path.join(root, 'project'), group_id: group.id });
     assert.equal(settings.resolveMaterialTemplate('architecture', project.id), MATERIAL_KINDS.architecture.defaultTemplate);
-    assert.equal(settings.resolveMaterialReviewInstruction('qa'), MATERIAL_KINDS.qa.defaultReviewInstruction);
+    assert.equal(settings.resolveMaterialReviewInstruction('qa', project.id), MATERIAL_KINDS.qa.defaultReviewInstruction);
     assert.match(MATERIAL_KINDS.qa.protocol, /submit_material/);
     assert.match(MATERIAL_KINDS.architecture.protocol, /\*\*D1\*\*/);
     assert.match(MATERIAL_KINDS.qa.protocol, /\*\*Q1\*\*/);
@@ -40,8 +40,11 @@ test('section settings: project text beats group and global, built-in applies wi
     assert.equal(settings.resolveMaterialTemplate('qa', project.id), MATERIAL_KINDS.qa.defaultTemplate);
 
     make('qa-review-instruction', 'QA rules', 'global');
-    assert.equal(settings.resolveMaterialReviewInstruction('qa'), 'QA rules');
-    assert.equal(settings.resolveMaterialReviewInstruction('architecture'), MATERIAL_KINDS.architecture.defaultReviewInstruction);
+    assert.equal(settings.resolveMaterialReviewInstruction('qa', project.id), 'QA rules');
+    assert.equal(settings.resolveMaterialReviewInstruction('architecture', project.id), MATERIAL_KINDS.architecture.defaultReviewInstruction);
+    // A group's or project's own text is nearer than the global one.
+    make('qa-review-instruction', 'QA group rules', 'project', [group.id]);
+    assert.equal(settings.resolveMaterialReviewInstruction('qa', project.id), 'QA group rules');
 
     const qaSkill = make('qa-review-skill', 'QA domain', 'project', [project.id]);
     const archSkill = make('architecture-review-skill', 'Boundaries', 'project', [group.id]);

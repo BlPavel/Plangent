@@ -2,6 +2,7 @@ import { typedRoutes } from '../typed-route';
 import { viewedWorkspaceId } from '../../../core/workspaces/viewing';
 import { childProcessesOf } from '../../../core/terminals';
 import { rootForWorkspace } from '../../../core/workspaces/roots';
+import { getWorkspace, workspaceEnv } from '../../../core/workspaces';
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import fs from 'fs';
@@ -38,6 +39,11 @@ function detectShells(): Shell[] {
   ];
 }
 const shells = detectShells();
+/** Like the setup command: the project's variables, and in a workspace its own ports. */
+function terminalEnv(projectId: string, workspaceId: string | null): Record<string, string> {
+  const project = getProject(projectId);
+  return { ...project?.config.extra_env, ...(workspaceId ? workspaceEnv(getWorkspace(workspaceId)) : {}) };
+}
 terminalsRouterRoutes.json('GET /api/terminals/shells', (_req, res) => res.json(shells.map(({ id, label }) => ({ id, label }))));
 terminalsRouterRoutes.json('GET /api/terminals', (req, res) => res.json([...terminals.values()].filter(t => (!req.query.projectId || t.projectId === req.query.projectId) && (req.query.workspace === undefined || (t.workspaceId ?? '') === req.query.workspace))
   .map(t => ({ ...t, exitCode: getPtySession(t.id)?.exitCode, status: getPtySession(t.id)?.exitCode === undefined ? 'running' : 'exited' }))));
@@ -56,7 +62,7 @@ terminalsRouterRoutes.json('POST /api/terminals', (req, res) => {
     const cwd = rootForWorkspace(project.id, workspaceId);
     const shell = shells.find(s => s.id === req.body.shell) ?? shells[0];
     const id = `shell-${randomUUID()}`;
-    const session = createPtySession(id, shell.command, shell.args, cwd);
+    const session = createPtySession(id, shell.command, shell.args, cwd, terminalEnv(project.id, workspaceId));
     session.cwd = cwd; session.workspaceId = workspaceId; session.projectId = project.id;
     session.retain = true;
     // Name after the shell ("pwsh", "pwsh 2", …), reusing the lowest free number.
@@ -79,7 +85,7 @@ terminalsRouterRoutes.json('POST /api/terminals/:id/:action', async (req, res) =
     if (req.params.action === 'restart') {
       await killPtySession(terminal.id);
       const shell = shells.find(s => s.id === terminal.shell)!;
-      const session = createPtySession(terminal.id, shell.command, shell.args, terminal.cwd);
+      const session = createPtySession(terminal.id, shell.command, shell.args, terminal.cwd, terminalEnv(terminal.projectId, terminal.workspaceId));
       Object.assign(session, { retain: true, workspaceId: terminal.workspaceId, projectId: terminal.projectId });
     } else if (req.params.action === 'clear') {
       const session = getPtySession(terminal.id);

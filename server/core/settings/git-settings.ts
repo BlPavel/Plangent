@@ -2,7 +2,7 @@ import type { GitSettings } from '@contracts';
 export type { GitSettings } from '@contracts';
 
 export const defaultGitSettings: GitSettings = {
-  workspace_copy_files: [], workspace_setup_command: '', auto_review: false,
+  workspace_copy_files: [], workspace_link_dirs: [], workspace_setup_command: '', workspace_ports: [], auto_review: false,
   commit_pattern: '',
   forbidden_patterns: ['^Co-Authored-By:.*(Claude|anthropic)', 'noreply@anthropic\\.com', 'Generated with \\[?Claude Code', '🤖 Generated with'],
   include_description: false, finish_scenario: 'nothing', branch_prefixes: ['feature', 'fix', 'hotfix'],
@@ -27,6 +27,14 @@ export function resolveGitSettings(groupSettings: Partial<GitSettings> = {}, pro
   return { values, sources };
 }
 
+/** «PORT=3001»: an environment variable and the port it has in the main folder. */
+export function parsePortSetting(entry: string): { name: string; port: number } {
+  const match = /^([A-Za-z_][A-Za-z0-9_]*)=(\d{1,5})$/.exec(entry.trim());
+  const port = match ? Number(match[2]) : 0;
+  if (!match || port < 1 || port > 65535) throw new Error('Invalid workspace port: ' + entry);
+  return { name: match[1], port };
+}
+
 // Settings that no longer exist: older projects still carry them, so they are dropped instead of rejected.
 const LEGACY_KEYS = ['branch_template', 'mr_target_branch', 'mr_description_template', 'mr_labels'];
 
@@ -35,12 +43,14 @@ export function validateGitSettings(value: unknown): Partial<GitSettings> {
   const settings = Object.fromEntries(Object.entries(value).filter(([key]) => !LEGACY_KEYS.includes(key)));
   for (const [key, item] of Object.entries(settings)) {
     if (!Object.hasOwn(defaultGitSettings, key)) throw new Error('Unknown git setting: ' + key);
-    if (['forbidden_patterns', 'branch_prefixes', 'mr_reviewers', 'mr_assignees', 'workspace_copy_files'].includes(key)) {
+    if (['forbidden_patterns', 'branch_prefixes', 'mr_reviewers', 'mr_assignees', 'workspace_copy_files', 'workspace_link_dirs', 'workspace_ports'].includes(key)) {
       if (!Array.isArray(item) || item.length > 100 || item.some(p => typeof p !== 'string' || p.length > 1000)) throw new Error('Invalid forbidden patterns');
       if (key === 'forbidden_patterns') for (const pattern of item) new RegExp(pattern, 'im');
-      if (key === 'workspace_copy_files') for (const pattern of item) {
+      if (key === 'workspace_copy_files' || key === 'workspace_link_dirs') for (const pattern of item) {
         if (!pattern || pattern.startsWith('/') || /[\\:]/.test(pattern) || pattern.split('/').some((p: string) => p === '..' || p === '.git')) throw new Error('Invalid workspace copy pattern');
+        if (key === 'workspace_link_dirs' && /[*?{[]/.test(pattern)) throw new Error('Invalid workspace dependency folder: ' + pattern);
       }
+      if (key === 'workspace_ports') for (const entry of item) parsePortSetting(entry);
     } else if (typeof item !== typeof defaultGitSettings[key as keyof GitSettings]) throw new Error('Invalid git setting: ' + key);
     if (key === 'commit_pattern' && item) new RegExp(item as string, 'm');
     if (key === 'review_agent_policy' && !['', 'ask', 'allow-edits', 'allow-all'].includes(item as string)) throw new Error('Invalid review agent policy');

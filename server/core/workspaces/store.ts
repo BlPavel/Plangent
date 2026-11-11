@@ -23,10 +23,13 @@ export function activeWorkspace(taskId: string): Workspace | null {
 export function listWorkspaces(projectId: string): Workspace[] {
   return records.listWorkspacesWorkspaces(projectId) as Workspace[];
 }
-export function insertWorkspace(input: Pick<Workspace, 'project_id' | 'task_id' | 'branch' | 'base_branch' | 'path'>): Workspace {
+export function insertWorkspace(input: Pick<Workspace, 'project_id' | 'task_id' | 'branch' | 'base_branch' | 'path'> & { port_slot?: number }): Workspace {
   const id = randomUUID();
-  records.insertWorkspaceWorkspaces(id, input.project_id, input.task_id, input.branch, input.base_branch, input.path);
+  records.insertWorkspaceWorkspaces(id, input.project_id, input.task_id, input.branch, input.base_branch, input.path, input.port_slot ?? 0);
   return updateWorkspace(id, {});
+}
+export function activePortSlots(projectId: string): number[] {
+  return records.activePortSlots(projectId);
 }
 export function updateWorkspace(id: string, patch: Partial<Pick<Workspace, 'status' | 'error' | 'setup_log' | 'removed_at'>>): Workspace {
   const entries = Object.entries(patch).filter(([key]) => ['status', 'error', 'setup_log', 'removed_at'].includes(key));

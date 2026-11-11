@@ -11,7 +11,7 @@ export function localOrigin(req: Request, res: Response, next: NextFunction): vo
       const url = new URL(origin);
       const same = url.origin === req.protocol + '://' + req.get('host');
       // Vite uses a different local origin in development; packaged builds use the API origin.
-      const dev = process.env.NODE_ENV !== 'production' && url.protocol === 'http:' && loopback.has(url.hostname) && url.port === '5173';
+      const dev = process.env.NODE_ENV !== 'production' && url.protocol === 'http:' && loopback.has(url.hostname) && url.port === (process.env.VITE_PORT ?? '5173');
       if (!same && !dev) throw new Error();
     } catch { res.status(403).json({ error: 'Untrusted browser origin' }); return; }
   }

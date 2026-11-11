@@ -7,9 +7,11 @@ import { runGit, serializeGit, fetchRepository, type GitOperationOptions } from 
 import { localBranchHead } from '../../infrastructure/git/read';
 import { activeWorkspace, getWorkspace, insertWorkspace, listWorkspaces, updateWorkspace, workspaceFolder } from './store';
 import { prepareWorkspace } from './prepare';
+import { allocatePortSlot } from './ports';
 export * from './roots';
 export * from './store';
 export { prepareWorkspace } from './prepare';
+export { workspaceEnv, PORT_STEP } from './ports';
 
 function context(taskId: string) {
   const task = getTask(taskId), project = task && getProject(task.project_id);
@@ -20,7 +22,7 @@ async function validBranch(root: string, branch: string) {
   if (!branch || branch.startsWith('-')) throw new DomainError('Invalid branch');
   await runGit(root, ['check-ref-format', '--branch', branch]);
 }
-export async function createWorkspace(taskId: string, input: { branch: string; base: string }, options: GitOperationOptions = {}) {
+export async function createWorkspace(taskId: string, input: { branch: string; base: string; portSlot?: number }, options: GitOperationOptions = {}) {
   const { task, project } = context(taskId), root = project.repo_path;
   return serializeGit(root, async () => {
     await validBranch(root, input.branch);
@@ -40,7 +42,8 @@ export async function createWorkspace(taskId: string, input: { branch: string; b
     const hasRemoteBase = await runGit(root, ['show-ref', '--verify', '--quiet', remoteBase], options).then(() => true, () => false);
     const base = hasRemoteBase ? remoteBase : 'refs/heads/' + input.base.replace(/^origin\//, '');
     await fs.mkdir(path.dirname(destination), { recursive: true });
-    const workspace = insertWorkspace({ project_id: project.id, task_id: taskId, branch: input.branch, base_branch: input.base, path: destination });
+    const port_slot = await allocatePortSlot(project.id, input.portSlot);
+    const workspace = insertWorkspace({ project_id: project.id, task_id: taskId, branch: input.branch, base_branch: input.base, path: destination, port_slot });
     try {
       await runGit(root, existing ? ['worktree', 'add', '--', destination, input.branch]
         : remoteOnly ? ['worktree', 'add', '--track', '-b', input.branch, '--', destination, 'origin/' + input.branch]
@@ -91,7 +94,7 @@ export async function recreateWorkspace(id: string, input: { discard?: boolean }
   const workspace = getWorkspace(id), { project } = context(workspace.task_id);
   return serializeGit(project.repo_path, async () => {
     await removeWorkspace(id, { ...input, keepBranch: true }, options);
-    return createWorkspace(workspace.task_id, { branch: workspace.branch, base: workspace.base_branch }, options);
+    return createWorkspace(workspace.task_id, { branch: workspace.branch, base: workspace.base_branch, portSlot: workspace.port_slot }, options);
   });
 }
 

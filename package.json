@@ -13,7 +13,7 @@
     "lint": "eslint client/src server",
     "start": "node server/dist/server/index.js",
     "postinstall": "node scripts/postinstall.js",
-    "electron:dev": "node scripts/ensure-node-sqlite.cjs && tsc -p tsconfig.electron.json && concurrently --kill-others -n server,client,electron -c blue,green,cyan \"tsx watch server/index.ts\" \"vite --config client/vite.config.ts\" \"wait-on http://127.0.0.1:5173 && electron .\"",
+    "electron:dev": "node scripts/ensure-node-sqlite.cjs && tsc -p tsconfig.electron.json && concurrently --kill-others -n server,client,electron -c blue,green,cyan \"tsx watch server/index.ts\" \"vite --config client/vite.config.ts\" \"electron .\"",
     "electron:build": "npm run build && tsc -p tsconfig.electron.json && npx electron-rebuild --force --only better-sqlite3 && electron-builder",
     "electron:release": "npm run build && tsc -p tsconfig.electron.json && npx electron-rebuild --force --only better-sqlite3 && electron-builder --publish=always",
     "typecheck": "tsc -p contracts/tsconfig.json && tsc -p tsconfig.server.json --noEmit && vue-tsc --noEmit -p client/tsconfig.json && tsc -p tsconfig.electron.json --noEmit",

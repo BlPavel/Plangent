@@ -80,7 +80,9 @@ export type FinishGETIdContextResponse = {
     "settings": {
         "commit_pattern": string;
         "workspace_copy_files": (string)[];
+        "workspace_link_dirs": (string)[];
         "workspace_setup_command": string;
+        "workspace_ports": (string)[];
         "auto_review": boolean;
         "forbidden_patterns": (string)[];
         "include_description": boolean;

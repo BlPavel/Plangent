@@ -31,6 +31,12 @@ export function resolveLevelText(type: LibraryItemType, projectId?: string): str
   return item ? readItemContent(item) : '';
 }
 
+/** The instruction text in force for a project: its own, its group's or the global one, otherwise the given built-in text. */
+export function resolveInstructionText(type: LibraryItemType, projectId: string, fallback: string): string {
+  const item = resolveLibraryItem(type, projectId);
+  return item ? readItemContent(item) : fallback;
+}
+
 /** The global instruction text of a type; without one the built-in text applies. */
 export function resolveGlobalText(type: LibraryItemType, fallback: string): string {
   const item = resolveLibraryItem(type);
@@ -59,9 +65,9 @@ export function resolveMaterialTemplate(material: MaterialType, projectId: strin
   const kind = moduleDependencies.preparation.MATERIAL_KINDS[material];
   return resolveLevelText(kind.templateType, projectId) || kind.defaultTemplate;
 }
-export function resolveMaterialReviewInstruction(material: MaterialType): string {
+export function resolveMaterialReviewInstruction(material: MaterialType, projectId: string): string {
   const kind = moduleDependencies.preparation.MATERIAL_KINDS[material];
-  return resolveGlobalText(kind.reviewInstructionType, kind.defaultReviewInstruction);
+  return resolveInstructionText(kind.reviewInstructionType, projectId, kind.defaultReviewInstruction);
 }
 export function materialReviewSkills(material: MaterialType, projectId: string): ReviewSkill[] {
   return reviewSkillsOf(moduleDependencies.preparation.MATERIAL_KINDS[material].reviewSkillType, projectId);

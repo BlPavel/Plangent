@@ -37,7 +37,7 @@ export async function brief(session: AgentSession) {
     } catch (e) { mr = { error: e instanceof Error ? e.message : 'Не удалось загрузить МР' }; }
   }
   return reviewBrief(PROTOCOL, skill ? { title: skill.title, content: skill.content } : null, {
-    instruction: resolveMrReviewInstruction(),
+    instruction: resolveMrReviewInstruction(r.project_id),
     range: { from: s.from, head: s.headSha, branch: s.head.name, base: s.base.name },
     merge_request: mr,
     developer_context: r.context || null,

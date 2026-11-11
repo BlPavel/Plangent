@@ -21,14 +21,14 @@ test('plan review: the global instruction is general, project and group skills a
     const project = createProject({ name: 'Project', repo_path: path.join(root, 'project'), group_id: group.id });
     const other = createProject({ name: 'Other', repo_path: path.join(root, 'other') });
     assert.match(DEFAULT_PLAN_REVIEW_INSTRUCTION, /^# Plan review/);
-    assert.equal(resolvePlanReviewInstruction(), DEFAULT_PLAN_REVIEW_INSTRUCTION);
+    assert.equal(resolvePlanReviewInstruction(project.id), DEFAULT_PLAN_REVIEW_INSTRUCTION);
     assert.equal(resolvePlanReviewSkill(project.id), null);
 
     const instruction = library.createLibraryItem({ type: 'plan-review-instruction', slug: 'global-plan', title: 'Global', scope: 'global' });
     const shared = library.createLibraryItem({ type: 'plan-review-skill', slug: 'group-skill', title: 'Group', scope: 'project', targets: [group.id] });
     const direct = library.createLibraryItem({ type: 'plan-review-skill', slug: 'project-skill', title: 'Project', scope: 'project', targets: [project.id] });
     for (const item of [instruction, shared, direct]) { files.writeItemContent(item, item.title); syncItem(item); unsyncItem(item); }
-    assert.equal(resolvePlanReviewInstruction(), 'Global');
+    assert.equal(resolvePlanReviewInstruction(project.id), 'Global');
     // The project's own skill comes first; an unknown choice falls back to it.
     assert.deepEqual(planReviewSkills(project.id).map(s => s.title), ['Project', 'Group']);
     assert.equal(resolvePlanReviewSkill(project.id, shared.id)!.content, 'Group');
@@ -40,7 +40,7 @@ test('plan review: the global instruction is general, project and group skills a
     library.updateLibraryItem(direct.id, { enabled: false });
     assert.equal(resolvePlanReviewSkill(project.id)!.content, 'Group');
     library.updateLibraryItem(instruction.id, { enabled: false });
-    assert.equal(resolvePlanReviewInstruction(), DEFAULT_PLAN_REVIEW_INSTRUCTION);
+    assert.equal(resolvePlanReviewInstruction(project.id), DEFAULT_PLAN_REVIEW_INSTRUCTION);
 
     // Project and group instruction texts of the previous design become skills with the same text.
     const old = library.createLibraryItem({ type: 'plan-review-instruction', slug: 'plan_review_instruction', title: 'Ревью плана', scope: 'project', targets: [other.id] });

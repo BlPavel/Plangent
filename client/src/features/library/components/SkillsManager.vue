@@ -1,7 +1,7 @@
 <template>
   <div class="lib">
-    <div class="lib-header">
-      <AppTabs v-if="scope !== 'global' && availableTypeValues.length > 1" :model-value="filterType" :items="typeOptions" label="Типы элементов" @update:model-value="filterType = $event as typeof filterType; reload()" />
+    <div class="lib-header" :class="{ tabbed: showTabs }">
+      <AppTabs v-if="showTabs" bare :model-value="filterType" :items="typeOptions" label="Типы элементов" @update:model-value="filterType = $event as typeof filterType; reload()" />
       <div class="lib-actions">
         <slot name="actions">
           <AppButton v-if="agent" variant="blue" size="sm" @click="agent.open(agentRequest)">▸ Написать с агентом</AppButton>
@@ -111,6 +111,7 @@ function isSharedInProject(item: LibraryItem): boolean {
 const editingShared = computed(() => !!editItem.value && isSharedInProject(editItem.value))
 const ownProjectOnly = computed(() => scope.value === 'project' && project.value?.kind === 'project')
 const availableTypeValues = computed<LibraryItemType[]>(() => props.allowedTypes ?? librarySection(scope.value, scope.value === 'global' ? 'skills' : 'items')!.types)
+const showTabs = computed(() => scope.value !== 'global' && availableTypeValues.value.length > 1)
 const filterType = ref<LibraryItemType | ''>(availableTypeValues.value.length === 1 ? availableTypeValues.value[0] : '')
 const syncing = ref(false)
 const agent = inject(libraryAgentKey, null)
@@ -327,6 +328,9 @@ async function save() {
 .lib { display: flex; flex-direction: column; gap: 12px; height: 100%; }
 
 .lib-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+/* The tabs are bare: the line under the whole bar is drawn here, so the active tab sits on it. */
+.lib-header.tabbed { align-items: stretch; border-bottom: 1px solid var(--border); }
+.lib-header.tabbed .lib-actions { align-items: center; padding-bottom: var(--sp-1); }
 .lib-tabs { display: flex; gap: 4px; flex-wrap: wrap; }
 .lib-actions { display: flex; gap: 6px; flex-shrink: 0; }
 

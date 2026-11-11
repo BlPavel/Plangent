@@ -130,7 +130,7 @@ const terminalPlace = computed<WorkPlace | null>(() => {
   if (route.path.startsWith('/task/') && task && task.id === String(route.params.id)) {
     const workspace = work.entries.find(e => e.task.id === task.id)?.workspace
     if (workspace && workspace.status !== 'ready') return { projectId: task.project_id, workspaceId: null, label: workName(task), blocked: 'Рабочее место этой работы ещё не готово — терминал откроется в нём, когда оно будет готово.' }
-    return { projectId: task.project_id, workspaceId: workspace?.id ?? null, label: workName(task) + (workspace ? ' · ⎇ ' + workspace.branch : ' · основная папка') }
+    return { projectId: task.project_id, workspaceId: workspace?.id ?? null, label: workName(task) + (workspace ? ' · ⎇ ' + workspace.branch + (workspace.port_slot ? ' · порты №' + workspace.port_slot : '') : ' · основная папка') }
   }
   const project = appStore.currentProject
   // Groups and settings have no folder of their own, so there is no terminal there.

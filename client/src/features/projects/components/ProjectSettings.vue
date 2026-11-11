@@ -14,9 +14,11 @@
       </template>
       <ProjectGeneralSettings v-else-if="page === 'hosting'" :project="project" section="hosting" />
       <ProjectGitPanel v-else-if="page === 'git-agents'" :project-id="project.id" section="agent" />
-      <ProjectGitPanel v-else-if="page === 'workspace' || page === 'branches' || page === 'mr'" :key="page" :project-id="project.id" :section="page" />
+      <ProjectGitPanel v-else-if="page === 'review-agent'" :project-id="project.id" section="review-agent" />
+      <ProjectGitPanel v-else-if="page === 'workspace-files' || page === 'workspace-setup' || page === 'branches' || page === 'mr'" :key="page" :project-id="project.id" :section="page" />
       <SkillsManager v-else-if="page === 'items'" class="skills" scope="project" :project-id="project.id" />
-      <SkillsManager v-else-if="isSkillPage" :key="page" class="skills" scope="project" :project-id="project.id" :allowed-types="librarySection('project', page)!.types" />
+      <PlanTemplateEditor v-else-if="templateType" :key="page" scope="project" :type="templateType" :project-id="project.id" />
+      <CodeFixerInstructionEditor v-else-if="reviewType" :key="page" scope="project" :type="reviewType" :project-id="project.id" />
       <InstructionGuideEditor v-else-if="page === 'guide'" scope="project" :project-id="project.id" />
       <CodeFixerInstructionEditor v-else-if="page === 'fixer'" scope="project" :project-id="project.id" />
       <template v-else-if="page === 'commits'">
@@ -32,14 +34,14 @@
 </template>
 
 <script lang="ts">
-export type ProjectSettingsPage = 'general' | 'git-agents' | 'workspace' | 'hosting' | 'branches' | 'mr' | 'items' | 'guide' | 'fixer' | 'commits' | 'review' | 'plan-review' | 'architecture-review' | 'qa-review'
+export type ProjectSettingsPage = 'general' | 'git-agents' | 'review-agent' | 'workspace-files' | 'workspace-setup' | 'hosting' | 'branches' | 'mr' | 'items' | 'guide' | 'fixer' | 'commits' | 'plan-template' | 'architecture-template' | 'qa-template' | 'mr-review' | 'plan-review' | 'architecture-review' | 'qa-review'
 </script>
 
 <script setup lang="ts">
 import { computed, provide, ref, watch } from 'vue'
 import type { Project } from '@contracts'
 import { AppButton, AppNavTree, AppPageHeader, AppSettingsLayout, navTreePage, type NavTreeItem } from '@shared/ui'
-import { CodeFixerInstructionEditor, CommitSettings, InstructionGuideEditor, LibrarianPanel, SkillsManager, libraryAgentKey, pageTitledKey } from '@features/library'
+import { CodeFixerInstructionEditor, CommitSettings, InstructionGuideEditor, LibrarianPanel, PlanTemplateEditor, SkillsManager, libraryAgentKey, pageTitledKey } from '@features/library'
 import { librarySection, LIBRARY_SECTIONS } from '../../../../../common/library-registry'
 import { useProjectsStore } from '../stores/projects'
 import ProjectGeneralSettings from './ProjectGeneralSettings.vue'
@@ -61,39 +63,56 @@ const nav = computed<NavTreeItem[]>(() => [
     id: 'git', label: 'Git',
     children: [
       { page: 'git-agents', label: 'Агенты' },
-      ...(isProject.value ? [{ page: 'workspace', label: 'Рабочее место' }, { page: 'hosting', label: 'Хостинг кода' }] : []),
+      ...(isProject.value ? [{ page: 'hosting', label: 'Хостинг кода' }] : []),
       { page: 'branches', label: 'Ветки' },
+      { page: 'commits', label: 'Коммиты' },
       { page: 'mr', label: 'Merge request' },
     ],
   },
   {
+    id: 'workspace', label: 'Рабочее место',
+    children: [{ page: 'workspace-files', label: 'Файлы' }, { page: 'workspace-setup', label: 'Подготовка' }],
+  },
+  {
+    id: 'templates', label: 'Шаблоны',
+    children: [{ page: 'plan-template', label: 'План' }, { page: 'architecture-template', label: 'Архитектура' }, { page: 'qa-template', label: 'QA' }],
+  },
+  {
     id: 'instructions', label: 'Инструкции',
     // Named like the same pages of the global settings.
-    children: (['items', 'guide', 'fixer', 'commits'] as const).map(id => ({ page: id, label: id === 'guide' ? LIBRARY_SECTIONS.global['instruction-guide'].title : LIBRARY_SECTIONS.project[id].title })),
+    children: (['items', 'guide', 'fixer'] as const).map(id => ({ page: id, label: id === 'guide' ? LIBRARY_SECTIONS.global['instruction-guide'].title : LIBRARY_SECTIONS.project[id].title })),
   },
   {
     id: 'review', label: 'Ревью',
-    children: [{ page: 'review', label: 'Merge request' }, { page: 'plan-review', label: 'План' }, { page: 'architecture-review', label: 'Архитектура' }, { page: 'qa-review', label: 'QA' }],
+    children: [{ page: 'review-agent', label: 'Агенты' }, { page: 'mr-review', label: 'Merge request' }, { page: 'plan-review', label: 'План' }, { page: 'architecture-review', label: 'Архитектура' }, { page: 'qa-review', label: 'QA' }],
   },
 ])
 const header = computed(() => navTreePage(nav.value, page.value))
-const isSkillPage = computed(() => ['review', 'plan-review', 'architecture-review', 'qa-review'].includes(page.value))
-const owner = computed(() => isProject.value ? 'этого проекта' : 'этой группы')
+// The templates and the review instructions are texts: the nearest level applies, like in the global settings.
+const templateType = computed(() => (['plan-template', 'architecture-template', 'qa-template'] as const).find(id => id === page.value))
+const reviewPage = computed(() => (['mr-review', 'plan-review', 'architecture-review', 'qa-review'] as const).find(id => id === page.value))
+const reviewType = computed(() => reviewPage.value && LIBRARY_SECTIONS.project[reviewPage.value].types[0])
 // A project inherits from its group, the group from the global settings; a value set here overrides them.
 const inherits = computed(() => isProject.value && props.project.group_id
   ? 'Что не задано здесь, берётся из настроек группы, затем из глобальных; заданное здесь их переопределяет.'
   : 'Что не задано здесь, берётся из глобальных настроек; заданное здесь их переопределяет.')
 const description = computed(() => ({
   'git-agents': inherits.value,
+  'review-agent': inherits.value,
+  'workspace-files': `Для каждой работы Plangent создаёт отдельную рабочую копию проекта (git worktree) на своей ветке, поэтому параллельные работы не мешают друг другу. В неё попадает только закоммиченное: файлы вне git нужно скопировать. ${inherits.value}`,
+  'workspace-setup': `Рабочая копия создаётся без зависимостей и сборки: их готовит эта команда. ${inherits.value}`,
   branches: inherits.value,
   mr: inherits.value,
   commits: inherits.value,
   guide: inherits.value,
   fixer: inherits.value,
-  review: `Скиллы ревью добавляют требования ${owner.value} к общей инструкции ревью МР из глобальных настроек.`,
-  'plan-review': 'Ваши требования к плану (например, архитектурные). Общие проверки задаёт глобальная инструкция, она действует всегда; выбранный скилл добавляется к ней при запуске ревью.',
-  'architecture-review': 'Выбранный скилл добавляется к общей инструкции ревью из глобальных настроек.',
-  'qa-review': 'Выбранный скилл добавляется к общей инструкции ревью из глобальных настроек.',
+  'plan-template': inherits.value,
+  'architecture-template': inherits.value,
+  'qa-template': inherits.value,
+  'mr-review': inherits.value,
+  'plan-review': inherits.value,
+  'architecture-review': inherits.value,
+  'qa-review': inherits.value,
 } as Partial<Record<Page, string>>)[page.value])
 
 // «Написать с агентом» in the lists and editors: the librarian chat of this page opens beside it.

@@ -6,6 +6,8 @@ export interface Workspace {
     branch: string;
     base_branch: string;
     path: string;
+    // 0 is the main folder; each active workspace of a project gets its own slot, so its ports differ.
+    port_slot: number;
     status: 'preparing' | 'ready' | 'failed' | 'removed';
     error: string;
     setup_log: string;

@@ -187,6 +187,41 @@ test('workspace lifecycle, preparation, roots, permissions and library', async t
       assert.ok(fs.existsSync(path.join(created.path, 'configs', 'nested', 'b.json')));
       assert.ok(!fs.existsSync(path.join(created.path, 'configs', 'nested', 'skip.txt')));
     });
+    await t.test('dependency folders are hard-linked; each workspace gets its own ports', async () => {
+      const { repo, project, task } = fixture();
+      const modules = path.join(repo, 'node_modules');
+      fs.mkdirSync(path.join(modules, 'pkg', 'build', 'Release'), { recursive: true });
+      fs.mkdirSync(path.join(modules, '.cache'));
+      fs.mkdirSync(path.join(repo, 'packages', 'local'), { recursive: true });
+      fs.writeFileSync(path.join(modules, 'pkg', 'index.js'), 'module.exports = 1');
+      fs.writeFileSync(path.join(modules, 'pkg', 'addon.node'), 'binary');
+      fs.writeFileSync(path.join(modules, 'pkg', 'build', 'Release', 'obj.o'), 'object');
+      fs.writeFileSync(path.join(modules, '.package-lock.json'), '{}');
+      fs.writeFileSync(path.join(modules, '.cache', 'entry'), 'cache');
+      fs.symlinkSync(path.join(repo, 'packages', 'local'), path.join(modules, 'local'), 'junction');
+      projects.updateProject(project.id, { git_settings: { workspace_link_dirs: ['node_modules'], workspace_ports: ['PORT=3001', 'VITE_PORT=5173'],
+        workspace_setup_command: 'node -e "require(\'fs\').writeFileSync(\'ports.txt\',process.env.PORT+\' \'+process.env.VITE_PORT+\' \'+process.env.PLANGENT_PORT_SLOT)"' } });
+      const created = await workspaces.createWorkspace(task.id, { branch: 'feature/linked', base: 'main' });
+      assert.equal(created.status, 'ready', created.error);
+      const linked = path.join(created.path, 'node_modules');
+      assert.equal(fs.statSync(path.join(linked, 'pkg', 'index.js')).nlink, 2);
+      for (const own of ['pkg/addon.node', 'pkg/build/Release/obj.o', '.package-lock.json']) assert.equal(fs.statSync(path.join(linked, own)).nlink, 1, own);
+      assert.ok(!fs.existsSync(path.join(linked, '.cache')));
+      assert.equal(path.resolve(path.dirname(path.join(linked, 'local')), fs.readlinkSync(path.join(linked, 'local'))).replace(/[\\/]+$/, ''), path.join(created.path, 'packages', 'local'));
+      fs.unlinkSync(path.join(linked, 'pkg', 'index.js'));
+      assert.equal(fs.readFileSync(path.join(modules, 'pkg', 'index.js'), 'utf8'), 'module.exports = 1');
+      assert.throws(() => validateGitSettings({ workspace_link_dirs: ['node_*'] }));
+      assert.throws(() => validateGitSettings({ workspace_ports: ['PORT=abc'] }));
+
+      const slot = created.port_slot;
+      assert.ok(slot >= 1);
+      assert.equal(fs.readFileSync(path.join(created.path, 'ports.txt'), 'utf8'), `${3001 + slot * 10} ${5173 + slot * 10} ${slot}`);
+      assert.deepEqual(workspaces.workspaceEnv(created), { PLANGENT_PORT_SLOT: String(slot), PORT: String(3001 + slot * 10), VITE_PORT: String(5173 + slot * 10) });
+      const other = tasks.createTask({ project_id: project.id, key: 'Ports' });
+      const second = await workspaces.createWorkspace(other.id, { branch: 'feature/ports', base: 'main' });
+      assert.notEqual(second.port_slot, slot);
+      assert.equal((await workspaces.recreateWorkspace(created.id, { discard: true })).port_slot, slot);
+    });
     await t.test('group tasks keep their existing roots and cannot get worktrees', async () => {
       const group = projects.createProject({ kind: 'group', name: 'Group' });
       const task = tasks.createTask({ project_id: group.id, key: 'GROUP-1' });

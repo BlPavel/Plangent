@@ -20,18 +20,22 @@ test('MR review: a global instruction with a built-in text applies to every revi
   try {
     const project = createProject({ name: 'Project', repo_path: path.join(root, 'project') });
     assert.match(DEFAULT_MR_REVIEW_INSTRUCTION, /^# Merge request review/);
-    assert.equal(resolveMrReviewInstruction(), DEFAULT_MR_REVIEW_INSTRUCTION);
+    assert.equal(resolveMrReviewInstruction(project.id), DEFAULT_MR_REVIEW_INSTRUCTION);
     // No skill is no longer replaced by a "standard" one: the instruction works alone.
     assert.equal(resolveReviewSkill(project.id, null), null);
     assert.ok(texts.isTextInstructionType('mr-review-instruction'));
-    assert.equal(texts.isGlobalOnlyType('mr-review-instruction'), true);
+    assert.equal(texts.isGlobalOnlyType('mr-review-instruction'), false);
     assert.equal(texts.instructionTextFor('mr-review-instruction', project.id).level, 'default');
 
     const instruction = library.createLibraryItem({ type: 'mr-review-instruction', slug: 'mr_review_instruction', title: 'Ревью МР', scope: 'global' });
     files.writeItemContent(instruction, 'Only check security');
     syncItem(instruction);
-    assert.equal(resolveMrReviewInstruction(), 'Only check security');
+    assert.equal(resolveMrReviewInstruction(project.id), 'Only check security');
     assert.equal(texts.instructionTextFor('mr-review-instruction', project.id).content, 'Only check security');
+    // The project's own text is the nearest level and wins over the global one.
+    const own = library.createLibraryItem({ type: 'mr-review-instruction', slug: 'mr_review_instruction', title: 'Ревью МР', scope: 'project', targets: [project.id] });
+    files.writeItemContent(own, 'Only check performance');
+    assert.equal(resolveMrReviewInstruction(project.id), 'Only check performance');
     // It is a text for the app, never written into an agent's folders.
     assert.ok(!fs.existsSync(path.join(project.repo_path, '.claude')));
 

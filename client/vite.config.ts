@@ -17,12 +17,14 @@ export default defineConfig({
       '@features': path.resolve(__dirname, 'src/features'),
     },
   },
+  // A task's workspace sets its own VITE_PORT and PORT, so several copies run side by side.
   server: {
     host: '127.0.0.1',
-    port: 5173,
+    port: Number(process.env.VITE_PORT ?? 5173),
+    strictPort: true,
     proxy: {
-      '/api': { target: 'http://localhost:3001', changeOrigin: true },
-      '/ws': { target: 'ws://localhost:3001', ws: true },
+      '/api': { target: `http://localhost:${process.env.PORT ?? 3001}`, changeOrigin: true },
+      '/ws': { target: `ws://localhost:${process.env.PORT ?? 3001}`, ws: true },
     },
   },
 })

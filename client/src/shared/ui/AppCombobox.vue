@@ -1,4 +1,4 @@
-<template><span ref="root" class="combobox" :class="{ block }"><AppInput ref="input" :model-value="open ? query : shown" :size="small ? 'sm' : size" :disabled="disabled" :placeholder="placeholder" :aria-label="label" role="combobox" :aria-expanded="open" aria-autocomplete="list" :block="block" @focus="show" @click="show" @update:model-value="query = $event; typed = true; open = true; active = 0" @keydown="key" @blur="blur" /><AppPopover v-model="open" :anchor="root" role="listbox"><button v-for="(item, index) in filtered" :key="item.value" type="button" role="option" class="option" :class="{ active: index === active }" :disabled="item.disabled" :aria-selected="item.value === modelValue" @pointerdown.prevent @click="pick(item.value)">{{ item.label }}</button><div v-if="!filtered.length" class="heading">{{ emptyLabel }}</div></AppPopover></span></template>
+<template><span ref="root" class="combobox" :class="{ block }"><AppInput ref="input" :model-value="open ? query : shown" :size="small ? 'sm' : size" :disabled="disabled" :placeholder="placeholder" :aria-label="label" role="combobox" :aria-expanded="open" aria-autocomplete="list" :block="block" @focus="show" @click="show" @update:model-value="query = $event; typed = true; open = true; active = 0" @keydown="key" @blur="blur" /><AppPopover v-model="open" :anchor="root" :max-width="popupMaxWidth" role="listbox"><button v-for="(item, index) in filtered" :key="item.value" type="button" role="option" class="option" :class="{ active: index === active }" :disabled="item.disabled" :aria-selected="item.value === modelValue" @pointerdown.prevent @click="pick(item.value)">{{ item.label }}</button><div v-if="!filtered.length" class="heading">{{ emptyLabel }}</div></AppPopover></span></template>
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import AppInput from './AppInput.vue';
@@ -15,6 +15,7 @@ const props = withDefaults(defineProps<{
     emptyLabel?: string;
     block?: boolean;
     allowCustom?: boolean;
+    popupMaxWidth?: number;
 }>(), { size: 'md', allowCustom: true, emptyLabel: 'Нет вариантов' });
 const emit = defineEmits<{
     'update:modelValue': [

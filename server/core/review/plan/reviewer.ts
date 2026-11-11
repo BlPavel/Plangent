@@ -66,7 +66,7 @@ export function brief(session: AgentSession) {
     return { protocol: PROTOCOL, task, plan: { version: detail.review.plan_version, content: detail.review.plan_content },
       analysis: analysisToolContext(task.id, project.repo_path, task.key),
       architecture: described(grounds.architecture), qa: described(grounds.qa), criteria: planReviews().readyCriteria(task.id),
-      instruction: resolvePlanReviewInstruction(), skill: resolvePlanReviewSkill(project.id, detail.review.skill_id),
+      instruction: resolvePlanReviewInstruction(project.id), skill: resolvePlanReviewSkill(project.id, detail.review.skill_id),
       wish: session.metadata.wish ?? '', ...detail, history };
   }
   // A material is reviewed against its grounds only: the analysis, and for QA the architecture the developer marked ready.
@@ -77,7 +77,7 @@ export function brief(session: AgentSession) {
     ...(target === 'qa' ? ready
       ? { architecture: { version: ready.version, content: ready.content, identifiers: parseMaterialIdentifiers(ready.content) } }
       : { architecture: null, architectureNote: 'The architecture is not marked ready by the developer, so it is not a ground for QA.' } : {}),
-    instruction: resolveMaterialReviewInstruction(target), skill: resolveMaterialReviewSkill(target, project.id, detail.review.skill_id),
+    instruction: resolveMaterialReviewInstruction(target, project.id), skill: resolveMaterialReviewSkill(target, project.id, detail.review.skill_id),
     wish: session.metadata.wish ?? '', ...detail, history };
 }
 export function reviewerOutput(session: AgentSession, name: string, input: Record<string, unknown>) {

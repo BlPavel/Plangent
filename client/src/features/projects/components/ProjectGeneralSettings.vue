@@ -36,9 +36,9 @@
       <section v-if="section === 'hosting' && isProject" class="block">
         <p class="git-origin">Фактический origin: <code>{{ actualOrigin || 'не задан' }}</code></p>
         <p v-if="gitError" role="alert" class="git-error">{{ gitError }}</p>
-        <FormField v-model="cloneUrl" label="Ссылка для клонирования" placeholder="Из origin папки" hint="Попадает в README группы, чтобы коллеги и агенты знали, откуда брать код." />
-        <FormField v-model="hostPath" label="Путь проекта на хостинге" placeholder="team/repo" hint="Пусто — определяется по origin. Нужен для МР и ревью." />
-        <FormField v-model="connectionId" label="Подключение к хостингу" type="select" :hint="connections.length ? '' : 'Подключений пока нет: добавьте GitLab в «Настройки → Подключения».'">
+        <FormField v-model="cloneUrl" label="Ссылка для клонирования" placeholder="Из origin папки" hint="Попадает в README группы, чтобы коллеги и агенты знали, откуда брать код. Примеры: https://gitlab.example.com/team/repo.git, git@github.com:org/repo.git" />
+        <FormField v-model="hostPath" label="Путь проекта на хостинге" placeholder="team/repo" hint="Пусто — определяется по origin. Нужен для МР и ревью. Это часть адреса репозитория после домена, без .git: для https://gitlab.example.com/team/repo.git — team/repo, для проекта во вложенной группе — team/sub/repo, для GitHub — org/repo." />
+        <FormField v-model="connectionId" label="Подключение к хостингу" type="select" :hint="connections.length ? 'Подключение с токеном к тому же серверу, что и репозиторий: например, GitLab https://gitlab.example.com или GitHub https://api.github.com.' : 'Подключений пока нет: добавьте GitLab в «Настройки → Подключения».'">
           <option value="">— Не выбрано —</option>
           <option v-for="connection in connections" :key="connection.id" :value="connection.id">{{ connectionLabel(connection) }}</option>
         </FormField>

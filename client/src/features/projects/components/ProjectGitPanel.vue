@@ -6,12 +6,17 @@
         :fallback="project.kind === 'group' ? 'Агент по умолчанию каждого проекта' : 'Агент по умолчанию'" @update:model-value="change"
       />
       <GitAgentFields
+        kind="conflict" :model-value="gitSettings" :inherited="inherited" :source="inheritedSources.conflict_agent_id"
+        fallback="Как агент для коммитов" @update:model-value="change"
+      />
+    </template>
+    <template v-else-if="section === 'review-agent'">
+      <GitAgentFields
         kind="review" :model-value="gitSettings" :inherited="inherited" :source="inheritedSources.review_agent_id"
         :fallback="project.kind === 'group' ? 'Агент по умолчанию каждого проекта' : 'Агент по умолчанию'" @update:model-value="change"
       />
-      <GitAgentFields
-        kind="conflict" :model-value="gitSettings" :inherited="inherited" :source="inheritedSources.conflict_agent_id"
-        fallback="Как агент для коммитов" @update:model-value="change"
+      <GitSettingsFields
+        :model-value="gitSettings" section="review" :inherited="inherited" :sources="inheritedSources" :group="project.kind === 'group'" @update:model-value="change"
       />
     </template>
     <GitSettingsFields
@@ -36,8 +41,8 @@ import { useProjectsStore } from '../stores/projects'
 import GitSettingsFields from './GitSettingsFields.vue'
 import GitAgentFields from './GitAgentFields.vue'
 
-/** One git page of the project or group settings: agents, work place, branches or merge requests. Saves as you edit. */
-const props = defineProps<{ projectId: string; section: 'branches' | 'mr' | 'agent' | 'workspace' }>()
+/** One page of the project or group settings kept in the git settings: git agents, the review agent, workspace, branches or merge requests. Saves as you edit. */
+const props = defineProps<{ projectId: string; section: 'branches' | 'mr' | 'agent' | 'review-agent' | 'workspace-files' | 'workspace-setup' }>()
 const app = useAppStore(), projects = useProjectsStore()
 const project = computed(() => projects.byId(props.projectId))
 
@@ -71,7 +76,7 @@ watch(() => [props.projectId, props.section], async () => {
       try {
         const list = await projectsEndpoints.getProjectsByIdHostMembers({ params: { id: p.id } })
         if (p.id === props.projectId) { members.value = list; membersNote.value = '' }
-      } catch (cause) { if (p.id === props.projectId) { members.value = []; membersNote.value = 'Список участников недоступен (' + errorText(cause) + ') — введите логин или ID вручную, Enter — добавить.' } }
+      } catch (cause) { if (p.id === props.projectId) { members.value = []; membersNote.value = 'Список участников недоступен (' + errorText(cause) + ') — выбрать людей можно только при рабочем подключении к хостингу.' } }
     }
   } catch (cause) { if (p.id === props.projectId) error.value = errorText(cause) }
 }, { immediate: true })

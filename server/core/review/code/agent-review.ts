@@ -109,7 +109,7 @@ async function scoped(session: AgentSession) {
 
 export async function codeReviewBrief(session: AgentSession) {
   const { fresh, detail } = await scoped(session);
-  return { protocol, instruction: resolveMrReviewInstruction(), skill: fresh.metadata.task_review_skill, developer_context: fresh.metadata.task_review_context ?? null,
+  return { protocol, instruction: resolveMrReviewInstruction(fresh.project_id), skill: fresh.metadata.task_review_skill, developer_context: fresh.metadata.task_review_context ?? null,
     range: { ...(fresh.metadata.code_review_range as object), captured_at: fresh.created_at, repository: fresh.metadata.task_review_repository },
     changes: fresh.metadata.task_review_changes,
     rounds: detail.rounds,

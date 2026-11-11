@@ -280,7 +280,7 @@ async function boot(id: string): Promise<LiveSession> {
   if (session.task_id && !session.metadata.mr_private) moduleDependencies.workspaces.assertTaskWorkspaceReady(session.task_id);
   const sessionRoot = await moduleDependencies.workspaces.rootForSession(session);
   updateSession(id, { status: 'starting', reason: '' });
-  const env = agentEnv(process.env, agent.env, project.config.extra_env);
+  const env = agentEnv(process.env, agent.env, project.config.extra_env, moduleDependencies.workspaces.envForSession(session));
   let command: string, args: string[];
   try { ({ command, args } = await adapterCommand(agent, env)); }
   catch (error) { updateSession(id, { status: 'error', reason: String(error) }); throw error; }

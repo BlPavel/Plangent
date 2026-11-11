@@ -5,7 +5,7 @@ import { computeWorkState, type WorkInput } from './state';
 import type { Task, Workspace, TaskQueue } from '../../models';
 
 const task: Task = { id: 't', project_id: 'p', key: 'T', kind: 'task', status: 'open', auto_review: false, closed_at: null, close_reason: null, origin_task_id: null, created_at: '' };
-const workspace: Workspace = { id: 'w', project_id: 'p', task_id: 't', branch: 'work', base_branch: 'main', path: '/w', status: 'ready', error: '', setup_log: '', created_at: '', removed_at: null };
+const workspace: Workspace = { id: 'w', project_id: 'p', task_id: 't', branch: 'work', base_branch: 'main', path: '/w', port_slot: 1, status: 'ready', error: '', setup_log: '', created_at: '', removed_at: null };
 const queue: TaskQueue = { taskId: 't', projectId: 'p', status: 'idle', stages: [], stageIndex: 0, pauseRequested: false, updatedAt: '' };
 
 test('work state: stage, group and primary action across lifecycle and precedence', () => {

@@ -11,10 +11,10 @@ export const LIBRARY_TYPES = {
   'instruction-guide': text('руководство по инструкциям', levels, 'Руководство по инструкциям'),
   'code-fixer-instruction': text('Агент доработки'), 'commit-rules': text('правила коммитов', levels, 'Правила коммитов'),
   'plan-template': text('шаблон плана', levels, 'Шаблон плана'),
-  'plan-review-instruction': text('ревью плана', global, 'Ревью плана'), 'mr-review-instruction': text('ревью МР', global, 'Ревью МР'),
+  'plan-review-instruction': text('ревью плана', levels, 'Ревью плана'), 'mr-review-instruction': text('ревью МР', levels, 'Ревью МР'),
   'interview-instruction': text('Уточняющее интервью', global),
   'architecture-template': text('Как писать архитектуру'), 'qa-template': text('Как писать QA'),
-  'architecture-review-instruction': text('Ревью архитектуры', global), 'qa-review-instruction': text('Ревью QA', global),
+  'architecture-review-instruction': text('Ревью архитектуры'), 'qa-review-instruction': text('Ревью QA'),
   'review-skill': item('скилл ревью', 'Скилл ревью', 'Ревью МР'), 'plan-review-skill': item('скилл ревью плана', 'Ревью плана'),
   'architecture-review-skill': item('Ревью архитектуры'), 'qa-review-skill': item('Ревью QA'),
 } satisfies Record<LibraryItemType, { title: string; editorTitle?: string; formTitle?: string; listTitle?: string; scopes: readonly LibraryScope[]; singlePerLevel: boolean; text: boolean }>;
@@ -45,11 +45,13 @@ export const LIBRARY_SECTIONS = {
     'qa-review': section('Ревью', ['qa-review-instruction']), interview: section('Уточняющее интервью', ['interview-instruction']),
   },
   project: {
-    items: section('Элементы', ['skill', 'command', 'main', 'plan-template', 'architecture-template', 'qa-template']),
+    items: section('Элементы', ['skill', 'command', 'main']),
     guide: section('Руководство для агента', ['instruction-guide']), fixer: section('Агент доработки', ['code-fixer-instruction']),
-    commits: section('Коммиты', ['commit-rules']), review: section('Ревью МР', ['review-skill']),
-    'plan-review': section('Ревью плана', ['plan-review-skill']), 'architecture-review': section('Ревью архитектуры', ['architecture-review-skill']),
-    'qa-review': section('Ревью QA', ['qa-review-skill']),
+    commits: section('Коммиты', ['commit-rules']),
+    'plan-template': section('Шаблон плана', ['plan-template']), 'architecture-template': section('Как писать', ['architecture-template']),
+    'qa-template': section('Как писать', ['qa-template']),
+    'mr-review': section('Ревью МР', ['mr-review-instruction']), 'plan-review': section('Ревью плана', ['plan-review-instruction']),
+    'architecture-review': section('Ревью', ['architecture-review-instruction']), 'qa-review': section('Ревью', ['qa-review-instruction']),
   },
 };
 export function librarySection(scope: LibraryScope, id: string) {

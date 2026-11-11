@@ -4,6 +4,7 @@ import { getProject } from '../projects';
 import { getTask } from '../tasks';
 import { writableRoots } from '../projects';
 import { activeWorkspace, getWorkspace } from './store';
+import { workspaceEnv } from './ports';
 import { DomainError } from '../../models/domain-error';
 import type { AgentSession } from '../agents';
 
@@ -23,6 +24,13 @@ export async function rootForSession(session: AgentSession): Promise<string> {
   if (getTask(session.task_id)?.status === 'done') throw new DomainError('Работа закрыта', 409);
   assertTaskWorkspaceReady(session.task_id);
   return rootForTask(session.task_id);
+}
+/** An agent working in a task's workspace starts the app on that workspace's ports, like its terminals. */
+export function envForSession(session: AgentSession): Record<string, string> {
+  if (session.metadata.mr_private) return {};
+  const workspace = session.task_id ? activeWorkspace(session.task_id)
+    : session.metadata.workspace_id ? getWorkspace(String(session.metadata.workspace_id)) : null;
+  return workspace && workspace.status !== 'removed' ? workspaceEnv(workspace) : {};
 }
 export function assertTaskWorkspaceReady(taskId: string): void {
   const workspace = activeWorkspace(taskId);

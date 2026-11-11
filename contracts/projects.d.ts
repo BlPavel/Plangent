@@ -19,7 +19,9 @@ export interface ProjectGitSettings {
     conflict_agent_model?: string;
     conflict_agent_effort?: string;
     workspace_copy_files?: string[];
+    workspace_link_dirs?: string[];
     workspace_setup_command?: string;
+    workspace_ports?: string[];
     commit_pattern?: string;
     forbidden_patterns?: string[];
     include_description?: boolean;
@@ -77,7 +79,9 @@ export type ProjectsGETGitDefaultsResponse = {
     "own": {
         "commit_pattern"?: string;
         "workspace_copy_files"?: (string)[];
+        "workspace_link_dirs"?: (string)[];
         "workspace_setup_command"?: string;
+        "workspace_ports"?: (string)[];
         "auto_review"?: false | true;
         "forbidden_patterns"?: (string)[];
         "include_description"?: false | true;
@@ -103,7 +107,9 @@ export type ProjectsGETGitDefaultsResponse = {
     "values": {
         "commit_pattern": string;
         "workspace_copy_files": (string)[];
+        "workspace_link_dirs": (string)[];
         "workspace_setup_command": string;
+        "workspace_ports": (string)[];
         "auto_review": boolean;
         "forbidden_patterns": (string)[];
         "include_description": boolean;
@@ -134,7 +140,9 @@ export type ProjectsGETIdGitSettingsResponse = {
     "values": {
         "commit_pattern": string;
         "workspace_copy_files": (string)[];
+        "workspace_link_dirs": (string)[];
         "workspace_setup_command": string;
+        "workspace_ports": (string)[];
         "auto_review": boolean;
         "forbidden_patterns": (string)[];
         "include_description": boolean;
@@ -200,7 +208,9 @@ export type ProjectsPOSTBody = {
     "git_settings"?: {
         "commit_pattern"?: string;
         "workspace_copy_files"?: (string)[];
+        "workspace_link_dirs"?: (string)[];
         "workspace_setup_command"?: string;
+        "workspace_ports"?: (string)[];
         "auto_review"?: false | true;
         "forbidden_patterns"?: (string)[];
         "include_description"?: false | true;
@@ -246,7 +256,9 @@ export type ProjectsPATCHIdBody = {
     "git_settings"?: {
         "commit_pattern"?: string;
         "workspace_copy_files"?: (string)[];
+        "workspace_link_dirs"?: (string)[];
         "workspace_setup_command"?: string;
+        "workspace_ports"?: (string)[];
         "auto_review"?: false | true;
         "forbidden_patterns"?: (string)[];
         "include_description"?: false | true;

@@ -87,7 +87,7 @@ export async function taskReviewBrief(session: AgentSession) {
     'When ready architecture or QA materials are provided, check implementation against architecture decisions (structure) and QA criteria (code behavior, even without tests). Findings about violations must reference the relevant D… decision or Q… criterion (for example [[architecture#D1]] or [[qa#Q3]]).'],
     task, plan: getLatestPlan(task.id)?.content ?? '', architecture, qa,
     analysis: analysisToolContext(task.id, project.repo_path, task.key),
-    instruction: resolveMrReviewInstruction(),
+    instruction: resolveMrReviewInstruction(project.id),
     skill: session.metadata.task_review_skill,
     range: { base: task.base_commit, repository: session.metadata.task_review_repository, captured_at: session.created_at },
     changes: session.metadata.task_review_changes,

@@ -2,19 +2,18 @@ import { DEFAULT_PLAN_REVIEW_INSTRUCTION } from './builtins';
 export { DEFAULT_PLAN_REVIEW_INSTRUCTION } from './builtins';
 import { readItemContent, writeItemContent, deleteItemContent } from './library-manager';
 import { listLibraryItems, updateLibraryItem } from './index';
-import { resolveGlobalText } from './section-settings';
+import { resolveInstructionText } from './section-settings';
 import { planReviewLevelsMigrated, markPlanReviewLevelsMigrated } from '../../infrastructure/db/repositories/library/migration';
 
 /**
  * The general checks of every plan review, written once in the settings: what to check and what to skip.
- * A project's or group's own requirements are plan-review skills (plan-review-skill.ts) that come on top.
+ * A project or group can write its own text of it; plan-review skills (plan-review-skill.ts) of older settings still come on top.
  * How cards, the overview and the coverage table are written is Plangent's protocol (PROTOCOL, tool descriptions).
  */
 
-
-/** The global text; without one the built-in text applies. */
-export function resolvePlanReviewInstruction(): string {
-  return resolveGlobalText('plan-review-instruction', DEFAULT_PLAN_REVIEW_INSTRUCTION);
+/** The nearest level wins: the project, its group, the global text, the built-in one. */
+export function resolvePlanReviewInstruction(projectId: string): string {
+  return resolveInstructionText('plan-review-instruction', projectId, DEFAULT_PLAN_REVIEW_INSTRUCTION);
 }
 
 /**
