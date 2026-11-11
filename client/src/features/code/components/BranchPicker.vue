@@ -6,9 +6,9 @@
       <template v-for="group in groups" :key="group.title">
         <div v-if="group.items.length" class="group-title">{{ group.title }}</div>
         <AppButton
-          v-for="branch in group.items" :key="branch.ref" class="bp-item" variant="subtle" size="sm" block start :pressed="branch.name === current || branch.name === base"
+          v-for="branch in group.items" :key="branch.ref" class="bp-item" variant="subtle" size="sm" block start :pressed="branch.name === current"
           :disabled="!!git.writeBlocked || selecting || (branch.name === current && !onSelectBranch)" :title="git.writeBlocked || (branch.remote ? 'Переключиться на ветку из origin' : branch.name === current ? 'Текущая ветка' : 'Переключиться')" @click="pick(branch)"
-        >{{ branch.name }}<AppBadge v-if="branch.name === current" >текущая</AppBadge></AppButton>
+        >{{ branch.name }}</AppButton>
       </template>
       <div v-if="!filtered.length" class="muted empty">Ветки не найдены</div>
     </div>
@@ -29,7 +29,6 @@
   </div>
 </template>
 <script setup lang="ts">
-import AppBadge from '@shared/ui/AppBadge.vue'
 import AppButton from '@shared/ui/AppButton.vue'
 import AppInput from '@shared/ui/AppInput.vue'
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
@@ -83,7 +82,8 @@ async function create() {
   } catch (cause) { error.value = message(cause) }
   finally { selecting.value = false }
 }
-function outside(event: PointerEvent) { if (root.value && !root.value.contains(event.target as Node) && !(event.target as Element).closest?.('.bb-branch')) emit('close') }
+/** Popups of the fields inside (prefix, source branch) live in the body: a click there is not outside. */
+function outside(event: PointerEvent) { if (root.value && !root.value.contains(event.target as Node) && !(event.target as Element).closest?.('.bb-branch, .popover')) emit('close') }
 async function refreshBranches() {
   if (refreshing.value) return
   const projectId = git.projectId

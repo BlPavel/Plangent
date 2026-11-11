@@ -1,4 +1,16 @@
 import type { Agent } from './index';
+export interface CodeReviewLaunch {
+    mode: 'worktree' | 'branch';
+    ref?: string;
+    agent_id?: string;
+    model?: string;
+    effort?: string;
+    config?: Record<string, string>;
+    skill_id?: string;
+    /** What the agent should know about the changes and where to look closely (free text). */
+    context?: string;
+}
+export interface CodeReviewPreview { base: string; branch: string | null; files: string[] }
 export type CodeReviewStatus = 'open' | 'closed' | 'abandoned';
 export type CodeReviewOrigin = 'project' | 'task';
 export type CodeReviewItemStatus = 'draft' | 'sent' | 'done' | 'answered' | 'needs_decision' | 'rejected';
@@ -261,6 +273,8 @@ export type CodeReviewsPOSTReviewIdFinishBody = {
     "mode"?: undefined | "close" | "require_resolved" | "carry";
 };
 export interface CodeReviewsEndpoints {
+    "POST /api/projects/:projectId/code-reviews/agent/preview": Endpoint<"POST /api/projects/:projectId/code-reviews/agent/preview", CodeReviewLaunch, CodeReviewPreview, { workspace?: string }, "json", never>;
+    "POST /api/projects/:projectId/code-reviews/agent/start": Endpoint<"POST /api/projects/:projectId/code-reviews/agent/start", CodeReviewLaunch, C.AgentSession, { workspace?: string }, "json", never>;
     "GET /api/projects/:projectId/code-reviews/external": Endpoint<"GET /api/projects/:projectId/code-reviews/external", never, CodeReviewsGETExternalResponse, {
         "workspace"?: string;
     }, "json", never>;

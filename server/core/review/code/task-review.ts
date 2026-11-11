@@ -139,6 +139,7 @@ export async function submitTaskReview(session: AgentSession, summary: unknown) 
 function finishIndependentReview(id: string, error?: string) {
   const session = getSession(id);
   if (!session.metadata.task_review_independent || !session.metadata.task_review_active) return;
+  if (session.metadata.code_review && !session.metadata.code_review_submitted) error ??= 'Проверка прервана или агент завершил ход без итогового отчёта';
   updateSession(id, { status: error ? 'error' : 'complete', ...(error ? { reason: error } : {}),
     metadata: { ...session.metadata, task_review_active: false } });
   markAgentWorkFinished(id);

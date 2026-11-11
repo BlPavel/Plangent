@@ -1,7 +1,7 @@
 <template>
   <div class="rab">
     <div class="rab-line">
-      <span class="rab-label" :class="{ expanded }">{{ expanded ? 'Другой агент' : 'Агент ревью' }}</span>
+      <span class="rab-label" :class="{ expanded }">{{ expanded ? 'Другой агент' : label || 'Агент ревью' }}</span>
       <span v-if="expanded" class="rab-spacer" />
       <span v-else class="rab-value" :title="summary">{{ summary || 'Загрузка…' }}</span>
       <UsageMeter v-if="agentId" :agent-id="agentId" placement="below" />
@@ -36,7 +36,7 @@ export interface ReviewAgentPick { agent_id: string; model: string; mode: string
  * The agent of a review: the project's review agent from the settings, shown as one line (agent, model, reasoning, limits)
  * with «Изменить» for this review only. Only what the settings hold can be picked here.
  */
-const props = defineProps<{ projectId: string; fallbackAgentId?: string | null; disabled?: boolean; /** The review only reads (a merge request): no permissions to choose. */ readOnly?: boolean; /** The settings stay open as a form: no summary line and no «Изменить». */ expanded?: boolean }>()
+const props = defineProps<{ projectId: string; fallbackAgentId?: string | null; disabled?: boolean; /** The review only reads (a merge request): no permissions to choose. */ readOnly?: boolean; /** The settings stay open as a form: no summary line and no «Изменить». */ expanded?: boolean; /** What the line calls the agent. */ label?: string }>()
 const emit = defineEmits<{ change: [pick: ReviewAgentPick] }>()
 const agents = useAgentsStore()
 if (!agents.agents.length) void agents.load()
@@ -90,7 +90,7 @@ watch([agentId, resolvedSelects, policy], () => {
 .rab { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .rab-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
 /* Same size and line height as the value next to it, so both sit on one line. */
-.rab-label { flex-shrink: 0; font-size: var(--fs-sm); line-height: var(--lh-normal); color: var(--text-faint); }
+.rab-label { flex-shrink: 0; white-space: nowrap; font-size: var(--fs-sm); line-height: var(--lh-normal); color: var(--text-faint); }
 .rab-label.expanded { font-size: var(--fs-md); font-weight: var(--fw-medium); color: var(--text); }
 .rab-spacer { flex: 1; }
 .rab-value { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); font-weight: var(--fw-medium); line-height: var(--lh-normal); color: var(--text); }

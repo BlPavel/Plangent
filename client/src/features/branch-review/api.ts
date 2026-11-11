@@ -8,9 +8,6 @@ const review = (scope: string, id: string) => base(scope) + '/' + encodeURICompo
 const part = (value: string | number) => encodeURIComponent(String(value))
 
 export const branchReviewApi = {
-  branches: (scope: string) => branchReviewEndpoints.getProjectsByProjectIdBranchReviewBranches({ params: { projectId: scope } }),
-  fetch: (scope: string) => api.post<Endpoints['POST /api/projects/:projectId/branch-review/fetch']['response']>(base(scope) + '/fetch', {}),
-  open: (scope: string, branch: string, baseRef: string) => api.post<Endpoints['POST /api/projects/:projectId/branch-review/open']['response']>(base(scope) + '/open', { branch, base: baseRef }),
   mergeRequests: (scope: string) => api.get<Endpoints['GET /api/projects/:projectId/branch-review/merge-requests']['response']>(base(scope) + '/merge-requests'),
   openMergeRequest: (scope: string, iid: number) => api.post<Endpoints['POST /api/projects/:projectId/branch-review/merge-requests/open']['response']>(base(scope) + '/merge-requests/open', { iid }),
   skills: (scope: string) => branchReviewEndpoints.getProjectsByProjectIdBranchReviewSkills({ params: { projectId: scope } }),
@@ -56,6 +53,5 @@ export const branchReviewApi = {
 }
 
 export const branchReviewEndpoints = {
-  getProjectsByProjectIdBranchReviewBranches: endpoint('GET /api/projects/:projectId/branch-review/branches'),
   getProjectsByProjectIdBranchReviewSkills: endpoint('GET /api/projects/:projectId/branch-review/skills'),
 }

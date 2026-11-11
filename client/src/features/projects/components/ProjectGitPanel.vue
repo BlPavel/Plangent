@@ -24,7 +24,7 @@
 </template>
 
 <script setup lang="ts">
-import { branchReviewEndpoints } from '@features/branch-review'
+import { codeEndpoints } from '@features/code'
 import { projectsEndpoints } from '../api'
 
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
@@ -63,8 +63,8 @@ watch(() => [props.projectId, props.section], async () => {
     inheritedSources.value = Object.fromEntries(Object.entries(data.sources).map(([key, source]) => [key, source === 'project' ? 'group' : source]))
     // Only a project has a repository to list branches from.
     if (props.section === 'branches' && p.kind === 'project') {
-      const list = await branchReviewEndpoints.getProjectsByProjectIdBranchReviewBranches({ params: { projectId: p.id } })
-      if (p.id === props.projectId) branchNames.value = [...new Set(list.branches.map(b => b.name))]
+      const list = await codeEndpoints.getProjectsByProjectIdGitBranches({ params: { projectId: p.id }, query: {} })
+      if (p.id === props.projectId) branchNames.value = [...new Set(list.map(b => b.name))]
     }
     // Reviewers are picked from the people the code host knows for this repository; without a host they are typed.
     if (props.section === 'mr' && p.kind === 'project') {

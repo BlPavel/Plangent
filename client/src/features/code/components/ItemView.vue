@@ -1,15 +1,22 @@
 <template>
-  <ItemComposer :draft-key="`item-edit:${item.id}`"
+  <ItemComposer :draft-key="`item-edit:${item.id}:${place}`"
     v-if="editing" :where="where" :general="item.scope === 'general'" :initial-kind="item.kind" :initial-text="item.text" :initial-refs="item.refs" :busy="busy" :error="error"
     @save="save" @cancel="editing = false"
   />
   <ItemCard
-    v-else :item="item" :thread="thread" :state="state" :read-only="readOnly" :show-location="showLocation" :embedded="embedded" :busy="busy" :error="error"
+    v-else :draft-key="`code-review:${item.review_id}:item:${item.id}:${place}:text`" :item="item" :thread="thread" :state="state" :read-only="readOnly" :show-location="showLocation" :embedded="embedded" :busy="busy" :error="error"
     :working="working" :permissions="working ? agent.permissions : []"
     @edit="editing = true" @remove="remove" @general="general" @goto="emit('goto')" @open-ref="emit('open-ref', $event)"
     @reply="reply" @remove-message="removeMessage" @close="close"
     @permission="(permission, option) => agent.answerPermission(permission, option)"
-  />
+  >
+    <!-- A draft the review agent wrote: accept it (it goes out with «Отправить» to be fixed) or talk it over first, like a question. -->
+    <template v-if="item.author === 'agent' && state === 'draft' && !item.outdated && !readOnly" #extra>
+      <AppButton v-if="!accepted" class="it-act" size="xs" variant="primary" type="button" :disabled="busy" title="Согласны: пункт уйдёт агенту на исправление вместе с остальными по «Отправить»" @click="setAccepted(item, true)">Принять</AppButton>
+      <AppButton v-else class="it-act" size="xs" variant="ghost" type="button" :disabled="busy" title="Вернуть пункт на ваше решение: он не уйдёт с «Отправить»" @click="setAccepted(item, false)">Не принимать</AppButton>
+      <AppButton v-if="!accepted && item.kind !== 'question'" class="it-act" size="xs" variant="ghost" type="button" :disabled="busy" title="Сначала обсудить: пункт станет вопросом, агент ответит по «Отправить»" @click="discuss">Обсудить</AppButton>
+    </template>
+  </ItemCard>
 </template>
 
 <script setup lang="ts">
@@ -21,6 +28,8 @@ import { useCodeContext } from '../stores/context'
 import { useReviewAgentStore } from '../stores/review-agent'
 import type { CodeReviewItem } from '../types'
 import { threadState } from '../utils/thread'
+import AppButton from '@shared/ui/AppButton.vue'
+import { isAccepted, setAccepted } from '../utils/accepted'
 import ItemCard from './ItemCard.vue'
 import ItemComposer from './ItemComposer.vue'
 
@@ -29,8 +38,10 @@ const props = defineProps<{ item: CodeReviewItem; readOnly?: boolean; showLocati
 const emit = defineEmits<{ goto: []; 'open-ref': [ref: string]; 'show-change': [roundId: string, file?: string] }>()
 const store = useCodeContext()
 const agent = useReviewAgentStore()
+/** The same item is drawn in the code and in the panel: editing and a typed reply belong to the copy where they were started. */
+const place = computed(() => (props.embedded ? 'code' : props.showLocation ? 'panel' : 'notes'))
 const app = useAppStore()
-const editing = useDraft(() => `code-review:${props.item.review_id}:item:${props.item.id}:editing`, () => false)
+const editing = useDraft(() => `code-review:${props.item.review_id}:item:${props.item.id}:${place.value}:editing`, () => false)
 const busy = ref(false)
 const error = ref('')
 
@@ -54,6 +65,9 @@ async function save(value: { kind: 'fix' | 'question'; text: string; refs: strin
   const patch = value
   if (await run(() => store.updateDraft(props.item.review_id, props.item.id, patch), 'Не удалось сохранить')) { editing.value = false; useDraftsStore().clearPrefix(`code-review:${props.item.review_id}:composer:item-edit:${props.item.id}:`) }
 }
+const accepted = computed(() => isAccepted(props.item))
+/** Talking it over is a question to the agent: it is sent like any other and the thread goes on in the card. */
+async function discuss() { if (await run(() => store.updateDraft(props.item.review_id, props.item.id, { kind: 'question' }), 'Не удалось изменить пункт')) setAccepted(props.item, true) }
 const remove = () => run(() => store.removeItem(props.item.review_id, props.item.id), 'Не удалось удалить')
 const general = () => run(() => store.makeGeneral(props.item.review_id, props.item.id), 'Не удалось превратить в общий')
 const reply = async (text: string, complete: (success: boolean) => void, kind: 'text' | 'implement') =>

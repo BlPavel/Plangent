@@ -1,7 +1,8 @@
 <template>
   <section class="rp">
+    <AgentReview v-if="origin.type === 'project'" v-model:journal="reviewerJournal" :project-id="projectId" :default-agent-id="defaultAgentId" />
     <!-- The review's agent: who it is, what it does now, its full log on demand. -->
-    <div class="rp-agent">
+    <div v-if="agent.session || agent.work || agent.sending" class="rp-agent">
       <template v-if="agent.session">
         <span class="rp-dot" :class="handing ? 'thinking' : agent.session.status" />
         <span class="rp-agent-name" :title="agent.session.title">{{ agentName || 'Агент' }}</span>
@@ -12,14 +13,18 @@
           @click="agent.setup = { ids: null }"
         >изменить</AppButton>
         <span class="rp-spacer" />
-        <AppButton size="xs" variant="ghost" :title="journal ? 'Вернуться к замечаниям' : 'Полный лог агента: рассуждения, команды, настройки модели'" @click="journal = !journal">{{ journal ? '← Замечания' : 'Журнал' }}</AppButton>
+        <AppButton size="xs" variant="ghost" :title="journal ? 'Вернуться к замечаниям' : 'Полный лог агента: рассуждения, команды, настройки модели'" @click="reviewerJournal = ''; journal = !journal">{{ journal ? '← Замечания' : 'Журнал' }}</AppButton>
       </template>
       <span v-else-if="agent.work" class="rp-muted">Замечания уйдут агенту этой работы — он знает весь контекст</span>
       <template v-else-if="agent.sending">
         <span class="rp-dot thinking" />
         <span class="rp-agent-name">Агент запускается…</span>
       </template>
-      <ReviewAgentBar v-else class="rp-bar" :project-id="projectId" :fallback-agent-id="defaultAgentId" :disabled="agent.sending" @change="pick = $event" />
+    </div>
+
+    <!-- No agent yet: the review's agent is the project's one from the settings, ready to take «Отправить»; «Изменить» only for this review. -->
+    <div v-if="!agent.session && !agent.work && !agent.sending && !readOnly" class="rp-pick">
+      <ReviewAgentBar label="Агент для правок" :project-id="projectId" :fallback-agent-id="defaultAgentId" @change="pick = $event" />
     </div>
 
     <div v-if="agent.session" class="rp-agent-usage">
@@ -27,7 +32,8 @@
       <UsageMeter :agent-id="agent.session.agent_id" :usage="usage" placement="below" show-unavailable />
     </div>
 
-    <template v-if="journal && agent.sessionId">
+    <ChatView v-if="reviewerJournal" :key="reviewerJournal" :session-id="reviewerJournal" class="rp-journal" />
+    <template v-else-if="journal && agent.sessionId">
       <ChatView :key="agent.sessionId" :session-id="agent.sessionId" class="rp-journal" />
     </template>
 
@@ -108,11 +114,13 @@ import { ChatView, ReviewAgentBar, UsageMeter, statusLabel, type ReviewAgentPick
 import { useCodeStore } from '../stores/code'
 import { useReviewAgentStore } from '../stores/review-agent'
 import type { CodeReviewItem } from '../types'
+import { isSendable } from '../utils/accepted'
 import { STATE_ORDER, threadState, type ThreadState } from '../utils/thread'
 import FinishReview from './FinishReview.vue'
 import ItemComposer from './ItemComposer.vue'
 import RecentReviews from './RecentReviews.vue'
 import ItemView from './ItemView.vue'
+import AgentReview from './AgentReview.vue'
 
 const props = defineProps<{
   projectId: string
@@ -127,6 +135,8 @@ const agents = useAgentsStore()
 const app = useAppStore()
 const composing = useDraft(() => `code-review:${store.review?.id ?? store.projectId}:general-composing`, () => false)
 const journal = ref(false)
+/** Session of the review agent whose log is open instead of the remarks (set by AgentReview). */
+const reviewerJournal = ref('')
 const busy = ref(false)
 const error = ref('')
 const filter = ref<'all' | 'waiting' | 'agent' | 'closed'>('all')
@@ -159,7 +169,7 @@ const state = (item: CodeReviewItem): ThreadState => threadState(item, store.mes
 const live = computed(() => items.value.filter(i => !i.outdated))
 const outdated = computed(() => items.value.filter(i => i.outdated))
 /** What «Отправить» carries: new drafts and threads with queued replies. */
-const pending = computed(() => live.value.filter(i => ['draft', 'queued'].includes(state(i))).length)
+const pending = computed(() => live.value.filter(i => isSendable(i, state(i))).length)
 const setupCount = computed(() => agent.setup?.ids?.length ?? pending.value)
 const count = (states: ThreadState[]) => live.value.filter(i => states.includes(state(i))).length
 const filters = computed(() => [
@@ -191,6 +201,7 @@ async function saveGeneral(value: { kind: 'fix' | 'question'; text: string; refs
 <style scoped>
 .rp { display: flex; flex-direction: column; min-height: 0; height: 100%; }
 .rp-agent { display: flex; align-items: center; gap: 6px; flex-shrink: 0; min-height: 36px; padding: 0 8px 0 12px; border-bottom: 1px solid var(--border); font-size: var(--fs-sm); }
+.rp-pick { flex-shrink: 0; padding: 6px 12px; border-bottom: 1px solid var(--border); }
 .rp-agent-usage { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 2px 8px 4px 12px; border-bottom: 1px solid var(--border); color: var(--text-muted); font-size: var(--fs-xs); flex-shrink: 0; }
 .rp-bar { flex: 1; min-width: 0; padding: 4px 0; }
 .rp-agent-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

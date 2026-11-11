@@ -91,6 +91,8 @@ export const gitApi = {
 }
 
 export const codeEndpoints = {
+  previewAgentReview: endpoint('POST /api/projects/:projectId/code-reviews/agent/preview'),
+  startAgentReview: endpoint('POST /api/projects/:projectId/code-reviews/agent/start'),
   addTaskItem: endpoint('POST /api/projects/:projectId/code-reviews/items'),
   rejectTaskItem: endpoint('POST /api/projects/:projectId/code-reviews/:reviewId/items/:itemId/close'),
   taskMessage: endpoint('POST /api/projects/:projectId/code-reviews/:reviewId/items/:itemId/messages'),

@@ -12,6 +12,22 @@ and persistence; consumers use each module's public API.
 - `review/branch/`: colleagues' merge requests, private worktrees, threads,
   questions and publication through the code host.
 
+Code can launch a read-only agent review without a task through
+`review/code/agent-review.ts`. The `worktree` range compares HEAD with the working
+tree (including staged, unstaged and untracked files); `branch` compares the
+merge-base with an exact local/remote branch against the same working tree.
+Preview only reads Git. Launch pins the base, a snapshot tree and per-file diffs
+in session metadata and creates a round even before any findings exist.
+The launch may carry free-text `context` from the developer; the brief returns it as `developer_context`.
+The existing `task-reviewer` role and its three MCP review tools dispatch by
+`metadata.code_review`; task review context and queue behavior remain task-owned.
+Findings belong to the pinned review/round. Changed HEAD/branch or stale line
+content rejects findings; a turn ending without submission is an interrupted
+review, not a successful empty report. History includes reports with no findings.
+The Review tab opens colleagues' MRs only; manual branch-pair entry, listing,
+fetch and open endpoints have been removed. MR workflows still share the branch
+comparison and worktree infrastructure.
+
 Branch review remarks stay drafts until the developer publishes them. A rejected remark
 is kept (`rejected`) and never published. A conversation about a remark or a colleague's
 thread is a question thread linked by `remark_id` / `thread_id`: its messages queue and go

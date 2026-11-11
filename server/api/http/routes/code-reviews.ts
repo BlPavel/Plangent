@@ -8,6 +8,8 @@ import { reviews, createReviewService } from '../../../core/review/code/reviews'
 import { externalThreads } from '../../../core/review/code/external';
 import { IntegrationError } from '../../../core/integrations';
 import { localOrigin } from '../local-origin';
+import { launchCodeReview, previewCodeReview } from '../../../core/review/code/agent-review';
+import type { CodeReviewLaunch } from '@contracts';
 
 export function createCodeReviewsRouter(service: () => ReturnType<typeof createReviewService> = reviews) {
   const scoped = (req: Request) => {
@@ -37,6 +39,14 @@ const routerRoutes = typedRoutes(router, '/api/projects/:projectId/code-reviews'
     if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) throw new DomainError('Invalid body');
     return req.body;
   };
+  routerRoutes.json('POST /api/projects/:projectId/code-reviews/agent/preview', async (req, res) => {
+    try { return res.json(await previewCodeReview(req.params.projectId, body(req) as CodeReviewLaunch, req.query.workspace as string | undefined)); }
+    catch (error) { return handleRouteError(error, res); }
+  });
+  routerRoutes.json('POST /api/projects/:projectId/code-reviews/agent/start', async (req, res) => {
+    try { return res.status(201).json(await launchCodeReview(req.params.projectId, body(req) as CodeReviewLaunch, req.query.workspace as string | undefined)); }
+    catch (error) { return handleRouteError(error, res); }
+  });
   // Colleagues' discussions on the current branch's merge request; replies go to the hosting after confirmation.
   routerRoutes.json('GET /api/projects/:projectId/code-reviews/external', async (req, res) => { try { return res.json(await externalThreads(req.query.workspace as string | undefined).pull(req.params.projectId)); } catch (routeError) { return handleRouteError(routeError, res); } });
   routerRoutes.json('POST /api/projects/:projectId/code-reviews/external/:discussionId/reply', async (req, res) => { try { 

@@ -26,17 +26,13 @@ test('branch review: open, files changed after the last publication, new commits
   git(root, 'add', '-A'); git(root, 'commit', '-m', 'Feature work');
   getDb().prepare("INSERT INTO projects (id,kind,name,key,repo_path) VALUES ('p1','project','P','p',?)").run(root);
 
-  const listed = await review.listBranches('p1');
-  assert.deepEqual(listed.branches.map(b => b.ref).sort(), ['refs/heads/feature', 'refs/heads/main']);
-  assert.equal(listed.current, 'feature');
-  assert.equal(listed.default_base, 'refs/heads/main');
-  await assert.rejects(review.openReview('p1', { branch: 'refs/heads/feature', base: 'refs/heads/feature' }), /разные ветки/);
-  await assert.rejects(review.openReview('p1', { branch: 'nope', base: 'refs/heads/main' }), /Ветка не найдена/);
+  await assert.rejects(review.ensureReview('p1', 'refs/heads/feature', 'refs/heads/feature'), /разные ветки/);
+  await assert.rejects(review.ensureReview('p1', 'nope', 'refs/heads/main'), /Ветка не найдена/);
 
-  const opened = await review.openReview('p1', { branch: 'refs/heads/feature', base: 'refs/heads/main' });
+  const opened = await review.detail('p1', await review.ensureReview('p1', 'refs/heads/feature', 'refs/heads/main'));
   assert.deepEqual(opened.files.map(f => f.path), ['a.txt', 'b.txt']);
   assert.equal(opened.commit_count, 1);
-  assert.equal((await review.openReview('p1', { branch: 'refs/heads/feature', base: 'refs/heads/main' })).review.id, opened.review.id);
+  assert.equal(await review.ensureReview('p1', 'refs/heads/feature', 'refs/heads/main'), opened.review.id);
   const id = opened.review.id;
   assert.match((await review.diff('p1', id, 'a.txt')).diff, /\+two/);
   assert.equal((await review.content('p1', id, 'a.txt')).content, 'one\ntwo\n');

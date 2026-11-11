@@ -1,14 +1,4 @@
 ﻿import type { ExternalThread } from './index';
-export interface BranchRef {
-    name: string;
-    ref: string;
-    remote: boolean;
-}
-export interface BranchList {
-    branches: BranchRef[];
-    current: string | null;
-    default_base: string | null;
-}
 export interface ReviewFile {
     path: string;
     old_path?: string;
@@ -185,11 +175,6 @@ export interface ReviewSkill {
 // HTTP endpoint map: full mounted paths, including the /api prefix.
 import type * as C from "./index";
 import type { Endpoint, JsonValue } from "./endpoint";
-export type BranchReviewGETBranchesResponse = {
-    "branches": (C.GitBranch)[];
-    "current": null | string;
-    "default_base": null | string;
-};
 export type BranchReviewPOSTOpenResponse = {
     "review": {
         "id": string;
@@ -231,10 +216,6 @@ export type BranchReviewPOSTOpenResponse = {
     "new_commits": number;
     "rewritten": boolean;
     "round_commits": number;
-};
-export type BranchReviewPOSTOpenBody = {
-    branch: string;
-    base: string;
 };
 export type BranchReviewGETMergeRequestsResponse = {
     "items": ({
@@ -540,9 +521,6 @@ export type BranchReviewPOSTIdQuestionsQidCloseBody = {
     closed?: boolean;
 };
 export interface BranchReviewEndpoints {
-    "GET /api/projects/:projectId/branch-review/branches": Endpoint<"GET /api/projects/:projectId/branch-review/branches", never, BranchReviewGETBranchesResponse, Record<string, never>, "json", never>;
-    "POST /api/projects/:projectId/branch-review/fetch": Endpoint<"POST /api/projects/:projectId/branch-review/fetch", never, BranchReviewGETBranchesResponse, Record<string, never>, "json", never>;
-    "POST /api/projects/:projectId/branch-review/open": Endpoint<"POST /api/projects/:projectId/branch-review/open", BranchReviewPOSTOpenBody, BranchReviewPOSTOpenResponse, Record<string, never>, "json", never>;
     "GET /api/projects/:projectId/branch-review/merge-requests": Endpoint<"GET /api/projects/:projectId/branch-review/merge-requests", never, BranchReviewGETMergeRequestsResponse, Record<string, never>, "json", never>;
     "POST /api/projects/:projectId/branch-review/merge-requests/open": Endpoint<"POST /api/projects/:projectId/branch-review/merge-requests/open", BranchReviewPOSTMergeRequestsOpenBody, BranchReviewPOSTOpenResponse, Record<string, never>, "json", never>;
     "GET /api/projects/:projectId/branch-review/skills": Endpoint<"GET /api/projects/:projectId/branch-review/skills", never, BranchReviewGETSkillsResponse, Record<string, never>, "json", never>;
@@ -587,4 +565,3 @@ export interface BranchReviewEndpoints {
     "POST /api/projects/:projectId/branch-review/:id/questions/:qid/close": Endpoint<"POST /api/projects/:projectId/branch-review/:id/questions/:qid/close", BranchReviewPOSTIdQuestionsQidCloseBody, BranchReviewGETIdQuestionsResponse, Record<string, never>, "json", never>;
     "POST /api/projects/:projectId/branch-review/:id/questions/stop": Endpoint<"POST /api/projects/:projectId/branch-review/:id/questions/stop", never, BranchReviewGETIdQuestionsResponse, Record<string, never>, "json", never>;
 }
-

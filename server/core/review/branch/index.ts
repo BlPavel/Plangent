@@ -3,10 +3,9 @@ import { ensureReviewWorktree, removeReviewWorktrees } from '../../git';
 export { reviewWorkspace } from '../../git';
 import { randomUUID } from 'node:crypto';
 import { getProject } from '../../projects';
-import { effectiveGitSettings, reviewAgent } from '../../settings';
+import { reviewAgent } from '../../settings';
 import { DomainError } from '../../../models/domain-error';
-import { fetchRepository, runGit, serializeGit } from '../../../infrastructure/git/write';
-import { branches, repositoryInfo } from '../../../infrastructure/git/read';
+import { runGit, serializeGit } from '../../../infrastructure/git/write';
 import { getAgent } from '../../agents';
 import { getTask } from '../../tasks';
 import { createAgentSession, getSession, updateSession } from '../../agents';
@@ -50,18 +49,6 @@ export async function state(project: ReturnType<typeof repo>, r: ReviewRow) {
   return { root, head, base, headSha, from };
 }
 
-export async function listBranches(projectId: string) {
-  const project = repo(projectId), root = project.repo_path;
-  const [all, info] = await Promise.all([branches(root), repositoryInfo(root)]);
-  const settings = effectiveGitSettings(projectId).values;
-  const wanted = settings.base_branch || 'main';
-  const base = all.find(b => b.ref === 'refs/remotes/origin/' + wanted) ?? all.find(b => b.ref === 'refs/heads/' + wanted) ?? null;
-  return { branches: all, current: info?.branch ?? null, default_base: base?.ref ?? null };
-}
-export async function fetchBranches(projectId: string) {
-  await fetchRepository(repo(projectId).repo_path);
-  return listBranches(projectId);
-}
 /** One review per branch pair; opening it again returns the same review with its remarks and chats. */
 export async function ensureReview(projectId: string, branchRef: unknown, baseRef: unknown): Promise<string> {
   const project = repo(projectId), root = project.repo_path;
@@ -74,9 +61,6 @@ export async function ensureReview(projectId: string, branchRef: unknown, baseRe
   const last = queries.lastSelectBranchReviews(projectId) as { skill_id: string } | undefined;
   queries.ensureReviewInsertBranchReviews(id, projectId, head.ref, base.ref, last?.skill_id ?? null);
   return id;
-}
-export async function openReview(projectId: string, input: { branch?: unknown; base?: unknown }) {
-  return detail(projectId, await ensureReview(projectId, input.branch, input.base));
 }
 export async function detail(projectId: string, id: string) {
   const project = repo(projectId), r = row(projectId, id), s = await state(project, r);

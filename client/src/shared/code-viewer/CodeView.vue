@@ -389,6 +389,8 @@ function scrollToRow(index: number) {
 }
 
 async function scrollToLine(line: number, side: CodeSide = 'new') {
+  // Line notes live in the source; the rendered preview has no lines to attach them to.
+  if (isMarkdown.value && effectiveMode.value === 'file' && markdownMode.value === 'preview') { markdownMode.value = 'source'; await nextTick() }
   const find = () => rows.value.findIndex(row => row.kind !== 'fold' && lineOf(row) === line && (effectiveMode.value === 'file' || sideOf(row) === side))
   let index = find()
   if (index < 0) {

@@ -68,7 +68,7 @@ test('review card shows textual suggestions, closes all reply kinds and submits 
   const app = createApp({ render: () => h(Card, { ...props, onClose: (value, complete) => { events.push(['close', value]); props.item.closed = true; props.state = 'closed'; complete(true) }, onReply: (text, complete) => { events.push(['reply', text]); complete(true) } }) })
   app.mount('#app')
   try {
-    document.querySelector('button[aria-expanded]').dispatchEvent(new window.Event('click', { bubbles: true }))
+    document.querySelector('[role="button"][aria-expanded]').dispatchEvent(new window.Event('click', { bubbles: true }))
     await nextTick()
     assert.equal(document.querySelectorAll('input[type=radio], [role=radiogroup]').length, 0)
     assert.deepEqual([...document.querySelectorAll('.it-msg.agent ol li')].map(li => li.textContent), ['Use A (рекомендую)', 'Use B'])
@@ -81,8 +81,8 @@ test('review card shows textual suggestions, closes all reply kinds and submits 
       await click('Закрыть')
       assert.deepEqual(events.at(-1), ['close', resolution])
       assert.equal(document.querySelector('.it-body'), null, 'closing an item collapses its discussion')
-      assert.equal(document.querySelector('button[aria-expanded]').getAttribute('aria-expanded'), 'false')
-      document.querySelector('button[aria-expanded]').dispatchEvent(new window.Event('click', { bubbles: true }))
+      assert.equal(document.querySelector('[role="button"][aria-expanded]').getAttribute('aria-expanded'), 'false')
+      document.querySelector('[role="button"][aria-expanded]').dispatchEvent(new window.Event('click', { bubbles: true }))
       await nextTick()
       assert.ok(document.querySelector('.it-body'), 'the closed discussion can be expanded again')
       assert.equal(buttons().includes('Закрыть'), false)
@@ -95,7 +95,7 @@ test('review card shows textual suggestions, closes all reply kinds and submits 
     await nextTick()
     assert.deepEqual(events.at(-1), ['reply', 'Давай обсудим второй вариант'])
     assert.equal(document.querySelector('.it-body'), null, 'a queued reply folds the card')
-    document.querySelector('button[aria-expanded]').dispatchEvent(new window.Event('click', { bubbles: true }))
+    document.querySelector('[role="button"][aria-expanded]').dispatchEvent(new window.Event('click', { bubbles: true }))
     await nextTick()
     assert.equal(document.querySelector('textarea').value, '', 'the reply box is empty after queueing')
     props.item.closed = true
@@ -284,7 +284,7 @@ test('review card keeps every action in one bottom bar that follows the state of
   app.mount('#app')
   const bar = () => [...document.querySelectorAll('.it-reply > .it-actions button')].map(button => button.textContent.trim())
   try {
-    document.querySelector('button[aria-expanded]').dispatchEvent(new window.Event('click', { bubbles: true }))
+    document.querySelector('[role="button"][aria-expanded]').dispatchEvent(new window.Event('click', { bubbles: true }))
     await nextTick()
     assert.deepEqual(bar(), ['Закрыть', 'Исправить'], 'a question that was answered: finish it or turn it into a task')
     const input = document.querySelector('textarea')
@@ -327,7 +327,7 @@ test('closing a review item with a written reply uses its existing resolution wi
     }) })
     app.mount('#app')
     try {
-      document.querySelector('button[aria-expanded]').dispatchEvent(new window.Event('click', { bubbles: true }))
+      document.querySelector('[role="button"][aria-expanded]').dispatchEvent(new window.Event('click', { bubbles: true }))
       await nextTick()
       const input = document.querySelector('textarea')
       input.value = 'Unsent reply'
@@ -341,7 +341,7 @@ test('closing a review item with a written reply uses its existing resolution wi
       await click('Закрыть')
       assert.deepEqual(events, [['close', resolution]])
       assert.equal(document.querySelector('.it-body'), null, 'closing folds the discussion')
-      document.querySelector('button[aria-expanded]').dispatchEvent(new window.Event('click', { bubbles: true }))
+      document.querySelector('[role="button"][aria-expanded]').dispatchEvent(new window.Event('click', { bubbles: true }))
       await nextTick()
       assert.equal(buttons().includes('Закрыть'), false, 'a closed item cannot be closed twice')
       assert.equal(document.querySelector('textarea').value, 'Unsent reply', 'closing preserves the unsent draft')
@@ -362,13 +362,13 @@ test('close is available on every open editable review item, including queued re
     app.mount('#app')
     try {
       if (!document.querySelector('.it-body')) {
-        document.querySelector('button[aria-expanded]').dispatchEvent(new window.Event('click', { bubbles: true }))
+        document.querySelector('[role="button"][aria-expanded]').dispatchEvent(new window.Event('click', { bubbles: true }))
         await nextTick()
       }
       assert.ok(buttons().includes('Закрыть'), state)
       await click('Закрыть')
       assert.deepEqual(events, [status === 'done' ? 'accept' : 'answered'], state)
-      document.querySelector('button[aria-expanded]').dispatchEvent(new window.Event('click', { bubbles: true }))
+      document.querySelector('[role="button"][aria-expanded]').dispatchEvent(new window.Event('click', { bubbles: true }))
       await nextTick()
       assert.equal(buttons().includes('Отменить'), false, 'closed queued replies are history')
       assert.ok(document.querySelector('textarea'), 'a closed discussion can receive a new reply')
@@ -390,7 +390,7 @@ test('actions preserve drafts until the server confirms success', async () => {
     const app = createApp({ render: () => h(Card, { ...props, onReply: (_text, done) => { complete = done }, onClose: (_resolution, done) => { complete = done } }) })
     app.mount('#app')
     try {
-      document.querySelector('button[aria-expanded]').dispatchEvent(new window.Event('click', { bubbles: true }))
+      document.querySelector('[role="button"][aria-expanded]').dispatchEvent(new window.Event('click', { bubbles: true }))
       await nextTick()
       const input = document.querySelector('textarea')
       input.value = 'Keep my draft'
@@ -414,7 +414,7 @@ test('actions preserve drafts until the server confirms success', async () => {
       complete(true)
       await nextTick()
       assert.equal(document.querySelector('.it-body'), null)
-      document.querySelector('button[aria-expanded]').dispatchEvent(new window.Event('click', { bubbles: true }))
+      document.querySelector('[role="button"][aria-expanded]').dispatchEvent(new window.Event('click', { bubbles: true }))
       await nextTick()
       assert.equal(document.querySelector('textarea').value, action === 'Закрыть' ? 'Keep my draft' : '')
     } finally { app.unmount() }
@@ -458,7 +458,7 @@ test('inline and panel actions use the provided workspace and preserve failed HT
       }
       let app = mount()
       try {
-        document.querySelector('button[aria-expanded]').dispatchEvent(new window.Event('click', { bubbles: true }))
+        document.querySelector('[role="button"][aria-expanded]').dispatchEvent(new window.Event('click', { bubbles: true }))
         await nextTick()
         const input = document.querySelector('textarea')
         input.value = 'Persist this reply'
@@ -476,7 +476,7 @@ test('inline and panel actions use the provided workspace and preserve failed HT
         assert.equal(document.querySelector('textarea').value, 'Persist this reply')
         app.unmount()
         app = mount()
-        document.querySelector('button[aria-expanded]').dispatchEvent(new window.Event('click', { bubbles: true }))
+        document.querySelector('[role="button"][aria-expanded]').dispatchEvent(new window.Event('click', { bubbles: true }))
         await nextTick()
         assert.equal(document.querySelector('textarea').value, 'Persist this reply')
         if (kind === 'implement') await click('Исправить')
@@ -484,7 +484,7 @@ test('inline and panel actions use the provided workspace and preserve failed HT
         response(201, { id: 'saved', item_id: item.id, author: 'developer', kind: 'text', text: 'Persist this reply', files: [], options: [], sent: false })
         await settle()
         assert.equal(document.querySelector('.it-body'), null)
-        document.querySelector('button[aria-expanded]').dispatchEvent(new window.Event('click', { bubbles: true }))
+        document.querySelector('[role="button"][aria-expanded]').dispatchEvent(new window.Event('click', { bubbles: true }))
         await nextTick()
         assert.ok([...document.querySelectorAll('.it-msg.developer')].some(message => message.textContent.includes('Persist this reply')))
         if (kind === 'implement') assert.equal(buttons().includes('Исправить'), false, 'a converted question uses fix actions')
@@ -510,7 +510,7 @@ test('review cards retain changed file names without a view-change action', asyn
     }) })
     app.mount('#app')
     try {
-      document.querySelector('button[aria-expanded]').dispatchEvent(new window.Event('click', { bubbles: true }))
+      document.querySelector('[role="button"][aria-expanded]').dispatchEvent(new window.Event('click', { bubbles: true }))
       await nextTick()
       assert.equal(buttons().includes('Посмотреть правку'), false)
       assert.equal(document.querySelector('.it-file').textContent, 'code.ts')
@@ -525,7 +525,7 @@ test('draft actions put delete to the left of edit, with no close action', async
   }) })
   app.mount('#app')
   try {
-    document.querySelector('button[aria-expanded]').dispatchEvent(new window.Event('click', { bubbles: true }))
+    document.querySelector('[role="button"][aria-expanded]').dispatchEvent(new window.Event('click', { bubbles: true }))
     await nextTick()
     assert.deepEqual([...document.querySelectorAll('.it-actions button')].map(button => button.textContent.trim()), ['К коду', 'Удалить', 'Править'])
   } finally { app.unmount() }
@@ -541,7 +541,7 @@ test('accepted cards return to waiting for a developer decision and keep their d
     const app = createApp({ render: () => h(Card, { ...props, onClose: (resolution, done) => { assert.equal(resolution, 'reopen'); complete = done } }) })
     app.mount('#app')
     try {
-      document.querySelector('button[aria-expanded]').dispatchEvent(new window.Event('click', { bubbles: true }))
+      document.querySelector('[role="button"][aria-expanded]').dispatchEvent(new window.Event('click', { bubbles: true }))
       await nextTick()
       await click('Вернуть в доработку')
       complete(false)
@@ -560,7 +560,7 @@ test('accepted cards return to waiting for a developer decision and keep their d
       props.state = 'closed'
       props.readOnly = true
       await nextTick()
-      document.querySelector('button[aria-expanded]').dispatchEvent(new window.Event('click', { bubbles: true }))
+      document.querySelector('[role="button"][aria-expanded]').dispatchEvent(new window.Event('click', { bubbles: true }))
       await nextTick()
       assert.equal(buttons().includes('Вернуть в доработку'), false, 'history remains read-only')
     } finally { app.unmount() }

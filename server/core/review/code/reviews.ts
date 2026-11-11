@@ -16,6 +16,7 @@ import { broadcast } from '../../shared';
 import { CODE_FIXER_PROTOCOL } from '../../library';
 
 type Draft = { comparison_ref?: string } & Omit<CreateCodeReviewItem, 'review_id' | 'round_id' | 'author' | 'status' | 'answer' | 'carried_from_item_id' | 'outdated'>;
+type AgentRound = { reviewId: string; roundId: string; sessionId: string };
 type CloseMode = 'require_resolved' | 'carry' | 'close';
 const unresolved = (item: CodeReviewItem) => !item.closed;
 /** The agent replied and the thread waits for the developer (no reply of theirs queued yet). */
@@ -146,9 +147,16 @@ export function createReviewService(records = createCodeReviewRepository(), depe
     if (origin === 'task' && !queries.checkOriginSelectTasks(originId, projectId))
       throw new DomainError('Task not found', 404);
   }
-  async function addDraft(projectId: string, input: Draft, origin: 'project' | 'task' = 'project', originId = projectId, author: 'developer' | 'agent' = 'developer') {
+  async function addDraft(projectId: string, input: Draft, origin: 'project' | 'task' = 'project', originId = projectId, author: 'developer' | 'agent' = 'developer', agentRound?: AgentRound) {
     return exclusive(projectId, async () => {
       const { root, info } = await context(projectId);
+      if (agentRound) {
+        const review = reviewFor(projectId, agentRound.reviewId);
+        editable(review, info);
+        const session = sessionFor(agentRound.sessionId);
+        if (!session.metadata.task_review_active || !store.listRounds(review.id).some(round => round.id === agentRound.roundId && round.session_id === session.id))
+          throw new DomainError('No active code review round', 403);
+      }
       const data = validateDraft(root, info, input);
       checkOrigin(projectId, origin, originId);
       if (data.comparison_ref !== undefined && (typeof data.comparison_ref !== 'string' || !data.comparison_ref.startsWith('origin/'))) throw new DomainError('Invalid remote comparison');
@@ -158,8 +166,8 @@ export function createReviewService(records = createCodeReviewRepository(), depe
       const code_snippet = await snippet(root, info, comparison_base ? { ...data, comparison_base } : data);
       await ensureSame(root, info);
       return records.transaction(() => {
-        const review = openCurrent(projectId, info) ?? createCurrent(projectId, info, origin, originId);
-        const item = store.createItem({ ...data, review_id: review.id, round_id: null, author, origin, origin_id: originId,
+        const review = agentRound ? reviewFor(projectId, agentRound.reviewId) : openCurrent(projectId, info) ?? createCurrent(projectId, info, origin, originId);
+        const item = store.createItem({ ...data, review_id: review.id, round_id: agentRound?.roundId ?? null, author, origin, origin_id: originId,
           task_key: origin === 'task' ? (queries.itemSelectTasks(originId) as { key: string }).key : null,
           status: 'draft', answer: null, outdated: false, carried_from_item_id: null, code_snippet, comparison_base });
         notify(review.id, item);
@@ -692,23 +700,25 @@ export function createReviewService(records = createCodeReviewRepository(), depe
       });
     });
   }
-  async function startAgentRound(projectId: string, taskId: string, sessionId: string) {
+  async function startAgentRound(projectId: string, taskId: string | undefined, sessionId: string,
+    captured?: { info: RepositoryInfo; tree: string }) {
     return exclusive(projectId, async () => {
       const { root, info } = await context(projectId);
-      checkOrigin(projectId, 'task', taskId);
+      checkOrigin(projectId, taskId ? 'task' : 'project', taskId ?? projectId);
+      if (captured && JSON.stringify(captured.info) !== JSON.stringify(info)) throw new DomainError('Repository changed; restart the review', 409);
       const existing = openCurrent(projectId, info);
       if (existing && activeSessions(existing.id).length) throw new DomainError('Ревью уже выполняется', 409);
-      const tree = await snapshot(root);
+      const tree = captured?.tree ?? await snapshot(root);
       await ensureSame(root, info);
       const round = records.transaction(() => {
-        const review = existing ?? createCurrent(projectId, info, 'task', taskId);
+        const review = existing ?? createCurrent(projectId, info, taskId ? 'task' : 'project', taskId ?? projectId);
         return store.createRound({ review_id: review.id, session_id: sessionId, snapshot_tree: tree ?? '' });
       });
       notify(round.review_id);
       return round;
     });
   }
-  async function addAgentDraft(projectId: string, taskId: string, input: Draft) {
+  async function addAgentDraft(projectId: string, taskId: string | undefined, input: Draft, agentRound?: AgentRound) {
     // Attach to current worktree lines, including committed changes.
     let data = { ...input, side: 'new' as const, comparison_ref: undefined, comparison_base: undefined };
     const root = project(projectId).repo_path;
@@ -723,7 +733,7 @@ export function createReviewService(records = createCodeReviewRepository(), depe
         data = { ...data, scope: 'file', line_start: undefined, line_end: undefined };
       }
     }
-    return addDraft(projectId, data, 'task', taskId, 'agent');
+    return addDraft(projectId, data, taskId ? 'task' : 'project', taskId ?? projectId, 'agent', agentRound);
   }
   return { startAgentRound, addAgentDraft, addDraft, updateDraft, removeItem, makeGeneral, finish, markViewed, openFile, current,
     history, detail, reviewDiff, remoteComparison, baseChanges, removeReview, markViewedCurrent, sendRound, stop, getAgentReview, focusItem, replyItem, addMessage, removeMessage, closeItem, attention };

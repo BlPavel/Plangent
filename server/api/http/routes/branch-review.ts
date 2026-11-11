@@ -28,9 +28,6 @@ const query = (req: Request, name: string) => {
 };
 const scope = (req: Request) => req.params.projectId;
 
-branchReviewRouterRoutes.json('GET /api/projects/:projectId/branch-review/branches', async (req, res) => { try { return res.json(await review.listBranches(scope(req))); } catch (routeError) { return handleRouteError(routeError, res); } });
-branchReviewRouterRoutes.json('POST /api/projects/:projectId/branch-review/fetch', async (req, res) => { try { return res.json(await review.fetchBranches(scope(req))); } catch (routeError) { return handleRouteError(routeError, res); } });
-branchReviewRouterRoutes.json('POST /api/projects/:projectId/branch-review/open', async (req, res) => { try { return res.json(await review.openReview(scope(req), body(req))); } catch (routeError) { return handleRouteError(routeError, res); } });
 // For a group the list covers all its projects; opening an MR happens in its own project.
 branchReviewRouterRoutes.json('GET /api/projects/:projectId/branch-review/merge-requests', async (req, res) => { try { return res.json(await mrReviews().list(scope(req))); } catch (routeError) { return handleRouteError(routeError, res); } });
 branchReviewRouterRoutes.json('POST /api/projects/:projectId/branch-review/merge-requests/open', async (req, res) => { try { return res.json(await mrReviews().open(scope(req), body(req).iid)); } catch (routeError) { return handleRouteError(routeError, res); } });

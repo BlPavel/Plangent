@@ -2,33 +2,12 @@
   <section class="review-tab" :aria-busy="busy">
     <div v-if="error" role="alert" class="rt-alert">{{ error }} <AppButton variant="subtle" size="xs" type="button"  aria-label="Скрыть" @click="error = ''">✕</AppButton></div>
     <template v-if="!detail">
-      <div class="rt-entry" :class="{ listing: screen.entry === 'mr' }">
+      <div class="rt-entry listing">
         <div class="rt-title">
           <h2>Ревью</h2>
           <span class="muted">Откройте МР коллеги: читайте код, разбирайте его с агентом и публикуйте замечания в GitLab. Код агент не меняет.</span>
         </div>
-        <AppTabs :model-value="screen.entry" :items="[{ value: 'mr', label: 'Открытые МР' }, { value: 'branch', label: 'Ветка вручную' }]" label="Ревью" @update:model-value="screen.entry = $event as 'mr' | 'branch'" />
-        <MrList v-if="screen.entry === 'mr'" :screen-key="props.projectId" :items="screen.mrs?.items ?? []" :errors="screen.mrs?.errors ?? []" :loading="loadingMrs" :opening="opening" @open="openMr" @refresh="loadMrs" />
-        <template v-else>
-          <label v-if="isGroup" class="rt-pick">Проект группы
-            <AppSelect :model-value="memberId" :options="(members ?? []).map(m => ({ value: m.id, label: m.name }))" small block placeholder="Выберите проект" label="Проект группы" @update:model-value="memberId = $event; reset()" />
-          </label>
-          <AppEmptyState small v-if="!scope" >Выберите проект, чтобы посмотреть ветку.</AppEmptyState>
-          <form v-else class="rt-form" @submit.prevent="open">
-            <span class="muted">Без МР замечания не публикуются: их можно скопировать и вставить на хостинге (так работает и с GitHub).</span>
-            <label>Ветка для ревью
-              <BranchSelect v-model="branch" block :options="branchOptions" placeholder="Выберите ветку" label="Ветка для ревью" :disabled="busy" />
-            </label>
-            <label>Сравнить с
-              <BranchSelect v-model="baseRef" block :options="branchOptions" placeholder="Выберите ветку" label="Сравнить с" :disabled="busy" />
-            </label>
-            <div class="rt-row">
-              <AppButton variant="blue" size="md" type="submit" :disabled="busy || !branch || !baseRef">Открыть ревью</AppButton>
-              <AppButton variant="subtle" size="md" type="button"  :disabled="busy" title="git fetch origin: подтянуть новые ветки и коммиты" @click="fetchAll">{{ busy ? 'Загрузка…' : 'Подтянуть с origin' }}</AppButton>
-            </div>
-            <AppEmptyState small v-if="!busy && !list.length" >Веток нет. Нажмите «Подтянуть с origin».</AppEmptyState>
-          </form>
-        </template>
+        <MrList :screen-key="props.projectId" :items="screen.mrs?.items ?? []" :errors="screen.mrs?.errors ?? []" :loading="loadingMrs" :opening="opening" @open="openMr" @refresh="loadMrs" />
       </div>
     </template>
     <template v-else>
@@ -159,11 +138,9 @@ import { useAppStore } from '@core/stores/app'
 import { ExternalThreadCard, type ExternalThread, type ExternalThreadActions } from '@features/code'
 import type { CodeSide, LineSelection } from '@shared/code-viewer'
 import AppButton from '@shared/ui/AppButton.vue'
-import BranchSelect from '@shared/ui/BranchSelect.vue'
-import AppSelect from '@shared/ui/AppSelect.vue'
 import { errorText } from '@shared/utils/errorText'
 import { branchReviewApi } from '../api'
-import type { BranchQuestion, BranchRef, BranchReview, MrInfo, MrListItem, Remark } from '../types'
+import type { BranchQuestion, BranchReview, MrInfo, MrListItem, Remark } from '../types'
 import BranchDiff from '../components/BranchDiff.vue'
 import BranchQuestionCard from '../components/BranchQuestionCard.vue'
 import MrList from '../components/MrList.vue'
@@ -184,7 +161,7 @@ const isGroup = computed(() => !!props.members)
 const scope = computed(() => isGroup.value ? memberId.value : props.projectId)
 /** The screen lives in a store: leaving the tab unmounts it, the open review and its drafts must stay. */
 const screen = useBranchReviewStore().of(props.projectId)
-const { memberId, list, branch, baseRef, detail, info, path } = toRefs(screen)
+const { memberId, detail, info, path } = toRefs(screen)
 const error = ref(''), busy = ref(false), loadingMrs = ref(false), opening = ref<string | null>(null), selection = useDraft<LineSelection | null>(() => `branch-review:${detail.value?.review.id ?? props.projectId}:composer:selection`, () => null), draft = useDraft(() => `branch-review:${detail.value?.review.id ?? props.projectId}:composer:draft`, () => '')
 const kind = ref<'remark' | 'question'>('remark')
 // «?» at the start of the text makes it a question to the agent, as in the Код tab; the mark only chooses the kind and is not saved.
@@ -217,7 +194,6 @@ const visibleFiles = computed(() => (detail.value?.files ?? []).filter(f => !scr
 const selectedFile = computed(() => visibleFiles.value.find(f => f.path === path.value))
 const baseName = (value: string) => value.split('/').pop() ?? value
 const dirName = (value: string) => value.includes('/') ? value.slice(0, value.lastIndexOf('/')) : ''
-const branchOptions = computed(() => list.value.map((b: BranchRef) => ({ value: b.ref, label: b.name })))
 const headBehind = computed(() => !!info.value && !!detail.value && info.value.mr.head_sha !== detail.value.review.head)
 const approvalsText = computed(() => {
   const a = info.value?.approvals
@@ -268,24 +244,16 @@ async function run<T>(fn: () => Promise<T>, accept?: (value: T) => void) {
   catch (cause) { if (alive) error.value = errorText(cause); return undefined }
   finally { if (alive) busy.value = false }
 }
-const acceptList = (value: { branches: BranchRef[]; current: string | null; default_base: string | null }) => {
-  list.value = value.branches
-  if (!baseRef.value) baseRef.value = value.default_base ?? ''
-  if (!branch.value && value.current) branch.value = value.branches.find(b => !b.remote && b.name === value.current)?.ref ?? ''
-}
 const acceptDetail = (value: BranchReview) => {
   detail.value = value
   if (!value.files.some(f => f.path === path.value)) path.value = value.files[0]?.path ?? ''
 }
-const loadBranches = () => scope.value ? run(() => branchReviewApi.branches(scope.value), acceptList) : undefined
 async function loadMrs() {
   loadingMrs.value = true
   try { const value = await branchReviewApi.mergeRequests(props.projectId); if (alive) screen.mrs = value }
   catch (cause) { if (alive) error.value = errorText(cause) }
   finally { if (alive) loadingMrs.value = false }
 }
-const fetchAll = () => run(() => branchReviewApi.fetch(scope.value), acceptList)
-const open = () => run(() => branchReviewApi.open(scope.value, branch.value, baseRef.value), acceptDetail)
 /** An MR of a group lives in one of its projects: the review switches to it. */
 async function openMr(mr: MrListItem) {
   if (opening.value) return
@@ -302,8 +270,7 @@ const approve = (value: boolean) => run(() => branchReviewApi.approve(scope.valu
 function choose(value: string) { path.value = value; selection.value = null }
 function select(value: LineSelection) { selection.value = value; draft.value = '' }
 function clearReview() { detail.value = undefined; info.value = null; screen.remarks = []; screen.thread = null; screen.questions = []; screen.messages = []; screen.onlyChanged = false; selection.value = null; draft.value = '' }
-function back() { clearReview(); if (screen.entry === 'mr') void loadMrs(); else void loadBranches() }
-function reset() { clearReview(); list.value = []; branch.value = ''; baseRef.value = ''; void loadBranches() }
+function back() { clearReview(); void loadMrs() }
 function revealFile(file: string) { if (screen.onlyChanged && !visibleFiles.value.some(f => f.path === file)) screen.onlyChanged = false; choose(file) }
 function goto(question: BranchQuestion) { if (question.path) revealFile(question.path) }
 function gotoRemark(remark: Remark) { if (remark.path) revealFile(remark.path) }
@@ -388,18 +355,12 @@ if (detail.value) {
   const id = detail.value.review.id
   void branchReviewApi.detail(scope.value, id).then(value => { if (alive) acceptDetail(value) }).catch(cause => { if (alive) { error.value = errorText(cause); clearReview() } })
 }
-watch(() => screen.entry, entry => {
-  if (detail.value) return
-  if (entry === 'branch' && !list.value.length) void loadBranches()
-  if (entry === 'mr' && !screen.mrs) void loadMrs()
-}, { immediate: true })
+if (!detail.value && !screen.mrs) void loadMrs()
 </script>
 <style scoped>
 .review-tab { height: 100%; display: flex; flex-direction: column; min-height: 0; font-size: var(--fs-md); }
 .rt-alert { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 16px; font-size: var(--fs-sm); color: var(--danger-hover); background: var(--danger-soft); border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
 .rt-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.rt-pick, .rt-form label { display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-sm); color: var(--text-muted); }
-.rt-pick { max-width: 720px; }
 .rt-spacer { flex: 1; }
 .rt-entry { flex: 1; display: flex; flex-direction: column; gap: 14px; width: 100%; max-width: 1100px; margin: 0 auto; padding: 24px 20px 16px; overflow: auto; min-height: 0; box-sizing: border-box; }
 .rt-entry.listing { overflow: hidden; }
@@ -408,7 +369,6 @@ watch(() => screen.entry, entry => {
 .rt-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border); }
 .rt-tabs button, .side-tabs button { padding: 6px 10px; margin-bottom: -1px; font: inherit; font-size: var(--fs-md); font-weight: 500; color: var(--text-muted); background: none; border: none; border-bottom: 2px solid transparent; cursor: pointer; }
 .rt-tabs button.on, .side-tabs button.on { color: var(--text); border-bottom-color: var(--blue); }
-.rt-form { display: flex; flex-direction: column; gap: 10px; max-width: 720px; }
 .rt-seg { display: inline-flex; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); overflow: hidden; }
 .rt-seg button { padding: 2px 8px; font: inherit; font-size: var(--fs-sm); color: var(--text-muted); background: none; border: none; cursor: pointer; }
 .rt-seg button + button { border-left: 1px solid var(--border-strong); }

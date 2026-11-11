@@ -32,6 +32,7 @@ import { IconAttach as UIIconAttach } from '@shared/ui/icons'
 import { projectsEndpoints } from '@features/projects'
 
 import { useDraft } from '@core/composables/useDraft'
+import { useDraftsStore } from '@core/stores/drafts'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import AppButton from '@shared/ui/AppButton.vue'
 import { AppChip, AppInput, AppSegmented, AppTextarea } from '@shared/ui'
@@ -129,7 +130,8 @@ function onKey(event: KeyboardEvent) {
   else if ((event.key === 'Tab' || event.key === 'Enter') && !event.shiftKey) { event.preventDefault(); insert(suggestions.value[active.value], event.key === 'Tab') }
 }
 
-function cancel() { text.value = ''; files.value = []; kind.value = 'fix'; emit('cancel') }
+/** Forgets the draft (an edit starts from the item's own text next time), then closes. */
+function cancel() { useDraftsStore().clearPrefix(`code-review:${store.review?.id ?? store.projectId}:composer:${props.draftKey ?? props.where}:`); emit('cancel') }
 function save() {
   const attached = files.value.map(file => '📎 ' + file.name + ': ' + file.path).join('\n')
   // The leading «?» only chose the kind: the saved question keeps the kind, not the mark.

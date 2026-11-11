@@ -31,7 +31,7 @@ test('branch review agent: the review ends with the turn, «Новое ревь�
   const other = createSession({ project_id: 'p1', agent_id: session.agent_id, role: 'chat', policy: 'read-only' });
   updateSession(session.id, { status: 'ready' });
   updateSession(other.id, { status: 'ready' });
-  const { review: { id, analysis_status: before } } = await review.openReview('p1', { branch: 'refs/heads/feature', base: 'refs/heads/main' });
+  const { review: { id, analysis_status: before } } = await review.detail('p1', await review.ensureReview('p1', 'refs/heads/feature', 'refs/heads/main'));
   assert.equal(before, '');
 
   // As if the agent was started: the end of its turn finishes the review, a later turn changes nothing.

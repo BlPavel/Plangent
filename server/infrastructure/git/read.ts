@@ -120,6 +120,7 @@ const emptyTrees: Record<string, string> = {
 
 // Resolve safe refs to tree IDs; disallow options and arbitrary revision expressions.
 async function revision(root: string, base: string): Promise<string> {
+  if (Object.values(emptyTrees).includes(base)) return base;
   if (!/^(?:HEAD|[a-fA-F0-9]{4,64}|[a-zA-Z0-9_][a-zA-Z0-9_./-]*)$/.test(base) || base.includes('..')) throw new Error('Invalid git base');
   try { return (await run(root, ['rev-parse', '--verify', '--end-of-options', `${base}^{tree}`])).trim(); }
   catch (error) {
@@ -152,6 +153,27 @@ export async function taskWorktreeChanges(root: string, base: string) {
   return Promise.all([...new Set([...tracked, ...untracked])].map(async file => ({
     file, diff: await diffFile(root, file, { base }),
   })));
+}
+
+/** Resolve an exact local or remote branch, without accepting revision expressions. */
+export async function branchMergeBase(root: string, ref: string, head: string): Promise<string> {
+  const all = await branches(root);
+  const selected = all.find(branch => branch.ref === ref)
+    ?? all.find(branch => branch.name === ref && !branch.remote)
+    ?? all.find(branch => branch.name === ref);
+  if (!selected) throw new Error('Ветка не найдена');
+  return (await run(root, ['merge-base', selected.ref, head])).trim();
+}
+
+/** Pin the base even for a repository before its first commit. */
+export async function reviewBase(root: string, ref?: string): Promise<string> {
+  const info = await repositoryInfo(root);
+  if (!info) throw new Error('Для ревью нужен Git-репозиторий');
+  if (ref) {
+    if (!info.head) throw new Error('Для сравнения с веткой нужен первый коммит');
+    return branchMergeBase(root, ref, info.head);
+  }
+  return info.head ?? revision(root, 'HEAD');
 }
 
 

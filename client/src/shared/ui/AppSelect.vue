@@ -26,7 +26,7 @@ const props = withDefaults(defineProps<{
     modelValue: string;
     options: SelectOption[];
     placeholder?: string;
-    size?: 'sm' | 'md';
+    size?: 'xs' | 'sm' | 'md';
     small?: boolean;
     disabled?: boolean;
     prefix?: string;

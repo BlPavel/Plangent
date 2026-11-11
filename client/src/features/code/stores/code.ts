@@ -197,7 +197,7 @@ export const useCodeStore = (instance = 'main') => defineStore(instance === 'mai
     stopEvents = onServerEvent<{ type: string; projectId?: string; workspaceId?: string; error?: string; session?: { project_id: string; role: string } }>(event => {
       if (event.type === 'events:disconnected') watchError.value = 'Connection lost; reconnecting'
       // Session lifecycle events carry the project inside session, rather than at the top level.
-      const reviewSessionChanged = event.type === 'agent_session' && event.session?.role === 'code-fixer'
+      const reviewSessionChanged = event.type === 'agent_session' && ['code-fixer', 'task-reviewer'].includes(event.session?.role ?? '')
       const eventProject = reviewSessionChanged ? event.session?.project_id : event.projectId
       if (eventProject !== projectId.value) return
       // Another folder of the same project (a work's own folder or the main one) changed: not ours.

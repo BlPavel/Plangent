@@ -25,7 +25,7 @@ test('branch remarks: rejected ones are kept but never published, a discussion c
   git(root, 'switch', '-c', 'feature');
   await fs.writeFile(path.join(root, 'a.txt'), 'one\ntwo\n'); git(root, 'add', '-A'); git(root, 'commit', '-m', 'work');
   getDb().prepare("INSERT INTO projects (id,kind,name,key,repo_path) VALUES ('p1','project','P','p',?)").run(root);
-  const { review: { id } } = await review.openReview('p1', { branch: 'refs/heads/feature', base: 'refs/heads/main' });
+  const id = await review.ensureReview('p1', 'refs/heads/feature', 'refs/heads/main');
   const agent = createAgent({ name: 'Mock', command: process.execPath });
   const session = createSession({ project_id: 'p1', agent_id: agent.id, role: 'chat', policy: 'read-only', metadata: { mr_private: true, branch_review: id } });
 

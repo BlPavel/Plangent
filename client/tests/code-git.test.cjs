@@ -196,7 +196,7 @@ test('task branches use the shared picker, bind the current branch, save created
   try {
     assert.match(screen.root.textContent, /ветки нет в репозитории/)
     button(screen.root, 'Сменить').click(); await settle()
-    button(screen.root, 'mainтекущая').click(); await settle()
+    button(screen.root, 'main').click(); await settle()
     assert.equal(task.branch_name, 'main')
     assert.equal(calls.length, 0, 'binding the current branch does not switch again')
     assert.equal(saves[0][0], '/projects/p/tasks/t')

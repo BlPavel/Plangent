@@ -5,6 +5,7 @@ import { computed, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
 import { useChatStore, type ChatSession, type NewChatRequest } from '@features/agent-chat'
 import { useCodeStore } from './code'
+import { isSendable } from '../utils/accepted'
 import { threadState } from '../utils/thread'
 
 /** Sessions that can take a round: the review's own fixer, or the chat of the work (errand or task) it belongs to. */
@@ -74,6 +75,8 @@ export const useReviewAgentStore = defineStore('code-review-agent', () => {
   watch(sessionId, id => { if (id && !chats.snapshots[id]) void chats.load(id).catch(() => undefined) }, { immediate: true })
 
   /** A work's chat takes only explicit items: everything waiting to be sent. */
+  /** Everything «Отправить» carries: the agent's own drafts only once the developer accepted them. */
+  const sendableIds = () => code.items.filter(i => isSendable(i, threadState(i, code.messages))).map(i => i.id)
   const pendingIds = () => code.items.filter(i => i.origin_id === work.value?.taskId && !i.outdated && ['draft', 'queued'].includes(threadState(i, code.messages))).map(i => i.id)
   /** Sends the batch (or one thread); without an agent yet it asks to set one up first (a work's chat is there already). */
   async function send(ids: string[] | null = null) {
@@ -89,7 +92,7 @@ export const useReviewAgentStore = defineStore('code-review-agent', () => {
         chats.put(chat); id = chat.id
       }
       const role = chats.sessions.find(s => s.id === id)?.role
-      await code.sendRound(review.id, id!, '', ids ?? (role === 'code-fixer' ? undefined : pendingIds()))
+      await code.sendRound(review.id, id!, '', ids ?? (role === 'code-fixer' ? sendableIds() : pendingIds()))
       expectTurn()
     }
     catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause) }
@@ -113,7 +116,7 @@ export const useReviewAgentStore = defineStore('code-review-agent', () => {
       setup.value = null
       void chats.load(created.id).catch(() => undefined)
       const note = content.flatMap(block => (block.type === 'text' && typeof block.text === 'string' ? [block.text] : [])).join('\n').trim()
-      await code.sendRound(review.id, created.id, note === defaultNote ? '' : note, ids ?? undefined)
+      await code.sendRound(review.id, created.id, note === defaultNote ? '' : note, ids ?? sendableIds())
       expectTurn()
     } catch (cause) {
       error.value = cause instanceof Error ? cause.message : String(cause)

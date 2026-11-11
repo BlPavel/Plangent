@@ -1,7 +1,7 @@
 <template>
   <div class="git-agent">
     <div class="ga-head">
-      <span class="ga-label">{{ kind === 'review' ? 'Агент для ревью' : kind === 'conflict' ? 'Агент для конфликтов' : 'Агент для коммитов и МР' }}</span>
+      <span class="ga-label">{{ kind === 'review' ? 'Агент для ревью и правок' : kind === 'conflict' ? 'Агент для конфликтов' : 'Агент для коммитов и МР' }}</span>
       <AppButton v-if="own" variant="link" size="xs" :title="'Вернуть ' + inheritedName" @click="reset">сбросить</AppButton>
     </div>
     <div class="ga-row">

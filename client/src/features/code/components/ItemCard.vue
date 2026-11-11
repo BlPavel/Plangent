@@ -1,6 +1,6 @@
 <template>
   <div class="it" :class="[state, item.status, { open, outdated: item.outdated, working, embedded }]">
-    <AppButton class="it-head" variant="subtle" size="sm" block start :aria-expanded="open" @click="open = !open">
+    <div class="it-head" role="button" tabindex="0" :aria-expanded="open" @click="open = !open" @keydown.enter.self.prevent="open = !open" @keydown.space.self.prevent="open = !open">
       <span class="it-dot" :title="label" />
       <span v-if="location" class="it-loc">{{ location }}</span>
       <span v-if="item.author === 'agent' || permissions.length || kindLabel" class="it-flags">
@@ -9,9 +9,9 @@
         <span v-if="item.author === 'agent' && item.origin === 'task'" class="it-flag">ревью задачи{{ item.task_key ? ' ' + item.task_key : '' }}</span>
         <span v-if="permissions.length" class="it-flag" title="Агент ждёт вашего разрешения">разрешение</span>
       </span>
-      <span class="it-summary">{{ summary }}</span>
+      <span v-if="!open" class="it-summary" :class="{ below: !!location }">{{ summary }}</span>
       <span class="it-status">{{ label }}</span>
-    </AppButton>
+    </div>
 
     <div v-if="open" class="it-body">
       <pre v-if="item.outdated && item.code_snippet" class="it-snippet" title="Код, к которому относилось замечание">{{ item.code_snippet }}</pre>
@@ -23,6 +23,10 @@
         <div v-if="item.refs.length" class="it-refs">
           <AppButton variant="link" size="xs" v-for="target in item.refs" :key="target" type="button"  :title="'Открыть: ' + target" @click="emit('open-ref', target)">@{{ target }}</AppButton>
         </div>
+      </div>
+
+      <div v-if="item.author === 'agent' && state === 'draft' && !readOnly && !item.outdated" class="it-note muted">
+        Черновик агента. «Принять» — он уйдёт на исправление по «Отправить»; «Обсудить» — станет вопросом, и агент ответит.
       </div>
 
       <div v-for="message in thread" :key="message.id" class="it-msg" :class="[message.author, message.kind, { queued: !message.sent }]">
@@ -56,10 +60,9 @@
           @keydown.enter.ctrl.prevent="submitText" @keydown.enter.meta.prevent="submitText"
         />
         <div v-if="canGoto || item.outdated || mode !== 'none' || canReopen || (!readOnly && !item.closed) || $slots.extra" class="it-actions">
-          <AppButton v-if="canGoto" class="it-act" size="xs" variant="ghost" type="button" @click="emit('goto')"><UIIconCode />К коду</AppButton>
-          <slot name="extra" />
+          <AppButton v-if="canGoto" class="it-act it-goto" size="xs" variant="ghost" type="button" @click="emit('goto')"><UIIconCode />К коду</AppButton>
           <AppButton v-if="item.outdated && !readOnly" class="it-act" size="xs" variant="ghost" type="button" @click="act('general')">Сделать общим</AppButton>
-          <span class="it-spacer" />
+          <slot name="extra" />
           <AppButton v-if="canReopen" class="it-act" size="xs" variant="blue" type="button" :disabled="actionBusy" title="Вернуть карточку к вашему решению" @click="reopenThread">Вернуть в доработку</AppButton>
           <AppButton v-if="!readOnly && !item.closed && state !== 'draft'" class="it-act" size="xs" variant="danger-ghost" type="button" :disabled="actionBusy" title="Закрыть обсуждение этого пункта" @click="closeThread">Закрыть</AppButton>
           <template v-if="mode === 'draft'">
@@ -224,27 +227,28 @@ function sendReply(message: string, kind: 'text' | 'implement' = 'text') {
 .it.outdated { border-style: dashed; }
 /* Narrow panel: the meta (place, flags, state) on the first line, the summary on its own line below it */
 .it-line { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; width: 100%; padding: 4px 8px; font: inherit; text-align: left; color: var(--text); background: none; border: none; cursor: pointer; }
-.it-dot { width: 7px; height: 7px; flex-shrink: 0; transform: translateY(2px); border-radius: var(--radius-round); background: currentColor; color: var(--text-faint); }
+.it-dot { width: 7px; height: 7px; flex-shrink: 0; margin-top: 6px; border-radius: var(--radius-round); background: currentColor; color: var(--text-faint); }
 .it.agent .it-dot, .it.queued .it-dot { color: var(--blue-hover); }
 .it.working .it-dot { animation: it-pulse 1.4s ease-in-out infinite; }
 .it.waiting .it-dot { color: var(--warning-text); }
 .it.waiting.done .it-dot { color: var(--accent-hover); }
 @keyframes it-pulse { 50% { opacity: 0.3; } }
-.it-head { min-width: 0; max-width: 100%; }
+.it-head { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 2px 6px; min-width: 0; max-width: 100%; padding: 5px 8px; cursor: pointer; outline: none; }
+.it-head:hover { background: var(--bg3); }
+.it-head:focus-visible { outline: var(--focus-outline); outline-offset: -2px; }
 .it-flags { display: flex; gap: 4px; flex: 0 1 auto; min-width: 0; }
-.it-loc { flex: 0 1 auto; max-width: 45%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: inherit; line-height: var(--lh-normal); color: var(--text-muted); }
-/* The button's line-height is 1 and its content is clipped: texts inside take a normal one so descenders stay whole. */
-.it-summary { flex: 1 1 0; min-width: 0; line-height: var(--lh-normal); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); }
-.it.open .it-summary { display: none; }
+.it-loc { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: var(--lh-normal); color: var(--text-muted); }
+.it-summary { flex: 1 1 0; min-width: 0; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-height: var(--lh-normal); color: var(--text); overflow-wrap: anywhere; }
+.it-summary.below { flex-basis: 100%; order: 2; }
 .it-kind { flex-shrink: 0; padding: 1px 8px; line-height: var(--lh-normal); font-size: var(--fs-xs); font-weight: var(--fw-medium); border: 1px solid var(--accent-hover); border-radius: var(--radius-pill); color: var(--accent-hover); white-space: nowrap; }
 .it-flag { flex: 0 1 auto; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 6px; font-size: var(--fs-xs); font-weight: 600; border-radius: var(--radius-pill); background: var(--blue); color: var(--on-accent); }
-/* Smaller type centred in the same row sits a hair high: the nudge puts its baseline on the text's. */
-.it-status { flex-shrink: 0; margin-left: auto; transform: translateY(1.25px); line-height: var(--lh-normal); font-size: var(--fs-xs); color: var(--text-muted); }
+.it-status { flex-shrink: 0; margin-left: auto; line-height: var(--lh-normal); font-size: var(--fs-xs); color: var(--text-muted); }
 .it.waiting .it-status { color: var(--warning-text); font-weight: 600; }
 .it.waiting.done .it-status { color: var(--accent-hover); }
 .it-body { display: flex; flex-direction: column; gap: 6px; padding: 2px 10px 8px; white-space: normal; }
 .it-snippet { margin: 0; padding: 4px 8px; max-height: 120px; overflow: auto; font-size: var(--fs-xs); background: var(--bg); border-radius: var(--radius-sm); color: var(--text-muted); }
 .it-note { color: var(--warning-text); }
+.it-note.muted { color: var(--text-muted); font-size: var(--fs-xs); }
 .it-msg { padding: 5px 8px; border-radius: var(--radius-sm); background: var(--bg); }
 .it-msg.developer { border-left: 2px solid var(--text-faint); }
 .it-msg.agent { border-left: 2px solid var(--blue); }
@@ -263,7 +267,9 @@ function sendReply(message: string, kind: 'text' | 'implement' = 'text') {
 .it-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 .it-actions:empty { display: none; }
 .it-reply { display: flex; flex-direction: column; gap: 4px; }
-.it-spacer { flex: 1; }
+
 /* Every action of the bar is the same width, so the row reads as one set; only the colour tells main from the rest. */
-.it-act { min-width: 76px; }
+.it-act { flex: 0 0 auto; min-width: 76px; }
+.it-goto { margin-right: auto; }
+.it-reply .it-actions { justify-content: flex-end; gap: 6px; padding-top: 8px; border-top: 1px solid var(--border); }
 </style>

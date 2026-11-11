@@ -101,7 +101,7 @@ test('review queue UI adds, groups, configures and opens results; Code labels an
   itemApp.mount(cardRoot);
   try {
     assert.match(cardRoot.textContent, /агент/); assert.match(cardRoot.textContent, /ревью задачи TASK-1/);
-    cardRoot.querySelector('button[aria-expanded]').click(); await flush(); button('Удалить', cardRoot).click(); await flush(); assert.equal(removed, true);
+    cardRoot.querySelector('[role="button"][aria-expanded]').click(); await flush(); button('Удалить', cardRoot).click(); await flush(); assert.equal(removed, true);
   } finally { itemApp.unmount(); cardRoot.remove(); }
 });
 

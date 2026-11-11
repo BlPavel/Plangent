@@ -24,7 +24,7 @@ test('branch questions: queued thread, edits, agent replies through the session'
   git(root, 'switch', '-c', 'feature');
   await fs.writeFile(path.join(root, 'a.txt'), 'one\ntwo\n'); git(root, 'add', '-A'); git(root, 'commit', '-m', 'work');
   getDb().prepare("INSERT INTO projects (id,kind,name,key,repo_path) VALUES ('p1','project','P','p',?)").run(root);
-  const { review: { id } } = await review.openReview('p1', { branch: 'refs/heads/feature', base: 'refs/heads/main' });
+  const id = await review.ensureReview('p1', 'refs/heads/feature', 'refs/heads/main');
 
   await assert.rejects(q.add('p1', id, { text: ' ' }), /Напишите/);
   await assert.rejects(q.add('p1', id, { path: 'nope.txt', side: 'new', line: 1, text: 'why?' }), /не найден/);
