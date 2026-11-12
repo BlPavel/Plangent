@@ -1,0 +1,101 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { createTestRepository } from '../../support/git';
+
+const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'plangent-review-library-'));
+process.env.PLANGENT_DATA_DIR = path.join(temporary, 'data');
+
+test('MR worktrees receive current local and library instructions and restore their pinned files', async t => {
+  const originalCwd = process.cwd();
+  process.chdir(temporary); // Library content and every Git write stay inside the disposable fixture.
+  const { initializeAgentPresets, initSessions, updateSession, getSession } = await import('../../../core-services').then(() => import('../../../core/agents'));
+  const library = await import('../../../core/library');
+  const { writeItemContent } = await import('../../../core/library/library-manager');
+  const { getDb } = await import('../../../infrastructure/db/schema');
+  const review = await import('../../../core/review/branch');
+  initializeAgentPresets();
+  initSessions();
+  const { root, git, dispose } = createTestRepository();
+  let id = '';
+  t.after(async () => {
+    try { if (id) await review.finishThreads('p', id); }
+    finally { getDb().close(); process.chdir(originalCwd); dispose(); fs.rmSync(temporary, { recursive: true, force: true }); }
+  });
+  git('config', 'core.autocrlf', 'false');
+  fs.writeFileSync(path.join(root, 'AGENTS.md'), 'Rules from MR commit\n');
+  fs.writeFileSync(path.join(root, 'code.txt'), 'base');
+  git('add', '.'); git('commit', '-m', 'Fixture base');
+  git('switch', '-c', 'feature');
+  fs.writeFileSync(path.join(root, 'code.txt'), 'MR code');
+  git('add', '.'); git('commit', '-m', 'Fixture change');
+  getDb().prepare("INSERT INTO projects(id,kind,name,key,repo_path) VALUES ('p','project','P','p',?)").run(root);
+  getDb().prepare("INSERT INTO projects(id,kind,name,key,repo_path) VALUES ('g','group','Group','g',?)").run(path.join(temporary, 'group'));
+  getDb().prepare("UPDATE projects SET group_id='g' WHERE id='p'").run();
+  getDb().prepare("UPDATE agents SET active=1 WHERE id='agent-codex'").run();
+  const rules = library.createLibraryItem({ type: 'main', slug: 'review-rules', title: 'Rules', scope: 'project', targets: ['p'] });
+  const skill = library.createLibraryItem({ type: 'skill', slug: 'review-check', title: 'Check', description: 'Check project rules', scope: 'project', targets: ['p'] });
+  const groupSkill = library.createLibraryItem({ type: 'skill', slug: 'group-check', title: 'Group check', scope: 'project', targets: ['g'] });
+  const command = library.createLibraryItem({ type: 'command', slug: 'review-command', title: 'Review command', scope: 'project', targets: ['p'] });
+  writeItemContent(groupSkill, 'Inherited group skill');
+  writeItemContent(command, 'Project command');
+  writeItemContent(rules, 'Current library rules');
+  writeItemContent(skill, 'Current library skill');
+  fs.writeFileSync(path.join(root, 'AGENTS.md'), 'Current local rules\n');
+  const localSkill = '.agents/skills/local/SKILL.md';
+  fs.mkdirSync(path.dirname(path.join(root, localSkill)), { recursive: true });
+  fs.writeFileSync(path.join(root, localSkill), 'Local skill');
+  fs.writeFileSync(path.join(root, '.env'), 'DO_NOT_COPY');
+  id = await review.ensureReview('p', 'refs/heads/feature', 'refs/heads/main');
+  const thread = await review.openThread('p', id, {}, { agentId: 'agent-codex' });
+  const workspace = review.reviewWorkspace(thread.session_id);
+  const installedSkill = path.join(workspace, '.agents/skills/plangent-review-check/SKILL.md');
+  assert.match(fs.readFileSync(path.join(workspace, 'AGENTS.md'), 'utf8'), /Current local rules[\s\S]*Current library rules/);
+  assert.match(fs.readFileSync(installedSkill, 'utf8'), /Current library skill/);
+  assert.match(fs.readFileSync(path.join(workspace, '.agents/skills/plangent-group-check/SKILL.md'), 'utf8'), /Inherited group skill/);
+  assert.match(fs.readFileSync(path.join(workspace, '.agents/skills/plangent-review-command/SKILL.md'), 'utf8'), /Project command/);
+  assert.equal(fs.readFileSync(path.join(workspace, localSkill), 'utf8'), 'Local skill');
+  assert.equal(fs.existsSync(path.join(workspace, '.env')), false);
+  assert.equal(fs.readFileSync(path.join(workspace, 'code.txt'), 'utf8'), 'MR code');
+  // A reused thread gets current contents and removed local skills disappear.
+  updateSession(thread.session_id, { status: 'ready' });
+  updateSession(thread.session_id, { acp_session_id: 'old-catalog' });
+  await review.openThread('p', id, {}, { agentId: 'agent-codex' });
+  assert.equal(getSession(thread.session_id).acp_session_id, 'old-catalog');
+  writeItemContent(rules, 'Updated library rules');
+  writeItemContent(skill, 'Updated library skill');
+  fs.unlinkSync(path.join(root, localSkill));
+  updateSession(thread.session_id, { status: 'thinking' });
+  await assert.rejects(review.openIdleThread('p', id, 'Busy', { agentId: 'agent-codex' }), /Busy/);
+  assert.match(fs.readFileSync(installedSkill, 'utf8'), /Current library skill/);
+  await assert.rejects(review.openThread('p', id, { path: 'code.txt', side: 'new', line: 1 }, { agentId: 'agent-codex' }), /busy/);
+  updateSession(thread.session_id, { status: 'ready' });
+  const reused = await review.openThread('p', id, {}, { agentId: 'agent-codex' });
+  assert.equal(reused.session_id, thread.session_id);
+  assert.equal(getSession(thread.session_id).acp_session_id, null);
+  assert.equal(getSession(thread.session_id).metadata.needsContext, true);
+  assert.match(fs.readFileSync(path.join(workspace, 'AGENTS.md'), 'utf8'), /Updated library rules/);
+  assert.match(fs.readFileSync(installedSkill, 'utf8'), /Updated library skill/);
+  assert.equal(fs.existsSync(path.join(workspace, localSkill)), false);
+  getDb().prepare('UPDATE library_items SET enabled=0 WHERE id=?').run(skill.id);
+  await review.openThread('p', id, {}, { agentId: 'agent-codex' });
+  assert.equal(fs.existsSync(installedSkill), false);
+  const installedMain = path.join(workspace, 'AGENTS.md');
+  const mainBytes = fs.readFileSync(installedMain);
+  fs.writeFileSync(installedMain, 'External edit');
+  await assert.rejects(review.openThread('p', id, {}, { agentId: 'agent-codex' }), /outside Plangent/);
+  assert.equal(fs.readFileSync(installedMain, 'utf8'), 'External edit');
+  fs.writeFileSync(installedMain, mainBytes);
+  // Reopening from disk restores tracked instructions and removes only the overlay.
+  library.restoreReviewLibrary(workspace);
+  assert.equal(fs.readFileSync(path.join(workspace, 'AGENTS.md'), 'utf8'), 'Rules from MR commit\n');
+  assert.equal(fs.existsSync(installedSkill), false);
+  assert.equal(fs.readFileSync(path.join(root, 'AGENTS.md'), 'utf8'), 'Current local rules\n');
+  await review.openThread('p', id, {}, { agentId: 'agent-codex' });
+  await review.finishThreads('p', id);
+  assert.equal(fs.existsSync(workspace), false);
+  assert.equal(fs.existsSync(workspace + '.instructions.json'), false);
+  id = '';
+});

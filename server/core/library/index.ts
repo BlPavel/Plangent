@@ -38,5 +38,6 @@ export { resolvePlanReviewSkill } from './plan-review-skill';
 export { resolveMaterialReviewInstruction } from './section-settings';
 export { resolveMaterialReviewSkill } from './section-settings';
 export { syncWorkspaceLibrary } from './syncer';
+export { prepareReviewLibrary, restoreReviewLibrary } from './review-workspace';
 export { configureDependencies as configureLibraryDependencies } from './dependencies';
 export { librarianTargetTypes, librarianSectionBriefing } from './chat-context';

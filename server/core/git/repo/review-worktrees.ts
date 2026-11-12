@@ -3,6 +3,7 @@ import os from 'node:os';
 import fs from 'node:fs/promises';
 import { runGit } from '../../../infrastructure/git/write';
 import { hasReviewWorktree, registerReviewWorktree, activeReviewWorktrees, deactivateReviewWorktree, findReviewWorkspace } from '../../../infrastructure/db/repositories/git/review-worktrees';
+import { restoreReviewLibrary } from '../../library';
 import { DomainError } from '../../../models/domain-error';
 
 /** Caller serializes the complete workflow, including session creation or closure. */
@@ -17,6 +18,7 @@ export async function ensureReviewWorktree(root: string, reviewId: string, head:
 }
 export async function removeReviewWorktrees(root: string, reviewId: string): Promise<void> {
   for (const worktree of activeReviewWorktrees(reviewId)) {
+    restoreReviewLibrary(worktree.path);
     // Git removes only registered worktrees; never delete a computed path ourselves.
     await runGit(root, ['worktree', 'remove', worktree.path]);
     deactivateReviewWorktree(reviewId, worktree.head);

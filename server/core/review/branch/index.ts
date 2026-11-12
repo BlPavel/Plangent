@@ -3,13 +3,14 @@ import { ensureReviewWorktree, removeReviewWorktrees } from '../../git';
 export { reviewWorkspace } from '../../git';
 import { randomUUID } from 'node:crypto';
 import { getProject } from '../../projects';
+import { prepareReviewLibrary } from '../../library';
 import { reviewAgent } from '../../settings';
 import { DomainError } from '../../../models/domain-error';
 import { runGit, serializeGit } from '../../../infrastructure/git/write';
 import { getAgent } from '../../agents';
 import { getTask } from '../../tasks';
 import { createAgentSession, getSession, updateSession } from '../../agents';
-import { closeSession } from '../../agents';
+import { closeSession, sessionAvailability } from '../../agents';
 import { commitOf, fileAt, fileDiff, isAncestor, mergeBase, rangeCommits, rangeCount, rangeFiles, resolveRef } from './git-diff';
 
 export interface ReviewRow {
@@ -131,7 +132,7 @@ export function threads(projectId: string, id: string): Thread[] {
 export async function openIdleThread(projectId: string, id: string, busyMessage: string, choice?: AgentChoice) {
   const known = new Set(threads(projectId, id).map(t => t.session_id));
   const thread = await openThread(projectId, id, {}, choice);
-  if (known.has(thread.session_id) && ['starting', 'thinking'].includes(getSession(thread.session_id).status)) throw new DomainError(busyMessage, 409);
+  if (known.has(thread.session_id) && sessionAvailability(thread.session_id).busy) throw new DomainError(busyMessage, 409);
   return thread;
 }
 const briefing = (r: ReviewRow, head: string) =>
@@ -152,8 +153,22 @@ export async function openThread(projectId: string, id: string, input: { path?: 
   const side = file ? String(input.side) : 'new', filePath = file?.path ?? '';
   return serializeGit(s.root, async () => {
     const existing = threads(projectId, id).find(t => t.head === s.headSha && t.path === filePath && t.side === side && t.line === line);
+    const currentThreads = threads(projectId, id).filter(t => t.head === s.headSha);
+    const busy = currentThreads.some(t => sessionAvailability(t.session_id).busy);
+    if (busy) {
+      if (existing && sessionAvailability(existing.session_id).busy) return existing;
+      throw new DomainError('Review agent is busy; wait before opening another thread', 409);
+    }
+    const workspace = await ensureReviewWorktree(s.root, id, s.headSha);
+    if (prepareReviewLibrary(project, workspace)) {
+      // Skill catalogs are discovered at session startup. Preserve chat history, but reload the context.
+      for (const thread of currentThreads) {
+        await closeSession(thread.session_id);
+        const session = getSession(thread.session_id);
+        updateSession(session.id, { acp_session_id: null, metadata: { ...session.metadata, briefed: false, needsContext: true } });
+      }
+    }
     if (existing) return existing;
-    await ensureReviewWorktree(s.root, id, s.headSha);
     const session = createAgentSession({ project_id: projectId, agent_id: agent.agentId, role: 'chat', policy: 'read-only', model: agent.model,
       title: 'Ревью · ' + (r.mr_iid ? '!' + r.mr_iid + ' · ' : '') + s.head.name + (file ? ' · ' + file.path + ':' + line : ''),
       metadata: { mr_private: true, briefing: briefing(r, s.headSha), branch_review: id, ...(agent.effort ? { reasoningEffort: agent.effort } : {}) } });

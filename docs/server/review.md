@@ -28,6 +28,16 @@ The Review tab opens colleagues' MRs only; manual branch-pair entry, listing,
 fetch and open endpoints have been removed. MR workflows still share the branch
 comparison and worktree infrastructure.
 
+MR worktrees install current project/group library main sections, skills and commands before
+opening an idle agent thread, including reused threads. Local instruction files and skill/command
+directories are copied only from active agents' layout profiles; global agent folders are left
+to the adapters. No dependency setup, environment files or other workspace copy patterns run.
+Changed instructions restart the idle agent context while retaining its conversation history so
+its skill catalog is rediscovered. Busy threads prevent refreshing their shared worktree.
+A sidecar records original and installed instruction files: refresh removes the previous overlay,
+and finishing restores the pinned files before ordinary Git worktree removal. External changes
+to installed instructions block overwrite/removal. Code and the reviewed Git range stay pinned.
+
 Branch review remarks stay drafts until the developer publishes them. A rejected remark
 is kept (`rejected`) and never published. A conversation about a remark or a colleague's
 thread is a question thread linked by `remark_id` / `thread_id`: its messages queue and go
