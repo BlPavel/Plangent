@@ -13,5 +13,6 @@ import { tools as group11 } from './plan';
 import { tools as group12 } from './interview';
 import { tools as group13 } from './work';
 import { tools as group14 } from './git';
-export const tools = { ...group0, ...group1, ...group2, ...group3, ...group4, ...group5, ...group6, ...group7, ...group8, ...group9, ...group10, ...group11, ...group12, ...group13, ...group14 };
+import { tools as group15 } from './commands';
+export const tools = { ...group0, ...group1, ...group2, ...group3, ...group4, ...group5, ...group6, ...group7, ...group8, ...group9, ...group10, ...group11, ...group12, ...group13, ...group14, ...group15 };
 export type PlangentTool = keyof typeof tools;

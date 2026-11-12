@@ -25,6 +25,8 @@ export function isPlangentToolCall(tool: Pick<ToolCallUpdate, 'title' | 'kind' |
     Object.keys(input).every(key => key in plangentTools.add_plan_remark.fields)) return true;
   if ('scope' in input && 'kind' in input && 'text' in input &&
     Object.keys(input).every(key => key in plangentTools.add_task_remark.fields)) return true;
+  if ('command' in input && Object.keys(input).every(key => key in plangentTools.run_command.fields)) return true;
+  if ('commandId' in input && Object.keys(input).every(key => key in plangentTools.command_output.fields)) return true;
   // A remark on the whole MR leaves out path, line and side.
   if ('text' in input &&
     Object.keys(input).every(key => key in plangentTools.add_review_remark.fields)) return true;

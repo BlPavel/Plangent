@@ -20,7 +20,7 @@ import { broadcast } from '../../shared';
 import { addEvent, getSession, history, toolCallPayload, updateSession, updateAgentTitle } from './sessions';
 import { getAcpOptions, saveAcpOptions, type AcpOptions } from '../catalog/acp-options';
 import { enqueue, queuedPrompts, editQueued } from './prompt-queue';
-import { permissionDecision, shellGitDecision } from './permissions';
+import { permissionDecision, shellGitDecision, commandToolAvailable, COMMAND_REDIRECT_REASON } from './permissions';
 import { agentEnv } from './env';
 import { agentSessionSettings } from './session-settings';
 import { isBypassMode, selectSessionMode } from './session-modes';
@@ -201,12 +201,14 @@ export async function requestDeveloperPermission(id: string, request: ACP.Reques
   const toolCall = { ...(announced as Partial<ACP.ToolCallUpdate> | undefined), ...Object.fromEntries(Object.entries(request.toolCall).filter(([, v]) => v != null)) } as ACP.ToolCallUpdate;
   const conflictFiles = session.role === 'conflict-resolver' && project
     ? ((session.metadata.conflict_paths as string[] | undefined) ?? []).map(file => path.resolve(sessionRoot, file)) : undefined;
+  const redirect = session.policy !== 'read-only' && commandToolAvailable(session);
   const decision = permissionDecision(session.policy, { ...request, toolCall }, project?.config.dangerous_commands,
     project ? { writable: await moduleDependencies.workspaces.writableRootsForSession(session), readOnly: readOnlyRoots(), restrictWrites: sessionRoot !== project.repo_path,
-      ...(conflictFiles ? { files: conflictFiles } : {}) } : undefined, session.role);
+      ...(conflictFiles ? { files: conflictFiles } : {}) } : undefined, session.role, redirect);
   const option = request.options.find(o => o.kind === (decision === 'allow' ? 'allow_once' : 'reject_once'));
   const gitDenied = decision === 'deny' && shellGitDecision(toolCall) === 'deny';
-  const gitReason = gitDenied ? 'Shell Git command refused. Request repository changes with the Plangent git_action tool.' : undefined;
+  const gitReason = gitDenied ? 'Shell Git command refused. Request repository changes with the Plangent git_action tool.'
+    : decision === 'deny' && redirect && toolCall.kind === 'execute' ? COMMAND_REDIRECT_REASON : undefined;
   if (decision !== 'ask' && option) {
     addEvent(id, 'permission_result', { title: toolCall.title, toolCallId: toolCall.toolCallId, decision, ...(gitReason ? { gitReason } : {}) });
     return { outcome: { outcome: 'selected', optionId: option.optionId }, ...(gitReason ? { _meta: { reason: gitReason } } : {}) };
@@ -250,6 +252,10 @@ export async function authorizeGitAction(id: string, title: string, alwaysAsk: b
     addEvent(id, 'notice', { text: title });
     return signal;
   }
+  const allowed = await askAllowReject(id, state, session, title);
+  return allowed && !state.cancelled && !state.stopping && state.busy && state.turnId === turnId ? signal : null;
+}
+async function askAllowReject(id: string, state: LiveSession, session: AgentSession, title: string): Promise<boolean> {
   const permissionId = randomUUID();
   const request: ACP.RequestPermissionRequest = {
     sessionId: session.acp_session_id ?? id,
@@ -262,7 +268,20 @@ export async function authorizeGitAction(id: string, title: string, alwaysAsk: b
   addEvent(id, 'permission', { permissionId, ...request });
   updateSession(id, { status: 'waiting', reason: title });
   const response = await new Promise<ACP.RequestPermissionResponse>(resolve => state.permissions.set(permissionId, { request, resolve }));
-  return response.outcome.outcome === 'selected' && response.outcome.optionId === 'allow' && !state.cancelled && !state.stopping && state.busy && state.turnId === turnId ? signal : null;
+  return response.outcome.outcome === 'selected' && response.outcome.optionId === 'allow';
+}
+/** The abort signal of the running turn: it fires when the developer cancels or the session stops. */
+export function captureTurn(id: string): AbortSignal {
+  const state = live.get(id);
+  if (!state?.busy || !state.turnAbort || state.cancelled || state.stopping) throw new Error('The turn has ended');
+  return state.turnAbort.signal;
+}
+/** Ask the developer about a shell command, through the same pending-permission channel as ACP. */
+export async function authorizeCommand(id: string, title: string, signal: AbortSignal): Promise<boolean> {
+  const state = live.get(id);
+  if (!state || state.cancelled || state.stopping || state.turnAbort?.signal !== signal) return false;
+  const allowed = await askAllowReject(id, state, getSession(id), title);
+  return allowed && !state.cancelled && !state.stopping && state.turnAbort?.signal === signal && !signal.aborted;
 }
 export async function startSession(id: string): Promise<LiveSession> {
   await stoppingProcesses.get(id);

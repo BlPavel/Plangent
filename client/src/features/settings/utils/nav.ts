@@ -1,6 +1,6 @@
 import { LIBRARY_SECTIONS } from '../../../../../common/library-registry'
 import type { NavTreeItem } from '@shared/ui'
-export type SettingsTab = keyof typeof LIBRARY_SECTIONS.global | 'agents' | 'connections' | 'git-agents' | 'review-agent' | 'notes'
+export type SettingsTab = keyof typeof LIBRARY_SECTIONS.global | 'agents' | 'connections' | 'git-agents' | 'review-agent' | 'commands' | 'notes'
 
 /** Sections with children expand in the navigation; the rest open straight away. Grouped like a project's settings. */
 export const SETTINGS_NAV: NavTreeItem[] = [
@@ -24,5 +24,6 @@ export const SETTINGS_NAV: NavTreeItem[] = [
     id: 'review', label: 'Ревью',
     children: [{ page: 'review-agent', label: 'Агенты' }, { page: 'mr-review', label: 'Merge request' }, { page: 'plan-review', label: 'План' }, { page: 'architecture-review', label: 'Архитектура' }, { page: 'qa-review', label: 'QA' }],
   },
+  { id: 'commands', label: 'Команды', page: 'commands' },
   { id: 'notes', label: 'Доработки', page: 'notes' },
 ]

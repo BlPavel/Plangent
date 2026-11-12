@@ -10,10 +10,11 @@ import { getProject } from '../../core/projects';
 import type { AgentSession } from '../../core/agents';
 import { getFinish } from '../../core/git/finish';
 import { tools, type PlangentTool } from './tools';
-import { configureApplicationTools } from '../../core/agents';
+import { configureApplicationTools, configureCommandTool } from '../../core/agents';
 import { isPlangentToolCall } from './plangent-tools';
 
 configureApplicationTools(isPlangentToolCall);
+configureCommandTool(session => allowed(session).includes('run_command'));
 const tokens = new Map<string, string>();
 export function sessionMcpConfig(session: AgentSession, http: boolean): McpServer[] {
   const token = randomBytes(32).toString('hex');
@@ -33,7 +34,8 @@ export function allowed(session: AgentSession): PlangentTool[] {
   const profile = session.role === 'task-reviewer' ? session.role : session.metadata.branch_review ? 'branch-review'
     : session.role === 'executor' && session.policy === 'read-only' ? 'executor-readonly'
     : session.role === 'committer' && finishScenario(session) === 'full' ? 'committer-full' : session.role;
-  return (Object.keys(tools) as PlangentTool[]).filter(name => profile in tools[name].roles && (name !== 'git_action' || !!session.project_id && !session.metadata.mr_private && getProject(session.project_id)?.kind === 'project'))
+  return (Object.keys(tools) as PlangentTool[]).filter(name => profile in tools[name].roles && (name !== 'git_action' || !!session.project_id && !session.metadata.mr_private && getProject(session.project_id)?.kind === 'project')
+    && (!['run_command', 'command_output'].includes(name) || !session.metadata.mr_private))
     .sort((a, b) => tools[a].roles[profile] - tools[b].roles[profile]);
 }
 export async function callTool(id: string, name: string, args: Record<string, unknown>) {

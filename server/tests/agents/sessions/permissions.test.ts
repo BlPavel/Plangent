@@ -89,3 +89,12 @@ test('shell git writes are denied for every role and policy', () => {
   assert.equal(permissionDecision('ask', request('execute', 'git status > file')), 'ask');
   assert.equal(permissionDecision('allow-all', request('edit', 'Document git commit')), 'allow');
 });
+test('with run_command available the agent own shell is refused, everything else is unchanged', () => {
+  for (const policy of ['allow-all', 'allow-edits', 'ask'] as const) {
+    assert.equal(permissionDecision(policy, request('execute', 'npm test'), undefined, undefined, 'chat', true), 'deny', policy);
+    assert.equal(permissionDecision(policy, request('execute', 'rm -rf build'), undefined, undefined, 'chat', true), 'deny', policy);
+    assert.equal(permissionDecision(policy, request('read', 'Read file'), undefined, undefined, 'chat', true), policy === 'ask' ? 'ask' : 'allow', policy);
+  }
+  assert.equal(permissionDecision('allow-all', { sessionId: 's', options: [], toolCall: { toolCallId: 't', kind: 'execute', rawInput: { command: 'git status' } } }, undefined, undefined, 'chat', true), 'allow');
+  assert.equal(permissionDecision('allow-all', request('execute', 'npm test'), undefined, undefined, 'chat', false), 'allow');
+});

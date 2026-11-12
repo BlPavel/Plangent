@@ -16,6 +16,22 @@ but writing Git operations go through Plangent's checked tools and
 [Git workflows](git.md), never shell commands. Chat Git actions require the
 turn's Git permission and an ordinary project.
 
+Agents run shell commands through the Plangent MCP tool `run_command`
+(`sessions/shell-commands.ts`), not their own shell. Once a session has the
+tool, `permissionDecision` refuses the agent's native `execute` calls (a single
+read-only `git` command excepted) with a pointer to the tool. The tool applies
+the session policy like a native command: dangerous commands and every policy
+except `allow-all` ask the developer, read-only refuses. The folder must lie
+inside the session's folders. The agent marks a command `heavy` (default) or
+light. Heavy commands take one of a limited number of slots shared by all
+sessions (`infrastructure/terminal/command-slots.ts`, first come first served,
+in memory). The limit is the app setting `command_slots`; empty means a quarter
+of the cores, at least two. Output is cleaned and shortened
+(`output-trim.ts` keeps the start and the end); the full log stays in a
+temporary file for `command_output`. Queue timeout, run timeout and
+cancellation are separate result statuses, not exit codes. ACP `terminal` is
+not used: the Claude and Codex adapters never call it.
+
 `infrastructure/acp/` owns adapter processes, protocol transport, probes and
 shutdown. Completed executor, task-reviewer and plan-reviewer work uses a
 one-minute idle deadline, including preflight and architecture/QA review.

@@ -112,7 +112,7 @@ test('ACP supplies reference sources only on explicit mention, with no discovery
 
     // The agent cannot discover a source catalog on its own.
     const listed = (await call('tools/list')).result!.tools;
-    assert.deepEqual(listed.map(tool => tool.name), ['git_action']);
+    assert.deepEqual(listed.map(tool => tool.name), ['git_action', 'run_command', 'command_output']);
     assert.ok(!JSON.stringify(listed).includes('mtsip'));
     assert.deepEqual(allowed({ ...sessions.getSession(chat.id), metadata: { mr_private: true } }), []);
     sessions.updateSession(chat.id, { status: 'thinking' });

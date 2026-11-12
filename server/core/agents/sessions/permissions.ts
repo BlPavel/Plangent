@@ -1,10 +1,15 @@
 import path from 'path';
 import fs from 'node:fs';
 import type { RequestPermissionRequest } from '../../../infrastructure/acp/types';
-import type { PermissionPolicy } from './types';
+import type { AgentSession, PermissionPolicy } from './types';
 type ToolCall = RequestPermissionRequest['toolCall'];
 let isApplicationToolCall: (tool: ToolCall) => boolean = () => false;
 export function configureApplicationTools(recognize: (tool: ToolCall) => boolean): void { isApplicationToolCall = recognize; }
+let hasCommandTool: (session: AgentSession) => boolean = () => false;
+/** Whether the session can run shell commands through Plangent's `run_command`; its own shell is then refused. */
+export function configureCommandTool(available: (session: AgentSession) => boolean): void { hasCommandTool = available; }
+export const commandToolAvailable = (session: AgentSession) => hasCommandTool(session);
+export const COMMAND_REDIRECT_REASON = 'Shell commands run through the Plangent run_command tool (heavy: true for tests, builds, linters and type checks). Use it instead of your own shell.';
 import { isInside } from '../../shared';
 
 export const dangerousCommands = ['git push --force', 'git reset --hard', 'rm -rf', 'git clean -fd'];
@@ -77,7 +82,7 @@ const samePath = (a: string, b: string) => process.platform === 'win32' ? a.toLo
  * writable folders only, so a mistyped absolute path goes to the developer; reference sources are
  * read-only and edits there are refused.
  */
-export function permissionDecision(policy: PermissionPolicy, request: RequestPermissionRequest, dangerous = dangerousCommands, scope?: FolderScope, role?: string): 'allow' | 'deny' | 'ask' {
+export function permissionDecision(policy: PermissionPolicy, request: RequestPermissionRequest, dangerous = dangerousCommands, scope?: FolderScope, role?: string, redirectCommands = false): 'allow' | 'deny' | 'ask' {
   const tool = request.toolCall;
   const raw = tool.rawInput as { command?: unknown } | undefined;
   if (tool.kind === 'execute' && typeof raw?.command === 'string' && shellGitDecision({ ...tool, title: '', rawInput: { command: raw.command } }) === 'deny') return 'deny';
@@ -89,6 +94,7 @@ export function permissionDecision(policy: PermissionPolicy, request: RequestPer
   const command = raw && typeof raw === 'object' && Object.keys(raw).every(key => key === 'command') ? raw.command : undefined;
   if (gitDecision === 'allow' && tool.kind === 'execute' && typeof command === 'string'
       && /^git(?:[ \t]+[A-Za-z0-9_./:@=+\-]+)*[ \t]*$/.test(command)) return 'allow';
+  if (redirectCommands && tool.kind === 'execute') return 'deny';
   // The conflict resolver reads, runs read-only git and edits only the conflicted files; it never asks the developer.
   if (role === 'conflict-resolver') {
     if (gitDecision === 'allow' || ['read', 'search', 'think'].includes(tool.kind ?? '')) return 'allow';

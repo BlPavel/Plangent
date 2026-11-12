@@ -47,8 +47,8 @@ agent({ name: 'mock' })
     if (process.argv.includes('--session-titles')) await ctx.client.notify('session/update', {
       sessionId: 'mock-session', update: { sessionUpdate: 'session_info_update', title: text.slice(0, 120) },
     });
-    if (text === 'permission') {
-      await ctx.client.request('session/request_permission', { sessionId: 'mock-session', toolCall: { toolCallId: 't', title: 'npm test', kind: 'execute' }, options: [{ optionId: 'yes', kind: 'allow_once', name: 'Allow' }, { optionId: 'no', kind: 'reject_once', name: 'Reject' }] });
+    if (text === 'permission' || text === 'permission-other') {
+      await ctx.client.request('session/request_permission', { sessionId: 'mock-session', toolCall: { toolCallId: 't', title: 'npm test', kind: text === 'permission' ? 'execute' : 'other' }, options: [{ optionId: 'yes', kind: 'allow_once', name: 'Allow' }, { optionId: 'no', kind: 'reject_once', name: 'Reject' }] });
     }
     for (const chunk of ['hello ', 'world']) {
       await ctx.client.notify('session/update', { sessionId: 'mock-session', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: chunk } } });

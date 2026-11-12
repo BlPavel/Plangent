@@ -86,11 +86,16 @@ test('stdio ACP lifecycle persists coalesced messages, serializes queue, resolve
       const call = async (headers: Record<string, string>, method: string, params = {}) => fetch(chatMcp.url, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', ...headers }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) });
       assert.equal((await call({}, 'tools/list')).status, 401);
       const headers = Object.fromEntries(chatMcp.headers.map(h => [h.name, h.value]));
-      assert.deepEqual((await (await call(headers, 'tools/list')).json() as { result: { tools: { name: string }[] } }).result.tools.map(t => t.name), ['git_action']);
+      assert.deepEqual((await (await call(headers, 'tools/list')).json() as { result: { tools: { name: string }[] } }).result.tools.map(t => t.name), ['git_action', 'run_command', 'command_output']);
       const git = (...args: string[]) => execFileSync('git', args, { cwd: temp, encoding: 'utf8', windowsHide: true });
       git('init', '-b', 'main'); git('config', 'user.name', 'Human'); git('config', 'user.email', 'human@test.invalid');
       fs.writeFileSync(path.join(temp, 'chat-file.txt'), 'from chat');
+      // The agent's own shell is refused without asking, because the chat has run_command.
       await host.sendPrompt(session.id, [{ type: 'text', text: 'permission' }]);
+      await until(() => repository.history(session.id).some(e => e.type === 'permission_result' && e.payload.decision === 'deny' && String(e.payload.gitReason).includes('run_command')));
+      await until(() => repository.getSession(session.id).status === 'ready');
+      assert.equal(host.snapshot(session.id).permissions.length, 0);
+      await host.sendPrompt(session.id, [{ type: 'text', text: 'permission-other' }]);
       await until(() => host.snapshot(session.id).permissions.length === 1);
       const { callTool, allowed } = await import('../../../core-services').then(() => import('../../../api/mcp/server'));
       const group = createProject({ kind: 'group', name: 'Group' });
@@ -115,7 +120,7 @@ test('stdio ACP lifecycle persists coalesced messages, serializes queue, resolve
       host.answerPermission(session.id, host.snapshot(session.id).permissions[0].permissionId, 'yes');
       await until(() => repository.getSession(session.id).status === 'ready');
       fs.writeFileSync(path.join(temp, 'chat-file.txt'), 'second change');
-      await host.sendPrompt(session.id, [{ type: 'text', text: 'permission' }], true);
+      await host.sendPrompt(session.id, [{ type: 'text', text: 'permission-other' }], true);
       await until(() => host.snapshot(session.id).permissions.length === 1);
       const withoutCard = await callTool(session.id, 'git_action', { action: 'commit', paths: ['chat-file.txt'], title: 'second change' });
       assert.ok(!withoutCard.isError);

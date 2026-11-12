@@ -88,7 +88,7 @@ test('code fixer rounds, MCP isolation, developer decisions and instruction inhe
     const session = await created.json() as { id: string };
     const id = session.id; ids.push(id);
     await ready(id);
-    assert.deepEqual(allowed(sessions.getSession(id)), ['get_review', 'start_review_item', 'reply_review_item']);
+    assert.deepEqual(allowed(sessions.getSession(id)), ['get_review', 'start_review_item', 'reply_review_item', 'run_command', 'command_output']);
     for (const role of ['chat', 'executor', 'librarian', 'analyst', 'planner'] as const)
       assert.ok(!allowed({ ...sessions.getSession(id), role }).includes('get_review'));
     assert.equal((await json('/sessions', { project_id: group.id, agent_id: agent.id, role: 'code-fixer' })).status, 400);
@@ -117,7 +117,7 @@ test('code fixer rounds, MCP isolation, developer decisions and instruction inhe
         body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params: method === 'tools/list' ? {} : { name, arguments: args } }) });
       return await response.json() as { error?: unknown; result: { isError?: boolean; content: { text: string }[]; tools?: { name: string }[] } };
     };
-    assert.deepEqual((await call('', {}, 'tools/list')).result.tools?.map(t => t.name), ['get_review', 'start_review_item', 'reply_review_item']);
+    assert.deepEqual((await call('', {}, 'tools/list')).result.tools?.map(t => t.name), ['get_review', 'start_review_item', 'reply_review_item', 'run_command', 'command_output']);
     assert.ok((await call('get_review')).error, 'MCP requires an active turn');
     sessions.updateSession(id, { status: 'thinking' });
     const fetched = JSON.parse((await call('get_review')).result.content[0].text);

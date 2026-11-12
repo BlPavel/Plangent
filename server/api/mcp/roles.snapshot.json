@@ -28,7 +28,9 @@
     "get_review",
     "start_review_item",
     "reply_review_item",
-    "git_action"
+    "git_action",
+    "run_command",
+    "command_output"
   ],
   "task-chat": [
     "request_help",
@@ -36,14 +38,18 @@
     "get_review",
     "start_review_item",
     "reply_review_item",
-    "git_action"
+    "git_action",
+    "run_command",
+    "command_output"
   ],
-  "chat": ["git_action"],
+  "chat": ["git_action", "run_command", "command_output"],
   "executor": [
     "get_step_context",
     "complete_step",
     "request_help",
-    "report_progress"
+    "report_progress",
+    "run_command",
+    "command_output"
   ],
   "executor-readonly": [
     "get_step_context",
@@ -65,7 +71,9 @@
   "code-fixer": [
     "get_review",
     "start_review_item",
-    "reply_review_item"
+    "reply_review_item",
+    "run_command",
+    "command_output"
   ],
   "conflict-resolver": [
     "get_conflicts",

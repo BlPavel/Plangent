@@ -101,6 +101,8 @@
     <div v-if="tab === 'git-agents'" class="tab-body"><GlobalGitAgent section="git" /></div>
     <div v-if="tab === 'review-agent'" class="tab-body"><GlobalGitAgent section="review" /></div>
 
+    <div v-if="tab === 'commands'" class="tab-body"><CommandSlots /></div>
+
     <!-- Personal improvement notes -->
     <div v-show="tab === 'notes'" class="tab-body">
       <ImprovementNotes />
@@ -204,6 +206,7 @@ import ConnectionsSettings from '../components/ConnectionsSettings.vue'
 import { SETTINGS_NAV, type SettingsTab } from '../utils/nav'
 import ImprovementNotes from '../components/ImprovementNotes.vue'
 import GlobalGitAgent from '../components/GlobalGitAgent.vue'
+import CommandSlots from '../components/CommandSlots.vue'
 
 const appStore = useAppStore()
 const projectsStore = useProjectsStore()
@@ -243,6 +246,7 @@ const description = computed(() => ({
   'code-fixer': 'Действует во всех проектах, если проект или группа не переопределили её в своих настройках → «Инструкции».',
   'commit-rules': 'Действуют во всех проектах, если проект или группа не переопределили их в своих настройках → «Git» → «Коммиты».',
   'plan-template': 'Применяется ко всем проектам, если проект не переопределил шаблон в своих инструкциях.',
+  commands: 'Агенты запускают команды через Plangent. Здесь ограничивается, сколько тяжёлых команд (тесты, сборка, линтеры) выполняется одновременно на этом компьютере.',
   'plan-review': 'Общие проверки плана действуют во всех проектах всегда. Свои требования проекта или группы пишутся скиллами в их настройках → «Ревью» → «План».',
 } as Partial<Record<Tab, string>>)[tab.value])
 watch(() => route.query.tab, t => { if (t === 'connections') tab.value = t })

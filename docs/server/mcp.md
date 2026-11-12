@@ -9,6 +9,9 @@ description, fields, required arguments, string validation and ordered role
 access. The registry drives listing and dispatch. Handlers call core public
 APIs instead of accessing persistence or external providers.
 
+`run_command` and `command_output` (`tools/commands.ts`) are given to the chat, task-chat, errand, executor and code-fixer
+roles, never to read-only profiles or private MR reviews. See [agents](agents.md) for how commands are authorized and limited.
+
 Every call checks the session profile and active turn. Profiles include
 read-only execution, branch review and full finish workflows. `git_action`
 requires an ordinary project and excludes private MR review. Domain services
