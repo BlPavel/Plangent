@@ -4,11 +4,11 @@
       <AppSegmented :model-value="kind" :options="[{ value: 'errand', label: '⚡ Поручение' }, { value: 'task', label: '📋 Задача с планом' }]" label="Что создать" @update:model-value="kind = $event as 'errand' | 'task'" />
       <span class="nw-hint">{{ kind === 'errand' ? 'Сразу к делу, без анализа и плана. Подробности напишете агенту в чате.' : 'Анализ, план и очередь шагов.' }}</span>
     </div>
-    <div class="nw-box" :class="{ focused }" @focusin="focused = true" @focusout="focused = false">
+    <div class="nw-box">
       <div class="nw-fields">
         <AppInput v-model="number" class="nw-number" mono placeholder="Номер задачи" aria-label="Номер задачи" maxlength="100" :disabled="busy" />
         <AppInput
-          v-model="title" class="nw-title" aria-label="Описание" maxlength="300" :disabled="busy"
+          v-model="title" class="nw-title" block aria-label="Описание" maxlength="300" :disabled="busy"
           :placeholder="kind === 'errand' ? 'Что нужно сделать? Например: поправить вёрстку в профиле' : 'Описание задачи'"
         />
       </div>
@@ -19,18 +19,20 @@
             <span v-if="optionsState === 'loading'" class="nw-note">Загружаю модели агента…</span>
             <span v-else-if="optionsState" class="nw-note" :title="optionsState">Нет настроек агента · <AppButton variant="link" size="xs" @click="retry">повторить</AppButton></span>
           </AgentSettingsBar>
-          <span class="nw-spacer" />
-          <WhereToWork ref="where" v-model="place" :project-id="project.id" :ordinary="!isGroup" :taken="taken" />
-          <AppSwitch v-model="review" :title="review ? 'После выполнения агент-ревьюер проверит изменения' : 'Без автоматического ревью агентом'">Ревью</AppSwitch>
-          <AppButton type="submit" variant="blue" size="sm" :disabled="!canSubmit">{{ busy ? 'Создаю…' : '⚡ Поручить' }}</AppButton>
+          <div class="nw-send">
+            <WhereToWork ref="where" v-model="place" :project-id="project.id" :ordinary="!isGroup" :taken="taken" />
+            <AppSwitch v-model="review" :title="review ? 'После выполнения агент-ревьюер проверит изменения' : 'Без автоматического ревью агентом'">Ревью</AppSwitch>
+            <AppButton type="submit" variant="blue" size="sm" :disabled="!canSubmit">{{ busy ? 'Создаю…' : '⚡ Поручить' }}</AppButton>
+          </div>
         </template>
         <template v-else>
           <FormField v-if="isGroup && members.length" v-model="owner" type="select" class="nw-owner" aria-label="Где">
             <option value="">🗂️ Вся группа</option>
             <option v-for="m in members" :key="m.id" :value="m.id">📁 {{ m.name }}</option>
           </FormField>
-          <span class="nw-spacer" />
-          <AppButton type="submit" variant="primary" size="sm" :disabled="!canSubmit">{{ busy ? 'Создаю…' : 'Создать и начать анализ →' }}</AppButton>
+          <div class="nw-send">
+            <AppButton type="submit" variant="blue" size="sm" :disabled="!canSubmit">{{ busy ? 'Создаю…' : 'Создать и начать анализ →' }}</AppButton>
+          </div>
         </template>
       </div>
     </div>
@@ -60,7 +62,7 @@ const work = useWorkStore()
 const isGroup = computed(() => props.project.kind === 'group')
 const kind = ref<'errand' | 'task'>(localStorage.getItem('work.newKind') === 'task' ? 'task' : 'errand')
 watch(kind, value => localStorage.setItem('work.newKind', value))
-const number = useDraft(() => `project:${props.project.id}:new-work:number`, () => ''), title = useDraft(() => `project:${props.project.id}:new-work:title`, () => ''), owner = useDraft(() => `project:${props.project.id}:new-work:owner`, () => ''), busy = ref(false), error = ref(''), focused = ref(false)
+const number = useDraft(() => `project:${props.project.id}:new-work:number`, () => ''), title = useDraft(() => `project:${props.project.id}:new-work:title`, () => ''), owner = useDraft(() => `project:${props.project.id}:new-work:owner`, () => ''), busy = ref(false), error = ref('')
 
 // Errand: who does it and how — chosen every time, starting from the project's agent and its own settings.
 const agentId = ref(''), policy = ref('allow-all'), review = ref(false)
@@ -110,21 +112,24 @@ async function submit() {
 }
 </script>
 <style scoped>
-.nw { padding: var(--sp-3) var(--sp-4) var(--sp-3); border-bottom: 1px solid var(--border); }
-.nw-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
-.nw-kinds { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; flex-shrink: 0; }
-.nw-kinds button { padding: 5px 12px; background: none; border: none; color: var(--text-muted); cursor: pointer; font: inherit; font-size: var(--fs-md); }
-.nw-kinds button.on { background: var(--bg3); color: var(--text); }
+.nw { padding: var(--sp-3) var(--page-inset, var(--sp-4)); border-bottom: 1px solid var(--border); }
+.nw-head { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 8px; }
 .nw-hint { min-width: 0; font-size: var(--fs-sm); color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.nw-box { background: var(--bg2); border: 1px solid var(--border-strong); border-radius: var(--radius-lg); transition: border-color var(--motion-fast), box-shadow var(--motion-fast); }
-.nw-box.focused { border-color: var(--blue); box-shadow: 0 0 0 3px var(--blue-soft); }
-.nw-fields { display: flex; align-items: stretch; padding-top: 6px; }
+.nw-box { display: flex; flex-direction: column; gap: var(--sp-2); }
+.nw-fields { display: flex; gap: var(--sp-2); }
 .nw-number { flex: 0 0 150px; }
 .nw-title { flex: 1; }
-.nw-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 2px; padding: 4px 8px 8px; }
-.nw-settings { padding-top: 0; }
-.nw-spacer { flex: 1; }
+.nw-bar { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2); }
+/* Two classes: the settings bar's own top padding (for under a composer) would otherwise win and lower it against the agent select. */
+.nw-bar > .nw-settings { padding: 0; }
+.nw-send { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2); margin-left: auto; }
 .nw-note { font-size: var(--fs-sm); color: var(--text-faint); padding: 0 6px; white-space: nowrap; }
 .nw-owner { width: 200px; }
+@media (max-width: 760px) {
+  .nw-hint { display: none; }
+  .nw-fields { flex-wrap: wrap; }
+  .nw-number { flex: 1 1 100%; }
+  .nw-send { width: 100%; justify-content: flex-end; }
+}
 .nw-error { margin-top: 6px; font-size: var(--fs-sm); color: var(--danger-hover); white-space: pre-wrap; }
 </style>

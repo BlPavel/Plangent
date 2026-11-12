@@ -8,7 +8,7 @@
       <span class="check-spacer" />
       <AppButton size="sm" :disabled="busy || reviewerWorking || closed" @click="review">🤖 {{ data?.reviewers.length ? 'Ревью ещё раз' : 'Ревью агентом' }}</AppButton>
       <AppButton size="sm" :disabled="loading" @click="load">Обновить</AppButton>
-      <AppButton variant="primary" size="sm" :disabled="closed" @click="emit('checked')">Проверено → Завершение</AppButton>
+      <AppButton variant="blue" size="sm" :disabled="closed" title="Рабочее место уберётся, ветка останется; закрытую работу можно открыть снова" @click="emit('close')">Закрыть работу</AppButton>
     </header>
     <p v-if="error" role="alert" class="check-error">{{ error }}</p>
     <div class="check-grid">
@@ -75,7 +75,7 @@ import WorkChat from './WorkChat.vue'
 useCodeScreen()
 
 const props = defineProps<{ task: Task; defaultAgentId?: string | null }>()
-const emit = defineEmits<{ checked: [] }>()
+const emit = defineEmits<{ close: [] }>()
 type CheckData = import('@contracts').WorkCheck
 const data = ref<CheckData>(), error = ref(''), busy = ref(false), loading = ref(false), selected = ref<string[]>([])
 const opened = ref(''), file = ref<ViewerFile>(), selection = ref<LineSelection>(), note = useDraft(() => `task:${props.task.id}:check:note`, () => ''), mode = ref<'diff' | 'file'>('diff')

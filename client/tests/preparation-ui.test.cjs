@@ -34,7 +34,7 @@ const compiled = (async () => {
     plugins: [{ name: 'vue-test', setup(build) {
       // Agent launch and review have their own suites; keep the real document renderer and API.
       build.onLoad({ filter: /features[\\/]agent-chat[\\/]index\.ts$/ }, () => ({
-        contents: "export { default as MessageMarkdown } from '../../shared/markdown/MessageMarkdown.vue'; export const NewChatPanel = { render: () => null }", loader: 'ts', resolveDir: path.resolve('client/src/features/agent-chat'),
+        contents: "export { default as MessageMarkdown } from '../../shared/markdown/MessageMarkdown.vue'; export const NewChatPanel = { render: () => null }; export const useComposerReveal = () => {}", loader: 'ts', resolveDir: path.resolve('client/src/features/agent-chat'),
       }))
       build.onLoad({ filter: /\.vue$/ }, args => {
         if (['TaskChats.vue', 'PlanReviewPanel.vue'].includes(path.basename(args.path))) return { contents: 'export default { render: () => null }', loader: 'ts' }
@@ -103,14 +103,14 @@ test('work-state matches server check, finish and closed transitions for tasks a
       [{ sessions: [{ role: 'task-reviewer', status: 'thinking' }] }, 'check', offset + 1],
       [{ remarks: 1 }, 'check', offset + 1],
       [{ sessions: [{ role: 'executor', status: 'complete' }] }, 'check', offset + 1],
-      [{ finish: { status: 'running' } }, 'finish', offset + 2],
-      [{ finish: { status: 'complete' } }, 'finish', offset + 2],
+      [{ finish: { status: 'running' } }, 'check', offset + 1],
+      [{ finish: { status: 'complete' } }, 'check', offset + 1],
       [{ task: { ...task, status: 'done' } }, 'done', workStagesOf(task).length],
     ]
     for (const [input, expectedStage, index] of cases) {
       const state = computeWorkState({ task, sessions: [{ role: 'executor', status: 'ready' }], ...input })
       assert.equal(state.stage, expectedStage); assert.equal(workStageIndex(task, state), index)
-      if (expectedStage === 'check' || expectedStage === 'finish') assert.equal(workTab(state, kind), expectedStage)
+      if (expectedStage === 'check') assert.equal(workTab(state, kind), expectedStage)
     }
   }
 })

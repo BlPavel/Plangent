@@ -36,16 +36,16 @@ export function computeWorkState(input: WorkInput): WorkState {
   if (input.awaitingBrief) return result('execution', 'waiting', 'attention', '❗', 'Напишите агенту, что сделать', 'chat', 'Написать агенту');
   const queueWaiting = queue?.stages.flatMap(s => s.sessions).some(s => ['waiting_for_developer', 'ready_for_execution'].includes(s.status));
   if (waiting || queueWaiting || queue?.status === 'paused') return result('execution', 'waiting', 'attention', '❗', 'Нужно ваше действие', waiting ? 'chat' : 'queue', waiting ? 'Ответить агенту' : 'Продолжить');
-  if (finish && !['complete', 'cancelled'].includes(finish.status)) return result('finish',
+  if (finish && !['complete', 'cancelled'].includes(finish.status)) return result('check',
     finish.status === 'running' ? 'finishing' : finish.status === 'error' ? 'failed' : 'waiting',
-    finish.status === 'running' ? 'working' : 'attention', '⇪', finish.error || 'Завершение работы', 'finish', 'Завершение');
+    finish.status === 'running' ? 'working' : 'attention', '⇪', finish.error || 'Завершение работы', 'check', 'Проверка');
   if (active.some(s => s.role === 'task-reviewer') || queue?.stages.flatMap(s => s.sessions).some(s => s.kind === 'review' && ['running', 'reviewing'].includes(s.status)))
     return result('check', 'reviewing', 'working', '🤖', 'Идёт ревью', 'check', 'Проверка');
   if (active.length || queue?.status === 'running') return result('execution', 'running', 'working', '◌',
     active.some(s => s.role === 'task-chat') ? 'Агент исправляет замечания' : 'Агент работает', 'chat', 'Открыть чат');
   if (queue?.status === 'failed' || sessions.some(s => s.status === 'error')) return result('execution', 'failed', 'attention', '❗', queue?.reason || 'Работа прервана', 'chat', 'Открыть');
   if (input.remarks) return result('check', 'fixes', 'attention', '✎', 'Есть замечания ревью', 'check', 'Проверить замечания');
-  if (finish?.status === 'complete') return result('finish', 'ready', 'attention', '⇪', 'Можно закрыть работу', 'finish', 'Завершение');
+  if (finish?.status === 'complete') return result('check', 'ready', 'attention', '⇪', 'Можно закрыть работу', 'check', 'Закрыть работу');
   if (task.kind === 'errand' || queue?.status === 'finished' || sessions.some(s => ['executor', 'task-chat', 'errand'].includes(s.role) && ['ready', 'complete'].includes(s.status)))
     return result('check', 'ready', 'attention', '✓', 'Готово к проверке', 'check', 'Проверить');
   if (steps.length) return result('execution', 'draft', 'preparation', '○', 'План готов к выполнению', 'queue', 'Настроить выполнение');

@@ -13,7 +13,7 @@
 
     <div class="work-groups">
       <p v-if="work.error" role="alert" class="work-error">{{ work.error }}</p>
-      <AppEmptyState v-else-if="!work.entries.length && !work.loading" small>Пока ничего нет. Поручите что-нибудь агенту или создайте задачу.</AppEmptyState>
+      <div v-else-if="!work.entries.length && !work.loading" class="work-empty"><AppEmptyState title="Пока ничего нет" description="Поручите что-нибудь агенту или создайте задачу." /></div>
       <AppEmptyState v-else-if="!shown.length" small>Под фильтр ничего не подходит.</AppEmptyState>
       <section v-for="g in groups" :key="g.id" class="work-group">
         <h3 :class="{ clickable: g.id === 'done', attention: g.id === 'attention' }" @click="g.id === 'done' && (doneOpen = !doneOpen)">
@@ -189,13 +189,10 @@ async function submitFollowUp() {
 <style scoped>
 .work-list { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 .work-toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: var(--sp-4) var(--page-inset, 16px) 0; }
-.work-kinds { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
-.work-kinds button { padding: 5px 12px; background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: var(--fs-md); }
-.work-kinds button.active { background: var(--bg3); color: var(--text); }
-.work-kind-count { margin-left: 5px; font-size: var(--fs-xs); color: var(--text-faint); }
 .work-owner { width: 190px; }
 .work-search { margin-left: auto; flex: 0 0 220px; }
-.work-groups { flex: 1; overflow: auto; padding: 0 var(--page-inset, 16px) 16px; }
+.work-groups { display: flex; flex-direction: column; flex: 1; overflow: auto; padding: 0 var(--page-inset, 16px) 16px; }
+.work-empty { display: flex; flex: 1; min-height: 0; }
 .work-error { color: var(--danger-hover); }
 .work-group h3 { margin: 14px 0 6px; font-size: var(--fs-sm); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
 .work-group h3.attention { color: var(--warning-text); }
@@ -226,8 +223,12 @@ async function submitFollowUp() {
 .work-bars i.attention { background: var(--warning); }
 .work-stage-name { font-size: var(--fs-sm); color: var(--text-muted); }
 .work-actions { display: flex; align-items: center; justify-content: flex-end; gap: 4px; min-width: 130px; }
-.work-owner-tag { flex-shrink: 0; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 1px 8px; border-radius: var(--radius-pill); background: var(--bg3); border: 1px solid var(--border); font-size: var(--fs-xs); color: var(--text-muted); }
-.work-owner-tag.own { color: var(--blue-hover); border-color: var(--blue-soft); }
 .work-menu { display: inline-flex; }
+@media (max-width: 760px) {
+  .work-search { flex: 1 1 100%; margin-left: 0; }
+  .work-owner { width: 100%; }
+  .work-stage { display: none; }
+  .work-actions { min-width: 0; }
+}
 .work-edit { display: flex; flex-direction: column; gap: 12px; }
 </style>

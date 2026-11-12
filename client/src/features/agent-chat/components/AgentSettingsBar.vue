@@ -30,7 +30,6 @@
       :model-value="split.plan.active"
       :disabled="locked && split.plan.select.kind === 'mode'"
       :title="split.plan.active ? 'Сначала план — включено. Агент изучает код и предлагает план, ничего не меняя.' : 'Сначала план: агент изучит код и предложит план, ничего не меняя'"
-      small
       @update:model-value="togglePlan"
     >
       План

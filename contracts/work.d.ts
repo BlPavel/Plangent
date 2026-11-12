@@ -15,14 +15,14 @@ export interface Workspace {
     removed_at: string | null;
 }
 export type WorkGroup = 'attention' | 'working' | 'preparation' | 'done';
-export type WorkStage = 'plan' | 'execution' | 'check' | 'finish' | 'done';
+export type WorkStage = 'plan' | 'execution' | 'check' | 'done';
 export interface WorkState {
     stage: WorkStage;
     status: 'draft' | 'preparing' | 'waiting' | 'running' | 'reviewing' | 'ready' | 'fixes' | 'finishing' | 'failed' | 'closed';
     group: WorkGroup;
     icon: '○' | '◌' | '❗' | '✓' | '✎' | '⇪' | '✔' | '🤖';
     text: string;
-    action: 'plan' | 'queue' | 'chat' | 'check' | 'finish' | 'recreate' | 'reopen' | 'errand';
+    action: 'plan' | 'queue' | 'chat' | 'check' | 'recreate' | 'reopen' | 'errand';
     actionLabel: string;
     hasBranch: boolean;
     agentWorking: boolean;

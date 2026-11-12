@@ -41,7 +41,16 @@ export function usePopover(open: Ref<boolean>, anchor: Ref<HTMLElement | null | 
         const label = target instanceof Element ? target.closest('label') : null;
         const controlId = label?.getAttribute('for');
         const control = controlId ? document.getElementById(controlId) : label?.querySelector('button,input,select,textarea');
-        if (control && (anchor.value === control || anchor.value?.contains(control))) return;
+        if (control && (anchor.value === control || anchor.value?.contains(control))) {
+            // A button anchor toggles itself from the forwarded click. A text field would only reopen, so the
+            // label's click is cancelled and the popover closes.
+            if (control.tagName === 'BUTTON') return;
+            const swallow = (click: Event) => { if (click.target instanceof Element && click.target.closest('label') === label) click.preventDefault(); };
+            document.addEventListener('click', swallow, { capture: true, once: true });
+            setTimeout(() => document.removeEventListener('click', swallow, true), 600);
+            close();
+            return;
+        }
         const nested = target instanceof Element ? target.closest<HTMLElement>('.popover') : null;
         const nestedAnchor = nested && popoverAnchors.get(nested);
         if (!panel.value?.contains(target) && !anchor.value?.contains(target) && !(nestedAnchor && panel.value?.contains(nestedAnchor))) close();

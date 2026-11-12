@@ -74,15 +74,4 @@ function primary() {
 </script>
 <style scoped>
 .stage-nav { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 20px; padding: 8px var(--sp-5); border-bottom: 1px solid var(--border); flex-shrink: 0; }
-.work-stages { display: flex; align-items: center; margin: 0; padding: 0; list-style: none; font-size: var(--fs-md); overflow-x: auto; }
-.work-stages li { display: flex; align-items: center; white-space: nowrap; }
-.work-stages button { display: inline-flex; gap: 7px; align-items: center; min-height: 30px; padding: 4px 8px; background: none; border: 1px solid transparent; border-radius: var(--radius-sm); color: var(--text-muted); cursor: pointer; font: inherit; }
-.work-stages button:hover { background: var(--bg3); }
-.work-stages button.selected { color: var(--text); background: var(--blue-soft); border-color: var(--blue); }
-.stage-actions { display: flex; gap: 8px; margin-left: auto; }
-.stage-count { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: var(--radius-pill); background: var(--warning); color: var(--bg); font-size: var(--fs-xs); font-weight: 600; }
-.work-stages .done button { color: var(--accent-hover); }
-.work-stages .current button { color: var(--text); font-weight: 600; }
-.line { width: 28px; height: 1px; margin: 0 6px; background: var(--border-strong); }
-.done .line { background: var(--accent-hover); }
 </style>

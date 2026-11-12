@@ -116,8 +116,8 @@
           </div>
         </template>
         <!-- Kept mounted: the finish run reports its progress (and the tab's badge) while another tab is open. -->
-        <div v-if="store.repository && !work" v-show="rightTab === 'finish'" class="ct-scroll">
-          <FinishPanel :key="projectId + (task?.id || '')" :project-id="projectId" :task="task" :blocked="git.writeBlocked" :branch="store.branch" @attention="showRight('finish')" />
+        <div v-if="store.repository" v-show="rightTab === 'finish'" class="ct-scroll">
+          <FinishPanel :key="projectId + (task?.id || '') + (work ? workspaceId ?? '' : '')" :project-id="projectId" :task="task" :workspace-id="work ? workspaceId ?? undefined : undefined" :blocked="finishBlocked || git.writeBlocked" :branch="store.branch" @attention="showRight('finish')" />
         </div>
         <div v-if="store.repository && rightTab === 'mr'" class="ct-scroll">
           <TaskMrPanel :key="projectId + (task?.id || '')" :project-id="projectId" :task-id="task?.id" stacked />
@@ -187,8 +187,10 @@ const props = defineProps<{
   task?: { id: string; key: string } | null
   /** Agent preselected when sending a round: the task's agent, else the project's. */
   defaultAgentId?: string | null
-  /** Проверка inside a work's page: its own Завершение stage replaces the panel, remarks go to the work's chat. */
+  /** Проверка inside a work's page: the work's folder is finished in place, remarks go to the work's chat. */
   work?: boolean
+  /** Why finishing is unavailable (a closed work); shown instead of the start button. */
+  finishBlocked?: string
 }>()
 const emit = defineEmits<{ back: [] }>()
 
@@ -455,13 +457,13 @@ watch(() => conflicts.operation, operation => { if (!operation && rightTab.value
 const rightTabs = computed(() => [
   ...(conflicts.operation ? [{ id: 'conflicts' as const, label: 'Конфликты', count: conflictAttention.value || conflicts.conflicted.length, warning: !!conflictAttention.value, hint: conflictAttention.value ? `Агент ждёт ответа: ${conflictAttention.value}` : 'Конфликтных файлов' }] : []),
   { id: 'remarks' as const, label: 'Замечания', count: attention.value || store.items.length, warning: !!attention.value, hint: attention.value ? `Ждут вашего ответа: ${attention.value}` : '' },
-  ...(props.work ? [] : [{ id: 'finish' as const, label: 'Завершение', count: finishAttention.value ? 1 : 0, warning: true, hint: finishAttention.value ? 'Ждёт вашего решения' : finish.run && !finishDone.value ? 'Идёт завершение · ' + (finishStages[finish.run.stage] || finish.run.stage) : 'Коммиты, push и МР' }]),
+  { id: 'finish' as const, label: 'Завершение', count: finishAttention.value ? 1 : 0, warning: true, hint: finishAttention.value ? 'Ждёт вашего решения' : finish.run && !finishDone.value ? 'Идёт завершение · ' + (finishStages[finish.run.stage] || finish.run.stage) : 'Коммиты, push и МР' },
   { id: 'mr' as const, label: 'МР', count: 0, warning: false, hint: '' },
 ])
 const rightRail = computed(() => [
   ...(conflicts.operation ? [{ id: 'conflicts', label: 'Конфликты', icon: 'conflicts' as const, count: conflictAttention.value || conflicts.conflicted.length, tone: conflictAttention.value ? 'warning' as const : undefined, dot: conflicts.state?.session?.status }] : []),
   { id: 'remarks', label: 'Замечания', icon: 'remarks' as const, count: attention.value || store.items.length, tone: attention.value ? 'warning' as const : undefined, dot: agent.session?.status },
-  ...(props.work ? [] : [{ id: 'finish', label: 'Завершение работ', icon: 'finish' as const, count: finishAttention.value ? 1 : 0, tone: 'warning' as const }]),
+  { id: 'finish', label: 'Завершение работ', icon: 'finish' as const, count: finishAttention.value ? 1 : 0, tone: 'warning' as const },
   { id: 'mr', label: 'МР', icon: 'mr' as const },
 ])
 /** «Посмотреть правку»: the agent's changes of that round, opened at the file it named. */

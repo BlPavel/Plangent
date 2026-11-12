@@ -18,17 +18,16 @@
       <p v-if="workspace && workspace.status !== 'ready'" class="exec-no-plan">{{ workspace.status === 'failed' ? 'Рабочее место недоступно: ' + workspace.error : 'Готовлю рабочее место…' }}</p>
       <CodeTab
         v-else-if="isOrdinary" :key="task.id + (workspace?.id ?? '')" :project-id="task.project_id" :workspace-id="workspace?.id ?? null"
-        :task="{ id: task.id, key: task.key }" :default-agent-id="executorAgentId" work
+        :task="{ id: task.id, key: task.key }" :default-agent-id="executorAgentId" :finish-blocked="workClosed ? 'Работа закрыта' : ''" work
       >
         <template #actions>
           <span v-if="entry?.state.status === 'reviewing'" class="check-note">🤖 Идёт ревью агентом…</span>
           <AppButton size="sm" :disabled="taskDone || reviewStarting || entry?.state.status === 'reviewing'" title="Агент-ревьюер проверит изменения работы; замечания появятся справа" @click="runReview">🤖 Ревью агентом</AppButton>
-          <AppButton size="sm" variant="blue" @click="activeTab = 'finish'">Завершение →</AppButton>
+          <AppButton v-if="!workClosed" size="sm" variant="blue" title="Рабочее место уберётся, ветка останется; закрытую работу можно открыть снова" @click="closeWork">Закрыть работу</AppButton>
         </template>
       </CodeTab>
-      <WorkCheck v-else :key="task.id" :task="task" :default-agent-id="defaultAgentId" @checked="activeTab = 'finish'" />
+      <WorkCheck v-else :key="task.id" :task="task" :default-agent-id="defaultAgentId" @close="closeWork" />
     </div>
-    <div v-if="activeTab === 'finish' && task" class="tab-body"><WorkFinish :key="task.id" :task="task" :workspace="workspace" @closed="onClosed" /></div>
     <div v-show="activeTab === 'analysis'" class="tab-body">
       <AnalysisPanel
         :workspace-id="workspace?.id ?? null"
@@ -153,7 +152,6 @@ import { slug } from '@shared/utils/slug'
 import TaskGit from '../components/TaskGit.vue'
 import WorkChat from '../components/WorkChat.vue'
 import WorkCheck from '../components/WorkCheck.vue'
-import WorkFinish from '../components/WorkFinish.vue'
 import WorkHeader from '../components/WorkHeader.vue'
 import WorkStages from '../components/WorkStages.vue'
 import { useWorkStore } from '../stores/work'
@@ -224,7 +222,7 @@ const plan = ref<Plan | null>(null)
 const agents = computed(() => agentsStore.agents)
 const { active: editingPlan, text: planContent, stale: stalePlanDraft, start: startPlanDraft, reload: reloadPlanDraft, cancel: cancelPlanDraft } = useDocumentDraft(() => `task:${tid.value}:plan-edit`, () => ({ text: plan.value?.content ?? '', version: plan.value?.version ?? 0 }))
 
-type Tab = 'chat' | 'analysis' | 'architecture' | 'qa' | 'plan' | 'exec' | 'check' | 'finish'
+type Tab = 'chat' | 'analysis' | 'architecture' | 'qa' | 'plan' | 'exec' | 'check'
 const activeTab = ref<Tab>('plan')
 const showStart = ref(false), startingWork = ref(false), startError = ref('')
 const executionPlace = ref<WorkPlace>({ place: 'new', branch_name: '', base_branch: '', branch: '' })
@@ -266,6 +264,7 @@ const planningLaunch = useAgentChatLaunch(pid, tid, 'plan')
 const { error: planningError, launching: planningLaunching } = planningLaunch
 const analysisLaunch = useAgentChatLaunch(pid, tid, 'analysis')
 const taskDone = computed(() => task.value?.status === 'done')
+const workClosed = computed(() => taskDone.value || !!task.value?.closed_at)
 watch(() => task.value?.id, () => { if (task.value?.kind === 'errand') activeTab.value = 'chat' }, { immediate: true })
 const analysisSections = ref<AnalysisSection[]>([])
 const analysisHighlights = ref<string[]>([])
@@ -424,23 +423,23 @@ interface TabItem { id: Tab; label: string; count?: number; countTitle?: string;
 const tabs = computed<TabItem[]>(() => {
   if (!task.value) return []
   const check: TabItem = { id: 'check', label: 'Проверка', count: entry.value?.state.counts.remarks, countTitle: 'Замечания, по которым нужно решение' }
-  const finish: TabItem = { id: 'finish', label: 'Завершение' }
-  if (task.value.kind === 'errand') return [{ id: 'chat', label: 'Выполнение' }, check, finish]
+  if (task.value.kind === 'errand') return [{ id: 'chat', label: 'Выполнение' }, check]
   return [
     { id: 'analysis', label: 'Анализ' },
     { id: 'architecture', label: 'Архитектура', count: materialAttention.value.architecture, countTitle: 'Карточки ревью архитектуры, которые ждут вашего решения или ответа автора' },
     { id: 'qa', label: 'QA', count: materialAttention.value.qa, countTitle: 'Карточки ревью QA, которые ждут вашего решения или ответа автора' },
     { id: 'plan', label: 'План', count: planAttention.value, countTitle: 'Карточки ревью плана, которые ждут вашего решения или ответа планировщика' },
     ...(taskDone.value ? [] : [{ id: 'exec' as const, label: 'Выполнение', count: attentionCount.value, countTitle: 'Шаги, которым нужен ваш ответ', live: queue.frozen.value }]),
-    check, finish,
+    check,
   ]
 })
 function applyRouteTab() {
   const wanted = route.query.tab
-  if (typeof wanted === 'string' && tabs.value.some(t => t.id === wanted)) activeTab.value = wanted as Tab
+  const tab = wanted === 'finish' ? 'check' : wanted // the Завершение stage moved into Проверка
+  if (typeof tab === 'string' && tabs.value.some(t => t.id === tab)) activeTab.value = tab as Tab
 }
 watch(() => route.query.tab, applyRouteTab)
-// «В чат» on a tab without a chat (queue, finish): go to the work's chat — the errand's one, else the plan's.
+// «В чат» on a tab without a chat (queue, check): go to the work's chat — the errand's one, else the plan's.
 const viewRoot = ref<HTMLElement>()
 useComposerReveal(viewRoot, () => ({ projectId: task.value?.project_id ?? '', workspaceId: workspace.value?.id }), () => {
   if (task.value) activeTab.value = task.value.kind === 'errand' ? 'chat' : 'plan'
@@ -451,7 +450,7 @@ const menuItems = computed<MenuItem[]>(() => {
   if (!t) return []
   return [
     { label: 'Редактировать', hint: 'Номер задачи и описание', action: () => void startTitleEdit() },
-    ...(!t.closed_at && t.status !== 'done' ? [{ label: 'Закрыть работу', hint: 'Без пуша и МР; можно открыть снова', action: () => void closeWork() }] : []),
+    ...(!workClosed.value ? [{ label: 'Закрыть работу', hint: 'Без пуша и МР; можно открыть снова', action: () => void closeWork() }] : []),
     ...(t.kind === 'errand' && !t.closed_at ? [
       { label: 'Добавить план', hint: 'Поручение станет задачей, ветка сохранится', action: () => void addPlanToErrand() },
       { separator: true as const },
@@ -729,18 +728,7 @@ async function savePlan() {
 <style scoped>
 .task-view { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
 
-.task-header {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-3);
-  padding: calc(var(--titlebar-h) + var(--sp-2)) var(--sp-5) var(--sp-3);
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-}
 .task-edit-fields { display: flex; flex-direction: column; gap: var(--sp-3); }
-.task-title-block { flex: 1; min-width: 0; display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
-.task-key { font-size: var(--fs-md); color: var(--text-muted); font-family: var(--font-mono); }
-.task-name { font-size: var(--fs-lg); font-weight: 700; letter-spacing: -0.01em; }
 
 /* Tab bodies */
 .tab-body {

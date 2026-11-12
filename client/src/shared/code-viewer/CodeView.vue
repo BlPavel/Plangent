@@ -11,7 +11,7 @@
           <span class="cv-nav-count">{{ currentBlock >= 0 ? currentBlock + 1 : '–' }}/{{ blockRows.length }}</span>
           <AppButton size="xs" variant="subtle" type="button" title="Следующее изменение" @click="step(1)">↓</AppButton>
         </span>
-        <AppCheckbox v-if="effectiveMode === 'diff' && ignoreWhitespace !== undefined" small :model-value="!!ignoreWhitespace" title="Игнорировать пробелы и переводы строк" @update:model-value="ignoreWhitespace = $event">без пробелов</AppCheckbox>
+        <AppCheckbox v-if="effectiveMode === 'diff' && ignoreWhitespace !== undefined" :model-value="!!ignoreWhitespace" title="Игнорировать пробелы и переводы строк" @update:model-value="ignoreWhitespace = $event">без пробелов</AppCheckbox>
         <AppButton size="xs" variant="subtle" v-if="effectiveMode === 'diff' && hasFolds" type="button" class="cv-link" @click="expandAll = !expandAll">{{ expandAll ? 'Свернуть' : 'Развернуть всё' }}</AppButton>
         <AppSegmented v-model="mode" :options="[{value:'diff',label:'Diff'},{value:'file',label:'Файл'}]" label="Режим просмотра" />
       </template>
