@@ -15,7 +15,7 @@
       <div class="nw-bar">
         <template v-if="kind === 'errand'">
           <AppSelect v-model="agentId" :options="agentList" size="sm" variant="subtle" heading="Агент, который выполнит поручение" placeholder="Агент" />
-          <AgentSettingsBar class="nw-settings" :policy="policy" :selects="resolvedSelects" @policy="policy = $event" @change="pick">
+          <AgentSettingsBar class="nw-settings" placement="bottom" :policy="policy" :selects="resolvedSelects" @policy="policy = $event" @change="pick">
             <span v-if="optionsState === 'loading'" class="nw-note">Загружаю модели агента…</span>
             <span v-else-if="optionsState" class="nw-note" :title="optionsState">Нет настроек агента · <AppButton variant="link" size="xs" @click="retry">повторить</AppButton></span>
           </AgentSettingsBar>
@@ -35,6 +35,9 @@
           </div>
         </template>
       </div>
+      <div v-if="kind === 'errand' && review && !isGroup" class="nw-review">
+        <ReviewAgentBar label="Агент ревью" read-only :project-id="project.id" :fallback-agent-id="defaultAgentId" @change="reviewPick = $event" />
+      </div>
     </div>
     <p v-if="error" class="nw-error" role="alert">{{ error }}</p>
   </form>
@@ -47,7 +50,7 @@ import { tasksEndpoints } from '../api'
 import { useDraft } from '@core/composables/useDraft'
 import { computed, ref, watch } from 'vue'
 import type { Agent, Project, Task } from '@contracts'
-import { AgentSettingsBar, useAgentLaunchOptions } from '@features/agent-chat'
+import { AgentSettingsBar, ReviewAgentBar, useAgentLaunchOptions, type ReviewAgentPick } from '@features/agent-chat'
 import { gitApi } from '@features/code'
 import AppButton from '@shared/ui/AppButton.vue'
 import AppSelect from '@shared/ui/AppSelect.vue'
@@ -66,6 +69,8 @@ const number = useDraft(() => `project:${props.project.id}:new-work:number`, () 
 
 // Errand: who does it and how — chosen every time, starting from the project's agent and its own settings.
 const agentId = ref(''), policy = ref('allow-all'), review = ref(false)
+/** Who reviews the errand: the project's review agent from the settings until the developer changes it. */
+const reviewPick = ref<ReviewAgentPick | null>(null)
 const agentList = computed(() => props.agents.filter(a => a.active).map(a => ({ value: a.id, label: a.name })))
 const fallbackAgent = () => (props.defaultAgentId && agentList.value.some(a => a.value === props.defaultAgentId) ? props.defaultAgentId : agentList.value[0]?.value ?? '')
 watch(() => [props.project.id, agentList.value.length], () => { if (!agentList.value.some(a => a.value === agentId.value)) agentId.value = fallbackAgent() }, { immediate: true })
@@ -98,6 +103,7 @@ async function submit() {
       const p = place.value
       const { task } = await workApi.errand(props.project.id, {
         title: title.value.trim(), external_key: number.value.trim(), agent_id: agentId.value, policy: policy.value, ...launch(), auto_review: review.value,
+        ...(review.value && reviewPick.value ? { review_agent: { agent_id: reviewPick.value.agent_id, model: reviewPick.value.model, effort: reviewPick.value.effort } } : {}),
         ...(isGroup.value ? {} : p.place === 'new' ? { place: 'new', branch_name: p.branch_name, base_branch: p.base_branch } : { place: 'existing', branch: p.branch, base_branch: p.base_branch }),
       })
       emit('created', task, 'chat')
@@ -123,6 +129,7 @@ async function submit() {
 /* Two classes: the settings bar's own top padding (for under a composer) would otherwise win and lower it against the agent select. */
 .nw-bar > .nw-settings { padding: 0; }
 .nw-send { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2); margin-left: auto; }
+.nw-review { padding-top: var(--sp-1); }
 .nw-note { font-size: var(--fs-sm); color: var(--text-faint); padding: 0 6px; white-space: nowrap; }
 .nw-owner { width: 200px; }
 @media (max-width: 760px) {

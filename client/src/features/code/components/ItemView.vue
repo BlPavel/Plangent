@@ -5,7 +5,7 @@
   />
   <ItemCard
     v-else :draft-key="`code-review:${item.review_id}:item:${item.id}:${place}:text`" :item="item" :thread="thread" :state="state" :read-only="readOnly" :show-location="showLocation" :embedded="embedded" :busy="busy" :error="error"
-    :working="working" :permissions="working ? agent.permissions : []"
+    :decision="decision" :working="working" :permissions="working ? agent.permissions : []"
     @edit="editing = true" @remove="remove" @general="general" @goto="emit('goto')" @open-ref="emit('open-ref', $event)"
     @reply="reply" @remove-message="removeMessage" @close="close"
     @permission="(permission, option) => agent.answerPermission(permission, option)"
@@ -13,7 +13,7 @@
     <!-- A draft the review agent wrote: accept it (it goes out with «Отправить» to be fixed) or talk it over first, like a question. -->
     <template v-if="item.author === 'agent' && state === 'draft' && !item.outdated && !readOnly" #extra>
       <AppButton v-if="!accepted" class="it-act" size="xs" variant="primary" type="button" :disabled="busy" title="Согласны: пункт уйдёт агенту на исправление вместе с остальными по «Отправить»" @click="setAccepted(item, true)">Принять</AppButton>
-      <AppButton v-else class="it-act" size="xs" variant="ghost" type="button" :disabled="busy" title="Вернуть пункт на ваше решение: он не уйдёт с «Отправить»" @click="setAccepted(item, false)">Не принимать</AppButton>
+      <AppButton v-else class="it-act" size="xs" variant="ghost" type="button" :disabled="busy" title="Вернуть пункт на ваше решение: он не уйдёт с «Отправить»" @click="setAccepted(item, false)">Отменить принятие</AppButton>
       <AppButton v-if="!accepted && item.kind !== 'question'" class="it-act" size="xs" variant="ghost" type="button" :disabled="busy" title="Сначала обсудить: пункт станет вопросом, агент ответит по «Отправить»" @click="discuss">Обсудить</AppButton>
     </template>
   </ItemCard>
@@ -66,6 +66,7 @@ async function save(value: { kind: 'fix' | 'question'; text: string; refs: strin
   if (await run(() => store.updateDraft(props.item.review_id, props.item.id, patch), 'Не удалось сохранить')) { editing.value = false; useDraftsStore().clearPrefix(`code-review:${props.item.review_id}:composer:item-edit:${props.item.id}:`) }
 }
 const accepted = computed(() => isAccepted(props.item))
+const decision = computed(() => props.item.author === 'agent' && state.value === 'draft' && !props.item.outdated ? (accepted.value ? 'accepted' : 'pending') : undefined)
 /** Talking it over is a question to the agent: it is sent like any other and the thread goes on in the card. */
 async function discuss() { if (await run(() => store.updateDraft(props.item.review_id, props.item.id, { kind: 'question' }), 'Не удалось изменить пункт')) setAccepted(props.item, true) }
 const remove = () => run(() => store.removeItem(props.item.review_id, props.item.id), 'Не удалось удалить')

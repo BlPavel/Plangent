@@ -41,6 +41,9 @@ export async function createErrand(projectId: string, input: ErrandInput, create
   if (!['ask', 'allow-edits', 'allow-all', 'read-only'].includes(policy)) throw new DomainError('Invalid policy');
   if (input.auto_review !== undefined && typeof input.auto_review !== 'boolean') throw new DomainError('Invalid auto_review');
   const model = optional(input.model, 'model'), mode = optional(input.mode, 'mode');
+  const reviewPick = input.review_agent;
+  if (reviewPick !== undefined && (!reviewPick || typeof reviewPick !== 'object' || typeof reviewPick.agent_id !== 'string')) throw new DomainError('Invalid review_agent');
+  const reviewAgentPick = reviewPick?.agent_id ? { agent_id: reviewPick.agent_id, model: optional(reviewPick.model, 'review model'), effort: optional(reviewPick.effort, 'review effort') } : undefined;
   const baseBranch = optional(input.base_branch, 'base_branch').replace(/^origin\//, ''), branchName = optional(input.branch_name, 'branch_name');
   let place: ErrandPlace = input.place ?? 'new';
   const branch = optional(input.branch, 'branch').replace(/^origin\//, '');
@@ -72,6 +75,7 @@ export async function createErrand(projectId: string, input: ErrandInput, create
   const session = createAgentSession({ project_id: projectId, task_id: task.id, agent_id: agent.id, role: 'errand',
     model: model || agent.model, policy: policy as 'ask' | 'allow-edits' | 'allow-all' | 'read-only', title: title || externalKey,
     metadata: { workspace_id: activeWorkspace(task.id)?.id, reasoningEffort: agent.reasoning_effort, briefing: BRIEFING,
+      ...(reviewAgentPick ? { review_agent: reviewAgentPick } : {}),
       ...agentPreferences(mode, input.config),
       // The developer writes the request in the chat; until then the work waits for them.
       ...(text ? {} : { awaiting_brief: true }) } });
@@ -91,10 +95,10 @@ onAgentEvent('turn_end', (id: string) => {
     const summary = events.filter(e => e.type === 'assistant' && e.seq > lastUser).map(e => String(e.payload.text ?? '')).join('');
     updateSession(id, { status: 'complete', reason: summary.slice(-20000) });
   }
+  // The automatic review runs once, after the agent's first finished turn; later turns are the developer's follow-ups.
+  if (session.metadata.work_done || session.metadata.auto_review_turn) return;
+  updateSession(id, { metadata: { ...session.metadata, work_done: true } });
   if (!task.auto_review) return;
-  const turn = ended.seq;
-  if (!turn || session.metadata.auto_review_turn === turn) return;
-  updateSession(id, { metadata: { ...session.metadata, auto_review_turn: turn } });
-  void import('../review').then(module => module.codeTaskReview).then(m => m.launchIndependentReview(task.id, { agent_id: session.agent_id }))
+  void import('../review').then(module => module.codeTaskReview).then(m => m.launchIndependentReview(task.id))
     .catch(error => updateSession(id, { reason: session.reason + '\nРевью не запущено: ' + String(error) }));
 });

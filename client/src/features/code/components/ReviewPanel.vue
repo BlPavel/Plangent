@@ -1,21 +1,29 @@
 <template>
   <section class="rp">
-    <AgentReview v-if="origin.type === 'project'" v-model:journal="reviewerJournal" :project-id="projectId" :default-agent-id="defaultAgentId" />
+    <AgentReview v-if="origin.type === 'project' || agentReview" v-model:journal="reviewerJournal" :project-id="projectId" :default-agent-id="defaultAgentId" :work="agentReview" />
     <!-- The review's agent: who it is, what it does now, its full log on demand. -->
     <div v-if="agent.session || agent.work || agent.sending" class="rp-agent">
-      <template v-if="agent.session">
+      <!-- A work: who takes the next «Отправить» (the work's agent by default); «изменить» only picks, «Отправить» starts. -->
+      <template v-if="agent.work && !handing && (agent.planned || !agent.session || agent.session.id === agent.workChat?.id)">
+        <span class="rp-dot" :class="agent.planned?.kind === 'new' ? 'planned' : agent.workChat?.status" />
+        <span class="rp-agent-name">{{ agent.planned?.kind === 'new' ? 'Новый агент' : 'Агент работы' }}</span>
+        <span class="rp-agent-status" :title="takerHint">{{ takerName }}</span>
+        <AppButton v-if="!readOnly" variant="link" size="xs" :disabled="agent.busy || agent.sending" :title="agent.busy ? 'Агент работает: дождитесь конца хода' : 'Кому уйдут замечания: агенту работы или новому агенту'" @click="openSetup">изменить</AppButton>
+        <span class="rp-spacer" />
+        <AppButton v-if="agent.session" size="xs" variant="ghost" :title="journal ? 'Вернуться к замечаниям' : 'Полный лог агента: рассуждения, команды, настройки модели'" @click="reviewerJournal = ''; journal = !journal">{{ journal ? '← Замечания' : 'Журнал' }}</AppButton>
+      </template>
+      <template v-else-if="agent.session">
         <span class="rp-dot" :class="handing ? 'thinking' : agent.session.status" />
         <span class="rp-agent-name" :title="agent.session.title">{{ agentName || 'Агент' }}</span>
         <span class="rp-agent-status">{{ handing ? (agent.session.status === 'starting' ? 'Подключается' : 'Агент думает…') : statusLabel(agent.session.status) }}</span>
         <AppButton
-          v-if="!readOnly" variant="link" size="xs" :disabled="!pending || agent.busy || agent.sending"
+          v-if="!readOnly" variant="link" size="xs" :disabled="(!pending && !agent.work) || agent.busy || agent.sending"
           :title="agent.busy ? 'Агент работает: дождитесь конца хода' : pending ? (agent.work ? 'Отдать замечания другому агенту или модели: он продолжит в папке этой работы' : 'Отдать замечания другому агенту или модели: дальше ревью продолжит он') : 'Нет пунктов, которые можно отправить'"
-          @click="agent.setup = { ids: null }"
+          @click="agent.work ? openSetup() : agent.setup = { ids: null }"
         >изменить</AppButton>
         <span class="rp-spacer" />
         <AppButton size="xs" variant="ghost" :title="journal ? 'Вернуться к замечаниям' : 'Полный лог агента: рассуждения, команды, настройки модели'" @click="reviewerJournal = ''; journal = !journal">{{ journal ? '← Замечания' : 'Журнал' }}</AppButton>
       </template>
-      <span v-else-if="agent.work" class="rp-muted">Замечания уйдут агенту этой работы — он знает весь контекст</span>
       <template v-else-if="agent.sending">
         <span class="rp-dot thinking" />
         <span class="rp-agent-name">Агент запускается…</span>
@@ -39,7 +47,17 @@
 
     <template v-else>
       <!-- «изменить» next to the agent: who takes the waiting items instead, set up like in the settings. -->
-      <section v-if="agent.setup" class="rp-setup" aria-label="Другой агент">
+      <!-- A work: pick who takes the remarks; a new agent is a fresh session even with the executor's very agent and model. -->
+      <section v-if="choosing" class="rp-setup" aria-label="Кому отправлять замечания">
+        <AppSegmented v-model="choice" :options="[{ value: 'work', label: 'Агент работы' }, { value: 'new', label: 'Новый агент' }]" label="Кому отправлять замечания" />
+        <p class="rp-muted rp-note">{{ choice === 'work' ? 'Тот же чат, что делал работу: знает весь контекст, но его контекст растёт.' : 'Новая сессия с чистым контекстом в папке этой работы. Можно выбрать ту же модель, что у исполнителя.' }}</p>
+        <ReviewAgentBar v-if="choice === 'new'" expanded :project-id="projectId" :fallback-agent-id="workAgentId" @change="pick = $event" />
+        <div class="rp-setup-foot">
+          <AppButton variant="ghost" size="sm" @click="choosing = false">Отмена</AppButton>
+          <AppButton variant="blue" size="sm" :disabled="choice === 'new' && !pick" title="Агент запустится по «Отправить»" @click="applyChoice">Готово</AppButton>
+        </div>
+      </section>
+      <section v-else-if="agent.setup" class="rp-setup" aria-label="Другой агент">
         <ReviewAgentBar expanded :project-id="projectId" :fallback-agent-id="defaultAgentId" :disabled="agent.sending" @change="pick = $event" />
         <p v-if="agent.error" class="rp-error">{{ agent.error }}</p>
         <div class="rp-setup-foot">
@@ -108,6 +126,7 @@ import { useDraftsStore } from '@core/stores/drafts'
 import { computed, ref } from 'vue'
 import AppButton from '@shared/ui/AppButton.vue'
 import AppTabs from '@shared/ui/AppTabs.vue'
+import AppSegmented from '@shared/ui/AppSegmented.vue'
 import { useAppStore } from '@core/stores/app'
 import { permissionPolicy, useAgentsStore } from '@features/agents'
 import { ChatView, ReviewAgentBar, UsageMeter, statusLabel, type ReviewAgentPick, type UsageInfo } from '@features/agent-chat'
@@ -121,12 +140,15 @@ import ItemComposer from './ItemComposer.vue'
 import RecentReviews from './RecentReviews.vue'
 import ItemView from './ItemView.vue'
 import AgentReview from './AgentReview.vue'
+import type { WorkAgentReview } from '../types'
 
 const props = defineProps<{
   projectId: string
   origin: { type: 'project' | 'task'; id: string }
   /** Agent preselected when the review's agent is set up: the task's agent, else the project's. */
   defaultAgentId?: string | null
+  /** A work's Проверка launches its own agent review. */
+  agentReview?: WorkAgentReview | null
 }>()
 const emit = defineEmits<{ goto: [item: CodeReviewItem]; 'open-ref': [ref: string]; 'show-change': [roundId: string, file?: string] }>()
 const store = useCodeStore()
@@ -159,6 +181,29 @@ const pick = ref<ReviewAgentPick | null>(null)
 function startWith(ids: string[] | null) {
   if (!pick.value) return
   void agent.start(props.projectId, { agent_id: pick.value.agent_id, policy: permissionPolicy(pick.value.policy), model: pick.value.model, mode: pick.value.mode, config: pick.value.config, content: [{ type: 'text', text: DEFAULT_NOTE }] }, DEFAULT_NOTE, ids)
+}
+// ——— A work: who takes the remarks (picked with «изменить», started by «Отправить») ———
+const choosing = ref(false)
+const choice = ref<'work' | 'new'>('work')
+const nameOf = (id?: string | null) => agents.agents.find(a => a.id === id)?.name ?? 'Агент'
+const workAgentId = computed(() => agent.workChat?.agent_id ?? props.defaultAgentId)
+const takerName = computed(() => {
+  const planned = agent.planned
+  if (planned?.kind === 'new') return [nameOf(planned.request.agent_id), planned.request.model].filter(Boolean).join(' · ')
+  return nameOf(workAgentId.value)
+})
+const takerHint = computed(() => agent.planned?.kind === 'new' ? 'Запустится новой сессией по «Отправить»' : 'Чат, в котором агент делал работу: знает весь контекст')
+function openSetup() {
+  choice.value = agent.planned?.kind ?? (agent.session && agent.session.id !== agent.workChat?.id ? 'new' : 'work')
+  pick.value = null
+  choosing.value = true
+}
+function applyChoice() {
+  if (choice.value === 'new') {
+    if (!pick.value) return
+    agent.planned = { kind: 'new', request: { agent_id: pick.value.agent_id, policy: permissionPolicy(pick.value.policy), model: pick.value.model, mode: pick.value.mode, config: pick.value.config, content: [] } }
+  } else agent.planned = { kind: 'work' }
+  choosing.value = false
 }
 /** «Отправить»: the first one starts the agent of the bar at once, later ones go to the agent that is already there. */
 function send() {
@@ -213,6 +258,8 @@ async function saveGeneral(value: { kind: 'fix' | 'question'; text: string; refs
 .rp-dot.waiting { background: var(--warning-text); }
 .rp-dot.complete, .rp-dot.ready { background: var(--accent-hover); }
 .rp-dot.error { background: var(--danger-hover); }
+.rp-dot.planned { background: transparent; border: 1px solid var(--blue-hover); }
+.rp-note { margin: 0; font-size: var(--fs-xs); }
 @keyframes rp-pulse { 50% { opacity: 0.35; } }
 .rp-journal { flex: 1; min-height: 0; }
 .rp-setup { flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--bg2); }

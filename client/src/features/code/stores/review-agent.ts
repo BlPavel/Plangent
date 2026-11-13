@@ -35,6 +35,14 @@ export const useReviewAgentStore = defineStore('code-review-agent', () => {
    * remarks; «Другой агент» sets up a separate fixer in the work's folder.
    */
   const work = ref<{ projectId: string; taskId: string; workspaceId?: string } | null>(null)
+  /**
+   * Who takes the next «Отправить» in a work, chosen with «изменить» (nothing starts until then):
+   * the work's own chat, or a new session — always a fresh one, even with the very agent and model of the executor.
+   */
+  const planned = ref<{ kind: 'work' } | { kind: 'new'; request: NewChatRequest } | null>(null)
+  watch(() => [work.value?.taskId, code.review?.id], () => { planned.value = null })
+  /** The work's own chat (errand or task chat), the default taker of a work's remarks. */
+  const workChat = computed(() => work.value ? [...chats.sessions].reverse().find(s => s.task_id === work.value!.taskId && ['errand', 'task-chat'].includes(s.role)) ?? null : null)
 
   /** The session of the latest round that still exists, or the one being started. */
   const sessionId = computed(() => {
@@ -77,16 +85,18 @@ export const useReviewAgentStore = defineStore('code-review-agent', () => {
   /** A work's chat takes only explicit items: everything waiting to be sent. */
   /** Everything «Отправить» carries: the agent's own drafts only once the developer accepted them. */
   const sendableIds = () => code.items.filter(i => isSendable(i, threadState(i, code.messages))).map(i => i.id)
-  const pendingIds = () => code.items.filter(i => i.origin_id === work.value?.taskId && !i.outdated && ['draft', 'queued'].includes(threadState(i, code.messages))).map(i => i.id)
+  const pendingIds = () => code.items.filter(i => i.origin_id === work.value?.taskId && isSendable(i, threadState(i, code.messages))).map(i => i.id)
   /** Sends the batch (or one thread); without an agent yet it asks to set one up first (a work's chat is there already). */
   async function send(ids: string[] | null = null) {
     error.value = ''
     const review = code.review
     if (!review) return
     if (!sessionId.value && !work.value) { setup.value = { ids }; return }
+    const choice = planned.value
+    if (choice?.kind === 'new' && work.value) { await start(work.value.projectId, choice.request, '', ids); if (!error.value) planned.value = null; return }
     sending.value = true
     try {
-      let id = sessionId.value
+      let id = choice?.kind === 'work' ? workChat.value?.id ?? null : sessionId.value
       if (!id && work.value) {
         const chat = await tasksEndpoints.postProjectsByProjectIdTasksByTaskIdChat({ params: { projectId: work.value.projectId, taskId: work.value.taskId }, body: {} })
         chats.put(chat); id = chat.id
@@ -94,6 +104,7 @@ export const useReviewAgentStore = defineStore('code-review-agent', () => {
       const role = chats.sessions.find(s => s.id === id)?.role
       await code.sendRound(review.id, id!, '', ids ?? (role === 'code-fixer' ? sendableIds() : pendingIds()))
       expectTurn()
+      planned.value = null
     }
     catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause) }
     finally { sending.value = false }
@@ -147,5 +158,5 @@ export const useReviewAgentStore = defineStore('code-review-agent', () => {
     finally { stopping.value = false }
   }
 
-  return { work, setup, sending, awaiting, stopping, error, sessionId, session, busy, permissions, focusItem, send, start, answerPermission, stop }
+  return { work, planned, workChat, setup, sending, awaiting, stopping, error, sessionId, session, busy, permissions, focusItem, send, start, answerPermission, stop }
 })

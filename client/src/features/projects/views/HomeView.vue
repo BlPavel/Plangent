@@ -33,7 +33,7 @@
       <div v-show="activeTab === 'agents'" class="tab-content"><AgentChats :project-id="currentProject.id" :default-agent-id="projectsStore.agentFor(currentProject)" /></div>
       <div v-if="isGroup" v-show="activeTab === 'projects'" class="tab-content"><GroupProjects :group="currentProject" /></div>
       <div v-if="!isGroup" v-show="activeTab === 'tasks'" class="tab-content">
-        <WorkList :project="currentProject" :members="members" :agents="agentsStore.agents" :default-agent-id="projectsStore.agentFor(currentProject)" :owner-name="ownerName" :move-menu="moveMenu" @open="openWork" @changed="loadTasks" />
+        <WorkList :project="currentProject" :members="members" :agents="agentsStore.agents" :default-agent-id="projectsStore.agentFor(currentProject)" :owner-name="ownerName" @open="openWork" @changed="loadTasks" />
       </div>
 
       <!-- Mounted only while open: the screen watches the project folder. -->
@@ -80,7 +80,6 @@ import { useAppStore } from '@core/stores/app'
 import { useProjectsStore } from '../stores/projects'
 import { useAgentsStore } from '@features/agents'
 import type { Task } from '@contracts'
-import type { MenuItem } from '@shared/ui/AppMenu.vue'
 import DeleteGroupModal from '../components/DeleteGroupModal.vue'
 import AppButton from '@shared/ui/AppButton.vue'
 import AppTabs from '@shared/ui/AppTabs.vue'
@@ -89,7 +88,7 @@ import ProjectFormModal from '../components/ProjectFormModal.vue'
 import ProjectSettings, { type ProjectSettingsPage } from '../components/ProjectSettings.vue'
 import GroupProjects from '../components/GroupProjects.vue'
 import SourceView from '../components/SourceView.vue'
-import { WorkList, useWorkStore, workspacesApi } from '@features/tasks'
+import { WorkList, workspacesApi } from '@features/tasks'
 import { onServerEvent } from '@core/api/events'
 import { onUnmounted } from 'vue'
 
@@ -228,30 +227,6 @@ function openWork(t: Task, tab: string) {
   if (owner && owner.id !== currentProject.value?.id) appStore.currentProject = owner
   appStore.currentTask = t
   router.push({ path: `/task/${t.id}`, query: { tab } })
-}
-
-/** Where a task can move: a group's task into one of its projects, a project's task up into its group. */
-function moveTargets(t: Task) {
-  const owner = projectsStore.byId(t.project_id)
-  if (!owner) return []
-  if (owner.kind === 'group') return projectsStore.members(owner.id)
-  const g = projectsStore.byId(owner.group_id)
-  return g ? [g] : []
-}
-function moveMenu(t: Task): MenuItem[] {
-  return [{ heading: 'Переместить задачу' }, ...moveTargets(t).map(target => ({
-    label: `${target.kind === 'group' ? '🗂️' : '📁'} ${target.kind === 'group' ? `В группу «${target.name}»` : target.name}`,
-    action: () => void moveTask(t, target.id),
-  }))]
-}
-async function moveTask(t: Task, targetId: string) {
-  try {
-    const moved = await tasksEndpoints.moveTask({ params: { projectId: t.project_id, taskId: t.id }, body: { project_id: targetId } })
-    if (isGroup.value) tasks.value = tasks.value.map(x => x.id === t.id ? moved : x)
-    else tasks.value = tasks.value.filter(x => x.id !== t.id)
-    void useWorkStore().load()
-    appStore.toast(`«${t.key}» перенесена в «${projectsStore.byId(targetId)?.name}»`, 'success')
-  } catch (e: unknown) { appStore.toast(String(e), 'error') }
 }
 
 </script>

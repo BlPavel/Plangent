@@ -1,6 +1,6 @@
 <template>
   <div ref="viewRoot" class="task-view">
-    <WorkHeader v-if="task" :task="task" :state="entry?.state ?? null" :branch="workspace?.branch ?? task.branch_name" :main-folder="inMainFolder" :menu="menuItems" @back="goBack" />
+    <WorkHeader v-if="task" :task="task" :branch="workspace?.branch ?? task.branch_name" :main-folder="inMainFolder" :menu="menuItems" @back="goBack" />
     <WorkStages v-if="task" :task="task" :state="entry?.state ?? null" :has-plan="!!plan" :active="activeTab" :tabs="tabs" :stages="task.kind === 'errand' ? [] : stages" :exec-done="execDone" :locked="!!analysisLockedReason" @select="activeTab = $event as Tab" @complete="completeStage" @skip="skipStage" />
 
     <AppModal :model-value="editingTitle" :title="task?.kind === 'errand' ? 'Редактировать поручение' : 'Редактировать задачу'" :confirm-label="savingTitle ? 'Сохранение…' : 'Сохранить'" @update:model-value="cancelTitleEdit" @confirm="saveTitle">
@@ -12,20 +12,14 @@
 
     <StartExecutionDialog v-if="showStart && task" v-model="showStart" v-model:place="executionPlace" :task="task" :ordinary="canChooseBranch" :group="appStore.currentProject?.kind === 'group'" :busy="startingWork" :error="startError || queue.lastError.value" :workspace="workspace" @start="startQueue" />
 
-    <div v-if="activeTab === 'chat' && task" class="tab-body"><WorkChat :key="task.id" :task="task" :workspace="workspace" :default-agent-id="defaultAgentId" show-rounds @open-check="activeTab = 'check'" /></div>
+    <div v-if="activeTab === 'chat' && task" class="tab-body"><WorkChat :key="task.id" :task="task" :workspace="workspace" :default-agent-id="defaultAgentId" /></div>
     <div v-if="activeTab === 'check' && task" class="tab-body">
       <!-- Проверка is the «Код» screen of the work's folder: files, diff, remarks with the agent, commits, МР. -->
       <p v-if="workspace && workspace.status !== 'ready'" class="exec-no-plan">{{ workspace.status === 'failed' ? 'Рабочее место недоступно: ' + workspace.error : 'Готовлю рабочее место…' }}</p>
       <CodeTab
         v-else-if="isOrdinary" :key="task.id + (workspace?.id ?? '')" :project-id="task.project_id" :workspace-id="workspace?.id ?? null"
-        :task="{ id: task.id, key: task.key }" :default-agent-id="executorAgentId" :finish-blocked="workClosed ? 'Работа закрыта' : ''" work
-      >
-        <template #actions>
-          <span v-if="entry?.state.status === 'reviewing'" class="check-note">🤖 Идёт ревью агентом…</span>
-          <AppButton size="sm" :disabled="taskDone || reviewStarting || entry?.state.status === 'reviewing'" title="Агент-ревьюер проверит изменения работы; замечания появятся справа" @click="runReview">🤖 Ревью агентом</AppButton>
-          <AppButton v-if="!workClosed" size="sm" variant="blue" title="Рабочее место уберётся, ветка останется; закрытую работу можно открыть снова" @click="closeWork">Закрыть работу</AppButton>
-        </template>
-      </CodeTab>
+        :task="{ id: task.id, key: task.key }" :default-agent-id="executorAgentId" :finish-blocked="workClosed ? 'Работа закрыта' : ''" work :agent-review="agentReview" @close-work="closeWork"
+      />
       <WorkCheck v-else :key="task.id" :task="task" :default-agent-id="defaultAgentId" @close="closeWork" />
     </div>
     <div v-show="activeTab === 'analysis'" class="tab-body">
@@ -159,7 +153,6 @@ import { useWorkActions } from '../composables/useWorkActions'
 import { workApi, workspacesApi, preparationApi } from '../api'
 import ExecutionWorkspace from '../components/ExecutionWorkspace.vue'
 import ExecutionQueue from '../components/ExecutionQueue.vue'
-import AppButton from '@shared/ui/AppButton.vue'
 import StepDetailPanel from '../components/StepDetailPanel.vue'
 import AppModal from '@shared/ui/AppModal.vue'
 import { type MenuItem } from '@shared/ui/AppMenu.vue'
@@ -243,13 +236,17 @@ const inMainFolder = computed(() => isOrdinary.value && !workspace.value && !!ta
 /** Remarks of Проверка go by default to the agent who did the work. */
 const executorAgentId = computed(() => chatStore.sessions.find(s => s.task_id === tid.value && ['errand', 'task-chat', 'executor'].includes(s.role))?.agent_id ?? defaultAgentId.value)
 const reviewStarting = ref(false)
-async function runReview() {
-  if (!task.value || reviewStarting.value) return
+/** The review agent chosen when the work was created (an errand keeps it); the form falls back to the project's one. */
+const reviewPreferred = computed(() => chatStore.sessions.find(s => s.task_id === tid.value && s.role === 'errand')?.metadata.review_agent as { agent_id: string; model?: string; effort?: string } | undefined)
+async function runReview(body: import('@contracts').WorkPOSTTasksTaskIdReviewBody = {}) {
+  if (!task.value || reviewStarting.value) return false
   reviewStarting.value = true
-  try { chatStore.put(await workApi.review(task.value.project_id, task.value.id) as import('@features/agent-chat').ChatSession); void work.load(pid.value ? [pid.value] : []) }
-  catch (cause) { appStore.toast(String(cause).replace(/^Error:\s*/, ''), 'error') }
+  try { chatStore.put(await workApi.review(task.value.project_id, task.value.id, body) as import('@features/agent-chat').ChatSession); void work.load(pid.value ? [pid.value] : []); return true }
+  catch (cause) { appStore.toast(String(cause).replace(/^Error:\s*/, ''), 'error'); return false }
   finally { reviewStarting.value = false }
 }
+/** Проверка's agent review sits above the remarks, as in «Код»; the work launches it. */
+const agentReview = computed(() => taskDone.value ? null : { preferred: reviewPreferred.value, run: runReview })
 
 // Planning view: the plan next to the task's planning chats.
 const planningOpen = ref(false)
@@ -450,13 +447,8 @@ const menuItems = computed<MenuItem[]>(() => {
   if (!t) return []
   return [
     { label: 'Редактировать', hint: 'Номер задачи и описание', action: () => void startTitleEdit() },
-    ...(!workClosed.value ? [{ label: 'Закрыть работу', hint: 'Без пуша и МР; можно открыть снова', action: () => void closeWork() }] : []),
     ...(t.kind === 'errand' && !t.closed_at ? [
       { label: 'Добавить план', hint: 'Поручение станет задачей, ветка сохранится', action: () => void addPlanToErrand() },
-      { separator: true as const },
-      { heading: 'Отменить поручение' },
-      { label: 'Выбросить изменения', danger: true, action: () => void cancelErrand('discard') },
-      { label: 'Оставить, посмотрю позже', action: () => void cancelErrand('keep') },
     ] : []),
     ...(t.status !== 'done' && t.kind !== 'errand' && !workspace.value ? [{ label: 'Отметить выполненной', hint: 'Без Завершения', action: () => void markDoneTask() }] : []),
     ...(t.status === 'done' ? [{ label: 'Вернуть в работу', action: () => void reopenTask() }] : []),
@@ -473,18 +465,11 @@ async function addPlanToErrand() {
   void work.load(pid.value ? [pid.value] : [])
   appStore.toast('Добавлены вкладки «Анализ» и «План»', 'success')
 }
-async function cancelErrand(mode: 'keep' | 'discard') {
-  if (!task.value) return
-  if (!await actions.cancel(task.value, mode)) return
-  await work.load(pid.value ? [pid.value] : [])
-  appStore.toast('Поручение отменено', 'success')
-  goBack()
-}
 async function closeWork() {
   if (!task.value) return
-  if (!await appStore.confirm('Закрыть работу? Рабочее место будет убрано, ветка останется. Открыть снова можно из списка «Готово».', { confirmLabel: 'Закрыть работу' })) return
+  // No question for a clean work: closing is undone from «Готово»; losing changes asks once (actions.close).
   const closed = await actions.close(task.value)
-  if (closed) { appStore.toast('Работа закрыта', 'success'); await onClosed(closed) }
+  if (closed) { appStore.toast('Работа закрыта. Открыть снова можно из списка «Готово»', 'success'); await onClosed(closed) }
 }
 async function onClosed(closed: Task) {
   task.value = closed; appStore.currentTask = closed
@@ -740,5 +725,4 @@ async function savePlan() {
 }
 
 .exec-no-plan { font-size: var(--fs-md); color: var(--text-muted); padding: 16px 20px; }
-.check-note { font-size: var(--fs-sm); color: var(--blue-hover); white-space: nowrap; }
 </style>

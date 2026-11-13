@@ -76,6 +76,11 @@
         <p v-if="startHint" class="fp-hint fp-warn" role="status">{{ startHint }}</p>
         <GitAgentNote />
       </div>
+      <!-- A work is closed here too: after its МР, or without commits at all. -->
+      <div v-if="closable" class="fp-close">
+        <p>{{ store.run?.status === 'complete' ? 'Изменения оформлены. Закройте работу: рабочее место уберётся, ветка останется.' : 'Или закройте работу без коммитов: изменения останутся в ветке как есть.' }}</p>
+        <AppButton type="button" size="sm" :variant="store.run?.status === 'complete' ? 'blue' : 'subtle'" @click="emit('close')">Закрыть работу</AppButton>
+      </div>
     </form>
 
     <template v-else>
@@ -161,8 +166,9 @@ import { scenarios, stages, statuses, type FinishFormOptions as FinishOptions, t
 import type { Task } from '@contracts'
 
 /** «Завершение работ» in the right column of «Код»: defaults come from the project's git settings, the agent from the settings too. */
-const props = defineProps<{ projectId: string; task?: { id: string; key: string } | null; blocked?: string; branch?: string | null; workspaceId?: string }>()
-const emit = defineEmits<{ attention: [] }>()
+/** closable: the finish of a work, which can also just be closed from here. */
+const props = defineProps<{ projectId: string; task?: { id: string; key: string } | null; blocked?: string; branch?: string | null; workspaceId?: string; closable?: boolean }>()
+const emit = defineEmits<{ attention: []; close: [] }>()
 const copy = <T,>(value: T): T => JSON.parse(JSON.stringify(value))
 const message = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause)).replace(/^Error:\s*/, '')
 const app = useAppStore(), store = useFinishStore(), git = useGitStore()
@@ -301,6 +307,7 @@ watch(() => store.run?.id, async id => {
 // A run that needs the user brings its tab forward.
 watch(() => store.run?.status, status => { if (status === 'waiting' || status === 'error') emit('attention') }, { immediate: true })
 
+
 async function start() {
   if (!canStart.value) return
   try {
@@ -412,7 +419,9 @@ textarea.control { height: auto; padding: 6px 10px; resize: vertical; line-heigh
 .fp-target { margin-top: 4px; padding-top: 16px; border-top: 1px solid var(--border); gap: 10px; }
 .fp-footer { padding: 14px; gap: 12px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg2); }
 .fp-auto { display: flex; flex-direction: column; gap: 2px; }
-.fp-launch { display: flex; flex-direction: column; gap: 10px; padding-top: 12px; border-top: 1px solid var(--border); }
+.fp-close { display: flex; align-items: center; gap: var(--sp-3); }
+.fp-close p { flex: 1; margin: 0; font-size: var(--fs-sm); color: var(--text-muted); }
+.fp-launch {display: flex; flex-direction: column; gap: 10px; padding-top: 12px; border-top: 1px solid var(--border); }
 .fp-launch-copy { min-width: 0; }
 .fp-launch-copy p { margin-top: 4px; font-size: var(--fs-sm); color: var(--text-muted); }
 .fp-launch > .btn { flex-shrink: 0; }

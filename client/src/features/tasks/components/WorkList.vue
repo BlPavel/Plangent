@@ -97,7 +97,7 @@ import { useWorkStore } from '../stores/work'
 import { useWorkActions } from '../composables/useWorkActions'
 import { workGroups, workStageIndex, workStagesOf, workTab, workTone } from '../utils/work-state'
 
-const props = defineProps<{ project: Project; members: Project[]; agents: Agent[]; defaultAgentId?: string | null; ownerName: (projectId: string) => string; moveMenu?: (task: Task) => MenuItem[] }>()
+const props = defineProps<{ project: Project; members: Project[]; agents: Agent[]; defaultAgentId?: string | null; ownerName: (projectId: string) => string }>()
 const emit = defineEmits<{ open: [Task, string]; changed: [] }>()
 const router = useRouter(), app = useAppStore(), work = useWorkStore(), actions = useWorkActions()
 const isGroup = computed(() => props.project.kind === 'group')
@@ -140,10 +140,8 @@ function onCreated(task: Task, tab: string) {
 async function reopen(task: Task) { if (await actions.reopen(task)) { await work.load(); emit('changed') } }
 async function remove(task: Task) { if (await actions.remove(task)) { await work.load(); emit('changed') } }
 function rowMenu(task: Task): MenuItem[] {
-  const moves = props.moveMenu?.(task) ?? []
   return [
     { label: 'Редактировать', hint: 'Номер задачи и описание', action: () => void edit(task) },
-    ...(moves.some(item => item.action) ? [{ separator: true }, ...moves] : []),
     { separator: true },
     { label: 'Удалить', hint: 'Без возможности восстановления', danger: true, action: () => void remove(task) },
   ]
@@ -215,7 +213,7 @@ async function submitFollowUp() {
 @keyframes work-pulse { 50% { opacity: 0.3; } }
 .work-branch { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); color: var(--text-muted); }
 .work-main-folder { color: var(--warning-text); }
-.work-stage { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; min-width: 120px; }
+.work-stage { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; min-width: 120px; margin-right: var(--sp-4); }
 .work-bars { display: flex; gap: 3px; }
 .work-bars i { width: 16px; height: 4px; border-radius: var(--radius-xs); background: var(--border-strong); }
 .work-bars i.passed { background: var(--accent-hover); }

@@ -1,12 +1,11 @@
 <template>
-  <div class="it" :class="[state, item.status, { open, outdated: item.outdated, working, embedded }]">
+  <div class="it" :class="[state, item.status, decision ? 'decision-' + decision : '', { open, outdated: item.outdated, working, embedded }]">
     <div class="it-head" role="button" tabindex="0" :aria-expanded="open" @click="open = !open" @keydown.enter.self.prevent="open = !open" @keydown.space.self.prevent="open = !open">
       <span class="it-dot" :title="label" />
       <span v-if="location" class="it-loc">{{ location }}</span>
       <span v-if="item.author === 'agent' || permissions.length || kindLabel" class="it-flags">
         <span v-if="kindLabel" class="it-kind">{{ kindLabel }}</span>
         <span v-if="item.author === 'agent'" class="it-flag">агент</span>
-        <span v-if="item.author === 'agent' && item.origin === 'task'" class="it-flag">ревью задачи{{ item.task_key ? ' ' + item.task_key : '' }}</span>
         <span v-if="permissions.length" class="it-flag" title="Агент ждёт вашего разрешения">разрешение</span>
       </span>
       <span v-if="!open" class="it-summary" :class="{ below: !!location }">{{ summary }}</span>
@@ -26,7 +25,7 @@
       </div>
 
       <div v-if="item.author === 'agent' && state === 'draft' && !readOnly && !item.outdated" class="it-note muted">
-        Черновик агента. «Принять» — он уйдёт на исправление по «Отправить»; «Обсудить» — станет вопросом, и агент ответит.
+        {{ decision === 'accepted' ? 'Вы приняли замечание: оно уйдёт агенту на исправление по «Отправить».' : 'Замечание агента ждёт вашего решения. «Принять» — оно уйдёт на исправление по «Отправить»; «Обсудить» — станет вопросом, и агент ответит.' }}
       </div>
 
       <div v-for="message in thread" :key="message.id" class="it-msg" :class="[message.author, message.kind, { queued: !message.sent }]">
@@ -98,6 +97,8 @@ import { discussionText, stateLabel, type ThreadState } from '../utils/thread'
 
 const props = defineProps<{
   draftKey?: string
+  /** The developer's decision on the review agent's draft: accepted to be fixed, or still to decide. */
+  decision?: 'accepted' | 'pending'
   item: CodeReviewItem
   thread: CodeReviewMessage[]
   state: ThreadState
@@ -136,7 +137,7 @@ watch(() => permissions.value.length > 0, value => { if (value) open.value = tru
 watch(() => props.item.closed, closed => { if (closed) open.value = false })
 const text = useDraft(() => props.draftKey ?? `code-review:${props.item.review_id}:item:${props.item.id}:text`, () => '')
 
-const label = computed(() => (props.item.outdated ? 'Устарело' : stateLabel(props.item, props.state, props.working)))
+const label = computed(() => (props.item.outdated ? 'Устарело' : props.decision === 'accepted' ? '✓ Принято' : props.decision === 'pending' ? 'Ждёт решения' : stateLabel(props.item, props.state, props.working)))
 /** Questions written with the «?» shortcut before it was dropped on save still carry the mark. */
 const itemText = computed(() => (props.item.kind === 'question' ? props.item.text.replace(/^\s*\?+\s*/, '') : props.item.text))
 const summary = computed(() => itemText.value.replace(/\s+/g, ' ').trim())
@@ -225,6 +226,11 @@ function sendReply(message: string, kind: 'text' | 'implement' = 'text') {
 .it.waiting.done { border-left-color: var(--accent-hover); }
 .it.closed { border-left-color: var(--border-strong); opacity: 0.75; }
 .it.outdated { border-style: dashed; }
+/* The review agent's drafts: the developer sees at a glance which are accepted and which still wait. */
+.it.decision-pending { border-left-color: var(--warning-text); }
+.it.decision-pending .it-dot, .it.decision-pending .it-status { color: var(--warning-text); }
+.it.decision-accepted { border-left-color: var(--accent-hover); }
+.it.decision-accepted .it-dot, .it.decision-accepted .it-status { color: var(--accent-hover); font-weight: var(--fw-semibold); }
 /* Narrow panel: the meta (place, flags, state) on the first line, the summary on its own line below it */
 .it-line { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; width: 100%; padding: 4px 8px; font: inherit; text-align: left; color: var(--text); background: none; border: none; cursor: pointer; }
 .it-dot { width: 7px; height: 7px; flex-shrink: 0; margin-top: 6px; border-radius: var(--radius-round); background: currentColor; color: var(--text-faint); }

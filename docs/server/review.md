@@ -21,6 +21,17 @@ in session metadata and creates a round even before any findings exist.
 The launch may carry free-text `context` from the developer; the brief returns it as `developer_context`.
 The existing `task-reviewer` role and its three MCP review tools dispatch by
 `metadata.code_review`; task review context and queue behavior remain task-owned.
+A task review launched by hand (`launchIndependentReview`) takes a range: `task` (default, everything since
+the work's base commit), `worktree` (uncommitted changes against HEAD) or `branch` (merge-base with a ref, plus
+uncommitted), an agent/model/effort and free-text `context` (brief: `developer_context`). The agent is the explicit
+pick, else the review agent chosen when an errand was created (`review_agent` in the errand session's metadata, also
+used by the automatic review), else the project's review agent from the settings. The task brief always carries
+`developer_requests`: the developer's own messages to the errand/task/executor chats, the statement the reviewer
+checks against. A range with no changes does not start.
+An errand with `auto_review` gets one automatic review, after the agent's first finished turn: that turn sets
+`work_done` in the errand session's metadata, later turns are follow-ups and launch nothing. The same mark (or a
+finished queue for a plan) gives the work's state `canCheck`, which opens Проверка.
+Developers may edit draft code review findings, including agent findings linked to a round; editing preserves their author and round. Sent and processed items cannot be edited.
 Findings belong to the pinned review/round. Changed HEAD/branch or stale line
 content rejects findings; a turn ending without submission is an interrupted
 review, not a successful empty report. History includes reports with no findings.

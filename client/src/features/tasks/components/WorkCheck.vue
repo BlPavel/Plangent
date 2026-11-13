@@ -53,7 +53,7 @@
           </article>
           <AppButton variant="primary" size="sm" :disabled="busy || reviewerWorking || !chosen.length || closed" @click="send">Отправить агенту ({{ chosen.length }})</AppButton>
         </div>
-        <div v-show="side === 'chat'" class="side-body chat"><WorkChat :task="task" :default-agent-id="defaultAgentId" @open-check="side = 'remarks'" /></div>
+        <div v-show="side === 'chat'" class="side-body chat"><WorkChat :task="task" :default-agent-id="defaultAgentId" /></div>
       </aside>
     </div>
   </div>

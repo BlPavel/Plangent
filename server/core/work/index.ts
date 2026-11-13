@@ -19,8 +19,13 @@ export function workEntry(taskId: string) {
   const sessions = listSessions(task.project_id).filter(s => s.task_id === task.id);
   // The errand's chat waits for the developer's first message (history is read only for such a fresh chat).
   const awaitingBrief = sessions.some(s => s.role === 'errand' && s.metadata.awaiting_brief && !history(s.id).some(e => e.type === 'user'));
-  return { task, workspace, state: computeWorkState({ task, workspace, awaitingBrief,
-    queue: getQueue(task.id, task.project_id), sessions,
+  const queue = getQueue(task.id, task.project_id);
+  // Проверка opens once the agent has done the work: an errand's turn ended, a plan's queue finished (or the work was checked already).
+  const workDone = task.kind === 'errand'
+    ? sessions.some(s => s.role === 'errand' && (s.metadata.work_done || s.metadata.auto_review_turn || s.status === 'complete'))
+    : queue?.status === 'finished' || sessions.some(s => ['task-chat', 'task-reviewer'].includes(s.role));
+  return { task, workspace, state: computeWorkState({ task, workspace, awaitingBrief, workDone,
+    queue, sessions,
     plan: getLatestPlan(task.id)?.content, remarks: row.n, finish: taskFinishState(task.id), mrState }) };
 }
 export function listWork(projectId: string) { return listTasks(projectId).map(task => workEntry(task.id)); }

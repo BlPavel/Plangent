@@ -34,6 +34,8 @@ import { useReviewAgentStore } from '../stores/review-agent'
 import { commitWord, plural, remarkWord, roundWord } from '../utils/words'
 import FinishReview from './FinishReview.vue'
 
+/** isolated: the Проверка of a work, which only shows its own review. */
+const props = defineProps<{ isolated?: boolean }>()
 const emit = defineEmits<{ 'open-items': [] }>()
 const store = useCodeStore()
 const app = useAppStore()
@@ -54,12 +56,13 @@ const banners = computed<Banner[]>(() => {
     return list
   }
   const review = store.liveReview
-  const other = store.otherReview
+  // A work's Проверка is its own story: other branches' reviews and agents are not its business.
+  const other = props.isolated ? null : store.otherReview
   if (other) {
     const count = other.items == null ? '' : ` (${plural(other.items, remarkWord)})`
     list.push({ id: 'other', tone: 'info', text: `На ветке ${other.review.branch ?? short(other.review.head_commit)} есть незавершённое ревью #${other.review.number}${count}` })
   }
-  const away = store.runningElsewhere[0]
+  const away = props.isolated ? undefined : store.runningElsewhere[0]
   if (away) list.push({ id: 'elsewhere', tone: 'warn', text: `Агент работает с файлами ветки ${away.branch ?? short(away.head_commit)}: Plangent ветки не переключает, правки агента пойдут туда, где он запущен` })
   if (!review) return list
   const state = store.screen

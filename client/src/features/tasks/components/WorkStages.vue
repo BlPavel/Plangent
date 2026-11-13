@@ -1,13 +1,17 @@
 <template>
   <nav class="stage-nav" aria-label="Этапы работы">
-    <AppTabs :model-value="active" :items="tabs.map(s => ({ value: s.id, label: s.label, count: s.count, title: s.countTitle }))" rich label="Этапы работы" @update:model-value="$emit('select', $event)">
+    <AppTabs bare large :model-value="active" :items="tabs.map(s => ({ value: s.id, label: s.label, count: s.count, title: blocked(s.id) || s.countTitle, disabled: !!blocked(s.id) }))" rich label="Этапы работы" @update:model-value="$emit('select', $event)">
       <template #item="{ item }">
-        <StageMark :state="mark(item.value).state" :live="tabs.find(s => s.id === item.value)?.live" :label="mark(item.value).label" />{{ item.label }}
+        <StageMark :state="mark(item.value).state" :live="live(item.value)" :label="mark(item.value).label" />{{ item.label }}
         <AppCount v-if="item.count" :value="item.count" tone="warning" :title="item.title" />
       </template>
     </AppTabs>
+    <!-- The last stage (Проверка) carries the work's own actions: review and finishing. -->
+    <div v-if="!next && $slots.actions" class="stage-actions"><slot name="actions" /></div>
     <div v-if="next" class="stage-actions">
       <SplitButton v-if="summary" variant="blue" :items="menu" :disabled="primaryDisabled" :title="primaryTitle" menu-title="Другие действия этапа" :menu-disabled="!menu.length" @click="primary">{{ primaryLabel }}</SplitButton>
+      <!-- Until the next stage opens, a quiet line says what it waits for instead of a dead button. -->
+      <span v-else-if="blocked(next.id)" class="stage-wait" :title="blocked(next.id)"><StageMark v-if="state?.agentWorking" state="draft" live label="Агент работает" />{{ waiting }}</span>
       <AppButton v-else size="sm" variant="blue" @click="$emit('select', next.id)">{{ next.label }} →</AppButton>
     </div>
   </nav>
@@ -36,8 +40,20 @@ const emit = defineEmits<{ select: [string]; complete: [string]; skip: [string] 
 const order = computed(() => workStagesOf(props.task))
 const current = computed(() => workStageIndex(props.task, props.state, props.hasPlan))
 const selected = computed(() => props.tabs.findIndex(s => s.id === props.active))
+const prev = computed(() => selected.value > 0 ? props.tabs[selected.value - 1] : undefined)
 const next = computed(() => selected.value >= 0 ? props.tabs[selected.value + 1] : undefined)
 const summary = computed(() => props.stages.find(s => s.stage === props.active))
+
+/** Проверка opens once the agent has done the work; the reason is the button's hint. */
+function blocked(id: string): string {
+  if (id !== 'check' || props.active === 'check' || !props.state || props.state.canCheck) return ''
+  if (props.task.kind !== 'errand') return 'Проверка откроется, когда очередь выполнения дойдёт до конца'
+  return props.state.agentWorking ? 'Агент ещё работает: Проверка откроется, когда он закончит' : 'Сначала напишите агенту, что сделать'
+}
+
+const waiting = computed(() => props.state?.agentWorking ? 'Агент работает…'
+  : props.task.kind === 'errand' ? 'Напишите агенту, что сделать' : 'Ждёт конца очереди')
+const live = (id: string) => !!props.tabs.find(s => s.id === id)?.live || (id === 'chat' && !!props.state?.agentWorking)
 
 type Tone = 'done' | 'current' | 'next'
 function mark(id: string): { state: 'ready' | 'changed' | 'skipped' | 'draft' | 'empty'; tone: Tone; label?: string } {
@@ -51,6 +67,7 @@ function mark(id: string): { state: 'ready' | 'changed' | 'skipped' | 'draft' | 
   }
   // A failed or pending summary request is never evidence of developer approval.
   if (['analysis', 'architecture', 'qa', 'plan'].includes(id)) return { state: id === 'plan' && props.hasPlan ? 'draft' : 'empty', tone }
+  if (id === 'chat' && props.state?.canCheck && !props.state.agentWorking) return { state: 'ready', tone: 'done', label: 'Агент выполнил то, что вы написали' }
   if (id === 'exec' && props.execDone) return { state: 'ready', tone: 'done', label: 'Все пункты плана выполнены' }
   if (tone === 'done') return { state: 'ready', tone }
   return tone === 'current' ? { state: 'draft', tone, label: 'Текущий этап работы' } : { state: 'empty', tone }
@@ -73,5 +90,9 @@ function primary() {
 }
 </script>
 <style scoped>
-.stage-nav { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 20px; padding: 8px var(--sp-5); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+/* The same bar as the tabs of «Код»: tabs take the row, the next step sits at its end, the bar draws the line. */
+.stage-nav { display: flex; align-items: stretch; gap: var(--sp-3); padding: 0 var(--sp-5); border-bottom: 1px solid var(--border); flex-shrink: 0; min-width: 0; }
+.stage-nav > :first-child { flex: 1; min-width: 0; overflow-x: auto; }
+.stage-wait { display: inline-flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-sm); color: var(--text-muted); white-space: nowrap; }
+.stage-actions {display: flex; align-items: center; gap: var(--sp-2); flex-shrink: 0; align-self: center; margin-block: var(--sp-1); }
 </style>

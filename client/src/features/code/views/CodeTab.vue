@@ -25,7 +25,7 @@
       <span class="ct-op-text">{{ operationTitle(conflicts.operation) }} · {{ conflicts.conflicted.length ? 'конфликтов: ' + conflicts.conflicted.length : 'конфликтов нет' }}<template v-if="conflicts.mode === 'working'"> · агент работает</template><template v-else-if="conflicts.mode === 'answer'"> · агент ждёт ответа</template></span>
       <AppButton variant="ghost" size="xs" type="button" @click="showRight('conflicts')">Конфликты</AppButton>
     </div>
-    <ReviewBanners @open-items="openFirstUnresolved" />
+    <ReviewBanners :isolated="work" @open-items="openFirstUnresolved" />
     <div v-if="store.error" class="ct-error">{{ store.error }} <AppButton variant="link" size="xs" type="button"  @click="store.refresh()">Повторить</AppButton></div>
 
     <div class="ct-body" :style="{ gridTemplateColumns: `${leftCollapsed ? RAIL : leftWidth}px 0 minmax(0, 1fr) 0 ${rightCollapsed ? RAIL : rightWidth}px` }">
@@ -110,14 +110,15 @@
           <ConflictPanel @open="path => open(path, 'diff')" />
         </div>
         <template v-if="rightTab === 'remarks'">
-          <ExternalThreadsPanel :can-discuss="canDiscuss" @goto="gotoExternal" @discuss="discussExternal" />
+          <!-- A work ends with its МР: the MR's discussions belong to «Код», not to the work's Проверка. -->
+          <ExternalThreadsPanel v-if="!work" :can-discuss="canDiscuss" @goto="gotoExternal" @discuss="discussExternal" />
           <div class="ct-pane">
-            <ReviewPanel :project-id="projectId" :origin="origin" :default-agent-id="defaultAgentId" @goto="goto" @open-ref="openRef" @show-change="showChange" />
+            <ReviewPanel :project-id="projectId" :origin="origin" :default-agent-id="defaultAgentId" :agent-review="agentReview" @goto="goto" @open-ref="openRef" @show-change="showChange" />
           </div>
         </template>
         <!-- Kept mounted: the finish run reports its progress (and the tab's badge) while another tab is open. -->
         <div v-if="store.repository" v-show="rightTab === 'finish'" class="ct-scroll">
-          <FinishPanel :key="projectId + (task?.id || '') + (work ? workspaceId ?? '' : '')" :project-id="projectId" :task="task" :workspace-id="work ? workspaceId ?? undefined : undefined" :blocked="finishBlocked || git.writeBlocked" :branch="store.branch" @attention="showRight('finish')" />
+          <FinishPanel :key="projectId + (task?.id || '') + (work ? workspaceId ?? '' : '')" :project-id="projectId" :task="task" :workspace-id="work ? workspaceId ?? undefined : undefined" :blocked="finishBlocked || git.writeBlocked" :branch="store.branch" :closable="work && !finishBlocked" @attention="showRight('finish')" @close="emit('close-work')" />
         </div>
         <div v-if="store.repository && rightTab === 'mr'" class="ct-scroll">
           <TaskMrPanel :key="projectId + (task?.id || '')" :project-id="projectId" :task-id="task?.id" stacked />
@@ -167,7 +168,7 @@ import ItemView from '../components/ItemView.vue'
 import ExternalThreadCard from '../components/ExternalThreadCard.vue'
 import ExternalThreadsPanel from '../components/ExternalThreadsPanel.vue'
 import { useExternalThreadsStore } from '../stores/external'
-import type { ExternalThread } from '../types'
+import type { ExternalThread, WorkAgentReview } from '../types'
 import PaneRail from '../components/PaneRail.vue'
 import QuickOpen from '../components/QuickOpen.vue'
 import ReviewBanners from '../components/ReviewBanners.vue'
@@ -191,8 +192,10 @@ const props = defineProps<{
   work?: boolean
   /** Why finishing is unavailable (a closed work); shown instead of the start button. */
   finishBlocked?: string
+  /** The agent review of a work, shown above the remarks as in «Код». */
+  agentReview?: WorkAgentReview | null
 }>()
-const emit = defineEmits<{ back: [] }>()
+const emit = defineEmits<{ back: []; 'close-work': [] }>()
 
 const git = useGitStore()
 const external = useExternalThreadsStore()

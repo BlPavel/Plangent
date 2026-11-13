@@ -10,6 +10,8 @@ export interface WorkInput {
   finish?: { status: FinishStatus; error?: string } | null;
   /** An errand whose chat is open but the developer has not written the request yet. */
   awaitingBrief?: boolean;
+  /** The agent has finished its work at least once: an errand's first turn, a plan's queue. */
+  workDone?: boolean;
 }
 /** Presentation policy only; no storage, network or clock access. */
 export function computeWorkState(input: WorkInput): WorkState {
@@ -21,6 +23,7 @@ export function computeWorkState(input: WorkInput): WorkState {
   const base = {
     hasBranch: workspace?.status === 'ready',
     agentWorking: active.length > 0 || queue?.status === 'running',
+    canCheck: !!input.workDone,
     counts: { steps: steps.length, completed: steps.filter(line => /\[x\]/i.test(line)).length,
       remarks: input.remarks ?? 0, waiting, agents: active.length },
   };
@@ -29,7 +32,7 @@ export function computeWorkState(input: WorkInput): WorkState {
     ({ ...base, stage, status, group, icon, text, action, actionLabel });
   if (task.closed_at || task.status === 'done') return { ...result('done', 'closed', 'done', '✔',
     task.close_reason === 'cancelled' ? 'Поручение отменено' : 'Работа закрыта',
-    input.mrState === 'merged' ? 'errand' : 'reopen', input.mrState === 'merged' ? 'Поручение по этой' : 'Открыть снова'), agentWorking: false };
+    input.mrState === 'merged' ? 'errand' : 'reopen', input.mrState === 'merged' ? 'Поручение по этой' : 'Открыть снова'), agentWorking: false, canCheck: true };
   if (workspace?.status === 'failed') return result('execution', 'failed', 'attention', '❗', workspace.error || 'Рабочее место недоступно', 'recreate', 'Пересоздать');
   if (workspace?.status === 'preparing') return result('execution', 'preparing', 'preparation', '◌', 'Подготовка рабочего места', 'chat', 'Открыть');
   if (task.kind === 'errand' && !sessions.length) return result('execution', 'preparing', 'preparation', '◌', 'Запуск поручения', 'chat', 'Открыть');

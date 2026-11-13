@@ -100,7 +100,7 @@ test('review queue UI adds, groups, configures and opens results; Code labels an
     scope: 'general', kind: 'fix', text: 'Fix behavior', refs: [], status: 'draft', closed: false }, thread: [], state: 'draft', onRemove: () => { removed = true; } }) });
   itemApp.mount(cardRoot);
   try {
-    assert.match(cardRoot.textContent, /агент/); assert.match(cardRoot.textContent, /ревью задачи TASK-1/);
+    assert.match(cardRoot.textContent, /агент/); assert.doesNotMatch(cardRoot.textContent, /ревью задачи/);
     cardRoot.querySelector('[role="button"][aria-expanded]').click(); await flush(); button('Удалить', cardRoot).click(); await flush(); assert.equal(removed, true);
   } finally { itemApp.unmount(); cardRoot.remove(); }
 });

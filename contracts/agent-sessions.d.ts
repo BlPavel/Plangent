@@ -574,6 +574,7 @@ export type AgentSessionsPOSTIdActionBody = {
     "mode"?: string;
     "configId"?: string;
     "value"?: string;
+    "agent_id"?: string;
 };
 export type AgentSessionsPATCHIdBody = {
     title?: string;

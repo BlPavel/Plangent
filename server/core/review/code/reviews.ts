@@ -186,7 +186,7 @@ export function createReviewService(records = createCodeReviewRepository(), depe
       const { root, info } = await context(projectId);
       editable(review, info);
       const item = itemFor(reviewId, itemId);
-      if (item.status !== 'draft' || item.round_id !== null) throw new DomainError('Only drafts can be edited', 409);
+      if (item.status !== 'draft') throw new DomainError('Only drafts can be edited', 409);
       const allowed = ['scope', 'file', 'line_start', 'line_end', 'side', 'kind', 'text', 'refs'];
       if (!patch || Object.keys(patch).some(key => !allowed.includes(key))) throw new DomainError('Invalid draft update');
       const data = validateDraft(root, info, { ...item, ...patch });

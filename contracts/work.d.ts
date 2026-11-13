@@ -26,6 +26,8 @@ export interface WorkState {
     actionLabel: string;
     hasBranch: boolean;
     agentWorking: boolean;
+    /** The agent has done the work at least once (an errand's first turn, a plan's queue): Проверка opens. */
+    canCheck: boolean;
     counts: {
         steps: number;
         completed: number;
@@ -40,6 +42,11 @@ export interface WorkEntry {
     state: WorkState;
 }
 export type ErrandPlace = 'new' | 'existing' | 'main';
+export interface ErrandReviewAgent {
+    agent_id: string;
+    model?: string;
+    effort?: string;
+}
 export interface ErrandInput {
     /** Описание: what the developer sees in the list; the details go to the chat. */
     title?: string;
@@ -52,6 +59,8 @@ export interface ErrandInput {
     mode?: string;
     config?: Record<string, string>;
     auto_review?: boolean;
+    /** Who reviews the work: the agent shown at creation (the project's review agent by default). */
+    review_agent?: ErrandReviewAgent;
     place?: ErrandPlace;
     base_branch?: string;
     branch_name?: string;
@@ -92,10 +101,18 @@ export type WorkPOSTErrandsBody = C.ErrandInput;
 export type WorkPOSTTasksTaskIdChatBody = {
     agent_id?: string;
 };
+/** The range of a work's review: `task` — everything since the work began, `worktree` — uncommitted changes only, `branch` — against a branch. */
+export type WorkReviewMode = 'task' | 'worktree' | 'branch';
 export type WorkPOSTTasksTaskIdReviewBody = {
     agent_id?: string;
     model?: string;
+    effort?: string;
+    config?: Record<string, string>;
     skill_id?: string;
+    mode?: WorkReviewMode;
+    ref?: string;
+    /** What the agent should know about the changes (free text). */
+    context?: string;
 };
 export type WorkCheck = {
     "changes": ({

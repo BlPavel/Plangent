@@ -284,3 +284,35 @@ test('remote comparison and removed-line threads keep the local branch review id
   assert.equal(createReviewStore(db).getItem(old.item.id)!.code_snippet, 'old line')
  } finally { db.close(); await fs.rm(root, { recursive: true, force: true }) }
 })
+
+test('agent findings remain editable drafts with their source round preserved', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'plangent-agent-draft-'));
+  const db = createTestDatabase();
+  db.prepare("INSERT INTO projects(id,name,repo_path,kind) VALUES ('project','Review',?,'project')").run(root);
+  const service = createReviewService(createCodeReviewRepository(db));
+  const store = createReviewStore(db);
+  try {
+    const { review, item } = await service.addDraft('project', {
+      scope: 'general', kind: 'fix', text: 'Agent finding',
+    }, 'project', 'project', 'agent');
+    const round = store.createRound({ review_id: review.id, snapshot_tree: '', session_id: null });
+    store.updateItem(item.id, { round_id: round.id });
+    await service.updateDraft('project', review.id, item.id, { text: 'Clarified finding', refs: ['docs/review.md'] });
+    await service.updateDraft('project', review.id, item.id, { kind: 'question' });
+    const edited = store.getItem(item.id)!;
+    assert.equal(edited.text, 'Clarified finding');
+    assert.deepEqual(edited.refs, ['docs/review.md']);
+    assert.equal(edited.kind, 'question');
+    assert.equal(edited.author, 'agent');
+    assert.equal(edited.round_id, round.id);
+    assert.equal(edited.status, 'draft');
+    for (const status of ['sent', 'answered', 'done', 'rejected', 'needs_decision'] as const) {
+      store.updateItem(item.id, { status });
+      await assert.rejects(service.updateDraft('project', review.id, item.id, { text: 'Forbidden' }), /Only drafts can be edited/);
+      assert.equal(store.getItem(item.id)!.text, 'Clarified finding');
+    }
+  } finally {
+    db.close();
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});

@@ -55,7 +55,7 @@ export function createSession(data: Pick<AgentSession, 'project_id' | 'agent_id'
   return session;
 }
 export function updateSession(id: string, data: Partial<AgentSession>): AgentSession {
-  const allowed = ['title', 'status', 'reason', 'model', 'acp_session_id', 'policy', 'metadata'];
+  const allowed = ['title', 'status', 'reason', 'agent_id', 'model', 'acp_session_id', 'policy', 'metadata'];
   const entries = Object.entries(data).filter(([key]) => allowed.includes(key));
   if (entries.length) getDb().prepare(`UPDATE agent_sessions SET ${entries.map(([k]) => `${k}=?`).join(',')}, updated_at=datetime('now') WHERE id=?`)
     .run(...entries.map(([k, v]) => k === 'metadata' ? JSON.stringify(v) : v), id);

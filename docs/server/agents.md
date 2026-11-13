@@ -32,6 +32,11 @@ temporary file for `command_output`. Queue timeout, run timeout and
 cancellation are separate result statuses, not exit codes. ACP `terminal` is
 not used: the Claude and Codex adapters never call it.
 
+An errand's chat can change its agent (`POST /api/agent-sessions/:id/agent`,
+`switchAgent`): between turns only. The old process stops, `acp_session_id` and
+the options the old agent reported are cleared, and the new agent starts at once;
+the conversation goes to it with the next message through `needsContext`.
+
 `infrastructure/acp/` owns adapter processes, protocol transport, probes and
 shutdown. Completed executor, task-reviewer and plan-reviewer work uses a
 one-minute idle deadline, including preflight and architecture/QA review.

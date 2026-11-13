@@ -3,15 +3,15 @@
     <div v-if="setup" class="ar-form">
       <AppSelect v-model="mode" :options="modes" label="Область ревью" block size="sm" :disabled="starting" />
       <BranchSelect v-if="mode === 'branch'" v-model="refName" :options="branchOptions" label="Ветка для сравнения" placeholder="Выберите ветку" small :disabled="starting" />
-      <p class="ar-note">{{ mode === 'worktree' ? 'Staged, unstaged и новые файлы относительно HEAD.' : 'От общей базы с выбранной веткой, включая незакоммиченные изменения.' }}</p>
-      <ReviewAgentBar label="Агент проверки" :project-id="projectId" :fallback-agent-id="defaultAgentId" read-only :disabled="starting" @change="pick = $event" />
-      <AppSelect v-model="skillId" :options="skillOptions" label="Скилл ревью" block size="sm" :disabled="starting" />
+      <p class="ar-note">{{ mode === 'task' ? 'Всё, что изменилось с начала работы, вместе с закоммиченным.' : mode === 'worktree' ? 'Staged, unstaged и новые файлы относительно HEAD.' : 'От общей базы с выбранной веткой, включая незакоммиченные изменения.' }}</p>
+      <ReviewAgentBar label="Агент проверки" :project-id="projectId" :preferred="work?.preferred" :fallback-agent-id="defaultAgentId" read-only :disabled="starting" @change="pick = $event" />
+      <AppSelect v-if="!work" v-model="skillId" :options="skillOptions" label="Скилл ревью" block size="sm" :disabled="starting" />
       <AppTextarea v-model="context" aria-label="Что знать агенту" block rows="3" size="sm" spellcheck="false" :disabled="starting" placeholder="Что знать агенту и на что обратить внимание. Например: это первый шаг миграции, особенно посмотри обработку ошибок" />
       <p v-if="preview" class="ar-note">{{ mode === 'branch' ? 'Относительно ' + refLabel : 'Относительно HEAD' }} · {{ preview.files.length }} {{ fileWord(preview.files.length) }} · база {{ preview.base.slice(0, 8) }}</p>
       <p v-else-if="previewing" class="ar-note">Собираю область проверки…</p>
       <div class="ar-row">
         <AppButton size="xs" variant="ghost" :disabled="starting" @click="setup = false">Отмена</AppButton>
-        <AppButton size="xs" variant="blue" :disabled="starting || previewing || !preview?.files.length || !pick || code.agentWorking" @click="start">{{ starting ? 'Запуск…' : 'Начать проверку' }}</AppButton>
+        <AppButton size="xs" variant="blue" :disabled="starting || !pick || code.agentWorking || (mode !== 'task' && (previewing || !preview?.files.length))" @click="start">{{ starting ? 'Запуск…' : 'Начать проверку' }}</AppButton>
       </div>
     </div>
     <!-- After the start the settings are gone: who reviews, what they do now, their full log on demand (as in the merge request review). -->
@@ -29,8 +29,9 @@
         <UsageMeter :agent-id="selected.agent_id" :usage="(selected.metadata.usage as UsageInfo | undefined) ?? null" placement="below" show-unavailable />
       </div>
       <div v-if="reports.length > 1 || (!running && canStart)" class="ar-row">
-        <AppSelect v-if="reports.length > 1" v-model="selectedId" :options="reports.map((s, i) => ({ value: s.id, label: 'Проверка ' + (reports.length - i) + ' · ' + statusLabel(s.status) }))" label="История проверок" size="xs" />
-        <AppButton v-if="!running && canStart" size="xs" variant="blue" :disabled="starting || code.agentWorking" @click="setup = true">{{ selected ? 'Новая проверка' : 'Проверить агентом' }}</AppButton>
+        <AppSelect v-if="reports.length > 1" :model-value="selected?.id ?? ''" @update:model-value="selectedId = $event" :options="reports.map((s, i) => ({ value: s.id, label: 'Проверка ' + (reports.length - i) + ' из ' + reports.length, description: statusLabel(s.status) }))" label="История проверок" title="Чей отчёт показан: история проверок" variant="subtle" size="sm" />
+        <span class="ar-spacer" />
+        <AppButton v-if="!running && canStart" size="sm" :disabled="starting || code.agentWorking" @click="setup = true">🤖 {{ selected ? 'Ревью ещё раз' : 'Ревью агентом' }}</AppButton>
       </div>
     </template>
     <p v-if="error" role="alert" class="ar-error">{{ error }}</p>
@@ -49,17 +50,18 @@ import AppTextarea from '@shared/ui/AppTextarea.vue'
 import BranchSelect from '@shared/ui/BranchSelect.vue'
 import { codeEndpoints } from '../api'
 import { useCodeContext, useGitContext } from '../stores/context'
+import type { WorkAgentReview } from '../types'
 
-const props = defineProps<{ projectId: string; defaultAgentId?: string | null; /** Session whose log replaces the remarks list ('' — none). */ journal: string }>()
+const props = defineProps<{ projectId: string; defaultAgentId?: string | null; /** A work's Проверка: the work launches the review. */ work?: WorkAgentReview | null; /** Session whose log replaces the remarks list ('' — none). */ journal: string }>()
 const emit = defineEmits<{ 'update:journal': [sessionId: string] }>()
 const code = useCodeContext(), git = useGitContext(), chats = useChatStore(), agents = useAgentsStore()
 const setup = ref(false), starting = ref(false), stopping = ref(false), error = ref('')
 const canStart = computed(() => !!code.repository && !code.readOnly && !code.openedReviewId)
 const agentName = computed(() => agents.agents.find(a => a.id === selected.value?.agent_id)?.name || 'Агент')
-const mode = ref<'worktree' | 'branch'>('worktree'), refName = ref(''), skillId = ref(''), context = ref('')
+const mode = ref<'task' | 'worktree' | 'branch'>(props.work ? 'task' : 'worktree'), refName = ref(''), skillId = ref(''), context = ref('')
 const pick = ref<ReviewAgentPick | null>(null), preview = ref<CodeReviewPreview | null>(null), previewing = ref(false)
 const skills = ref<{ id: string; title: string }[]>([]), selectedId = ref('')
-const modes = [{ value: 'worktree', label: 'Текущие изменения' }, { value: 'branch', label: 'Относительно ветки…' }]
+const modes = [...(props.work ? [{ value: 'task', label: 'Всё по работе' }] : []), { value: 'worktree', label: 'Текущие изменения' }, { value: 'branch', label: 'Относительно ветки…' }]
 const branchOptions = computed(() => git.branches.map(b => ({ value: b.ref, label: b.name })))
 const refLabel = computed(() => branchOptions.value.find(b => b.value === refName.value)?.label ?? refName.value)
 const fileWord = (n: number) => n % 10 === 1 && n % 100 !== 11 ? 'файл' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? 'файла' : 'файлов'
@@ -72,14 +74,14 @@ const selected = computed(() => reports.value.find(s => s.id === selectedId.valu
 const running = computed(() => reports.value.some(s => ['starting', 'thinking', 'waiting'].includes(s.status)))
 const rangeLabel = computed(() => {
   const range = selected.value?.metadata.code_review_range as { mode?: string; ref?: string } | undefined
-  return range ? (range.mode === 'branch' ? 'Относительно ' + range.ref?.replace(/^refs\/(heads|remotes)\//, '') : 'Текущие изменения') : 'Проверка задачи'
+  return range ? (range.mode === 'task' ? 'Всё по работе' : range.mode === 'branch' ? 'Относительно ' + range.ref?.replace(/^refs\/(heads|remotes)\//, '') : 'Текущие изменения') : 'Проверка задачи'
 })
-function range(): CodeReviewLaunch { return { mode: mode.value, ...(mode.value === 'branch' ? { ref: refName.value } : {}) } }
+function range(): CodeReviewLaunch { return { mode: mode.value === 'task' ? 'worktree' : mode.value, ...(mode.value === 'branch' ? { ref: refName.value } : {}) } }
 watch(() => props.projectId, async (id, _old, cleanup) => {
   let stale = false
   cleanup(() => { stale = true })
   setup.value = false; preview.value = null; selectedId.value = ''; error.value = ''; emit('update:journal', '')
-  refName.value = ''; mode.value = 'worktree'; skillId.value = ''; skills.value = []; context.value = ''
+  refName.value = ''; mode.value = props.work ? 'task' : 'worktree'; skillId.value = ''; skills.value = []; context.value = ''
   try {
     const value = await branchReviewEndpoints.getProjectsByProjectIdBranchReviewSkills({ params: { projectId: id } })
     if (!stale) skills.value = value
@@ -89,7 +91,7 @@ watch([setup, mode, refName, () => code.workspaceId, () => code.repository, () =
   let stale = false
   cleanup(() => { stale = true })
   preview.value = null; previewing.value = false
-  if (!setup.value) return
+  if (!setup.value || mode.value === 'task') return
   if (mode.value === 'branch' && !refName.value) { refName.value = git.branches.find(b => b.name === git.baseRef)?.ref ?? ''; if (!refName.value) return }
   previewing.value = true; error.value = ''
   try {
@@ -102,6 +104,13 @@ async function start() {
   if (!pick.value || starting.value) return
   starting.value = true; error.value = ''
   const projectId = props.projectId, workspace = code.workspaceId
+  if (props.work) {
+    const ok = await props.work.run({ mode: mode.value, ...(mode.value === 'branch' ? { ref: refName.value } : {}),
+      agent_id: pick.value.agent_id, model: pick.value.model, effort: pick.value.effort, config: pick.value.config, ...(context.value.trim() ? { context: context.value.trim() } : {}) })
+    starting.value = false
+    if (ok) { setup.value = false; selectedId.value = ''; context.value = ''; await code.refresh() }
+    return
+  }
   try {
     const session = await codeEndpoints.startAgentReview({ params: { projectId }, query: { workspace }, body: {
       ...range(), agent_id: pick.value.agent_id, model: pick.value.model, effort: pick.value.effort,

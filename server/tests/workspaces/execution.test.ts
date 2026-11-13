@@ -130,6 +130,21 @@ test('execution roots, errands, task chats and independent review rounds', async
       await host.closeSession(chat.id);
       assert.equal((await service.current(project.id)).rounds.length, 2);
     });
+    await t.test('a review covers the chosen range, uses the picked agent and carries the developer\'s words', async () => {
+      const task = errand.task;
+      sessions.addEvent(errand.session.id, 'user', { text: 'Please change the spacing in code.txt' });
+      sessions.updateSession(errand.session.id, { metadata: { ...sessions.getSession(errand.session.id).metadata, review_agent: { agent_id: agent.id, model: '', effort: '' } } });
+      const chat = await taskReview.launchIndependentReview(task.id, { mode: 'worktree', context: 'Look at the spacing' });
+      assert.equal(chat.agent_id, agent.id);
+      const brief = await taskReview.taskReviewBrief(chat);
+      assert.equal(brief.range.mode, 'worktree');
+      assert.equal(brief.developer_context, 'Look at the spacing');
+      assert.match(JSON.stringify(brief.developer_requests), /change the spacing/);
+      assert.match(JSON.stringify(brief.changes), /changed/);
+      await taskReview.submitTaskReview(sessions.getSession(chat.id), 'Range review');
+      await host.closeSession(chat.id);
+      await assert.rejects(taskReview.launchIndependentReview(task.id, { mode: 'branch' }), /ветку/);
+    });
     await t.test('review remarks go to the existing task/errand chat', async () => {
       for (const task of [queueTask, errand.task]) {
         const service = reviews(workspaces.activeWorkspace(task.id)!.id);
@@ -151,6 +166,9 @@ test('execution roots, errands, task chats and independent review rounds', async
       const chat = () => sessions.listSessions(project.id).find(s => s.task_id === payload.task.id && s.role === 'errand');
       await until(() => chat()?.status === 'complete');
       assert.equal(workspaces.activeWorkspace(payload.task.id)!.status, 'ready');
+      const { workEntry } = await import('../../core/work');
+      await until(() => chat()?.metadata.work_done === true);
+      assert.equal(workEntry(payload.task.id).state.canCheck, true);
     });
     await t.test('an errand from a number and description waits for the request in its chat', async () => {
       const errand = await createErrand(project.id, { title: 'Profile layout', external_key: 'PROJ-7', agent_id: agent.id, policy: 'ask', branch_name: 'fix/profile-layout' });
@@ -159,6 +177,7 @@ test('execution roots, errands, task chats and independent review rounds', async
       assert.equal(errand.session.policy, 'ask');
       const { workEntry } = await import('../../core-services').then(() => import('../../core/work'));
       assert.equal(workEntry(errand.task.id).state.text, 'Напишите агенту, что сделать');
+      assert.equal(workEntry(errand.task.id).state.canCheck, false);
       assert.equal(sessions.history(errand.session.id).some(e => e.type === 'user'), false);
       await assert.rejects(createErrand(project.id, { agent_id: agent.id }), /номер задачи или описание/);
     });

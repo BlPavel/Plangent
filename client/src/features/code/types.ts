@@ -6,3 +6,10 @@ export interface ExternalThreadActions {
   editNote(discussion: string, note: number, body: string): Promise<unknown>
   deleteNote(discussion: string, note: number): Promise<unknown>
 }
+
+/** The agent review of a work's Проверка: launched by the work (its whole change, uncommitted, against a branch). */
+export interface WorkAgentReview {
+  /** The review agent picked when the work was created; the project's one otherwise. */
+  preferred?: { agent_id: string; model?: string; effort?: string } | null
+  run: (body: import('@contracts').WorkPOSTTasksTaskIdReviewBody) => Promise<boolean>
+}

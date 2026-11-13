@@ -36,18 +36,22 @@ export interface ReviewAgentPick { agent_id: string; model: string; mode: string
  * The agent of a review: the project's review agent from the settings, shown as one line (agent, model, reasoning, limits)
  * with «Изменить» for this review only. Only what the settings hold can be picked here.
  */
-const props = defineProps<{ projectId: string; fallbackAgentId?: string | null; disabled?: boolean; /** The review only reads (a merge request): no permissions to choose. */ readOnly?: boolean; /** The settings stay open as a form: no summary line and no «Изменить». */ expanded?: boolean; /** What the line calls the agent. */ label?: string }>()
+const props = defineProps<{ /** The agent picked earlier for this very work: shown first, the settings' one is the fallback. */ preferred?: { agent_id: string; model?: string; effort?: string } | null; projectId: string; fallbackAgentId?: string | null; disabled?: boolean; /** The review only reads (a merge request): no permissions to choose. */ readOnly?: boolean; /** The settings stay open as a form: no summary line and no «Изменить». */ expanded?: boolean; /** What the line calls the agent. */ label?: string }>()
 const emit = defineEmits<{ change: [pick: ReviewAgentPick] }>()
 const agents = useAgentsStore()
 if (!agents.agents.length) void agents.load()
 const { choice: configured, loaded } = useReviewAgentChoice(() => props.projectId)
+/** What the bar starts with: the work's own pick, else the project's review agent. */
+const base = computed(() => props.preferred?.agent_id
+  ? { agentId: props.preferred.agent_id, model: props.preferred.model ?? '', effort: props.preferred.effort ?? '', policy: configured.value?.policy ?? '' }
+  : configured.value)
 const agentId = ref(''), editing = ref(false), touched = ref(false)
 /** Permissions: the settings' choice, else «Разрешать правки» — a review agent should not ask for every edit. */
 const policyPick = ref<string | null>(null)
 const policy = computed(() => policyPick.value ?? (configured.value?.policy || 'allow-edits'))
 const policyOptions = POLICIES.filter(o => o.value !== 'read-only')
-const defaultAgent = () => configured.value?.agentId || props.fallbackAgentId || agents.agents[0]?.id || ''
-const { resolvedSelects, state: optionsState, launch, pick, retry } = useAgentLaunchOptions(agentId, () => ({ agentId: configured.value?.agentId, model: configured.value?.model, effort: configured.value?.effort }))
+const defaultAgent = () => base.value?.agentId || props.fallbackAgentId || agents.agents[0]?.id || ''
+const { resolvedSelects, state: optionsState, launch, pick, retry } = useAgentLaunchOptions(agentId, () => ({ agentId: base.value?.agentId, model: base.value?.model, effort: base.value?.effort }))
 
 // Until the settings are known the agent is not chosen: a late answer must not replace a pick.
 watch([loaded, () => agents.agents.length], () => { if (loaded.value && !touched.value && !agentId.value) agentId.value = defaultAgent() }, { immediate: true })
@@ -59,7 +63,7 @@ const effortSelect = computed(() => resolvedSelects.value.find(s => s.category =
 const labelOf = (select: AgentSelect | undefined, fallback = '') => select?.options.find(o => o.value === select.current)?.label ?? fallback
 const summary = computed(() => {
   if (!agentId.value) return ''
-  const own = configured.value?.agentId === agentId.value ? configured.value : null
+  const own = base.value?.agentId === agentId.value ? base.value : null
   return [
     agents.agents.find(a => a.id === agentId.value)?.name ?? agentId.value,
     labelOf(modelSelect.value, own?.model),

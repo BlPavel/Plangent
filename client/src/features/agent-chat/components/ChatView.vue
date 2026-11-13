@@ -1,6 +1,6 @@
 <template>
-  <section v-if="snap" class="chat">
-    <header class="chat-head">
+  <section v-if="snap" class="chat" :class="{ 'chat-start': starting }">
+    <header v-if="!starting" class="chat-head">
       <div class="chat-title">
         <strong :title="snap.session.title">{{ snap.session.title }}</strong>
         <span v-if="agentName" class="chat-agent">{{ agentName }}</span>
@@ -23,7 +23,11 @@
 
     <div ref="feed" class="feed" @scroll="trackScroll">
       <div ref="inner" class="feed-inner">
-        <div v-if="!rows.length && !pending.length" class="feed-empty">
+        <div v-if="starting" class="feed-empty">
+          <div class="feed-empty-title">Что сделать агенту?</div>
+          <div class="feed-empty-text">Подробности, файлы через <kbd>@</kbd>, скриншоты. Агент начнёт работу после первого сообщения.</div>
+        </div>
+        <div v-else-if="!rows.length && !pending.length" class="feed-empty">
           <div class="feed-empty-title">{{ snap.session.status === 'starting' ? 'Подключаемся к агенту…' : 'С чего начнём?' }}</div>
           <div class="feed-empty-text">Опишите задачу. Введите <kbd>@</kbd>, чтобы сослаться на файл проекта, или <kbd>/</kbd> для команд агента.</div>
         </div>
@@ -63,6 +67,7 @@
               <span>{{ entry.content }}</span>
             </div>
           </div>
+          <div v-else-if="row.type === 'notice'" class="notice-line">{{ row.payload.text }}</div>
           <div v-else-if="NOTICES[row.type]" class="card notice" :class="row.type">
             <div class="card-label">{{ NOTICES[row.type] }}</div>
             <div class="notice-text">{{ row.payload.summary ?? row.payload.question ?? row.payload.note ?? row.payload.text ?? '' }}</div>
@@ -125,6 +130,9 @@
           :selects="selects"
           :locked="locked"
           :busy="busy"
+          :agents="snap.session.role === 'errand' ? agentList : undefined"
+          :agent="snap.session.agent_id"
+          @agent="agentChanged"
           @policy="policyChanged"
           @change="changeOption"
         />
@@ -155,7 +163,7 @@ import { mergeCommands, type ChatCommand } from '../utils/commands'
 import { useChatStore, statusLabel, statusTone, type ChatEvent} from '../stores/sessions'
 
 // `cards`: event types the host feature renders itself through the `card` slot (e.g. library proposals).
-const props = defineProps<{ sessionId: string; workspaceId?: string | null; initialContent?: ContentBlock[]; cards?: string[]; /** Shows «Сделать поручением»: the host turns the conversation into an errand. */ canErrand?: boolean; /** Messages are written elsewhere (e.g. a batch of review questions): no input field. */ noComposer?: boolean }>()
+const props = defineProps<{ sessionId: string; workspaceId?: string | null; initialContent?: ContentBlock[]; /** Git actions are allowed for the initial message. */ initialGit?: boolean; cards?: string[]; /** Shows «Сделать поручением»: the host turns the conversation into an errand. */ canErrand?: boolean; /** Messages are written elsewhere (e.g. a batch of review questions): no input field. */ noComposer?: boolean; /** The host awaits the first request: no head, the prompt is centered until the conversation starts. */ start?: boolean }>()
 const emit = defineEmits<{ session: [id: string]; errand: [text: string] }>()
 defineExpose({ setText: (text: string) => composer.value?.setText(text) })
 const store = useChatStore()
@@ -173,6 +181,7 @@ let pendingId = 0
 
 const NOTICES: Record<string, string> = { notice: 'Сессия перезапущена', complete_step: 'Шаг завершён', request_help: 'Агенту нужна помощь', report_progress: 'Прогресс', submit_plan: 'План' }
 
+const agentList = computed(() => agents.agents.filter(a => a.active || a.id === snap.value?.session.agent_id).map(a => ({ value: a.id, label: a.name })))
 const agentName = computed(() => agents.agents.find(a => a.id === snap.value?.session.agent_id)?.name ?? '')
 const busy = computed(() => ['thinking', 'starting'].includes(snap.value?.session.status ?? ''))
 const thinking = computed(() => snap.value?.session.status === 'thinking')
@@ -244,6 +253,7 @@ function makeErrand() {
   if (text.length > 90000) text = '…' + text.slice(-90000)
   emit('errand', 'Продолжи как поручение. Разговор с агентом до этого:\n\n' + text)
 }
+const starting = computed(() => !!props.start && !hasConversation.value && !pending.value.length)
 const showTyping = computed(() => (busy.value || pending.value.length > 0) && !rows.value[rows.value.length - 1]?.live && !snap.value?.permissions.length)
 
 function withMentions(text: string) {
@@ -281,7 +291,7 @@ watch(() => props.sessionId, async id => {
   try { await store.load(id) } catch (e) { error.value = String(e); return }
   await nextTick()
   scrollDown()
-  if (props.initialContent?.length && !snap.value?.events.some(e => e.type === 'user')) void send(props.initialContent)
+  if (props.initialContent?.length && !snap.value?.events.some(e => e.type === 'user')) { gitForTurn.value = !!props.initialGit; void send(props.initialContent) }
   else composer.value?.focus()
 }, { immediate: true })
 
@@ -310,6 +320,7 @@ async function send(content: ContentBlock[]) {
 async function policyChanged(value: string) {
   try { store.put(await agentChatEndpoints.patchAgentSessionsById({ params: { id: props.sessionId }, body: { policy: permissionPolicy(value) } })) } catch (e) { error.value = String(e) }
 }
+function agentChanged(value: string) { void action('agent', { agent_id: value }) }
 function changeOption(select: AgentSelect, value: string) {
   if (select.kind === 'model') void action('model', { model: value })
   else if (select.kind === 'mode') void action('mode', { mode: value })
@@ -327,7 +338,7 @@ async function newContext() {
 <style scoped>
 .chat { display: flex; flex-direction: column; height: 100%; min-height: 0; background: var(--bg); }
 
-.chat-head { display: flex; align-items: center; gap: var(--sp-3); height: 48px; padding: 0 var(--sp-4); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.chat-head { display: flex; align-items: center; gap: var(--sp-3); height: 48px; padding: 0 var(--sp-5); border-bottom: 1px solid var(--border); flex-shrink: 0; }
 .chat-title { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: var(--sp-2); }
 .chat-title strong { font-size: var(--fs-base); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-agent { font-size: var(--fs-sm); color: var(--text-faint); white-space: nowrap; }
@@ -342,6 +353,11 @@ async function newContext() {
 .feed-inner { max-width: 820px; margin: 0 auto; padding: var(--sp-6) var(--sp-5) var(--sp-4); display: flex; flex-direction: column; gap: 14px; }
 
 .feed-empty { margin: 12vh auto 0; max-width: 420px; text-align: center; }
+/* The first request of an errand: the prompt sits in the middle of the screen instead of the bottom edge. */
+.chat-start { justify-content: center; }
+.chat-start .feed { flex: 0 0 auto; overflow: visible; }
+.chat-start .feed-empty { margin: 0; max-width: none; text-align: center; }
+.chat-start .feed-inner { padding-bottom: var(--sp-3); }
 .feed-empty-title { font-size: var(--fs-xl); font-weight: 600; margin-bottom: 6px; }
 .feed-empty-text { font-size: var(--fs-md); color: var(--text-muted); line-height: 1.6; }
 kbd { font-family: inherit; font-size: var(--fs-xs); padding: 1px 5px; border: 1px solid var(--border-strong); border-radius: var(--radius-4); background: var(--bg3); }
@@ -372,6 +388,7 @@ kbd { font-family: inherit; font-size: var(--fs-xs); padding: 1px 5px; border: 1
 .plan-entry.completed { color: var(--text-muted); text-decoration: line-through; }
 .plan-entry.completed .plan-check { border-color: var(--accent); background: var(--accent) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 8.5l2.5 2.5 5.5-6' stroke='white' stroke-width='2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/12px no-repeat; }
 
+.notice-line { font-size: var(--fs-sm); color: var(--text-faint); text-align: center; overflow-wrap: anywhere; }
 .notice-text { font-size: var(--fs-md); white-space: pre-wrap; overflow-wrap: anywhere; }
 .notice.request_help { border-color: var(--warning-soft); background: var(--warning-soft); }
 .notice.complete_step { border-color: var(--accent-soft); }

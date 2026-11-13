@@ -26,7 +26,21 @@ export function useWorkActions() {
   async function attempt<T>(action: () => Promise<T>): Promise<T | undefined> {
     try { return await action() } catch (cause) { app.toast(text(cause), 'error') }
   }
-  const close = (t: Task) => guarded(discard => workApi.close(t.project_id, t.id, discard), 'В рабочем месте остались несохранённые изменения.')
+  /** Closing keeps the branch: only what is not committed is lost; unpushed commits stay in the branch. */
+  async function close(t: Task) {
+    try { return await workApi.close(t.project_id, t.id, false) }
+    catch (cause) {
+      const blockers = blockersOf(cause)
+      const files = blockers?.files?.length ?? 0, commits = blockers?.commits?.length ?? 0
+      if (!files && !commits) { app.toast(text(cause), 'error'); return }
+      const branch = t.branch_name ? ` «${t.branch_name}»` : ''
+      const message = files
+        ? `В папке работы есть изменения, которые не закоммичены (${files} ${files % 10 === 1 && files % 100 !== 11 ? 'файл' : files % 10 >= 2 && files % 10 <= 4 && (files % 100 < 12 || files % 100 > 14) ? 'файла' : 'файлов'}). При закрытии они пропадут безвозвратно.\n\nКоммиты останутся в ветке${branch}. Чтобы сохранить изменения, отмените и сделайте коммит во вкладке «Завершение».`
+        : `Коммиты есть только локально, в origin они не отправлены. Они не пропадут: останутся в ветке${branch}.`
+      if (!await app.confirm(message, files ? { confirmLabel: 'Закрыть и потерять изменения', danger: true } : { confirmLabel: 'Закрыть работу' })) return
+      try { return await workApi.close(t.project_id, t.id, true) } catch (again) { app.toast(text(again), 'error') }
+    }
+  }
   const reopen = (t: Task) => attempt(() => workApi.reopen(t.project_id, t.id))
   const addPlan = (t: Task) => attempt(() => workApi.addPlan(t.project_id, t.id))
   /** «Выбросить» removes the branch and the workspace; «Оставить» only closes the errand. */
@@ -35,8 +49,9 @@ export function useWorkActions() {
     return attempt(() => workApi.cancel(t.project_id, t.id, mode))
   }
   async function remove(t: Task) {
-    if (!await app.confirm(`Удалить «${t.kind === 'errand' ? t.title || 'поручение' : t.key}»? Действие необратимо.`, { confirmLabel: 'Удалить', danger: true })) return false
-    return (await guarded(discard => workApi.remove(t.project_id, t.id, discard).then(() => { useDraftsStore().clearPrefix(`task:${t.id}:`); return true }), 'Рабочее место будет удалено вместе с изменениями.')) === true
+    // One question: deleting already means throwing away the workspace with whatever is unsaved or unpushed in it.
+    if (!await app.confirm(`Удалить «${t.kind === 'errand' ? t.title || 'поручение' : t.key}»? Рабочее место удалится вместе со всеми изменениями, в том числе несохранёнными и неотправленными. Действие необратимо.`, { confirmLabel: 'Удалить', danger: true })) return false
+    return (await attempt(() => workApi.remove(t.project_id, t.id, true).then(() => { useDraftsStore().clearPrefix(`task:${t.id}:`); return true }))) === true
   }
   async function errandFrom(t: Task, request: string, agentId?: string | null) {
     if (!request.trim()) return

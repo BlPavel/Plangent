@@ -37,6 +37,7 @@
         :key="selected"
         :session-id="selected"
         :initial-content="initial?.id === selected ? initial.content : undefined"
+        :initial-git="initial?.id === selected && initial.git"
         :can-errand="projects.byId(projectId)?.kind === 'project'"
         @session="selected = $event"
         @errand="makeErrand"
@@ -48,6 +49,7 @@
         :default-agent-id="defaultAgentId"
         title="Новый чат"
         text="Выберите агента и опишите задачу. Агент работает в папке проекта; модель, режим и остальное можно поменять и во время чата."
+        :git="projects.byId(projectId)?.kind === 'project'"
         :busy="creating"
         :error="error"
         @start="create"
@@ -87,7 +89,7 @@ const selected = computed({
 })
 const router = useRouter()
 const error = ref(''), creating = ref(false), renameId = ref(''), title = ref('')
-const initial = ref<{ id: string; content: ContentBlock[] } | null>(null)
+const initial = ref<{ id: string; content: ContentBlock[]; git: boolean } | null>(null)
 
 const sessions = computed(() => store.sessions.filter(s => s.project_id === props.projectId && s.role === 'chat' && !s.metadata.mr_private && !s.metadata.branch_review))
 const agentName = (id: string) => agents.agents.find(a => a.id === id)?.name ?? ''
@@ -107,13 +109,13 @@ async function makeErrand(text: string) {
   } catch (e) { app.toast(String(e), 'error') }
 }
 
-async function create({ content, ...options }: NewChatRequest) {
+async function create({ content, ...options }: NewChatRequest, git: boolean) {
   creating.value = true
   error.value = ''
   try {
     const session = await agentChatEndpoints.postAgentSessions({ params: {  }, body: { project_id: props.projectId, ...options } })
     store.put(session)
-    initial.value = { id: session.id, content }
+    initial.value = { id: session.id, content, git }
     selected.value = session.id
   } catch (e) { error.value = String(e) }
   finally { creating.value = false }

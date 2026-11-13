@@ -17,6 +17,9 @@
         <p v-if="text" class="new-chat-hint">{{ text }}</p>
       </template>
       <ChatComposer v-if="!compact" :draft-key="draftKey!" :initial-text="initialText" :commands="commands" :project-id="projectId" :workspace-id="workspaceId" :placeholder="placeholder" :disabled="!agentId || busy" @send="start" @error="localError = $event">
+        <template v-if="git" #tools>
+          <AppButton type="button" variant="subtle" size="xs" :pressed="gitForTurn" title="Разрешить Git-действия на один ход" @click="gitForTurn = !gitForTurn">Git</AppButton>
+        </template>
         <template #status><UsageMeter v-if="agentId" :agent-id="agentId" /></template>
       </ChatComposer>
       <AgentSettingsBar :policy="fixedPolicy ?? policy" :selects="resolvedSelects" :locked="!!fixedPolicy" @policy="policy = $event" @change="pick">
@@ -78,8 +81,11 @@ const props = defineProps<({ compact: true; draftKey?: string } | { compact?: fa
   compact?: boolean
   /** The start button of the compact panel. */
   sendLabel?: string
+  /** Offers «Git»: Git actions allowed for the first message. */
+  git?: boolean
 }>()
-const emit = defineEmits<{ start: [request: NewChatRequest] }>()
+const emit = defineEmits<{ start: [request: NewChatRequest, gitForTurn: boolean] }>()
+const gitForTurn = ref(false)
 const agents = useAgentsStore()
 const agentId = ref(''), policy = ref(props.defaultPolicy || 'ask'), localError = ref('')
 const { resolvedSelects, commands, state: optionsState, launch, pick, retry } = useAgentLaunchOptions(agentId, () => ({ agentId: props.defaultAgentId, model: props.defaultModel, effort: props.defaultEffort }))
@@ -94,7 +100,7 @@ watch(() => props.defaultAgentId, (_, old) => { if (!agentId.value || agentId.va
 
 function start(content: ContentBlock[]) {
   localError.value = ''
-  emit('start', { agent_id: agentId.value, policy: permissionPolicy(props.fixedPolicy ?? policy.value), ...launch(), content })
+  emit('start', { agent_id: agentId.value, policy: permissionPolicy(props.fixedPolicy ?? policy.value), ...launch(), content }, !!props.git && gitForTurn.value)
 }
 </script>
 

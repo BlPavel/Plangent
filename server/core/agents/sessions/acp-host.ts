@@ -410,6 +410,24 @@ export async function setModel(id: string, model: string): Promise<void> {
   } else await state.connection.setModel({ sessionId: session.acp_session_id!, modelId: model });
   updateSession(id, { model });
 }
+// What the previous agent reported about itself; the new one fills these in when it starts.
+const AGENT_OWN_METADATA = ['configOptions', 'modes', 'models', 'preferredMode', 'preferredConfig', 'reasoningEffort', 'agentCapabilities', 'authMethods', 'agentInfo', 'protocolVersion'];
+/** Hands the chat to another agent: the old process stops, the new one starts and gets the conversation with the next message. */
+export async function switchAgent(id: string, agentId: string): Promise<void> {
+  const session = getSession(id);
+  if (session.agent_id === agentId) return;
+  const agent = getAgent(agentId);
+  if (!agent) throw new Error('Агент не найден');
+  if (live.get(id)?.busy || starting.has(id) || ['thinking', 'starting', 'waiting'].includes(session.status)) throw new Error('Дождитесь окончания хода');
+  await closeSession(id);
+  const kept = Object.fromEntries(Object.entries(getSession(id).metadata).filter(([key]) => !AGENT_OWN_METADATA.includes(key)));
+  const hasHistory = history(id).some(e => e.type === 'user' || e.type === 'assistant');
+  updateSession(id, { agent_id: agentId, model: agent.model, acp_session_id: null, status: 'ready', reason: '', metadata: { ...kept, briefed: false, needsContext: hasHistory } });
+  // Nothing to say before the first message: the choice is visible in the bar.
+  if (hasHistory) addEvent(id, 'notice', { text: `Агент сменён на «${agent.name}». История чата уйдёт ему со следующим сообщением.` });
+  // Starting now fills the new agent's models and modes into the settings bar.
+  void startSession(id).catch(() => {});
+}
 /** Any other agent option (reasoning depth, Codex collaboration mode, …); remembered so a restarted session keeps it. */
 export async function setConfig(id: string, configId: string, value: string): Promise<void> {
   const session = getSession(id);

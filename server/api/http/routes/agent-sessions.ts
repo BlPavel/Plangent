@@ -3,7 +3,7 @@ import { typedRoutes } from '../typed-route';
 import { Router } from 'express';
 import type { ContentBlock } from '@agentclientprotocol/sdk';
 import { createAgentSession, listSessions, getSession, updateSession, deleteSession, history, findings } from '../../../core/agents';
-import { runAgentWork, cancelSession, closeSession, answerPermission, setModel, setMode, setConfig, snapshot } from '../../../core/agents';
+import { runAgentWork, cancelSession, closeSession, answerPermission, setModel, setMode, setConfig, switchAgent, snapshot } from '../../../core/agents';
 import { editQueued } from '../../../core/agents/sessions/prompt-queue';
 import { getProject } from '../../../core/projects';
 import { getAgent } from '../../../core/agents/catalog';
@@ -61,6 +61,9 @@ agentSessionsRouterRoutes.json('POST /api/agent-sessions/:id/:action', async (re
       case 'close': await closeSession(id); updateSession(id, { status: 'ready', reason: '' }); break;
       case 'retry': await closeSession(id); await runAgentWork(id); break;
       case 'permission': answerPermission(id, req.body.permissionId ?? '', req.body.optionId ?? ''); break;
+      case 'agent':
+        if (session.role !== 'errand' || typeof req.body.agent_id !== 'string') throw new Error('Агента можно сменить только в чате поручения');
+        await switchAgent(id, req.body.agent_id); break;
       case 'model': await setModel(id, req.body.model ?? ''); break;
       case 'mode': await setMode(id, String(req.body.mode)); break;
       case 'config': await setConfig(id, String(req.body.configId), String(req.body.value)); break;
