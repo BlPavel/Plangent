@@ -26,7 +26,9 @@ defineEmits<{ back: [] }>()
 <style scoped>
 .work-header { display: flex; align-items: center; gap: var(--sp-3); padding: calc(var(--titlebar-h) + var(--sp-2)) var(--sp-5) var(--sp-3); border-bottom: 1px solid var(--border); flex-shrink: 0; }
 .work-title-block { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; }
-.work-kind { font-size: var(--fs-base); }
+/* The key and the title share the text baseline; the emoji and the branch pill sit at the line's centre, or they drop below it. */
+.work-kind, .work-branch { align-self: center; }
+.work-kind { font-size: var(--fs-base); line-height: 1; }
 .work-key { font-size: var(--fs-md); color: var(--text-muted); font-family: var(--font-mono); }
 .work-name { font-size: var(--fs-lg); font-weight: 700; letter-spacing: -0.01em; }
 .work-branch { padding: 1px 8px; border-radius: var(--radius-pill); background: var(--bg3); border: 1px solid var(--border); font-size: var(--fs-sm); font-family: var(--font-mono); color: var(--text-muted); max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

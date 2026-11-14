@@ -1,6 +1,8 @@
 import { removeRuns } from './011-remove-runs';
 import { addBranchQuestionRemark } from './012-branch-question-remark';
 import { addWorkspacePortSlot } from './013-workspace-port-slot';
+import { addTaskReviewAgent } from './014-task-review-agent';
+import { addWorkspaceSetupDone } from './015-workspace-setup-done';
 import { migrateBranchReviewTables } from './010-branch-review-tables';
 import type Database from 'better-sqlite3';
 import { migrateTaskWorkspaces } from './002-migrateTaskWorkspaces';
@@ -256,5 +258,7 @@ export function migrate(db: Database.Database): void {
   })();
   addBranchQuestionRemark(db);
   addWorkspacePortSlot(db);
+  addTaskReviewAgent(db);
+  addWorkspaceSetupDone(db);
 }
 

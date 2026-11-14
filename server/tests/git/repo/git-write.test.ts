@@ -31,6 +31,10 @@ test('stage/unstage before first commit, literals, user author, embedded coautho
   await fs.writeFile(path.join(root, file), 'changed'); await stage(root, [file]); await unstage(root, [file]);
   assert.equal((await changedFiles(root))[0].worktreeStatus, 'M');
   await assert.rejects(stage(root, ['../outside']), /Invalid code path/);
+  // A group unstaged at once may hold new files that are not staged: they are skipped instead of failing the call.
+  await fs.writeFile(path.join(root, 'fresh-a.txt'), 'a'); await fs.writeFile(path.join(root, 'fresh-b.txt'), 'b');
+  await stage(root, ['fresh-a.txt']); await unstage(root, ['fresh-a.txt', 'fresh-b.txt']);
+  assert.ok((await changedFiles(root)).filter(c => c.path.startsWith('fresh-')).every(c => c.status === '?'));
 });
 test('selected-file commit leaves other staged changes intact', async t => {
   const root = await fixture(t);

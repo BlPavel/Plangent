@@ -6,7 +6,7 @@ export { default as ReviewAgentBar, type ReviewAgentPick } from './components/Re
 export { default as AgentSettingsBar } from './components/AgentSettingsBar.vue'
 export { useAgentLaunchOptions } from './composables/useAgentLaunchOptions'
 export { MessageMarkdown } from '@shared/markdown'
-export type { ContentBlock } from './components/ChatComposer.vue'
+export { default as ChatComposer, type ContentBlock } from './components/ChatComposer.vue'
 export { useChatStore, statusLabel, statusTone, type ChatSession } from './stores/sessions'
 export { modelAndEffort, POLICIES, POLICY_HEADING } from './utils/agent-options'
 export { default as SuggestMenu, type SuggestItem } from './components/SuggestMenu.vue'

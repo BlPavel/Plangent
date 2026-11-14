@@ -2,6 +2,8 @@ import type { FinishScenario } from './index';
 export interface Task {
     kind: 'task' | 'errand';
     auto_review: boolean;
+    /** The review agent chosen when the work was created; null — the project's review agent. */
+    review_agent?: import('./work').ErrandReviewAgent | null;
     closed_at: string | null;
     close_reason: 'done' | 'cancelled' | null;
     origin_task_id: string | null;

@@ -176,13 +176,23 @@ export function runSetupCommand(command: string, cwd: string, env: NodeJS.Proces
   });
 }
 
-export async function prepareWorkspace(id: string, options: { timeoutMs?: number; signal?: AbortSignal } = {}) {
+/** A fresh worktree is usable at once (chat, reading code); the slow setup waits until the work starts executing. */
+export function openWorkspace(id: string) {
+  const workspace = getWorkspace(id), project = getProject(workspace.project_id);
+  if (!project || workspace.status === 'removed') throw new Error('Workspace is unavailable');
+  syncWorkspaceLibrary(project, workspace.path);
+  return updateWorkspace(id, { status: 'ready', error: '', setup_log: '', setup_done: 0 });
+}
+
+/** Copies configured files, links dependency folders and runs the setup command. */
+/** `background`: the folder stays usable while it is prepared; a failure is only recorded in `error`. */
+export async function prepareWorkspace(id: string, options: { timeoutMs?: number; signal?: AbortSignal; background?: boolean } = {}) {
   const project = getProject(getWorkspace(id).project_id);
   if (!project || project.kind !== 'project') throw new Error('Workspace is unavailable');
   return serializeGit(project.repo_path, () => prepare(id, options));
 }
 
-async function prepare(id: string, options: { timeoutMs?: number; signal?: AbortSignal }) {
+async function prepare(id: string, options: { timeoutMs?: number; signal?: AbortSignal; background?: boolean }) {
   const workspace = getWorkspace(id), project = getProject(workspace.project_id);
   if (!project || workspace.status === 'removed') throw new Error('Workspace is unavailable');
   const settings = effectiveGitSettings(project.id).values;
@@ -192,12 +202,11 @@ async function prepare(id: string, options: { timeoutMs?: number; signal?: Abort
     output = (output + text).slice(-1024 * 1024);
     written ??= setTimeout(() => { written = undefined; try { updateWorkspace(id, { setup_log: output }); } catch { /* the workspace was removed meanwhile */ } }, 300);
   };
-  updateWorkspace(id, { status: 'preparing', error: '', setup_log: '' });
+  updateWorkspace(id, options.background ? { error: '', setup_log: '' } : { status: 'preparing', error: '', setup_log: '' });
   try {
     options.signal?.throwIfAborted();
     await copyWorkspaceFiles(project.repo_path, workspace.path, settings.workspace_copy_files, log);
     await linkWorkspaceDirs(project.repo_path, workspace.path, settings.workspace_link_dirs, log, options.signal);
-    syncWorkspaceLibrary(project, workspace.path);
     if (settings.workspace_setup_command.trim()) {
       log('$ ' + settings.workspace_setup_command + '\n');
       await runSetupCommand(settings.workspace_setup_command, workspace.path,
@@ -205,9 +214,9 @@ async function prepare(id: string, options: { timeoutMs?: number; signal?: Abort
     }
     options.signal?.throwIfAborted();
     clearTimeout(written);
-    return updateWorkspace(id, { status: 'ready', setup_log: output });
+    return updateWorkspace(id, { status: 'ready', setup_done: 1, setup_log: output });
   } catch (error) {
     clearTimeout(written);
-    return updateWorkspace(id, { status: 'failed', error: String(error), setup_log: output });
+    return updateWorkspace(id, options.background ? { error: String(error), setup_log: output } : { status: 'failed', error: String(error), setup_log: output });
   }
 }

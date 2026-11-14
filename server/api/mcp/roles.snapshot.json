@@ -40,7 +40,8 @@
     "reply_review_item",
     "git_action",
     "run_command",
-    "command_output"
+    "command_output",
+    "get_task_context"
   ],
   "chat": ["git_action", "run_command", "command_output"],
   "executor": [
@@ -59,14 +60,16 @@
   "analyst": [
     "get_interview_guide",
     "get_analysis",
-    "save_section"
+    "save_section",
+    "ask_interview_questions"
   ],
   "material-author": [
     "get_interview_guide",
     "get_material",
     "submit_material",
     "get_plan_review_items",
-    "reply_plan_remark"
+    "reply_plan_remark",
+    "ask_interview_questions"
   ],
   "code-fixer": [
     "get_review",
@@ -101,6 +104,7 @@
     "get_plan",
     "submit_plan",
     "get_plan_review_items",
-    "reply_plan_remark"
+    "reply_plan_remark",
+    "ask_interview_questions"
   ]
 }

@@ -1,4 +1,4 @@
-<template><span ref="root" class="combobox" :class="{ block }"><AppInput ref="input" :model-value="open ? query : shown" :size="small ? 'sm' : size" :disabled="disabled" :placeholder="placeholder" :aria-label="label" role="combobox" :aria-expanded="open" aria-autocomplete="list" :block="block" @focus="show" @click="show" @update:model-value="query = $event; typed = true; open = true; active = 0" @keydown="key" @blur="blur" /><AppPopover v-model="open" :anchor="root" :max-width="popupMaxWidth" role="listbox"><button v-for="(item, index) in filtered" :key="item.value" type="button" role="option" class="option" :class="{ active: index === active }" :disabled="item.disabled" :aria-selected="item.value === modelValue" @pointerdown.prevent @click="pick(item.value)">{{ item.label }}</button><div v-if="!filtered.length" class="heading">{{ emptyLabel }}</div></AppPopover></span></template>
+<template><span ref="root" class="combobox" :class="{ block }"><AppInput ref="input" :model-value="open ? query : shown" :size="small ? 'sm' : size" :disabled="disabled" :placeholder="placeholder" :aria-label="label" role="combobox" :aria-expanded="open" aria-autocomplete="list" :block="block" @focus="show" @click="show" @update:model-value="query = $event; typed = true; open = true; active = 0" @keydown="key" @blur="blur" /><AppPopover v-model="open" :anchor="root" :max-width="popupMaxWidth" role="listbox"><button v-for="(item, index) in filtered" :key="item.value" type="button" role="option" class="option" :class="{ active: index === active }" :disabled="item.disabled" :title="item.label" :aria-selected="item.value === modelValue" @pointerdown.prevent @click="pick(item.value)">{{ item.label }}</button><div v-if="!filtered.length" class="heading">{{ emptyLabel }}</div></AppPopover></span></template>
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import AppInput from './AppInput.vue';
@@ -16,7 +16,7 @@ const props = withDefaults(defineProps<{
     block?: boolean;
     allowCustom?: boolean;
     popupMaxWidth?: number;
-}>(), { size: 'md', allowCustom: true, emptyLabel: 'Нет вариантов' });
+}>(), { size: 'md', allowCustom: true, emptyLabel: 'Нет вариантов', popupMaxWidth: 420 });
 const emit = defineEmits<{
     'update:modelValue': [
         value: string
@@ -68,4 +68,4 @@ watch(() => props.disabled, value => { if (value)
     open.value = false; });
 defineExpose({ focus: () => input.value?.focus() });
 </script>
-<style scoped>@import './styles/options.css'; .combobox { display: inline-flex; min-width: 0; } .combobox.block { display: flex; width: 100%; }</style>
+<style scoped>@import './styles/options.css'; .combobox { display: inline-flex; min-width: 0; } .combobox.block { display: flex; width: 100%; } .option { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }</style>

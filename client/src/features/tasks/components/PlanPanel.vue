@@ -1,5 +1,5 @@
 <template>
-  <div class="plan-tab" :class="{ 'with-review': plan && reviewShown }">
+  <div class="plan-tab" :class="{ 'with-review': !planBlank && reviewShown }">
     <div ref="planMain" class="plan-main">
       <!-- Planning with an agent: plan on the left, chat on the right, header always visible -->
       <template v-if="!readonly && planningOpen">
@@ -17,16 +17,13 @@
               :disabled="!plan?.steps.length"
               :title="plan?.steps.length ? 'Остановить агентов и зафиксировать план. Чаты сохранятся' : 'Плана пока нет'"
               @click="$emit('approvePlan')"
-            >✓ Утвердить план</AppButton>
+            >✓ Утвердить</AppButton>
           </div>
         </header>
 
         <SplitPane storage-key="plangent.planningShare">
           <template #start>
             <section class="plan-pane">
-              <nav v-if="plan?.steps.length" class="review-step-nav" aria-label="Шаги плана">
-                <AppButton v-for="s in plan.steps" :key="s.id ?? s.index" variant="subtle" size="xs" :data-step-id="s.id" :title="s.id && remarkCounts[s.id] ? `Открытых замечаний ревью плана: ${remarkCounts[s.id]}` : ''" :pressed="!!s.id && highlighted.includes(s.id)" @click="s.id && focusStepCard(s.id)">{{ s.id }}<span v-if="s.id && remarkCounts[s.id]"> ⚠{{ remarkCounts[s.id] }}</span></AppButton>
-              </nav>
               <MessageMarkdown v-if="planText" class="plan-doc" :text="planText" />
               <div v-else class="plan-waiting">
                 {{ planningLive ? 'Ожидаем план от агента…' : 'План появится здесь, когда агент его составит' }}
@@ -45,7 +42,7 @@
               @remove="(id, name) => $emit('removePlanningChat', id, name)"
             >
               <template #new>
-                <NewChatPanel :draft-key="`task:${taskId}:plan-chat`"
+                <NewChatPanel interview :draft-key="`task:${taskId}:plan-chat`"
                   :project-id="projectId"
                   :workspace-id="workspaceId"
                   :default-agent-id="defaultAgentId"
@@ -65,38 +62,47 @@
       </template>
 
       <!-- Empty state — no plan yet -->
-      <div v-else-if="!plan && (!editingPlan || readonly)" class="plan-tab-content">
-        <div class="plan-panel-header">
-          <div class="progress-line"><span>Плана пока нет</span></div>
-          <div v-if="!readonly" class="plan-header-actions">
-            <AppButton variant="primary" size="sm" @click="$emit('openPlanning')">▸ Составить план с агентом</AppButton>
-            <AppButton variant="ghost" size="sm" @click="$emit('startManualEdit')">Написать вручную</AppButton>
-          </div>
-        </div>
-      </div>
+      <StageEmpty v-else-if="planBlank && (!editingPlan || readonly)" title="Плана пока нет">
+        <p>Шаги, которые агенты выполнят по очереди. Каждый шаг может ссылаться на анализ, архитектуру и критерии QA.</p>
+        <p>{{ readonly ? 'По задаче не было плана.' : 'Без плана выполнение не начнётся.' }}</p>
+        <template v-if="!readonly" #actions>
+          <AppButton variant="primary" size="sm" @click="$emit('openPlanning')">▸ Составить план с агентом</AppButton>
+          <AppButton variant="ghost" size="sm" @click="$emit('startManualEdit')">Написать вручную</AppButton>
+        </template>
+      </StageEmpty>
 
       <!-- Plan editor (manual) -->
-      <div v-else-if="editingPlan && !readonly" class="plan-tab-content">
-        <div class="plan-editor-wrap">
-          <StaleDraftNote v-if="staleDraft" @reload="$emit('reloadDraft')" />
-          <AppTextarea
-            :model-value="planContent"
-            @update:model-value="$emit('update:planContent', $event)"
-            mono block rows="18"
-            placeholder="---&#10;plangent: 1&#10;key: KEY&#10;title: Title&#10;status: open&#10;---&#10;&#10;- [ ] (p1) Step 1&#10;- [ ] (p2) Step 2"
-          />
-          <div class="plan-editor-helper">
-            <span><code>[ ]</code> в начале строки = шаг очереди. Удалишь скобки - шаг пропадёт.</span>
-            <div v-if="checkboxLinePreviews.length" class="checkbox-preview">
-              <span v-for="line in checkboxLinePreviews" :key="line.text" class="checkbox-line"><code>{{ line.marker }}</code>{{ line.text }}</span>
-            </div>
-          </div>
-          <div class="plan-actions">
-            <AppButton variant="primary" size="sm" @click="$emit('savePlan')">Сохранить</AppButton>
+      <template v-else-if="editingPlan && !readonly">
+        <header class="planning-bar">
+          <div class="planning-status">Правка вручную</div>
+          <div class="planning-actions">
             <AppButton variant="ghost" size="sm" @click="$emit('cancelEdit')">Отмена</AppButton>
+            <AppButton variant="primary" size="sm" @click="$emit('savePlan')">Сохранить</AppButton>
           </div>
-        </div>
-      </div>
+        </header>
+        <StaleDraftNote v-if="staleDraft" class="plan-stale" @reload="$emit('reloadDraft')" />
+        <SplitPane storage-key="plangent.plan.editShare">
+          <template #start>
+            <section class="plan-edit-pane">
+              <AppTextarea
+                :model-value="planContent"
+                @update:model-value="$emit('update:planContent', $event)"
+                mono block class="plan-editor" aria-label="Текст плана" spellcheck="false"
+                placeholder="---&#10;plangent: 1&#10;key: KEY&#10;title: Title&#10;status: open&#10;---&#10;&#10;- [ ] (p1) Step 1&#10;- [ ] (p2) Step 2"
+              />
+              <div class="plan-editor-helper">
+                <span><code>[ ]</code> в начале строки = шаг очереди. Удалишь скобки - шаг пропадёт.</span>
+              </div>
+            </section>
+          </template>
+          <template #end>
+            <section class="plan-pane">
+              <MessageMarkdown v-if="editedText" class="plan-doc" :text="editedText" />
+              <p v-else class="plan-waiting">Предпросмотр появится, когда вы начнёте писать.</p>
+            </section>
+          </template>
+        </SplitPane>
+      </template>
 
       <!-- Plan view -->
       <div v-else class="plan-tab-content">
@@ -124,7 +130,7 @@
         </div>
       </div>
     </div>
-    <PlanReviewPanel v-if="plan" v-show="reviewShown" ref="reviewPanel" :project-id="projectId" :task-id="taskId" :default-agent-id="defaultAgentId" :locked="queueFrozen" :readonly="!!readonly" @highlight="highlightSteps" @counts="remarkCounts = $event" @attention="attention = $event; $emit('reviewAttention', $event)" @close="reviewOpen = false" @open-planner="openPlannerChat" />
+    <PlanReviewPanel v-if="!planBlank" v-show="reviewShown" ref="reviewPanel" :project-id="projectId" :workspace-id="workspaceId" :task-id="taskId" :default-agent-id="defaultAgentId" :locked="queueFrozen" :readonly="!!readonly" @highlight="highlightSteps" @counts="remarkCounts = $event" @attention="attention = $event; $emit('reviewAttention', $event)" @close="reviewOpen = false" @open-planner="openPlannerChat" />
   </div>
 </template>
 <script setup lang="ts">
@@ -134,6 +140,7 @@ import { computed, nextTick, ref } from 'vue'
 import PlanReviewPanel from './plan-review/PlanReviewPanel.vue'
 import AnalysisLinks from './AnalysisLinks.vue'
 import TaskChats from './TaskChats.vue'
+import StageEmpty from './StageEmpty.vue'
 import { NewChatPanel, MessageMarkdown, useComposerReveal, type NewChatRequest, type ContentBlock } from '@features/agent-chat'
 import AppButton from '@shared/ui/AppButton.vue'
 import AppTextarea from '@shared/ui/AppTextarea.vue'
@@ -159,7 +166,6 @@ const props = defineProps<{
   planningError: string
   editingPlan: boolean
   planContent: string
-  checkboxLinePreviews: { marker: string; text: string }[]
   doneCount: number
   progressPct: number
 }>()
@@ -197,12 +203,16 @@ function highlightSteps(ids: string[]) {
   void nextTick(() => planMain.value?.querySelector<HTMLElement>('[data-step-id="' + ids[0] + '"]')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }))
 }
 // The plan file as a readable document: no frontmatter or Plangent's hint comment, steps as check marks.
-const planText = computed(() => (props.plan?.content ?? '')
+const readable = (content: string) => content
   .replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '')
   .replace(/<!--[\s\S]*?-->\r?\n?/g, '')
   .replace(/^(\s*)-\s*\[([ x])\]\s+(?:\((p\d+)\)\s+)?/gim, (_m, indent: string, mark: string, id?: string) =>
     `${indent}- ${mark === ' ' ? '☐' : '☑'} ${id ? `\`${id}\` ` : ''}`)
-  .trim())
+  .trim()
+// A saved plan with no text is the same as no plan.
+const planBlank = computed(() => !props.plan?.content.trim())
+const planText = computed(() => readable(props.plan?.content ?? ''))
+const editedText = computed(() => readable(props.planContent))
 
 function stepsWord(n: number) {
   const tens = n % 100, ones = n % 10
@@ -210,7 +220,6 @@ function stepsWord(n: number) {
 }
 </script>
 <style scoped>
-.review-step-nav { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 10px; }
 .plan-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .plan-tab.with-review { flex-direction: row; }
 .plan-header-actions .on, .planning-actions .on { background: var(--bg3); color: var(--text); }
@@ -257,20 +266,9 @@ function stepsWord(n: number) {
 .step-text { flex: 1; }
 .parallel-badge { font-size: var(--fs-xs); color: var(--blue); background: var(--blue-soft); padding: 1px 6px; border-radius: var(--radius); white-space: nowrap; }
 
-.plan-editor-wrap { display: flex; flex-direction: column; gap: 8px; flex: 1; min-height: 0; }
-.plan-editor {
-  background: var(--bg3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--text);
-  font-family: var(--font-mono);
-  font-size: var(--fs-md);
-  padding: 10px;
-  flex: 1;
-  min-height: 200px;
-  resize: none;
-}
-.plan-editor:focus { outline: none; border-color: var(--blue); }
+.plan-stale { flex-shrink: 0; margin: 12px 20px 0; }
+.plan-edit-pane { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 8px; padding: 12px 20px; overflow-y: auto; }
+.plan-editor { flex: 1; }
 .plan-editor-helper { display: flex; flex-direction: column; gap: 8px; color: var(--text-muted); font-size: var(--fs-xs); line-height: 1.4; }
 .plan-editor-helper > span code, .plan-editor-helper code {
   font-family: var(--font-mono);
@@ -280,21 +278,5 @@ function stepsWord(n: number) {
   padding: 1px 5px;
   color: var(--text);
 }
-.checkbox-preview { display: flex; gap: 6px; flex-wrap: wrap; }
-.checkbox-line {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  max-width: 100%;
-  padding: 4px 8px 4px 6px;
-  background: var(--bg2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.checkbox-line code { flex-shrink: 0; border-color: var(--blue); color: var(--blue-hover); background: var(--blue-soft); font-weight: 600; }
-.plan-actions { display: flex; gap: 8px; }
 </style>
 

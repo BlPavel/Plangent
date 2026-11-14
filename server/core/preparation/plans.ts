@@ -28,7 +28,8 @@ export function createPlan(data: { task_id: string; content: string } & Partial<
   const id = uuidv4();
     const latest = getLatestPlan(data.task_id);
   const version = latest ? latest.version + 1 : 1;
-  queries.createPlanInsertPlans(id, data.task_id, data.content, version, data.author === 'agent' ? data.session_id ?? null : null, data.author ?? 'developer');
+  const { content } = assignMissingIds(data.content);
+  queries.createPlanInsertPlans(id, data.task_id, content, version, data.author === 'agent' ? data.session_id ?? null : null, data.author ?? 'developer');
   const plan = getPlan(id)!;
   emitPlanSaved({ taskId: plan.task_id, content: plan.content, previousContent: latest?.content ?? '', version: plan.version, sessionId: plan.session_id, idMap: {} });
   return plan;
@@ -36,6 +37,7 @@ export function createPlan(data: { task_id: string; content: string } & Partial<
 
 export function updatePlan(id: string, content: string, writer: PlanAuthor = { author: 'developer' }, idMap: Record<string, string> = {}, removedSteps: string[] = []): Plan | null {
     const previous = getPlan(id);
+  content = assignMissingIds(content).content;
   queries.updatePlanUpdatePlans(content, writer.author === 'agent' ? writer.session_id ?? null : null, writer.author, id);
   const plan = getPlan(id);
   if (plan && previous && (previous.content !== content || Object.keys(idMap).length))
@@ -111,9 +113,9 @@ export function assignMissingIds(content: string): { content: string; changed: b
 
   let changed = false;
   const result = lines.map(line => {
-    // Match checkbox lines that do NOT already have (pN)
-    const m = line.match(/^(\s*-\s*\[[ x]\]\s+)(?!\(p\d+\))/i);
-    if (!m) return line;
+    // Parse the whole step so extra spaces cannot make an existing id look missing.
+    const m = line.match(STEP_REGEX);
+    if (!m || m[3]) return line;
     changed = true;
     maxId++;
     return line.replace(/^(\s*-\s*\[[ x]\]\s+)/i, `$1(p${maxId}) `);

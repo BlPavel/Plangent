@@ -8,7 +8,9 @@ export interface MaterialKind {
   defaultReviewInstruction: string; reviewSkillAuthoring: string;
 }
 
-const COMMON_PROTOCOL = (id: 'D' | 'Q', noun: string) => `## Plangent protocol (do not remove)
+const COMMON_PROTOCOL = (id: 'D' | 'Q', noun: string) => `## Plangent agent instructions
+
+These are instructions for the agent, not document content. Follow them, but never copy this block into the document or include it in a submission. If an existing draft contains this service block, remove the block while preserving the developer's document text.
 
 The document is free-form Markdown. Read it with get_material and save its complete text only with submit_material, passing the version from get_material. If a developer edit causes a version conflict, read it again and reapply your changes without overwriting theirs.
 
@@ -17,29 +19,46 @@ The document is free-form Markdown. Read it with get_material and save its compl
 - Mention contradictions and gaps in chat; do not silently fix them.
 - A ${noun} may have a stable identifier: bold \`**${id}1**\` at the start of a line or heading, then \`**${id}2**\`, and so on. Never renumber or reuse existing identifiers; plan steps and review remarks refer to them.
 - Link analysis materials using [[section]] or [[section/file]]; the section and file must exist.
-- Write diagrams as Mermaid in a \`\`\`mermaid code block. Show only what is described; do not invent components or relationships.
 - Only the developer marks a section ready. Do not mark it ready or treat stopping work as readiness.
 - Write preparation documents in Russian.`;
 
 export const ARCHITECTURE_TEMPLATE = `# Architecture
 
-Architecture is a technical document for developers: components and their responsibilities, dependencies, contracts, data, and decisions with their rationale. It does not retell requirements or describe features in the user's words; the requirements are in the analysis, and this document shows how they map onto the system.
+Architecture is a technical document for developers: how the system is divided into parts, what each part is responsible for, how the parts depend on each other and through which contracts they interact, and the decisions with their rationale. It does not retell requirements; the requirements are in the analysis, and this document shows how they map onto the system.
+
+Level of detail: parts of the system (applications, libraries, modules, layers, services, screens) and the contracts between them. Not the inside of a part: library calls and operators, framework annotations and settings, private helpers, file layout inside a module, tests, order of work. Those belong to the plan. A reader should understand the structure of the solution without reading the code.
 
 A flexible outline for an empty document. Combine, omit, or change sections; completeness does not determine readiness. Write the document in Russian.
 
 ## Context and boundaries
-Describe what changes and what does not, the sources of requirements (links to analysis), and applicable project rules.
+What: the goal in one or two sentences with links to analysis, what changes and what deliberately does not, applicable project rules.
+Not: a retelling of the requirements.
 
-## Components and interactions
-Describe affected parts and their responsibilities, the main flow, state ownership, errors, and concurrency where relevant. Distinguish existing from proposed components. Use a diagram only when text is insufficient: one diagram answers one question, and its components carry the same names as in the text.
+## Current structure
+What: how the parts this task touches are organized today, briefly: which parts exist, what each is responsible for, how they depend on each other. A structural diagram when there are more than two or three parts.
+Not: parts the task does not touch, a list of every class or file.
+
+## Target structure
+What: the parts after the change, each marked existing, changed, or new; the responsibility of each in one or two sentences; where each new part lives; the direction of dependencies and what each part must not know about. A structural diagram of the parts and their dependencies, with existing and new parts told apart.
+Not: the internals of a part, fields of every model.
+
+## Contracts
+What: how the parts interact: requests or endpoints, public interface of a module or library, events, stored data, as a list or table: name, input, result, errors. Field-level shapes only where they are the contract itself.
+Not: how a contract is implemented, private methods.
+
+## Main flows
+What: only flows that are not obvious from the structure: the order of calls between parts, who owns state, behaviour on errors and concurrent actions. A sequence diagram when the order matters.
+Not: every scenario, steps inside one part.
 
 ## Decisions and constraints
+What: choices that have real alternatives.
 **D1** Decision, rationale, and consequences.
+Not: obvious choices, conventions the project already follows.
 
 ## Exceptions and open questions
-Record deliberate exceptions to rules and unresolved questions.
+What: deliberate exceptions to project rules and unresolved questions the developer has to answer.
 
-Do not retell the project, list classes, or turn the document into an implementation plan.`;
+Diagrams: each diagram answers one question (structure, dependencies, or a flow), shows parts rather than classes, and uses the same names as the text. Prefer one structural diagram to a flow of a single screen.`;
 
 export const QA_TEMPLATE = `# QA
 
@@ -75,7 +94,7 @@ export const MATERIAL_KINDS: Record<MaterialType, MaterialKind> = {
   architecture: {
     templateType: 'architecture-template', reviewInstructionType: 'architecture-review-instruction',
     reviewSkillType: 'architecture-review-skill', idPrefix: 'D', title: 'Архитектура', defaultTemplate: ARCHITECTURE_TEMPLATE,
-    protocol: COMMON_PROTOCOL('D', 'decision'), defaultReviewInstruction: ARCHITECTURE_REVIEW,
+    protocol: COMMON_PROTOCOL('D', 'decision') + "\n\n- Write diagrams as Mermaid in a ```mermaid code block. Show only what is described; do not invent components or relationships.", defaultReviewInstruction: ARCHITECTURE_REVIEW,
     reviewSkillAuthoring: 'An architecture-review-skill (type "architecture-review-skill") is the developer\'s rules for reviewing the architecture of a task in this project or group: module boundaries, allowed dependencies, ownership conventions. The general checks are given by the global review instruction, so do not repeat them. It is never synced to agent folders; the description is a one-line summary shown in the picker. Do not put an output format in the skill.',
   },
   qa: {

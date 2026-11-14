@@ -23,7 +23,7 @@
           <template v-else>
             <div class="empty-title">Анализ необязателен</div>
             <p>Соберите исходные материалы — ТЗ, API, макеты, переписку — и обсудите их с агентом в чате. Выводы он сохранит проработанными разделами.</p>
-            <p>Для небольшой задачи можно сразу перейти дальше: «Пропустить этап» в меню кнопки перехода вверху отметит анализ пропущенным.</p>
+            <p>Для небольшой задачи можно сразу перейти дальше: кнопка перехода вверху отметит анализ пропущенным.</p>
           </template>
         </div>
 
@@ -47,7 +47,7 @@
 
       <TaskChats :workspace-id="workspaceId" v-if="!done" class="analysis-chat-pane" label="Анализ" :chats="chats" :selected="selectedChat" :initials="initials" @select="$emit('selectChat', $event)" @remove="(id, name) => $emit('removeChat', id, name)">
         <template #new>
-          <NewChatPanel :draft-key="`task:${taskId}:analysis-chat`" :project-id="projectId" :workspace-id="workspaceId" :default-agent-id="defaultAgentId" title="Анализ задачи" text="Обсудите материалы. Агент сохранит результаты в разделы анализа." fixed-policy="read-only" :busy="launching" :error="launchError" @start="$emit('launch', $event)" />
+          <NewChatPanel interview :draft-key="`task:${taskId}:analysis-chat`" :project-id="projectId" :workspace-id="workspaceId" :default-agent-id="defaultAgentId" title="Анализ задачи" text="Обсудите материалы. Агент сохранит результаты в разделы анализа." fixed-policy="read-only" :busy="launching" :error="launchError" @start="$emit('launch', $event)" />
         </template>
       </TaskChats>
     </div>

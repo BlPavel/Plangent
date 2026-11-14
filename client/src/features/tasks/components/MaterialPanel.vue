@@ -17,6 +17,13 @@
           <div class="material-status" :class="{ live }"><span class="material-dot" />{{ live ? 'Агент работает над документом' : 'Работа с агентом' }}</div>
           <div class="material-actions">
             <AppButton variant="ghost" size="sm" title="Вернуться к документу. Чаты сохранятся" @click="agentOpen = false">Закрыть</AppButton>
+            <AppButton
+              variant="primary"
+              size="sm"
+              :disabled="!material || !!lockedReason"
+              :title="material ? 'Остановить агентов и отметить этап готовым. Чаты сохранятся' : 'Документа пока нет'"
+              @click="agentOpen = false; $emit('approve')"
+            >✓ Утвердить</AppButton>
           </div>
         </header>
         <SplitPane :storage-key="'plangent.material.' + type + '.agentShare'">
@@ -29,7 +36,7 @@
           <template #end>
             <TaskChats :workspace-id="workspaceId" class="chat-pane" :label="L.chat" :chats="chats" :selected="selectedChat" :initials="initials" @select="$emit('selectChat', $event)" @remove="(id, name) => $emit('removeChat', id, name)">
               <template #new>
-                <NewChatPanel :draft-key="`task:${taskId}:material-chat:${type}`"
+                <NewChatPanel interview :draft-key="`task:${taskId}:material-chat:${type}`"
                   :project-id="projectId" :workspace-id="workspaceId" :default-agent-id="defaultAgentId" :title="L.chatTitle" :text="material ? L.chatTextWith : L.chatTextEmpty"
                   :placeholder="material ? L.placeholderWith : L.placeholderEmpty" fixed-policy="read-only" :initial-text="material ? '' : L.draft"
                   :busy="launching" :error="launchError" @start="$emit('launch', $event)"
@@ -45,10 +52,12 @@
         <header class="material-bar">
           <div class="material-status">Правка вручную</div>
           <div class="material-actions">
-            <AppButton variant="primary" size="sm" :disabled="saving || !!lockedReason" @click="save">{{ saving ? 'Сохранение…' : 'Сохранить' }}</AppButton>
+            <AppButton v-if="type === 'architecture'" variant="subtle" size="sm" :pressed="guideOpen" title="Примеры схем Mermaid с готовым кодом" @click="guideOpen = !guideOpen">Как рисовать схемы</AppButton>
             <AppButton variant="ghost" size="sm" :disabled="saving" @click="cancelEdit">Отмена</AppButton>
+            <AppButton variant="primary" size="sm" :disabled="saving || !!lockedReason" @click="save">{{ saving ? 'Сохранение…' : 'Сохранить' }}</AppButton>
           </div>
         </header>
+        <IdentifierHint :type="type" :content="draft" :saved="material?.content ?? ''" @insert="insertIdentifier" />
         <StaleDraftNote v-if="stale" @reload="reloadDocument" />
         <div v-if="stash" class="banner subtle"><span>Загружена новая версия документа.</span><AppButton size="xs" variant="ghost" @click="restoreStash">Вернуть мой текст</AppButton></div>
         <div v-if="error" class="banner danger" role="alert"><span>{{ error }}</span></div>
@@ -57,24 +66,21 @@
             <AppTextarea v-model="draft" mono block class="material-editor" :aria-label="'Текст документа: ' + L.title" :placeholder="L.editorPlaceholder" spellcheck="false" />
           </template>
           <template #end>
-            <section class="material-pane"><MessageMarkdown v-if="draft.trim()" class="material-doc" :text="draft" /><p v-else class="muted">Предпросмотр появится, когда вы начнёте писать. Схемы — блоки <code>```mermaid</code>.</p></section>
+            <section class="material-pane"><MessageMarkdown v-if="draft.trim()" class="material-doc" :text="draft" /><p v-else class="muted">Предпросмотр появится, когда вы начнёте писать.<span v-if="type === 'architecture'"> Схемы — блоки <code>```mermaid</code>.</span></p></section>
           </template>
         </SplitPane>
       </template>
 
       <!-- Empty state -->
-      <div v-else-if="!material" class="material-content">
-        <div class="material-empty">
-          <div class="empty-title">{{ L.title }} необязательна</div>
-          <p>{{ L.emptyText }}</p>
-          <p>Можно сразу перейти дальше: этап отметится пропущенным.</p>
-          <div v-if="!done" class="material-actions">
-            <AppButton variant="primary" size="sm" :disabled="!!lockedReason" @click="agentOpen = true">▸ Составить с агентом</AppButton>
-            <AppButton variant="ghost" size="sm" :disabled="!!lockedReason" @click="startEdit">Написать вручную</AppButton>
-          </div>
-          <p v-else class="muted">По задаче не было этого документа.</p>
-        </div>
-      </div>
+      <StageEmpty v-else-if="!material" :title="L.title + ' необязательна'">
+        <p>{{ L.emptyText }}</p>
+        <p>Можно сразу перейти дальше: этап отметится пропущенным.</p>
+        <p v-if="done">По задаче не было этого документа.</p>
+        <template v-if="!done" #actions>
+          <AppButton variant="primary" size="sm" :disabled="!!lockedReason" @click="agentOpen = true">▸ Составить с агентом</AppButton>
+          <AppButton variant="ghost" size="sm" :disabled="!!lockedReason" @click="startEdit">Написать вручную</AppButton>
+        </template>
+      </StageEmpty>
 
       <!-- Document view -->
       <div v-else class="material-content">
@@ -89,7 +95,8 @@
         <MessageMarkdown class="material-doc" :text="material.content" />
       </div>
     </div>
-    <PlanReviewPanel v-if="material" v-show="reviewShown" :project-id="projectId" :task-id="taskId" :target="type" :default-agent-id="defaultAgentId" :locked="!!lockedReason" :readonly="done" @highlight="highlight" @attention="attention = $event; $emit('reviewAttention', $event)" @close="reviewOpen = false" @open-planner="openAuthorChat" />
+    <DiagramGuide v-if="type === 'architecture'" v-model="guideOpen" :can-insert="editing && !done" @insert="insertDiagram" />
+    <PlanReviewPanel v-if="material" v-show="reviewShown" :project-id="projectId" :workspace-id="workspaceId" :task-id="taskId" :target="type" :default-agent-id="defaultAgentId" :locked="!!lockedReason" :readonly="done" @highlight="highlight" @attention="attention = $event; $emit('reviewAttention', $event)" @close="reviewOpen = false" @open-planner="openAuthorChat" />
   </div>
 </template>
 <script setup lang="ts">
@@ -99,6 +106,9 @@ import StaleDraftNote from '@shared/ui/StaleDraftNote.vue'
 import { computed, nextTick, ref, watch } from 'vue'
 import PlanReviewPanel from './plan-review/PlanReviewPanel.vue'
 import TaskChats from './TaskChats.vue'
+import StageEmpty from './StageEmpty.vue'
+import DiagramGuide from './DiagramGuide.vue'
+import IdentifierHint from './IdentifierHint.vue'
 import { NewChatPanel, MessageMarkdown, useComposerReveal, type NewChatRequest, type ContentBlock } from '@features/agent-chat'
 import AppButton from '@shared/ui/AppButton.vue'
 import SplitPane from '@shared/ui/SplitPane.vue'
@@ -127,17 +137,17 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{
   selectChat: [id: string | null]; removeChat: [id: string, name: string]; launch: [request: NewChatRequest]
-  reload: []; reviewAttention: [count: number]
+  reload: []; reviewAttention: [count: number]; approve: []; editing: [active: boolean]
 }>()
 
 const texts = {
   architecture: {
     title: 'Архитектура', review: 'Ревью архитектуры', chat: 'Архитектура', chatTitle: 'Архитектура задачи',
-    emptyText: 'Как изменение встраивается в систему: границы, ответственность, взаимодействия, решения с причинами, исключения. Схемы — текстом Mermaid.',
+    emptyText: 'Как изменение встраивается в систему: части и их ответственность, зависимости, контракты, решения с причинами, исключения. Схемы — текстом Mermaid.',
     chatTextEmpty: 'Опишите замысел или попросите набросок — агент изучит анализ и код и составит документ. В проекте он ничего не меняет, документ появится слева.',
     chatTextWith: 'Скажите, что изменить: оформить набросок, поправить решение, нарисовать схему. Агент изучит код и обновит документ.',
     placeholderEmpty: 'Опишите замысел…', placeholderWith: 'Что изменить в документе…', draft: 'Составь архитектуру по анализу задачи',
-    editorPlaceholder: '## Контекст и границы\n\n## Компоненты и взаимодействия\n\n**D1** Решение и причина\n\n## Исключения и открытые вопросы',
+    editorPlaceholder: '## Контекст и границы\n\n## Текущая структура\n\n## Целевая структура\n\n## Контракты\n\n## Решения и ограничения\n\n**D1** Решение и причина\n\n## Исключения и открытые вопросы',
   },
   qa: {
     title: 'QA', review: 'Ревью QA', chat: 'QA', chatTitle: 'QA задачи',
@@ -157,6 +167,8 @@ const editing = computed({ get: () => documentDraft.value.active, set: value => 
 const draft = computed({ get: () => documentDraft.value.text, set: value => { documentDraft.value.text = value } })
 const baseVersion = computed({ get: () => documentDraft.value.version, set: value => { documentDraft.value.version = value } })
 const stash = computed({ get: () => documentDraft.value.stash, set: value => { documentDraft.value.stash = value } })
+// The stage strip shows a document written by hand as in work before its first save.
+watch(editing, active => emit('editing', active), { immediate: true })
 const saving = ref(false), error = ref('')
 const stale = computed(() => editing.value && (props.material?.version ?? 0) !== baseVersion.value)
 function startEdit() {
@@ -183,6 +195,24 @@ async function save() {
     error.value = String(cause).replace(/^Error:\s*/, '')
     emit('reload')
   } finally { saving.value = false }
+}
+// ——— Diagram guide: examples with code; «Вставить» appends the block to the text being edited ———
+const guideOpen = ref(false)
+function insertDiagram(code: string) {
+  const gap = !draft.value ? '' : draft.value.endsWith('\n\n') ? '' : draft.value.endsWith('\n') ? '\n' : '\n\n'
+  draft.value += `${gap}\`\`\`mermaid\n${code}\n\`\`\`\n`
+}
+// ——— Identifiers: «+ D3» puts the next number at the cursor, on a line of its own ———
+async function insertIdentifier(id: string) {
+  const field = main.value?.querySelector<HTMLTextAreaElement>('.material-editor textarea, textarea.material-editor')
+  const at = field?.selectionStart ?? draft.value.length
+  const before = draft.value.slice(0, at), after = draft.value.slice(at)
+  const gap = !before ? '' : before.endsWith('\n\n') ? '' : before.endsWith('\n') ? '\n' : '\n\n'
+  const mark = `${gap}**${id}** `
+  draft.value = before + mark + after
+  await nextTick()
+  field?.focus()
+  field?.setSelectionRange(at + mark.length, at + mark.length)
 }
 watch(() => props.lockedReason, reason => { if (reason && editing.value && !saving.value) error.value = reason })
 watch(() => props.done, done => { if (done) { agentOpen.value = false; editing.value = false } })
@@ -237,9 +267,5 @@ function openAuthorChat(id: string) { agentOpen.value = true; emit('selectChat',
 .chat-pane { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .material-editor { flex: 1; }
 .material-doc :deep(.material-hl) { background: var(--blue-soft); box-shadow: 0 0 0 2px var(--blue-soft); border-radius: var(--radius-3); }
-.material-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 28px 24px; border: 1px dashed var(--border-strong); border-radius: var(--radius); text-align: center; font-size: var(--fs-md); line-height: 1.5; color: var(--text-muted); }
-.material-empty p { max-width: 460px; }
-.material-empty .material-actions { margin: 6px 0 0; justify-content: center; }
-.empty-title { font-size: var(--fs-base); font-weight: 600; color: var(--text); }
 .muted { color: var(--text-muted); font-size: var(--fs-md); }
 </style>

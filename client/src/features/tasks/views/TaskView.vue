@@ -1,7 +1,8 @@
 <template>
-  <div ref="viewRoot" class="task-view">
+  <div ref="viewRoot" class="task-view" :class="{ deleting }">
+    <div v-if="deleting" class="deleting-note" role="status"><i class="deleting-spin" />Удаляется…</div>
     <WorkHeader v-if="task" :task="task" :branch="workspace?.branch ?? task.branch_name" :main-folder="inMainFolder" :menu="menuItems" @back="goBack" />
-    <WorkStages v-if="task" :task="task" :state="entry?.state ?? null" :has-plan="!!plan" :active="activeTab" :tabs="tabs" :stages="task.kind === 'errand' ? [] : stages" :exec-done="execDone" :locked="!!analysisLockedReason" @select="activeTab = $event as Tab" @complete="completeStage" @skip="skipStage" />
+    <WorkStages v-if="task" :task="task" :state="entry?.state ?? null" :has-plan="hasPlan" :active="activeTab ?? ''" :tabs="tabs" :stages="task.kind === 'errand' ? [] : stages" :exec-done="execDone" :locked="!!analysisLockedReason" :drafting="drafting" @select="activeTab = $event as Tab" @complete="completeStage" @skip="skipStage" />
 
     <AppModal :model-value="editingTitle" :title="task?.kind === 'errand' ? 'Редактировать поручение' : 'Редактировать задачу'" :confirm-label="savingTitle ? 'Сохранение…' : 'Сохранить'" @update:model-value="cancelTitleEdit" @confirm="saveTitle">
       <div ref="titleForm" class="task-edit-fields" @keydown.enter.prevent="saveTitle" @keydown.esc.prevent="cancelTitleEdit">
@@ -10,7 +11,6 @@
       </div>
     </AppModal>
 
-    <StartExecutionDialog v-if="showStart && task" v-model="showStart" v-model:place="executionPlace" :task="task" :ordinary="canChooseBranch" :group="appStore.currentProject?.kind === 'group'" :busy="startingWork" :error="startError || queue.lastError.value" :workspace="workspace" @start="startQueue" />
 
     <div v-if="activeTab === 'chat' && task" class="tab-body"><WorkChat :key="task.id" :task="task" :workspace="workspace" :default-agent-id="defaultAgentId" /></div>
     <div v-if="activeTab === 'check' && task" class="tab-body">
@@ -18,7 +18,7 @@
       <p v-if="workspace && workspace.status !== 'ready'" class="exec-no-plan">{{ workspace.status === 'failed' ? 'Рабочее место недоступно: ' + workspace.error : 'Готовлю рабочее место…' }}</p>
       <CodeTab
         v-else-if="isOrdinary" :key="task.id + (workspace?.id ?? '')" :project-id="task.project_id" :workspace-id="workspace?.id ?? null"
-        :task="{ id: task.id, key: task.key }" :default-agent-id="executorAgentId" :finish-blocked="workClosed ? 'Работа закрыта' : ''" work :agent-review="agentReview" @close-work="closeWork"
+        :task="{ id: task.id, key: task.key, kind: task.kind }" :default-agent-id="executorAgentId" :finish-blocked="workClosed ? 'Работа закрыта' : ''" work :agent-review="agentReview" @close-work="closeWork"
       />
       <WorkCheck v-else :key="task.id" :task="task" :default-agent-id="defaultAgentId" @close="closeWork" />
     </div>
@@ -33,16 +33,16 @@
         @reload="loadAnalysis" @select-chat="selectedAnalysisChat = $event" @remove-chat="removeChat" @launch="launchAnalysis"
       />
     </div>
-    <!-- Tabs: Архитектура and QA are the same panel for two kinds of document -->
-    <div v-for="t in materialTypes" :key="t" v-show="activeTab === t" class="tab-body">
-      <MaterialPanel
-        :workspace-id="workspace?.id ?? null"
-        :type="t" :material="materials[t]" :opened-identifier="openedMaterial?.type === t ? openedMaterial.identifier : undefined" :stage="stages.find(s => s.stage === t)" :project-id="pid ?? ''" :task-id="tid ?? ''" :default-agent-id="defaultAgentId"
-        :locked-reason="analysisLockedReason" :done="taskDone" :chats="materialChats(t)" :selected-chat="shownMaterialChat(t)" :initials="chatInitials"
-        :launching="materialLaunch[t].launching.value" :launch-error="materialLaunch[t].error.value" :live="materialChats(t).some(c => ['starting', 'thinking'].includes(c.status))"
-        @select-chat="selectedMaterialChat[t] = $event" @remove-chat="removeChat" @launch="launchMaterial(t, $event)" @reload="loadMaterial(t); loadStages()" @review-attention="materialAttention[t] = $event"
-      />
-    </div>
+    <!-- Tabs: Архитектура and QA are the same panel for two kinds of document.
+         v-show sits on the panel itself: on a plain div of a v-for over a constant list Vue never updates it. -->
+    <MaterialPanel
+      v-for="t in materialTypes" v-show="activeTab === t" :key="t" class="tab-body"
+      :workspace-id="workspace?.id ?? null"
+      :type="t" :material="materials[t]" :opened-identifier="openedMaterial?.type === t ? openedMaterial.identifier : undefined" :stage="stages.find(s => s.stage === t)" :project-id="pid ?? ''" :task-id="tid ?? ''" :default-agent-id="defaultAgentId"
+      :locked-reason="analysisLockedReason" :done="taskDone" :chats="materialChats(t)" :selected-chat="shownMaterialChat(t)" :initials="chatInitials"
+      :launching="materialLaunch[t].launching.value" :launch-error="materialLaunch[t].error.value" :live="materialChats(t).some(c => ['starting', 'thinking'].includes(c.status))"
+      @select-chat="selectedMaterialChat[t] = $event" @remove-chat="removeChat" @launch="launchMaterial(t, $event)" @reload="loadMaterial(t); loadStages()" @review-attention="materialAttention[t] = $event" @editing="materialEditing[t] = $event" @approve="approveMaterial(t)"
+    />
     <!-- Tab: План -->
     <div v-show="activeTab === 'plan'" class="tab-body">
       <PlanPanel
@@ -65,7 +65,6 @@
         :plan-content="planContent"
         :stale-draft="stalePlanDraft"
         @reload-draft="reloadPlanDraft"
-        :checkbox-line-previews="checkboxLinePreviews"
         :done-count="doneCount"
         :progress-pct="progressPct"
         @approve-plan="approvePlan"
@@ -84,7 +83,7 @@
 
     <!-- Execution: plan on the left; queue or selected agent on the right. -->
     <div v-if="!taskDone && task?.kind !== 'errand'" v-show="activeTab === 'exec'" class="tab-body">
-      <div v-if="!plan" class="exec-no-plan">Нет плана. Создайте план на вкладке «План».</div>
+      <div v-if="!plan || !hasPlan" class="exec-no-plan">Нет плана. Создайте план на вкладке «План».</div>
       <ExecutionWorkspace v-else :agent-open="!!selectedSession" @back="returnToQueue">
         <template #plan>
           <StepPicker
@@ -97,7 +96,7 @@
           />
         </template>
         <template #queue>
-          <ExecutionBranch v-if="task && isOrdinary && !legacyBranch" :key="task.id" v-model="executionPlace" :task="task" :workspace="workspace" :configurable="canChooseBranch && workspace?.status !== 'failed' && !queue.frozen.value" />
+          <ExecutionBranch v-if="task && isOrdinary && !legacyBranch" :key="task.id" v-model="executionPlace" :task="task" :workspace="workspace" :configurable="canChooseBranch && workspace?.status !== 'failed' && !queue.frozen.value" :locked-reason="queue.frozen.value || entry?.state.agentWorking || entry?.state.counts.waiting ? 'Остановите очередь и агентов перед сменой ветки' : ''" @changed="task = $event; appStore.currentTask = $event" />
           <TaskGit v-if="pid && task && legacyBranch" :key="task.id" :project-id="pid" :task="task" :frozen="queue.frozen.value" @updated="task = $event; appStore.currentTask = $event" />
           <ExecutionQueue
             :agents="agents"
@@ -106,7 +105,7 @@
             :task-done="task?.status === 'done'"
             @select="selectedQueueId = $event"
             @open="selectedQueueId = $event"
-            @start="showStart = true"
+            @start="startQueue"
           />
         </template>
         <template #agent>
@@ -139,7 +138,6 @@ import { AnalysisNavigationKey } from '../composables/analysisNavigation'
 import PlanPanel from '../components/PlanPanel.vue'
 import MaterialPanel from '../components/MaterialPanel.vue'
 import StepPicker from '../components/StepPicker.vue'
-import StartExecutionDialog from '../components/StartExecutionDialog.vue'
 import ExecutionBranch from '../components/ExecutionBranch.vue'
 import type { WorkPlace } from '../components/WhereToWork.vue'
 import { slug } from '@shared/utils/slug'
@@ -149,7 +147,8 @@ import WorkCheck from '../components/WorkCheck.vue'
 import WorkHeader from '../components/WorkHeader.vue'
 import WorkStages from '../components/WorkStages.vue'
 import { useWorkStore } from '../stores/work'
-import { useWorkActions } from '../composables/useWorkActions'
+import { workStageIndex, workStagesOf } from '../utils/work-state'
+import { isRemoving, useWorkActions } from '../composables/useWorkActions'
 import { workApi, workspacesApi, preparationApi } from '../api'
 import ExecutionWorkspace from '../components/ExecutionWorkspace.vue'
 import ExecutionQueue from '../components/ExecutionQueue.vue'
@@ -157,7 +156,7 @@ import StepDetailPanel from '../components/StepDetailPanel.vue'
 import AppModal from '@shared/ui/AppModal.vue'
 import { type MenuItem } from '@shared/ui/AppMenu.vue'
 import FormField from '@shared/ui/FormField.vue'
-import { CodeTab } from '@features/code'
+import { CodeTab, gitApi } from '@features/code'
 import { useChatStore, useComposerReveal, type NewChatRequest, type ContentBlock } from '@features/agent-chat'
 import { useTaskQueue, TaskQueueKey } from '../composables/useTaskQueue'
 import { sessionState } from '../utils/queue-status'
@@ -216,8 +215,9 @@ const agents = computed(() => agentsStore.agents)
 const { active: editingPlan, text: planContent, stale: stalePlanDraft, start: startPlanDraft, reload: reloadPlanDraft, cancel: cancelPlanDraft } = useDocumentDraft(() => `task:${tid.value}:plan-edit`, () => ({ text: plan.value?.content ?? '', version: plan.value?.version ?? 0 }))
 
 type Tab = 'chat' | 'analysis' | 'architecture' | 'qa' | 'plan' | 'exec' | 'check'
-const activeTab = ref<Tab>('plan')
-const showStart = ref(false), startingWork = ref(false), startError = ref('')
+// No tab until the task is loaded: onMounted picks the stage the work is on, so no other tab flashes first.
+const activeTab = ref<Tab | null>(null)
+const startingWork = ref(false)
 const executionPlace = ref<WorkPlace>({ place: 'new', branch_name: '', base_branch: '', branch: '' })
 watch(() => task.value?.id, () => {
   const current = task.value
@@ -236,8 +236,9 @@ const inMainFolder = computed(() => isOrdinary.value && !workspace.value && !!ta
 /** Remarks of Проверка go by default to the agent who did the work. */
 const executorAgentId = computed(() => chatStore.sessions.find(s => s.task_id === tid.value && ['errand', 'task-chat', 'executor'].includes(s.role))?.agent_id ?? defaultAgentId.value)
 const reviewStarting = ref(false)
-/** The review agent chosen when the work was created (an errand keeps it); the form falls back to the project's one. */
-const reviewPreferred = computed(() => chatStore.sessions.find(s => s.task_id === tid.value && s.role === 'errand')?.metadata.review_agent as { agent_id: string; model?: string; effort?: string } | undefined)
+/** The review agent chosen when the work was created (older errands keep it in their chat); the form falls back to the project's one. */
+const reviewPreferred = computed(() => task.value?.review_agent
+  ?? chatStore.sessions.find(s => s.task_id === tid.value && s.role === 'errand')?.metadata.review_agent as { agent_id: string; model?: string; effort?: string } | undefined)
 async function runReview(body: import('@contracts').WorkPOSTTasksTaskIdReviewBody = {}) {
   if (!task.value || reviewStarting.value) return false
   reviewStarting.value = true
@@ -284,6 +285,9 @@ const selectedMaterialChat = ref<Record<MaterialType, string | null | undefined>
 const shownMaterialChat = (type: MaterialType) => shown(materialChats(type), selectedMaterialChat.value[type])
 const materialLaunch = { architecture: useAgentChatLaunch(pid, tid, 'architecture'), qa: useAgentChatLaunch(pid, tid, 'qa') }
 const materialAttention = ref<Record<MaterialType, number>>({ architecture: 0, qa: 0 })
+// Documents written by hand right now: their stages show as in work before the first save.
+const materialEditing = ref<Record<MaterialType, boolean>>({ architecture: false, qa: false })
+const drafting = computed(() => [...(editingPlan.value ? ['plan'] : []), ...materialTypes.filter(t => materialEditing.value[t])])
 // null — the "new chat" panel; undefined (or a chat that is gone) — the latest chat.
 const selectedAnalysisChat = ref<string | null | undefined>()
 const selectedPlanningChat = ref<string | null | undefined>()
@@ -381,23 +385,29 @@ async function markStage(stage: PreparationStage, status: 'ready' | 'skipped') {
   catch (e) { appStore.toast(String(e).replace(/^Error:\s*/, ''), 'error'); return false }
 }
 const isStage = (tab: string): tab is PreparationStage => ['analysis', 'architecture', 'qa', 'plan'].includes(tab)
-/** «Завершить и перейти к …»: the developer's mark; an agent never sets it. «План» also stops the planners, as «Утвердить план». */
+/** «Завершить этап»: the developer's mark; an agent never sets it. «План» also stops the planners, as «Утвердить план».
+ *  Marking never switches the tab: the developer goes on to the next stage themselves. */
 async function completeStage(tab: string) {
   if (!isStage(tab)) return
   if (tab === 'plan') { await approvePlan(); return }
-  if (await markStage(tab, 'ready')) goToNext(tab)
+  await markStage(tab, 'ready')
 }
 async function skipStage(tab: string) {
   if (!isStage(tab)) return
   const draft = stages.value.find(s => s.stage === tab)?.status === 'draft'
   if (draft && !(await appStore.confirm('Пропустить этап? Набросок сохранится, но основанием для следующих этапов не будет.', { confirmLabel: 'Пропустить', danger: false }))) return
-  if (await markStage(tab, 'skipped')) goToNext(tab)
+  await markStage(tab, 'skipped')
 }
-function goToNext(tab: string) {
-  const next = tabs.value[tabs.value.findIndex(t => t.id === tab) + 1]
-  if (next) activeTab.value = next.id
-}
+// A saved plan with no text counts as no plan: execution stays unavailable.
+const hasPlan = computed(() => !!plan.value?.content.trim())
 const execDone = computed(() => !!plan.value?.steps.length && plan.value.steps.every(s => s.done))
+/** The tab of the stage the work is on, as the stage strip marks it: during preparation the latest one worked on. */
+function currentStageTab(): Tab {
+  if (!task.value) return 'analysis'
+  const order = workStagesOf(task.value), index = workStageIndex(task.value, entry.value?.state ?? null, hasPlan.value, stages.value)
+  const tab = order[Math.min(index, order.length - 1)].tab as Tab
+  return tabs.value.some(t => t.id === tab) ? tab : 'plan'
+}
 const queue = useTaskQueue(pid, tid)
 provide(TaskQueueKey, queue)
 const selectedQueueId = ref<string | null>(null)
@@ -477,16 +487,25 @@ async function onClosed(closed: Task) {
   goBack()
 }
 
-async function startQueue(options: { base_branch?: string; branch_name?: string; auto_review?: boolean; place?: 'new' | 'existing'; branch?: string }) {
-  if (startingWork.value || !task.value) return
-  startingWork.value = true; startError.value = ''
+/** The queue starts at once: the branch is the one chosen above the queue, the review follows the task or the project's settings. */
+async function startQueue() {
+  const current = task.value
+  if (startingWork.value || !current) return
+  const failed = workspace.value?.status === 'failed'
+  if (canChooseBranch.value && !failed && executionPlace.value.place === 'existing' && !executionPlace.value.branch) { appStore.toast('Выберите ветку выполнения', 'error'); return }
+  startingWork.value = true
   // The first launch is the moment to ask for (browser) notification permission: it is a click.
   platform.requestNotifications?.()
   try {
-    // «Повторить» after a failed preparation: the place is rebuilt on the same branch before the queue starts.
-    if (workspace.value?.status === 'failed') await workspacesApi.recreate(task.value.project_id, workspace.value.id, true)
-    if (await queue.start(options)) showStart.value = false
-  } catch (cause) { startError.value = cause instanceof Error ? cause.message : String(cause) }
+    let autoReview = current.auto_review
+    if (!autoReview && appStore.currentProject?.kind === 'project') autoReview = await gitApi.settings(current.project_id).then(settings => !!settings.auto_review).catch(() => false)
+    const options: import('@contracts').QueueStartBody = canChooseBranch.value && !failed
+      ? { ...executionPlace.value, auto_review: autoReview }
+      : { base_branch: failed ? workspace.value!.base_branch : '', branch_name: failed ? workspace.value!.branch : '', auto_review: autoReview }
+    // A failed preparation: the place is rebuilt on the same branch before the queue starts.
+    if (failed) await workspacesApi.recreate(current.project_id, workspace.value!.id, true)
+    await queue.start(options)
+  } catch (cause) { appStore.toast(cause instanceof Error ? cause.message : String(cause), 'error') }
   finally { startingWork.value = false; if (pid.value) void work.load([pid.value]) }
 }
 
@@ -513,16 +532,6 @@ watch(() => route.query.session, openChatFromRoute)
 watch(() => chatStore.sessions.length, () => { if (routeChatPending) openChatFromRoute() })
 
 const doneCount = computed(() => plan.value?.steps.filter(s => s.done).length ?? 0)
-const checkboxLinePreviews = computed(() =>
-  planContent.value
-    .split('\n')
-    .map(line => {
-      const match = line.match(/^(\s*-\s*\[[ x]\])\s*(.*)$/i)
-      return match ? { marker: match[1].trim(), text: ` ${match[2]}` } : null
-    })
-    .filter((line): line is { marker: string; text: string } => !!line)
-    .slice(0, 6),
-)
 const progressPct = computed(() => {
   if (!plan.value?.steps.length) return 0
   return Math.round((doneCount.value / plan.value.steps.length) * 100)
@@ -552,13 +561,11 @@ async function handleEvent(event: OrchestratorEvent) {
       // During planning we need the full content live; reload to get content + steps.
       if (planningOpen.value || !plan.value || !event.steps) {
         await loadPlan()
-        if (planningLive.value) activeTab.value = 'plan'
       } else {
         plan.value = { ...plan.value, steps: event.steps as PlanStep[] }
       }
       break
     case 'queue_finished':
-      activeTab.value = 'check'
       await loadPlan()
       break
     case 'task_updated':
@@ -589,7 +596,7 @@ onMounted(async () => {
   await Promise.all([loadPlan(), loadAnalysis(), loadStages(), ...materialTypes.map(loadMaterial), agentsStore.load(), queue.load()])
   if (task.value?.kind === 'errand') activeTab.value = 'chat'
   else if (queue.queue.value?.status === 'finished') activeTab.value = 'check'
-  else if (!plan.value) activeTab.value = 'analysis'
+  else activeTab.value = currentStageTab()
   // Open where the work is: a running queue, or a step that waits for the developer.
   if (task.value?.kind !== 'errand' && !taskDone.value && queue.sessions.value.length && (queue.frozen.value || attentionCount.value)) activeTab.value = 'exec'
   applyRouteTab()
@@ -650,14 +657,20 @@ async function launchPlanning(request: NewChatRequest) {
 
 // Approve the plan: stop the planning agents and leave the planning view. The chats stay and can be
 // continued later through "Изменить план с агентом" (the agent restarts with its conversation).
-// It is the same action as «Завершить и перейти к …» on the plan stage: earlier unfinished stages become skipped.
+// It is the same action as «Утвердить план» in the stage bar: earlier unmarked stages become ready if they have material, skipped if empty.
 async function approvePlan() {
   if (!(await markStage('plan', 'ready'))) return
   await Promise.all(planningChats.value.map(c => agentChatEndpoints.postAgentSessionsByIdByAction({ params: { id: c.id, action: "close" } }).catch(() => { /* already stopped */ })))
   planningOpen.value = false
   await loadPlan()
   appStore.toast('План утверждён', 'success')
-  goToNext('plan')
+}
+
+// «Утвердить» in the architecture / QA view: the same as «Утвердить план» — the stage is marked ready and the authors stop; their chats stay.
+async function approveMaterial(type: MaterialType) {
+  if (!(await markStage(type, 'ready'))) return
+  await Promise.all(materialChats(type).map(c => agentChatEndpoints.postAgentSessionsByIdByAction({ params: { id: c.id, action: "close" } }).catch(() => { /* already stopped */ })))
+  appStore.toast(`${type === 'qa' ? 'QA' : 'Архитектура'} утверждена`, 'success')
 }
 
 // ——— Mark task done ———
@@ -677,6 +690,7 @@ async function reopenTask() {
   if (await actions.reopen(task.value)) { appStore.toast('Работа снова открыта', 'success'); await loadTask() }
 }
 
+const deleting = computed(() => !!task.value && isRemoving(task.value.id))
 async function deleteCurrentTask() {
   if (!task.value) return
   const id = task.value.id
@@ -704,6 +718,7 @@ async function savePlan() {
     } else {
       plan.value = await tasksEndpoints.postProjectsByProjectIdTasksByTaskIdPlans({ params: { projectId: pid.value, taskId: tid.value }, body: { content: planContent.value } })
     }
+    await loadStages()
     cancelPlanDraft()
     appStore.toast('План сохранён', 'success')
   } catch (e: unknown) { appStore.toast(String(e), 'error') }
@@ -711,7 +726,11 @@ async function savePlan() {
 </script>
 
 <style scoped>
-.task-view { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+.task-view { display: flex; flex-direction: column; height: 100%; overflow: hidden; position: relative; }
+.task-view.deleting > :not(.deleting-note) { opacity: 0.55; pointer-events: none; }
+.deleting-note { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 10; display: flex; align-items: center; gap: 8px; padding: 6px 14px; border: 1px solid var(--border-strong); border-radius: var(--radius-pill); background: var(--bg2); color: var(--text); font-size: var(--fs-md); }
+.deleting-spin { width: 12px; height: 12px; border: 2px solid var(--border-strong); border-top-color: var(--blue-hover); border-radius: var(--radius-round); animation: deleting-spin 0.8s linear infinite; }
+@keyframes deleting-spin { to { transform: rotate(360deg); } }
 
 .task-edit-fields { display: flex; flex-direction: column; gap: var(--sp-3); }
 

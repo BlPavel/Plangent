@@ -16,7 +16,7 @@
         </div>
         <p v-if="text" class="new-chat-hint">{{ text }}</p>
       </template>
-      <ChatComposer v-if="!compact" :draft-key="draftKey!" :initial-text="initialText" :commands="commands" :project-id="projectId" :workspace-id="workspaceId" :placeholder="placeholder" :disabled="!agentId || busy" @send="start" @error="localError = $event">
+      <ChatComposer v-if="!compact" :draft-key="draftKey!" :initial-text="initialText" :commands="availableCommands" :project-id="projectId" :workspace-id="workspaceId" :placeholder="placeholder" :disabled="!agentId || busy" @send="start" @error="localError = $event">
         <template v-if="git" #tools>
           <AppButton type="button" variant="subtle" size="xs" :pressed="gitForTurn" title="Разрешить Git-действия на один ход" @click="gitForTurn = !gitForTurn">Git</AppButton>
         </template>
@@ -45,6 +45,7 @@ import ChatComposer, { type ContentBlock } from './ChatComposer.vue'
 import UsageMeter from './UsageMeter.vue'
 import AgentSettingsBar from './AgentSettingsBar.vue'
 import { useAgentLaunchOptions } from '../composables/useAgentLaunchOptions'
+import { mergeCommands } from '../utils/commands'
 
 /** What a new agent session starts with — the body of POST /agent-sessions (and of a planning run). */
 export interface NewChatRequest {
@@ -83,12 +84,17 @@ const props = defineProps<({ compact: true; draftKey?: string } | { compact?: fa
   sendLabel?: string
   /** Offers «Git»: Git actions allowed for the first message. */
   git?: boolean
+  /** Preparation chats can start with the Plangent clarification interview. */
+  interview?: boolean
 }>()
 const emit = defineEmits<{ start: [request: NewChatRequest, gitForTurn: boolean] }>()
 const gitForTurn = ref(false)
 const agents = useAgentsStore()
 const agentId = ref(''), policy = ref(props.defaultPolicy || 'ask'), localError = ref('')
 const { resolvedSelects, commands, state: optionsState, launch, pick, retry } = useAgentLaunchOptions(agentId, () => ({ agentId: props.defaultAgentId, model: props.defaultModel, effort: props.defaultEffort }))
+
+const availableCommands = computed(() => mergeCommands(commands?.value ?? [], props.interview
+  ? [{ name: 'interview', description: 'Уточнить решения небольшими раундами вопросов', source: 'plangent' }] : []))
 
 const agentList = computed(() => agents.agents.map(a => ({ value: a.id, label: a.name })))
 

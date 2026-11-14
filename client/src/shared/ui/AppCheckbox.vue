@@ -1,4 +1,4 @@
-<template><label class="check" :class="{ disabled, block }"><input ref="input" v-bind="$attrs" type="checkbox" :checked="modelValue" :disabled="disabled" :aria-invalid="invalid || undefined" @change="emit('update:modelValue', ($event.target as HTMLInputElement).checked)" /><span><slot>{{ label }}</slot></span></label></template>
+<template><label class="check" :class="{ disabled, block }"><input ref="input" v-bind="$attrs" type="checkbox" :checked="modelValue" :disabled="disabled" :aria-invalid="invalid || undefined" @change="emit('update:modelValue', ($event.target as HTMLInputElement).checked)" /><span v-if="label || $slots.default"><slot>{{ label }}</slot></span></label></template>
 <script setup lang="ts">
 import { ref, watchEffect } from 'vue';
 defineOptions({ inheritAttrs: false });

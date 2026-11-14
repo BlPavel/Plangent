@@ -2,12 +2,16 @@
   <AppItemCard as="article" :selected="selected" :dimmed="remark.status === 'rejected'">
     <template #title>
       <strong>{{ number }} · {{ remarkKinds[remark.kind] }}</strong>
-      <AppButton variant="link" size="md" type="button"  :title="L.highlight" @click="$emit('highlight', remark.steps.filter(s => !s.deleted).map(s => s.id))">
+      <AppButton variant="link" size="md" type="button"  :title="L.highlight" @click="show">
         {{ remark.steps.length ? remark.steps.map(s => s.id + (s.deleted ? ' (удалён)' : '')).join(', ') : remark.quote ? 'Цитата' : L.whole }}
       </AppButton>
     </template>
-    <blockquote v-if="remark.quote" class="quote">{{ remark.quote }}</blockquote>
-    <details :open="!['accepted', 'rejected', 'applied'].includes(remark.status)">
+    <blockquote v-if="remark.quote" class="quote" @click="show">{{ remark.quote }}</blockquote>
+    <p v-if="remark.status === 'sent' && planner" class="note" :class="{ attention: planner === 'waiting' || planner === 'idle' || planner === 'missing' }">
+      {{ plannerNotes[planner] }}
+      <AppButton variant="link" size="md" v-if="planner !== 'missing'" type="button"  @click="$emit('open-planner')">Открыть {{ L.recipientChat }}</AppButton>
+    </p>
+    <details :open="open" @toggle="open = ($event.target as HTMLDetailsElement).open">
       <summary>
         <AppBadge :tone="['accepted', 'applied'].includes(remark.status) ? 'done' : ['discussing', 'sent'].includes(remark.status) ? 'open' : remark.status === 'answered' ? 'warning' : remark.status === 'rejected' ? 'danger' : 'neutral'" :pulse="live">{{ statuses[remark.status] }}</AppBadge>
         <span v-if="hint" class="hint">{{ hint }}</span>
@@ -33,10 +37,6 @@
         <small>{{ authors[message.author] }}{{ message.author === 'developer' && !message.sent ? ' · ещё не отправлено' : '' }}</small>
         <MessageMarkdown :text="body(message).text" />
       </div>
-      <p v-if="remark.status === 'sent' && planner" class="note" :class="{ attention: planner === 'waiting' || planner === 'idle' || planner === 'missing' }">
-        {{ plannerNotes[planner] }}
-        <AppButton variant="link" size="md" v-if="planner !== 'missing'" type="button"  @click="$emit('open-planner')">Открыть {{ L.recipientChat }}</AppButton>
-      </p>
       <template v-if="!readonly">
         <div v-if="!['sent', 'applied', 'accepted', 'rejected'].includes(remark.status)" class="actions">
           <AppButton size="sm" variant="primary" :disabled="busy" :title="`Согласен: ${L.recipientNom.toLowerCase()} исправит ${L.subject}. Можно добавить уточнение`" @click="mode = 'accepted'">Принять</AppButton>
@@ -65,7 +65,7 @@ import AppBadge from '@shared/ui/AppBadge.vue'
 import { AppItemCard } from '@shared/ui'
 import AppTextarea from '@shared/ui/AppTextarea.vue'
 import { useDraft } from '@core/composables/useDraft'
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import AppButton from '@shared/ui/AppButton.vue'
 import { MessageMarkdown } from '@shared/markdown'
 import type { Remark, ReviewTarget } from '../../plan-review/types'
@@ -73,6 +73,10 @@ import { remarkKinds, reviewLabels } from '../../plan-review/labels'
 const props = withDefaults(defineProps<{ taskId: string; remark: Remark; target?: ReviewTarget; number: number; readonly: boolean; busy: boolean; selected: boolean; planner?: 'working' | 'waiting' | 'idle' | 'missing' | ''; reviewerWorking?: boolean }>(), { target: 'plan' })
 const L = computed(() => reviewLabels[props.target])
 const emit = defineEmits<{ highlight: [ids: string[]]; decision: [status: Remark['status'], comment: string]; 'open-planner': []; edit: [text: string, suggestion: string] }>()
+// A decided card starts folded to its status line; its title and quote toggle it (and show where it points), the status line toggles it.
+// A status change leaves it as it is. What the agent does with the card is shown outside the fold, so it is seen either way.
+const open = ref(!['accepted', 'rejected', 'applied'].includes(props.remark.status))
+function show() { open.value = !open.value; emit('highlight', props.remark.steps.filter(s => !s.deleted).map(s => s.id)) }
 const mode = useDraft<'accepted' | 'discussing' | null>(() => `task:${props.taskId}:plan-remark:${props.remark.id}:mode`, () => null), draft = useDraft(() => `task:${props.taskId}:plan-remark:${props.remark.id}:draft`, () => '')
 const editing = useDraft(() => `task:${props.taskId}:plan-remark:${props.remark.id}:editing`, () => false), editText = useDraft(() => `task:${props.taskId}:plan-remark:${props.remark.id}:editText`, () => ''), editSuggestion = useDraft(() => `task:${props.taskId}:plan-remark:${props.remark.id}:editSuggestion`, () => '')
 function startEdit() { if (editing.value) return; editText.value = props.remark.text; editSuggestion.value = props.remark.suggestion; mode.value = null; editing.value = true }
@@ -119,7 +123,7 @@ function submit() {
 .actions { margin-top: 14px; }
 .form-actions { margin-top: 10px; }
 summary { cursor: pointer; margin: 10px 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.quote { margin: 0; padding: 4px 10px; border-left: 2px solid var(--border-strong); color: var(--text-muted); font-size: var(--fs-sm); }
+.quote { cursor: pointer; margin: 0; padding: 4px 10px; border-left: 2px solid var(--border-strong); color: var(--text-muted); font-size: var(--fs-sm); }
 .was { margin: 8px 0; font-size: var(--fs-sm); color: var(--text-muted); }
 .was summary { margin: 0; }
 .was > :not(summary) { padding-left: 10px; border-left: 2px solid var(--border); }
@@ -133,7 +137,7 @@ summary { cursor: pointer; margin: 10px 0; display: flex; align-items: center; g
 .st-rejected { background: var(--danger-soft); color: var(--danger-hover); border-color: transparent; }
 .link { color: var(--blue-hover); background: none; border: 0; cursor: pointer; }
 .message { border-left: 2px solid var(--border); margin: 10px 0; padding-left: 10px; }
-.note { margin: 8px 0; color: var(--text-muted); }
+.note { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; margin: 8px 0; color: var(--text-muted); }
 .note.attention { color: var(--warning-text); }
 small { color: var(--text-muted); }
 label { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }

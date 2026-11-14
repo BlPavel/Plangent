@@ -55,6 +55,35 @@ export interface ChatPayload {
     /** The user message also carried Plangent's hidden briefing. */
     briefing?: boolean;
     permissionId?: string;
+    /** interview_questions: one round of the clarification interview. */
+    round?: number;
+    total_rounds?: number;
+    topic?: string;
+    questions?: InterviewQuestion[];
+    upcoming?: string[];
+}
+/** A question of an interview round; the developer can always answer in their own words or ask to clarify. */
+export interface InterviewQuestion {
+    id: string;
+    text: string;
+    /** Why the decision matters or what it depends on. */
+    context?: string;
+    options: InterviewOption[];
+}
+export interface InterviewOption {
+    label: string;
+    /** Consequences of choosing it. */
+    detail?: string;
+    recommended?: boolean;
+}
+/** `option` picks options[index]; `custom` is the developer's own answer; `clarify` asks to explain the question again. */
+export type InterviewAnswer = { question_id: string; kind: 'option'; index: number } | { question_id: string; kind: 'custom'; text: string } | { question_id: string; kind: 'clarify'; text: string };
+/**
+ * `_meta` of the text block that answers a round: links the answer message to its `interview_questions` event.
+ * `finish`: the developer ended the interview early; unanswered questions stay open.
+ */
+export interface InterviewAnswersMeta {
+    plangent_interview: { round_seq: number; answers: InterviewAnswer[]; finish?: boolean };
 }
 export interface LimitWindow {
     id: string;

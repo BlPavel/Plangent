@@ -17,7 +17,7 @@
         <pre v-else-if="part.content?.text">{{ part.content.text }}</pre>
       </template>
       <pre v-if="output">{{ output }}</pre>
-      <pre v-if="call.gitReason">Команда Git отклонена. Для изменений используйте инструмент Plangent git_action.</pre>
+      <pre v-if="call.gitReason">{{ deniedText }}</pre>
     </div>
   </div>
 </template>
@@ -35,6 +35,10 @@ const state = computed(() => {
   const s = props.call.status
   return props.call.gitReason ? 'done' : s === 'failed' ? 'failed' : s === 'completed' ? 'done' : 'running'
 })
+/** The server sends one reason field for two refusals: a shell command that has to go through run_command, and a shell Git change. */
+const deniedText = computed(() => String(props.call.gitReason).includes('run_command')
+  ? 'Команда отклонена: агент должен запускать команды через инструмент Plangent run_command, а не свой shell.'
+  : 'Команда Git отклонена. Для изменений используйте инструмент Plangent git_action.')
 const output = computed(() => {
   const raw = props.call.rawOutput
   if (raw == null || raw === '') return ''
@@ -76,7 +80,7 @@ function diffLines(oldText: string, newText: string) {
 <style scoped>
 .tool { border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg2); overflow: hidden; }
 .tool-icon { width: 14px; height: 14px; flex-shrink: 0; }
-.tool-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); }
+.tool-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); line-height: var(--lh-normal); }
 .tool.done .tool-icon { color: var(--accent-hover); }
 .tool.failed { border-color: var(--danger-soft); }
 .tool.failed .tool-icon, .tool-state { color: var(--danger-hover); }

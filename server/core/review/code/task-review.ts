@@ -104,7 +104,8 @@ function developerRequests(taskId: string, projectId: string) {
 
 /** The review agent picked when the errand was created; the project's settings decide otherwise. */
 function pickedReviewAgent(taskId: string, projectId: string) {
-  const pick = listSessions(projectId).find(s => s.task_id === taskId && s.role === 'errand')?.metadata.review_agent as { agent_id?: string; model?: string; effort?: string } | undefined;
+  // Chosen when the work was created; older errands keep it in their session's metadata.
+  const pick = getTask(taskId)?.review_agent ?? listSessions(projectId).find(s => s.task_id === taskId && s.role === 'errand')?.metadata.review_agent as { agent_id?: string; model?: string; effort?: string } | undefined;
   return pick?.agent_id ? pick : undefined;
 }
 

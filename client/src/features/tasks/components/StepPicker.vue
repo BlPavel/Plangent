@@ -22,11 +22,17 @@
         class="step"
         :class="{ done: s.done, selected: isSelected(s), queued: !s.done && stageOf(s) > 0 }"
         :style="!s.done && stageOf(s) ? { '--stage-color': stageColor(stageOf(s) - 1) } : undefined"
+        :tabindex="s.id && !taskDone ? 0 : undefined"
+        role="checkbox"
+        :aria-checked="isSelected(s)"
+        :aria-disabled="!s.id || taskDone"
+        @click="toggle(s)"
+        @keydown.enter.prevent="toggle(s)"
+        @keydown.space.prevent="toggle(s)"
       >
-        <AppCheckbox :model-value="isSelected(s)" :disabled="!s.id || taskDone" @update:model-value="toggle(s)">
-          <code v-if="s.id" class="step-id">{{ s.id }}</code>
-          <span class="step-text">{{ s.text }}</span>
-        </AppCheckbox>
+        <span class="step-check" aria-hidden="true"><AppCheckbox :model-value="isSelected(s)" :disabled="!s.id || taskDone" tabindex="-1" /></span>
+        <code v-if="s.id" class="step-id">{{ s.id }}</code>
+        <span class="step-text">{{ s.text }}</span>
         <AppBadge tone="open" v-if="s.parallelGroup"  :title="`Метка плана @parallel:${s.parallelGroup}`">∥ {{ s.parallelGroup }}</AppBadge>
         <AppBadge tone="done" v-if="s.done" >✓ готово</AppBadge>
         <AppBadge v-else-if="stageOf(s)" >этап {{ stageOf(s) }}</AppBadge>
@@ -50,18 +56,18 @@
       <div class="builder-grid">
         <span class="builder-label">Агент</span>
         <div class="builder-controls">
-          <AppSelect v-model="agentId" :options="agentOptions" size="sm" :disabled="!editable" />
-          <AppSelect v-if="modelChoices.length" v-model="model" :options="modelChoices" prefix="Модель" size="sm" :disabled="!editable" />
-          <AppSelect v-if="effortChoices.length" v-model="effort" :options="effortChoices" prefix="Рассуждения" size="sm" :disabled="!editable" />
+          <AppSelect :popup-max-width="220" v-model="agentId" :options="agentOptions" size="sm" :disabled="!editable" />
+          <AppSelect :popup-max-width="220" v-if="modelChoices.length" v-model="model" :options="modelChoices" prefix="Модель" size="sm" :disabled="!editable" />
+          <AppSelect :popup-max-width="220" v-if="effortChoices.length" v-model="effort" :options="effortChoices" prefix="Рассуждения" size="sm" :disabled="!editable" />
         </div>
         <span class="builder-label">Работа</span>
         <div class="builder-controls">
-          <AppSelect v-model="mode" :options="MODE_OPTIONS" size="sm" :disabled="!editable" />
-          <AppSelect v-model="policy" :options="POLICY_OPTIONS" size="sm" :disabled="!editable" heading="Опасные команды (rm -rf, git push --force и т. п.) всегда спрашиваются" />
+          <AppSelect :popup-max-width="220" v-model="mode" :options="MODE_OPTIONS" size="sm" :disabled="!editable" />
+          <AppSelect :popup-max-width="220" v-model="policy" :options="POLICY_OPTIONS" size="sm" :disabled="!editable" heading="Опасные команды (rm -rf, git push --force и т. п.) всегда спрашиваются" />
         </div>
         <span class="builder-label">Куда</span>
         <div class="builder-controls">
-          <AppSelect v-model="target" :options="targetOptions" size="sm" :disabled="!editable" heading="Шаги одного этапа выполняются параллельно" />
+          <AppSelect :popup-max-width="220" v-model="target" :options="targetOptions" size="sm" :disabled="!editable" heading="Шаги одного этапа выполняются параллельно" />
           <span class="spacer" />
           <AppButton variant="primary" size="sm" :disabled="!editable || !agentId || !addable.length" :title="addTitle" @click="add">
             Добавить{{ addable.length ? ` ${addable.length} ${stepsWord(addable.length)}` : '' }}
@@ -209,7 +215,7 @@ async function setDone(done: boolean) {
 .spacer { flex: 1; }
 
 .steps { flex: 1; min-height: 80px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; padding: 2px; }
-.step { display: flex; align-items: center; gap: 10px; font-size: var(--fs-md); padding: 6px 8px; border-radius: var(--radius-sm); border: 1px solid transparent; cursor: pointer; transition: background var(--motion-fast), border-color var(--motion-fast); }
+.step { display: flex; align-items: center; line-height: var(--lh-normal); gap: 6px; font-size: var(--fs-md); padding: 6px 8px; border-radius: var(--radius-sm); border: 1px solid transparent; cursor: pointer; transition: background var(--motion-fast), border-color var(--motion-fast); }
 .step:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
 .step:hover { background: var(--bg3); }
 /* Already in the queue: the stage's colour as a bar and a faint tint */
@@ -220,8 +226,9 @@ async function setDone(done: boolean) {
 .step-select { width: 16px; height: 16px; border: 1.5px solid var(--border-strong); border-radius: var(--radius-4); display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: var(--on-accent); }
 .step-select.on { background: var(--blue); border-color: var(--blue); }
 .step-select svg { width: 12px; height: 12px; }
-.step-id { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-muted); flex-shrink: 0; }
-.step-text { flex: 1; min-width: 0; }
+.step .step-check { pointer-events: none; flex-shrink: 0; }
+.step-id { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-muted); flex-shrink: 0; min-width: 2ch; align-self: baseline; }
+.step-text { flex: 1; min-width: 0; align-self: baseline; }
 .step-tag { font-size: var(--fs-xs); padding: 1px 7px; border-radius: var(--radius-pill); white-space: nowrap; flex-shrink: 0; }
 .step-tag.done { color: var(--accent-hover); background: var(--accent-soft); }
 .step-tag.queued { color: var(--stage-color); border: 1px solid color-mix(in srgb, var(--stage-color) 45%, transparent); }

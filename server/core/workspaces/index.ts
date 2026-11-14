@@ -2,11 +2,12 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { getProject } from '../projects';
 import { getTask } from '../tasks';
+import type { Workspace } from '../../models';
 import { DomainError } from '../../models/domain-error';
 import { runGit, serializeGit, fetchRepository, type GitOperationOptions } from '../../infrastructure/git/write';
 import { localBranchHead } from '../../infrastructure/git/read';
 import { activeWorkspace, getWorkspace, insertWorkspace, listWorkspaces, updateWorkspace, workspaceFolder } from './store';
-import { prepareWorkspace } from './prepare';
+import { openWorkspace, prepareWorkspace } from './prepare';
 import { allocatePortSlot } from './ports';
 export * from './roots';
 export * from './store';
@@ -48,12 +49,31 @@ export async function createWorkspace(taskId: string, input: { branch: string; b
       await runGit(root, existing ? ['worktree', 'add', '--', destination, input.branch]
         : remoteOnly ? ['worktree', 'add', '--track', '-b', input.branch, '--', destination, 'origin/' + input.branch]
         : ['worktree', 'add', '-b', input.branch, '--', destination, base], options);
-      return await prepareWorkspace(workspace.id, { signal: options.signal });
+      options.signal?.throwIfAborted();
+      return openWorkspace(workspace.id);
     } catch (error) {
       updateWorkspace(workspace.id, { status: 'failed', error: String(error) });
       throw error;
     }
   });
+}
+
+const setups = new Map<string, Promise<Workspace>>();
+/**
+ * Prepares the task's workspace once, when its work really starts: later calls (or concurrent ones) find it set up.
+ * The folder stays usable meanwhile; callers that need the result (commands) await it, the rest start it and go on.
+ */
+export async function ensureWorkspaceSetup(taskId: string, options: { signal?: AbortSignal } = {}): Promise<void> {
+  const workspace = activeWorkspace(taskId);
+  if (!workspace || workspace.setup_done) return;
+  if (workspace.status !== 'ready') throw new DomainError(workspace.error || 'Workspace is not ready', 409);
+  let running = setups.get(workspace.id);
+  if (!running) {
+    running = prepareWorkspace(workspace.id, { signal: options.signal, background: true }).finally(() => setups.delete(workspace.id));
+    setups.set(workspace.id, running);
+  }
+  const result = await running;
+  if (!result.setup_done) throw new DomainError('Подготовка рабочего места не удалась: ' + result.error, 409);
 }
 
 export interface WorkspaceRemovalBlockers { files: string[]; commits: string[] }
@@ -94,7 +114,11 @@ export async function recreateWorkspace(id: string, input: { discard?: boolean }
   const workspace = getWorkspace(id), { project } = context(workspace.task_id);
   return serializeGit(project.repo_path, async () => {
     await removeWorkspace(id, { ...input, keepBranch: true }, options);
-    return createWorkspace(workspace.task_id, { branch: workspace.branch, base: workspace.base_branch, portSlot: workspace.port_slot }, options);
+    const created = await createWorkspace(workspace.task_id, { branch: workspace.branch, base: workspace.base_branch, portSlot: workspace.port_slot }, options);
+    // A workspace that was already prepared comes back prepared.
+    if (!workspace.setup_done) return created;
+    void ensureWorkspaceSetup(workspace.task_id).catch(() => {});
+    return getWorkspace(created.id);
   });
 }
 

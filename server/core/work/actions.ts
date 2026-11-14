@@ -1,6 +1,6 @@
 import * as records from '../../infrastructure/db/repositories/work/actions';
 import { getTask, updateTask } from '../tasks';
-import { activeWorkspace, createWorkspace, removeWorkspace, removalBlockers, WorkspaceRemovalError, getWorkspace } from '../workspaces';
+import { activeWorkspace, createWorkspace, ensureWorkspaceSetup, removeWorkspace, removalBlockers, WorkspaceRemovalError, getWorkspace } from '../workspaces';
 import { withWorkStart } from './start';
 import { getQueue, isFrozen } from '../execution';
 import { listSessions, updateSession } from '../agents';
@@ -53,6 +53,7 @@ export async function reopenWork(id: string) {
     if (!workspace && previous) {
       const old = getWorkspace(previous.id);
       workspace = await createWorkspace(id, { branch: old.branch, base: old.base_branch });
+      if (old.setup_done) void ensureWorkspaceSetup(id).catch(() => {});
     }
     if (workspace && workspace.status !== 'ready') throw new DomainError(workspace.error || 'Рабочее место недоступно', 409);
     if (workspace) for (const session of listSessions(task.project_id).filter(s => s.task_id === id))

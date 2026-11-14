@@ -67,7 +67,7 @@ export function brief(session: AgentSession) {
       analysis: analysisToolContext(task.id, project.repo_path, task.key),
       architecture: described(grounds.architecture), qa: described(grounds.qa), criteria: planReviews().readyCriteria(task.id),
       instruction: resolvePlanReviewInstruction(project.id), skill: resolvePlanReviewSkill(project.id, detail.review.skill_id),
-      wish: session.metadata.wish ?? '', ...detail, history };
+      wish: session.metadata.wish ?? '', wish_attachments: session.metadata.wish_attachments ?? [], ...detail, history };
   }
   // A material is reviewed against its grounds only: the analysis, and for QA the architecture the developer marked ready.
   const ready = target === 'qa' ? getReadyMaterials(task.id).architecture : null;
@@ -78,7 +78,7 @@ export function brief(session: AgentSession) {
       ? { architecture: { version: ready.version, content: ready.content, identifiers: parseMaterialIdentifiers(ready.content) } }
       : { architecture: null, architectureNote: 'The architecture is not marked ready by the developer, so it is not a ground for QA.' } : {}),
     instruction: resolveMaterialReviewInstruction(target, project.id), skill: resolveMaterialReviewSkill(target, project.id, detail.review.skill_id),
-    wish: session.metadata.wish ?? '', ...detail, history };
+    wish: session.metadata.wish ?? '', wish_attachments: session.metadata.wish_attachments ?? [], ...detail, history };
 }
 export function reviewerOutput(session: AgentSession, name: string, input: Record<string, unknown>) {
   const { review, remarks } = reviewerScope(session);
@@ -118,6 +118,16 @@ export async function askReviewer(projectId: string, taskId: string, reviewId: s
   await sendReviewBatch(getSession(detail.review.session_id).id, `The developer replied to cards: ${ids.join(', ')}. Call get_plan_review_brief, read each thread, and reply to each with answer_plan_remark. If the discussion changes a remark, rewrite it with revise_plan_remark; the ${plan ? 'planner' : 'document author'} sees only the card, not the conversation. Do not change the ${plan ? 'plan' : 'document'}. Respond in the developer's language, Russian by default.`);
   return service.delivered(projectId, taskId, reviewId, ids);
 }
+/** Text files the developer attached to the wish; the reviewer reads them from the brief, not from the chat. */
+function wishAttachments(value: unknown): { name: string; content: string }[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 10) throw new DomainError('Invalid attachments');
+  return value.map(item => {
+    const file = item as { name?: unknown; content?: unknown };
+    if (typeof file?.name !== 'string' || !file.name.trim() || typeof file.content !== 'string' || file.content.length > 200000) throw new DomainError('Invalid attachment');
+    return { name: file.name.trim().slice(0, 200), content: file.content };
+  });
+}
 export async function launch(projectId: string, taskId: string, input: Record<string, unknown>) {
   const { task, project } = reviewTask(projectId, taskId);
   assertUnfrozen(taskId);
@@ -132,10 +142,11 @@ export async function launch(projectId: string, taskId: string, input: Record<st
   const agent = selectAgent(projectId, { explicit: input.agent_id === undefined ? undefined : text(input.agent_id), saved: saved?.agent_id });
   if (!agent) throw new DomainError('Choose an agent for the review', 409);
   const wish = text(input.wish, false);
+  const wishFiles = wishAttachments(input.attachments);
   if (saved?.agent_id !== agent.id) saved = undefined;
   const session = createAgentSession({ project_id: projectId, task_id: taskId, agent_id: agent.id,
     role: 'plan-reviewer', policy: 'read-only', model: text(input.model ?? saved?.model ?? agent.model, false),
-    title: task.key + ' · ' + { plan: 'Plan review', architecture: 'Architecture review', qa: 'QA review' }[target], metadata: { wish, review_target: target,
+    title: task.key + ' · ' + { plan: 'Plan review', architecture: 'Architecture review', qa: 'QA review' }[target], metadata: { wish, wish_attachments: wishFiles, review_target: target,
       reasoningEffort: text(input.reasoning_effort ?? saved?.metadata.reasoningEffort ?? agent.reasoning_effort, false),
       briefing: protocolOf(target).join('\n') } });
   const service = planReviews();

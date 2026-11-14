@@ -6,6 +6,8 @@ const Module = require('node:module')
 const { window } = require('linkedom').parseHTML('<html><body><div id="app"></div></body></html>')
 for (const key of ['window', 'document', 'HTMLElement', 'SVGElement', 'Element', 'Node', 'Document', 'ShadowRoot']) global[key] = window[key]
 window.HTMLElement.prototype.scrollIntoView = function () { this.scrolled = true }
+window.HTMLElement.prototype.getBoundingClientRect = () => ({ x: 0, y: 0, top: 0, left: 0, right: 200, bottom: 30, width: 200, height: 30 })
+global.getComputedStyle = window.getComputedStyle = () => ({ transitionDelay: '0s', transitionDuration: '0s', animationDelay: '0s', animationDuration: '0s' })
 // Match browser element tags so Vue does not proxy linkedom's internal linked list.
 Object.defineProperty(window.HTMLElement.prototype, Symbol.toStringTag, { value: 'HTMLElement' })
 global.requestAnimationFrame = callback => setTimeout(callback, 0)
@@ -21,6 +23,10 @@ const compiled = (async () => {
   const bundle = await build({
     stdin: { contents: `
       export { default as WorkStages } from './client/src/features/tasks/components/WorkStages.vue'
+      export { default as ExecutionBranch } from './client/src/features/tasks/components/ExecutionBranch.vue'
+      export { default as ChangeWorkBranch } from './client/src/features/tasks/components/ChangeWorkBranch.vue'
+      export { default as StepPicker } from './client/src/features/tasks/components/StepPicker.vue'
+      export { TaskQueueKey } from './client/src/features/tasks/composables/useTaskQueue'
       export { default as MaterialPanel } from './client/src/features/tasks/components/MaterialPanel.vue'
       export { default as AnalysisLinks } from './client/src/features/tasks/components/AnalysisLinks.vue'
       export { default as MessageMarkdown } from './client/src/shared/markdown/MessageMarkdown.vue'
@@ -34,8 +40,11 @@ const compiled = (async () => {
     plugins: [{ name: 'vue-test', setup(build) {
       // Agent launch and review have their own suites; keep the real document renderer and API.
       build.onLoad({ filter: /features[\\/]agent-chat[\\/]index\.ts$/ }, () => ({
-        contents: "export { default as MessageMarkdown } from '../../shared/markdown/MessageMarkdown.vue'; export const NewChatPanel = { render: () => null }; export const useComposerReveal = () => {}", loader: 'ts', resolveDir: path.resolve('client/src/features/agent-chat'),
+        contents: "export { default as MessageMarkdown } from '../../shared/markdown/MessageMarkdown.vue'; export const NewChatPanel = { render: () => null }; export const useComposerReveal = () => {}; export const useChatStore = () => ({ agentOptions: { 'test-agent': {} }, fetchAgentOptions: async () => {} }); export const modelAndEffort = () => ({ models: [], efforts: [] })", loader: 'ts', resolveDir: path.resolve('client/src/features/agent-chat'),
       }))
+      build.onLoad({ filter: /features[\\/]agents[\\/]index\.ts$/ }, () => ({ contents: "export { useAgentsStore } from './stores/agents'", loader: 'ts', resolveDir: path.resolve('client/src/features/agents') }))
+      build.onLoad({ filter: /features[\\/]code[\\/]index\.ts$/ }, () => ({ contents: "export { gitApi, codeApi } from './api'", loader: 'ts', resolveDir: path.resolve('client/src/features/code') }))
+      build.onLoad({ filter: /core[\\/]api[\\/]events\.ts$/ }, () => ({ contents: 'export const onServerEvent = () => () => {}; export const sendServerMessage = () => {}', loader: 'ts' }))
       build.onLoad({ filter: /\.vue$/ }, args => {
         if (['TaskChats.vue', 'PlanReviewPanel.vue'].includes(path.basename(args.path))) return { contents: 'export default { render: () => null }', loader: 'ts' }
         const { descriptor } = parse(fs.readFileSync(args.path, 'utf8'), { filename: args.path })
@@ -71,7 +80,7 @@ test('markdown document links open valid targets and use safe configurable label
 function mount(Component, initial, provide) {
   const props = reactive(initial), events = []
   const listeners = {}
-  for (const event of ['complete', 'select', 'reload']) if (Component.emits?.includes(event)) {
+  for (const event of ['complete', 'skip', 'select', 'reload', 'changed', 'close']) if (Component.emits?.includes(event)) {
     listeners['on' + event[0].toUpperCase() + event.slice(1)] = (...args) => events.push([event, ...args])
   }
   const app = createApp({ render: () => h(Component, { ...props, ...listeners }) })
@@ -115,28 +124,46 @@ test('work-state matches server check, finish and closed transitions for tasks a
   }
 })
 
-test('WorkStages displays legacy drafts, server marks and changed documents without inferring a skip', async () => {
+test('workStageIndex follows the latest preparation stage the developer worked on', async () => {
+  const { workStageIndex } = await compiled
+  const task = { kind: 'task' }, plan = { stage: 'plan', counts: { steps: 0 } }
+  assert.equal(workStageIndex(task, plan, false, stages(['not_started', 'not_started', 'not_started', 'not_started'])), 0)
+  assert.equal(workStageIndex(task, plan, false, stages(['draft', 'not_started', 'not_started', 'not_started'])), 0)
+  assert.equal(workStageIndex(task, plan, false, stages(['ready', 'not_started', 'not_started', 'not_started'])), 1)
+  assert.equal(workStageIndex(task, plan, true, stages(['not_started', 'not_started', 'not_started', 'draft'])), 3, 'a plan draft skips the optional stages')
+  assert.equal(workStageIndex(task, plan, true, stages(['skipped', 'skipped', 'skipped', 'ready'])), 4)
+})
+
+test('WorkStages marks an unfinished stage with one button, leads on from a finished one, and shows untouched earlier stages as skipped', async () => {
   const { WorkStages, workStagesOf } = await compiled
   const task = { kind: 'task' }
-  const view = mount(WorkStages, { task, state: { stage: 'execution', counts: { steps: 1 } }, hasPlan: true, active: 'analysis',
+  const view = mount(WorkStages, { task, state: { stage: 'plan', counts: { steps: 0 } }, hasPlan: true, active: 'analysis',
     tabs: workStagesOf(task).map(s => ({ id: s.tab, label: s.label })), stages: stages(['draft', 'not_started', 'not_started', 'draft']), execDone: false })
   const marks = () => [...document.querySelectorAll('.stage-mark')].map(e => e.getAttribute('aria-label'))
   try {
-    assert.deepEqual(marks().slice(0, 4), ['Черновик', 'Не начато', 'Не начато', 'Черновик'])
-    await click('Завершить и перейти к Архитектура')
-    assert.deepEqual(view.events, [['complete', 'analysis']])
-    assert.deepEqual(marks().slice(0, 4), ['Черновик', 'Не начато', 'Не начато', 'Черновик'], 'client waits for the server summary')
+    assert.deepEqual(marks().slice(0, 4), ['Черновик', 'Пропущено', 'Пропущено', 'Текущий этап работы'])
+    await click('Завершить этап')
+    assert.deepEqual(view.events, [['complete', 'analysis']], 'marking does not switch the stage')
     view.props.stages = stages(['skipped', 'ready', 'draft', 'ready']); view.props.stages[1].changed_since_mark = true
     view.props.execDone = true; await flush()
     assert.deepEqual(marks().slice(0, 5), ['Пропущено', 'Изменён после отметки', 'Черновик', 'Готово', 'Все пункты плана выполнены'])
     view.props.active = 'qa'; view.props.locked = true; await flush()
-    assert.equal(button('Завершить и перейти к План').disabled, true)
+    assert.equal(button('Завершить этап').disabled, true)
     view.props.active = 'analysis'; await flush()
-    await click('Перейти к Архитектура'); assert.deepEqual(view.events.at(-1), ['select', 'architecture'])
-    view.props.stages = stages(['not_started', 'not_started', 'not_started', 'draft']); view.props.locked = false; await flush()
-    assert.equal(button('Завершить и перейти к Архитектура').disabled, true)
+    await click('Архитектура →'); assert.deepEqual(view.events.at(-1), ['select', 'architecture'], 'a finished stage only leads on')
+    view.props.stages = stages(['not_started', 'not_started', 'not_started', 'not_started']); view.props.locked = false; view.props.hasPlan = false; await flush()
+    await click('Пропустить этап'); assert.deepEqual(view.events.at(-1), ['skip', 'analysis'], 'an empty optional stage is skipped')
+    view.props.active = 'plan'; await flush()
+    assert.equal(button('Утвердить план').disabled, true, 'the plan cannot be skipped')
+    view.props.drafting = ['plan', 'architecture']; await flush()
+    assert.equal(marks()[3], 'Черновик', 'a plan written by hand is in work before the first save')
+    assert.equal(button('Утвердить план').title, 'Сначала сохраните документ')
+    view.props.active = 'architecture'; await flush()
+    assert.equal(marks()[1], 'Черновик', 'so is an architecture written by hand')
+    assert.equal(button('Завершить этап').disabled, true)
+    view.props.active = 'plan'; view.props.drafting = undefined
     view.props.stages = []; await flush()
-    assert.deepEqual(marks().slice(0, 4), ['Не начато', 'Не начато', 'Не начато', 'Черновик'])
+    assert.deepEqual(marks().slice(0, 4), ['Не начато', 'Не начато', 'Не начато', 'Не начато'])
   } finally { view.unmount() }
 })
 
@@ -185,6 +212,24 @@ test('MaterialPanel preserves rejected edits, reloads a new version and retries 
   } finally { view.unmount(); delete global.fetch }
 })
 
+test('MaterialPanel shows the identifier format and inserts the next number at the cursor', async () => {
+  const { MaterialPanel } = await compiled
+  const proto = window.HTMLTextAreaElement.prototype
+  proto.setSelectionRange = function (start) { this.selectionStart = start }
+  const view = mount(MaterialPanel, { ...materialProps(), type: 'qa', material: material('**Q1** A\n\n**Q5** Removed later') })
+  try {
+    await click('Редактировать вручную'); await type('**Q1** A\n```\n**Q9** Example\n```\nTail')
+    assert.equal(button('Q1').getAttribute('title'), 'Скопировать ссылку [[qa#Q1]]')
+    assert.equal([...document.querySelectorAll('button')].some(b => b.textContent.trim() === 'Q9'), false)
+    document.querySelector('textarea').selectionStart = '**Q1** A'.length
+    await click('+ Q6')
+    assert.equal(document.querySelector('textarea').value, '**Q1** A\n\n**Q6** \n```\n**Q9** Example\n```\nTail')
+    assert.equal(document.querySelector('dl'), null)
+    await click('Правила'); assert.ok(document.querySelector('dl'))
+    await click('Скрыть правила'); assert.equal(document.querySelector('dl'), null)
+  } finally { view.unmount(); delete proto.setSelectionRange }
+})
+
 test('AnalysisLinks resolves QA identifiers and legacy files and reacts when a document disappears', async () => {
   const { AnalysisLinks, DocumentLinksKey, resolveDocumentTarget } = await compiled
   const sources = reactive({ sections: [{ slug: 'requirements', files: [{ name: 'notes.md' }] }], materials: { architecture: material('**D1** Decision'), qa: material('**Q3** Criterion') } })
@@ -216,4 +261,214 @@ test('MaterialPanel opens and highlights a referenced criterion in the saved doc
     const highlighted = document.querySelector('.material-hl')
     assert.equal(highlighted?.textContent, 'Q3'); assert.equal(highlighted.scrolled, true)
   } finally { view.unmount() }
+})
+
+
+test('architecture completion makes empty QA current while a preparation reviewer finishes', async () => {
+  const { WorkStages, workStagesOf, computeWorkState, workStageIndex } = await compiled
+  const task = { kind: 'task', status: 'open' }
+  const summary = stages(['ready', 'ready', 'not_started', 'not_started'])
+  for (const role of ['material-author', 'plan-reviewer', 'planner']) {
+    const state = computeWorkState({ task, sessions: [{ role, status: 'thinking' }] })
+    assert.equal(workStageIndex(task, state, false, summary), 2)
+    const view = mount(WorkStages, { task, state, hasPlan: false, active: 'qa',
+      tabs: workStagesOf(task).map(s => ({ id: s.tab, label: s.label })), stages: summary, execDone: false })
+    try {
+      const marks = [...document.querySelectorAll('.stage-mark')]
+      assert.ok(marks[2].classList.contains('draft'), 'QA is the current stage')
+      assert.ok(marks[3].classList.contains('empty'), 'the plan is still ahead')
+      assert.ok(marks[4].classList.contains('empty'), 'execution has not started')
+    } finally { view.unmount() }
+  }
+})
+
+test('an erased approved plan returns to the plan stage and cannot advance to execution', async () => {
+  const { WorkStages, workStageIndex, workStagesOf } = await compiled
+  const task = { kind: 'task' }, state = { stage: 'plan', counts: { steps: 0 } }
+  for (const changed of [false, true]) {
+    const summary = stages(['skipped', 'skipped', 'skipped', 'ready'])
+    summary[3].changed_since_mark = changed
+    const current = workStageIndex(task, state, false, summary)
+    assert.equal(workStagesOf(task)[current].tab, 'plan', 'reopening an empty plan stays on Plan')
+    const view = mount(WorkStages, { task, state, hasPlan: false, active: 'plan',
+      tabs: workStagesOf(task).map(s => ({ id: s.tab, label: s.label })), stages: summary, execDone: false })
+    try {
+      const executionTab = document.querySelectorAll('[role="tab"]')[4]
+      assert.equal(executionTab.getAttribute('aria-disabled'), 'true')
+      const next = document.querySelector('.stage-actions button')
+      assert.equal(next.disabled, true)
+      next.click(); await flush()
+      assert.deepEqual(view.events, [])
+      view.props.hasPlan = true; await flush()
+      assert.equal(executionTab.hasAttribute('aria-disabled'), false)
+      assert.equal(next.disabled, false)
+      assert.equal(workStageIndex(task, state, true, summary), 4)
+    } finally { view.unmount() }
+  }
+})
+test('a saved plan advances the current stage and enables completion with a stale preparation summary', async () => {
+  const { WorkStages, workStageIndex, workStagesOf } = await compiled
+  const task = { kind: 'task' }, state = { stage: 'plan', counts: { steps: 0 } }
+  const summary = stages(['not_started', 'not_started', 'not_started', 'not_started'])
+  const view = mount(WorkStages, { task, state, hasPlan: false, active: 'plan',
+    tabs: workStagesOf(task).map(s => ({ id: s.tab, label: s.label })), stages: summary, execDone: false })
+  try {
+    const next = document.querySelector('.stage-actions button')
+    assert.equal(next.disabled, true)
+    // The HTTP save can return before any WebSocket event or summary refresh.
+    view.props.hasPlan = true; await flush()
+    assert.equal(workStageIndex(task, state, true, summary), 3)
+    assert.deepEqual([...document.querySelectorAll('.stage-mark')].slice(0, 4).map(e => e.getAttribute('aria-label')),
+      ['Пропущено', 'Пропущено', 'Пропущено', 'Текущий этап работы'])
+    assert.equal(next.disabled, false)
+    next.click(); await flush()
+    assert.deepEqual(view.events, [['complete', 'plan']], 'a manual save does not implicitly approve the plan')
+  } finally { view.unmount() }
+})
+
+test('saving directly on architecture, QA or plan leaves preceding empty stages skipped', async () => {
+  const { WorkStages, workStageIndex, workStagesOf } = await compiled
+  const task = { kind: 'task' }, state = { stage: 'plan', counts: { steps: 0 } }
+  const order = ['analysis', 'architecture', 'qa', 'plan']
+  for (const stage of ['architecture', 'qa', 'plan']) {
+    const index = order.indexOf(stage)
+    const summary = stages(order.map(id => id === stage ? 'draft' : 'not_started'))
+    const view = mount(WorkStages, { task, state, hasPlan: stage === 'plan', active: stage,
+      tabs: workStagesOf(task).map(s => ({ id: s.tab, label: s.label })), stages: summary, execDone: false })
+    try {
+      assert.equal(workStageIndex(task, state, stage === 'plan', summary), index)
+      const marks = [...document.querySelectorAll('.stage-mark')]
+      assert.ok(marks.slice(0, index).every(e => e.getAttribute('aria-label') === 'Пропущено'))
+      assert.equal(marks[index].getAttribute('aria-label'), 'Текущий этап работы')
+      const next = document.querySelector('.stage-actions button')
+      assert.equal(next.disabled, false)
+      next.click(); await flush()
+      assert.deepEqual(view.events, [['complete', stage]])
+    } finally { view.unmount() }
+  }
+})
+
+test('execution steps can be selected by click or keyboard and added to the queue', async () => {
+  const { StepPicker, TaskQueueKey } = await compiled
+  const { ref } = require('vue')
+  const calls = []
+  const queue = { frozen: ref(false), stages: ref([]), assigned: ref(new Set()),
+    addSessions: async (...args) => calls.push(args) }
+  const plan = { id: 'plan', content: '- [ ] (p1) Manual step', steps: [{ id: 'p1', index: 0, text: 'Manual step', done: false }] }
+  const view = mount(StepPicker, { plan, projectId: 'project', taskId: 'task', taskDone: false, defaultAgentId: 'test-agent' },
+    app => app.provide(TaskQueueKey, queue))
+  try {
+    const row = document.querySelector('[role=checkbox]')
+    assert.equal(row.getAttribute('aria-checked'), 'false')
+    row.click(); await flush()
+    assert.equal(row.getAttribute('aria-checked'), 'true')
+    const add = [...document.querySelectorAll('button')].find(b => b.textContent.trim().startsWith('Добавить 1'))
+    assert.ok(add)
+    assert.equal(add.disabled, false)
+    add.click(); await flush()
+    assert.deepEqual(calls[0][0].map(s => s.points), [['p1']])
+    assert.equal(calls[0][1], 'new')
+    assert.equal(row.getAttribute('aria-checked'), 'false')
+
+    const key = new window.Event('keydown', { bubbles: true }); key.key = ' '
+    row.dispatchEvent(key); await flush()
+    assert.equal(row.getAttribute('aria-checked'), 'true')
+    view.props.taskDone = true; await flush()
+    row.click(); await flush()
+    assert.equal(row.getAttribute('aria-checked'), 'true', 'a closed task cannot change the selection')
+    assert.equal(row.getAttribute('aria-disabled'), 'true')
+  } finally { view.unmount() }
+})
+
+test('a pinned workspace uses the creation branch picker and sends its selected base branch', async () => {
+  const { ExecutionBranch } = await compiled
+  const requests = []
+  const task = { id: 'task', project_id: 'project', status: 'draft', branch_name: 'feature/original' }
+  const workspace = { id: 'workspace', project_id: 'project', task_id: 'task', status: 'ready', branch: task.branch_name }
+  const updated = { task: { ...task, branch_name: 'feature/new' }, workspace: { ...workspace, branch: 'feature/new' } }
+  global.fetch = async (url, options) => {
+    requests.push({ url, method: options.method, body: options.body && JSON.parse(options.body) })
+    return { ok: true, status: 200, json: async () => url.includes('/switch-branch') ? updated
+      : url.includes('/git/settings') ? { branch_prefixes: [], base_branch: 'main' }
+      : url.includes('/git/repository') ? { branch: workspace.branch }
+      : url.includes('/git/branches') ? [{ name: workspace.branch, remote: false }, { name: 'feature/base', remote: false }]
+      : [] }
+  }
+  const view = mount(ExecutionBranch, { task, workspace, configurable: false,
+    modelValue: { place: 'new', branch_name: '', base_branch: '', branch: '' }, lockedReason: '' })
+  try {
+    await flush()
+    assert.equal(document.querySelector('.branch-heading > svg'), null, 'there is no icon beside the heading')
+    assert.equal(document.querySelector('.modal'), null, 'branch selection uses the creation popover')
+    assert.equal(button('feature/original').disabled, false)
+    await click('feature/original')
+    assert.ok(requests.some(r => /git\/branches\?workspace=workspace$/.test(r.url)))
+    await click('Создать новую')
+    let input = document.querySelector('input[aria-label="Имя новой ветки"]')
+    input.value = 'feature/new'; input.dispatchEvent(new window.Event('input', { bubbles: true })); await flush()
+    document.querySelector('button[aria-haspopup="dialog"]').click(); await flush()
+    assert.equal(button('feature/original').disabled, false, 'closing without switching restores the confirmed branch')
+    assert.equal(requests.some(r => r.url.includes('/switch-branch')), false)
+    await click('feature/original')
+    await click('Создать новую')
+    input = document.querySelector('input[aria-label="Имя новой ветки"]')
+    assert.equal(input.value, '', 'an abandoned new branch is not retained')
+    input.value = 'feature/new'; input.dispatchEvent(new window.Event('input', { bubbles: true })); await flush()
+    const base = document.querySelector('input[aria-label="Базовая ветка"]')
+    base.dispatchEvent(new window.Event('focus')); await flush()
+    ;[...document.querySelectorAll('[role="option"]')].find(o => o.textContent === 'feature/base').click(); await flush()
+    await click('Переключить')
+    const request = requests.find(r => r.url.includes('/switch-branch'))
+    assert.match(request.url, /projects\/project\/tasks\/task\/switch-branch$/)
+    assert.deepEqual(request.body, { branch: 'feature/new', create: true, base: 'feature/base' })
+    assert.deepEqual(view.events, [['changed', updated.task]])
+    assert.equal(button('feature/new').disabled, false, 'a successful switch displays the confirmed branch')
+    view.props.lockedReason = 'Остановите очередь'; await flush()
+    assert.equal(document.querySelector('button[aria-haspopup="dialog"]').disabled, true)
+  } finally { view.unmount(); delete global.fetch }
+})
+
+test('a rejected branch change keeps the creation popover and chosen branch for retry', async () => {
+  const { ChangeWorkBranch } = await compiled
+  const task = { id: 'task', project_id: 'project', status: 'draft' }
+  const workspace = { id: 'workspace', branch: 'feature/original' }
+  const requests = []; let reject = true
+  const updated = { task: { ...task, branch_name: 'feature/next' }, workspace: { ...workspace, branch: 'feature/next' } }
+  global.fetch = async (url, options) => {
+    const post = url.includes('/switch-branch')
+    if (post) requests.push(JSON.parse(options.body))
+    return { ok: !post || !reject, status: post && reject ? 409 : 200, json: async () => post
+      ? reject ? { error: 'Сохраните изменения' } : updated
+      : url.includes('/git/settings') ? { branch_prefixes: [], base_branch: 'main' }
+      : url.includes('/git/repository') ? { branch: workspace.branch }
+      : url.includes('/git/branches') ? [{ name: 'feature/next', remote: false }, { name: 'feature/busy', remote: false }]
+      : [] }
+  }
+  const view = mount(ChangeWorkBranch, { task, workspace, taken: { 'feature/busy': 'other' }, lockedReason: '' })
+  try {
+    await flush()
+    await click('feature/original')
+    const input = document.querySelector('input[role="combobox"]')
+    input.dispatchEvent(new window.Event('focus')); await flush()
+    const options = [...document.querySelectorAll('[role="option"]')]
+    assert.equal(options.find(o => o.textContent.includes('feature/busy')).disabled, true)
+    options.find(o => o.textContent === 'feature/next').click(); await flush()
+    await click('Переключить')
+    assert.match(document.querySelector('[role="alert"]').textContent, /Сохраните изменения/)
+    assert.deepEqual(view.events, [])
+    assert.deepEqual(requests, [{ branch: 'feature/next', create: false }])
+    document.querySelector('button[aria-haspopup="dialog"]').click(); await flush()
+    assert.equal(button('feature/original').disabled, false, 'closing after a rejected switch restores the current branch')
+    await click('feature/original')
+    const restored = document.querySelector('input[role="combobox"]')
+    assert.equal(restored.value, 'feature/original', 'the unconfirmed selection was discarded')
+    restored.dispatchEvent(new window.Event('focus')); await flush()
+    ;[...document.querySelectorAll('[role="option"]')].find(o => o.textContent === 'feature/next').click(); await flush()
+    view.props.lockedReason = 'Остановите очередь'; await flush()
+    assert.equal(button('Переключить').disabled, true)
+    view.props.lockedReason = ''; reject = false; await flush()
+    await click('Переключить')
+    assert.deepEqual(view.events, [['changed', updated]])
+    assert.equal(document.querySelector('[role="dialog"]'), null)
+  } finally { view.unmount(); delete global.fetch }
 })

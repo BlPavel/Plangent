@@ -34,7 +34,9 @@ export const useReviewAgentStore = defineStore('code-review-agent', () => {
    * Проверка of a work: by default the work's own chat (its executor, with all the context) takes the
    * remarks; «Другой агент» sets up a separate fixer in the work's folder.
    */
-  const work = ref<{ projectId: string; taskId: string; workspaceId?: string } | null>(null)
+  const work = ref<{ projectId: string; taskId: string; workspaceId?: string; kind?: 'task' | 'errand' } | null>(null)
+  /** A task has its own follow-up agent: created by the first «Отправить» from the executor's agent, changed with `replaceFixer`. */
+  const ownFixer = computed(() => work.value?.kind === 'task')
   /**
    * Who takes the next «Отправить» in a work, chosen with «изменить» (nothing starts until then):
    * the work's own chat, or a new session — always a fresh one, even with the very agent and model of the executor.
@@ -42,11 +44,12 @@ export const useReviewAgentStore = defineStore('code-review-agent', () => {
   const planned = ref<{ kind: 'work' } | { kind: 'new'; request: NewChatRequest } | null>(null)
   watch(() => [work.value?.taskId, code.review?.id], () => { planned.value = null })
   /** The work's own chat (errand or task chat), the default taker of a work's remarks. */
-  const workChat = computed(() => work.value ? [...chats.sessions].reverse().find(s => s.task_id === work.value!.taskId && ['errand', 'task-chat'].includes(s.role)) ?? null : null)
+  const workChat = computed(() => work.value ? chats.sessions.find(s => s.task_id === work.value!.taskId && ['errand', 'task-chat'].includes(s.role)) ?? null : null) // the list is newest first
 
   /** The session of the latest round that still exists, or the one being started. */
   const sessionId = computed(() => {
     if (starting.value) return starting.value
+    if (ownFixer.value && workChat.value) return workChat.value.id
     const rounds = [...code.rounds].reverse()
     return rounds.find(r => r.session_id && chats.sessions.some(s => s.id === r.session_id && FIXERS.includes(s.role)))?.session_id ?? null
   })
@@ -96,7 +99,7 @@ export const useReviewAgentStore = defineStore('code-review-agent', () => {
     if (choice?.kind === 'new' && work.value) { await start(work.value.projectId, choice.request, '', ids); if (!error.value) planned.value = null; return }
     sending.value = true
     try {
-      let id = choice?.kind === 'work' ? workChat.value?.id ?? null : sessionId.value
+      let id = ownFixer.value || choice?.kind === 'work' ? workChat.value?.id ?? null : sessionId.value
       if (!id && work.value) {
         const chat = await tasksEndpoints.postProjectsByProjectIdTasksByTaskIdChat({ params: { projectId: work.value.projectId, taskId: work.value.taskId }, body: {} })
         chats.put(chat); id = chat.id
@@ -107,6 +110,20 @@ export const useReviewAgentStore = defineStore('code-review-agent', () => {
       planned.value = null
     }
     catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause) }
+    finally { sending.value = false }
+  }
+
+  /** A task's follow-up agent is replaced by a new one (its context ran out, or another agent suits better); the old chat stays as a journal. */
+  async function replaceFixer(pick: { agent_id: string; model?: string; effort?: string }) {
+    if (!work.value) return false
+    error.value = ''
+    sending.value = true
+    try {
+      const chat = await tasksEndpoints.postProjectsByProjectIdTasksByTaskIdChat({ params: { projectId: work.value.projectId, taskId: work.value.taskId },
+        body: { replace: true, agent_id: pick.agent_id, model: pick.model || undefined, reasoning_effort: pick.effort || undefined } })
+      chats.put(chat)
+      return true
+    } catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause); return false }
     finally { sending.value = false }
   }
 
@@ -158,5 +175,5 @@ export const useReviewAgentStore = defineStore('code-review-agent', () => {
     finally { stopping.value = false }
   }
 
-  return { work, planned, workChat, setup, sending, awaiting, stopping, error, sessionId, session, busy, permissions, focusItem, send, start, answerPermission, stop }
+  return { work, ownFixer, replaceFixer, planned, workChat, setup, sending, awaiting, stopping, error, sessionId, session, busy, permissions, focusItem, send, start, answerPermission, stop }
 })

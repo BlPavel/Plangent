@@ -4,11 +4,12 @@
     <!-- The review's agent: who it is, what it does now, its full log on demand. -->
     <div v-if="agent.session || agent.work || agent.sending" class="rp-agent">
       <!-- A work: who takes the next «Отправить» (the work's agent by default); «изменить» only picks, «Отправить» starts. -->
-      <template v-if="agent.work && !handing && (agent.planned || !agent.session || agent.session.id === agent.workChat?.id)">
+      <template v-if="agent.work && !handing && (agent.ownFixer || agent.planned || !agent.session || agent.session.id === agent.workChat?.id)">
         <span class="rp-dot" :class="agent.planned?.kind === 'new' ? 'planned' : agent.workChat?.status" />
-        <span class="rp-agent-name">{{ agent.planned?.kind === 'new' ? 'Новый агент' : 'Агент работы' }}</span>
+        <span class="rp-agent-name">{{ agent.planned?.kind === 'new' ? 'Новый агент' : 'Исправляет замечания' }}</span>
         <span class="rp-agent-status" :title="takerHint">{{ takerName }}</span>
-        <AppButton v-if="!readOnly" variant="link" size="xs" :disabled="agent.busy || agent.sending" :title="agent.busy ? 'Агент работает: дождитесь конца хода' : 'Кому уйдут замечания: агенту работы или новому агенту'" @click="openSetup">изменить</AppButton>
+        <AppButton v-if="agent.ownFixer && !readOnly" variant="link" size="xs" :disabled="agent.busy || agent.sending || !agent.workChat" :title="!agent.workChat ? 'Агент появится при первой отправке замечаний' : agent.busy ? 'Агент работает: дождитесь конца хода' : 'Начать с новым агентом, например когда у этого кончается контекст'" @click="openSetup">сменить агента</AppButton>
+        <AppButton v-else-if="!readOnly" variant="link" size="xs" :disabled="agent.busy || agent.sending" :title="agent.busy ? 'Агент работает: дождитесь конца хода' : 'Кому уйдут замечания: агенту работы или новому агенту'" @click="openSetup">изменить</AppButton>
         <span class="rp-spacer" />
         <AppButton v-if="agent.session" size="xs" variant="ghost" :title="journal ? 'Вернуться к замечаниям' : 'Полный лог агента: рассуждения, команды, настройки модели'" @click="reviewerJournal = ''; journal = !journal">{{ journal ? '← Замечания' : 'Журнал' }}</AppButton>
       </template>
@@ -48,13 +49,14 @@
     <template v-else>
       <!-- «изменить» next to the agent: who takes the waiting items instead, set up like in the settings. -->
       <!-- A work: pick who takes the remarks; a new agent is a fresh session even with the executor's very agent and model. -->
-      <section v-if="choosing" class="rp-setup" aria-label="Кому отправлять замечания">
-        <AppSegmented v-model="choice" :options="[{ value: 'work', label: 'Агент работы' }, { value: 'new', label: 'Новый агент' }]" label="Кому отправлять замечания" />
-        <p class="rp-muted rp-note">{{ choice === 'work' ? 'Тот же чат, что делал работу: знает весь контекст, но его контекст растёт.' : 'Новая сессия с чистым контекстом в папке этой работы. Можно выбрать ту же модель, что у исполнителя.' }}</p>
+      <section v-if="choosing" class="rp-setup" :aria-label="agent.ownFixer ? 'Сменить агента исправлений' : 'Кому отправлять замечания'">
+        <AppSegmented v-if="!agent.ownFixer" v-model="choice" :options="[{ value: 'work', label: 'Агент работы' }, { value: 'new', label: 'Новый агент' }]" label="Кому отправлять замечания" />
+        <p class="rp-muted rp-note">{{ agent.ownFixer ? 'Новый агент начнёт с чистого контекста: задачу, план и отчёты он прочитает сам, а что сделано по замечаниям, видно в ревью. Прежний чат останется в журнале.' : choice === 'work' ? 'Тот же чат, что делал работу: знает весь контекст, но его контекст растёт.' : 'Новая сессия с чистым контекстом в папке этой работы. Можно выбрать ту же модель, что у исполнителя.' }}</p>
         <ReviewAgentBar v-if="choice === 'new'" expanded :project-id="projectId" :fallback-agent-id="workAgentId" @change="pick = $event" />
+        <p v-if="agent.ownFixer && agent.error" class="rp-error">{{ agent.error }}</p>
         <div class="rp-setup-foot">
-          <AppButton variant="ghost" size="sm" @click="choosing = false">Отмена</AppButton>
-          <AppButton variant="blue" size="sm" :disabled="choice === 'new' && !pick" title="Агент запустится по «Отправить»" @click="applyChoice">Готово</AppButton>
+          <AppButton variant="ghost" size="sm" :disabled="agent.sending" @click="choosing = false">Отмена</AppButton>
+          <AppButton variant="blue" size="sm" :disabled="(choice === 'new' && !pick) || agent.sending" :title="agent.ownFixer ? 'Замечания уйдут новому агенту по «Отправить»' : 'Агент запустится по «Отправить»'" @click="applyChoice">{{ agent.ownFixer ? (agent.sending ? 'Запуск…' : 'Сменить') : 'Готово' }}</AppButton>
         </div>
       </section>
       <section v-else-if="agent.setup" class="rp-setup" aria-label="Другой агент">
@@ -190,15 +192,22 @@ const workAgentId = computed(() => agent.workChat?.agent_id ?? props.defaultAgen
 const takerName = computed(() => {
   const planned = agent.planned
   if (planned?.kind === 'new') return [nameOf(planned.request.agent_id), planned.request.model].filter(Boolean).join(' · ')
-  return nameOf(workAgentId.value)
+  // A task's agent does not exist until the first «Отправить»: it is made from the executor's agent.
+  return nameOf(workAgentId.value) + (agent.ownFixer && !agent.workChat ? ' · появится при первой отправке' : '')
 })
-const takerHint = computed(() => agent.planned?.kind === 'new' ? 'Запустится новой сессией по «Отправить»' : 'Чат, в котором агент делал работу: знает весь контекст')
+const takerHint = computed(() => agent.planned?.kind === 'new' ? 'Запустится новой сессией по «Отправить»'
+  : agent.ownFixer ? 'Отдельный агент задачи: берёт замечания по порядку, контекст читает сам. Его можно сменить, если у него кончается контекст'
+    : 'Чат, в котором агент делал работу: знает весь контекст')
 function openSetup() {
-  choice.value = agent.planned?.kind ?? (agent.session && agent.session.id !== agent.workChat?.id ? 'new' : 'work')
+  choice.value = agent.ownFixer ? 'new' : agent.planned?.kind ?? (agent.session && agent.session.id !== agent.workChat?.id ? 'new' : 'work')
   pick.value = null
   choosing.value = true
 }
-function applyChoice() {
+async function applyChoice() {
+  if (agent.ownFixer) {
+    if (pick.value && await agent.replaceFixer({ agent_id: pick.value.agent_id, model: pick.value.model, effort: pick.value.effort })) choosing.value = false
+    return
+  }
   if (choice.value === 'new') {
     if (!pick.value) return
     agent.planned = { kind: 'new', request: { agent_id: pick.value.agent_id, policy: permissionPolicy(pick.value.policy), model: pick.value.model, mode: pick.value.mode, config: pick.value.config, content: [] } }

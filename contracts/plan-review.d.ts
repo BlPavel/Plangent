@@ -61,6 +61,11 @@ export interface LaunchPlanReview {
     reasoning_effort?: string;
     skill_id?: string;
     wish?: string;
+    /** Text files attached to the wish; the reviewer reads them from the brief. */
+    attachments?: {
+        name: string;
+        content: string;
+    }[];
 }
 // HTTP endpoint map: full mounted paths, including the /api prefix.
 import type * as C from "./index";
@@ -219,6 +224,17 @@ export type PlanReviewPOSTIdSendBody = {
     model?: string;
     reasoning_effort?: string;
 };
+/** Chats that can receive the accepted cards: planners for a plan, authors of the document for a material. */
+export type PlanReviewGETRecipientsResponse = {
+    "sessions": {
+        "id": string;
+        "title": string;
+        "busy": boolean;
+        "resumable": boolean;
+        "available": boolean;
+    }[];
+    "default_session_id": null | string;
+};
 export interface PlanReviewEndpoints {
     "GET /api/projects/:projectId/tasks/:taskId/plan-reviews": Endpoint<"GET /api/projects/:projectId/tasks/:taskId/plan-reviews", never, PlanReviewGETResponse, {
         "target"?: string;
@@ -227,6 +243,9 @@ export interface PlanReviewEndpoints {
         "target"?: string;
     }, "json", never>;
     "GET /api/projects/:projectId/tasks/:taskId/plan-reviews/skills": Endpoint<"GET /api/projects/:projectId/tasks/:taskId/plan-reviews/skills", never, PlanReviewGETSkillsResponse, {
+        "target"?: string;
+    }, "json", never>;
+    "GET /api/projects/:projectId/tasks/:taskId/plan-reviews/recipients": Endpoint<"GET /api/projects/:projectId/tasks/:taskId/plan-reviews/recipients", never, PlanReviewGETRecipientsResponse, {
         "target"?: string;
     }, "json", never>;
     "GET /api/projects/:projectId/tasks/:taskId/plan-reviews/:id": Endpoint<"GET /api/projects/:projectId/tasks/:taskId/plan-reviews/:id", never, PlanReviewPOSTResponse, {

@@ -1,4 +1,4 @@
-import type { Task, WorkGroup, WorkState } from '@contracts'
+import type { PreparationStage, StageSummary, Task, WorkGroup, WorkState } from '@contracts'
 
 export const workGroups: { id: WorkGroup; title: string }[] = [
   { id: 'attention', title: 'Нужно ваше действие' },
@@ -14,13 +14,24 @@ export function workStagesOf(task: Pick<Task, 'kind'>): { tab: string; label: st
     ? [{ tab: 'chat', label: 'Выполнение' }, ...tail]
     : [{ tab: 'analysis', label: 'Анализ' }, { tab: 'architecture', label: 'Архитектура' }, { tab: 'qa', label: 'QA' }, { tab: 'plan', label: 'План' }, { tab: 'exec', label: 'Выполнение' }, ...tail]
 }
-/** Position of the current work stage; preparation completion comes from explicit server marks. */
-export function workStageIndex(task: Pick<Task, 'kind'>, state: WorkState | null, hasPlan = !!state?.counts.steps): number {
+/**
+ * Position of the current work stage. During preparation it is the latest stage the developer worked on:
+ * a marked one (ready or skipped) leads to the next. Анализ, Архитектура and QA are optional, so the stages
+ * before it count as passed. Without the preparation summary (the work list) a plan means the План stage.
+ */
+export function workStageIndex(task: Pick<Task, 'kind'>, state: WorkState | null, hasPlan = !!state?.counts.steps, stages: StageSummary[] = []): number {
   const stage = state?.stage ?? 'plan', offset = task.kind === 'errand' ? 0 : 4
   if (stage === 'done') return workStagesOf(task).length
   if (stage === 'execution') return offset
   if (stage === 'check') return offset + 1
-  return hasPlan ? 3 : 0
+  if (!stages.length) return hasPlan ? 3 : 0
+  const order: PreparationStage[] = ['analysis', 'architecture', 'qa', 'plan']
+  const latest = order.findLastIndex(id => (id === 'plan' && hasPlan) || (stages.find(s => s.stage === id)?.status ?? 'not_started') !== 'not_started')
+  if (latest < 0) return 0
+  const marked = ['ready', 'skipped'].includes(stages.find(s => s.stage === order[latest])?.status ?? 'not_started')
+  // An earlier approval cannot advance an erased plan into execution.
+  if (order[latest] === 'plan' && !hasPlan) return latest
+  return marked ? latest + 1 : latest
 }
 
 /** Tone of the status icon in a list row; the text itself comes from the server. */

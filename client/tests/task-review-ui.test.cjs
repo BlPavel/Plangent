@@ -91,7 +91,7 @@ test('review queue UI adds, groups, configures and opens results; Code labels an
     review = queue.stages.value[0].sessions[1]; assert.equal(review.skillId, 'skill');
     review.status = 'complete'; review.remarks = 3; review.reviewId = 'review'; await flush();
     assert.match(root.textContent, /Ревью: 3 замечания/);
-    button('Открыть в «Коде»').click(); await flush(); assert.equal(routes[0].project, 'project'); assert.equal(routes[0].task.id, 'task');
+    button('Открыть проверку').click(); await flush(); assert.deepEqual(routes[0], { path: '/task/task', query: { tab: 'check' } });
     assert.ok(calls.some(c => c.body?.stages?.[0]?.sessions?.some(s => s.skillId === 'skill')));
   } finally { app.unmount(); root.remove(); }
   const Card = await component('client/src/features/code/components/ItemCard.vue');

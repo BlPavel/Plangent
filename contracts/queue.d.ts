@@ -1,4 +1,4 @@
-import type { Agent } from './index';
+import type { Agent, ErrandReviewAgent } from './index';
 export type OrchestratorSessionStatus = 'queued' | 'reviewing' | 'ready_for_execution' | 'running' | 'waiting_for_developer' | 'complete' | 'failed' | 'stopped';
 export type QueueSessionMode = 'execute' | 'review_first';
 export type ExecutionPolicy = 'allow-all' | 'allow-edits' | 'ask';
@@ -93,6 +93,7 @@ export type QueueStartBody = {
     branch?: string;
     place?: 'new' | 'existing' | 'main';
     auto_review?: boolean;
+    review_agent?: ErrandReviewAgent;
 };
 export interface QueueEndpoints {
     "GET /api/queues/blocked": Endpoint<"GET /api/queues/blocked", never, OrchestratorGETBlockedResponse, Record<string, never>, "json", never>;

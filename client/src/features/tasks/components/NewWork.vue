@@ -19,21 +19,17 @@
             <span v-if="optionsState === 'loading'" class="nw-note">Загружаю модели агента…</span>
             <span v-else-if="optionsState" class="nw-note" :title="optionsState">Нет настроек агента · <AppButton variant="link" size="xs" @click="retry">повторить</AppButton></span>
           </AgentSettingsBar>
-          <div class="nw-send">
-            <WhereToWork ref="where" v-model="place" :project-id="project.id" :ordinary="!isGroup" :taken="taken" />
-            <AppSwitch v-model="review" :title="review ? 'После выполнения агент-ревьюер проверит изменения' : 'Без автоматического ревью агентом'">Ревью</AppSwitch>
-            <AppButton type="submit" variant="blue" size="sm" :disabled="!canSubmit">{{ busy ? 'Создаю…' : '⚡ Поручить' }}</AppButton>
-          </div>
         </template>
-        <template v-else>
-          <FormField v-if="isGroup && members.length" v-model="owner" type="select" class="nw-owner" aria-label="Где">
-            <option value="">🗂️ Вся группа</option>
-            <option v-for="m in members" :key="m.id" :value="m.id">📁 {{ m.name }}</option>
-          </FormField>
-          <div class="nw-send">
-            <AppButton type="submit" variant="blue" size="sm" :disabled="!canSubmit">{{ busy ? 'Создаю…' : 'Создать и начать анализ →' }}</AppButton>
-          </div>
-        </template>
+        <FormField v-else-if="isGroup && members.length" v-model="owner" type="select" class="nw-owner" aria-label="Где">
+          <option value="">🗂️ Вся группа</option>
+          <option v-for="m in members" :key="m.id" :value="m.id">📁 {{ m.name }}</option>
+        </FormField>
+        <!-- The branch is chosen the same way for an errand and a task with a plan; a task chooses its review when the execution starts. -->
+        <div class="nw-send">
+          <WhereToWork ref="where" v-model="place" :project-id="project.id" :ordinary="!isGroup" :taken="taken" />
+          <AppSwitch v-if="kind === 'errand'" v-model="review" :title="review ? 'После выполнения агент-ревьюер проверит изменения' : 'Без автоматического ревью агентом'">Ревью</AppSwitch>
+          <AppButton type="submit" variant="blue" size="sm" :disabled="!canSubmit">{{ busy ? 'Создаю…' : kind === 'errand' ? '⚡ Поручить' : 'Создать задачу' }}</AppButton>
+        </div>
       </div>
       <div v-if="kind === 'errand' && review && !isGroup" class="nw-review">
         <ReviewAgentBar label="Агент ревью" read-only :project-id="project.id" :fallback-agent-id="defaultAgentId" @change="reviewPick = $event" />
@@ -45,7 +41,6 @@
 <script setup lang="ts">
 import AppInput from '@shared/ui/AppInput.vue'
 import { AppSegmented, AppSwitch } from '@shared/ui'
-import { tasksEndpoints } from '../api'
 
 import { useDraft } from '@core/composables/useDraft'
 import { computed, ref, watch } from 'vue'
@@ -89,26 +84,28 @@ watch(() => props.project.id, async id => {
 }, { immediate: true })
 
 const placeReady = computed(() => isGroup.value || !where.value?.invalid)
-const canSubmit = computed(() => !busy.value && !!(number.value.trim() || title.value.trim()) && (kind.value === 'task' || (!!agentId.value && placeReady.value)))
+const canSubmit = computed(() => !busy.value && !!(number.value.trim() || title.value.trim()) && placeReady.value && (kind.value === 'task' || !!agentId.value))
 
 async function submit() {
   if (!canSubmit.value) {
-    if (kind.value === 'errand' && !placeReady.value) where.value?.openPicker()
+    if (!placeReady.value) where.value?.openPicker()
     else if (!number.value.trim() && !title.value.trim()) error.value = 'Укажите номер задачи или описание'
     return
   }
   busy.value = true; error.value = ''
   try {
+    const p = place.value
+    const common = {
+      title: title.value.trim(), external_key: number.value.trim(),
+      ...(isGroup.value ? {} : p.place === 'new' ? { place: 'new' as const, branch_name: p.branch_name, base_branch: p.base_branch } : { place: 'existing' as const, branch: p.branch, base_branch: p.base_branch }),
+    }
     if (kind.value === 'errand') {
-      const p = place.value
-      const { task } = await workApi.errand(props.project.id, {
-        title: title.value.trim(), external_key: number.value.trim(), agent_id: agentId.value, policy: policy.value, ...launch(), auto_review: review.value,
+      const { task } = await workApi.errand(props.project.id, { ...common, auto_review: review.value,
         ...(review.value && reviewPick.value ? { review_agent: { agent_id: reviewPick.value.agent_id, model: reviewPick.value.model, effort: reviewPick.value.effort } } : {}),
-        ...(isGroup.value ? {} : p.place === 'new' ? { place: 'new', branch_name: p.branch_name, base_branch: p.base_branch } : { place: 'existing', branch: p.branch, base_branch: p.base_branch }),
-      })
+        agent_id: agentId.value, policy: policy.value, ...launch() })
       emit('created', task, 'chat')
     } else {
-      const task = await tasksEndpoints.postProjectsByProjectIdTasks({ params: { projectId: owner.value || props.project.id }, body: { title: title.value.trim() || undefined, external_key: number.value.trim() || undefined } })
+      const { task } = await workApi.planTask(owner.value || props.project.id, common)
       emit('created', task, 'analysis')
     }
     number.value = ''; title.value = ''

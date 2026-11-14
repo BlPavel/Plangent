@@ -2,7 +2,8 @@ import type { ErrorResponse } from '../typed-route';
 ﻿import { typedRoutes } from '../typed-route';
 import { Router, Request, Response } from 'express';
 import { prepareWork, withWorkStart } from '../../../core/work/start';
-import { randomUUID } from 'node:crypto';
+import { ensureWorkspaceSetup } from '../../../core/workspaces';
+import { readReviewAgent } from '../../../core/work/place';
 import { listSessions, updateSession } from '../../../core/agents';
 import { closeSession } from '../../../core/agents';
 import { getTask, updateTask } from '../../../core/tasks';
@@ -62,14 +63,14 @@ orchestratorRouterRoutes.json('POST /api/projects/:projectId/tasks/:taskId/queue
   try {
     await withWorkStart(queue.taskId, async () => {
       const options = req.body ?? {};
-      if (options.auto_review !== undefined && typeof options.auto_review !== 'boolean') throw new Error('Invalid auto_review');
       for (const field of (['base_branch', 'branch_name', 'branch', 'place'] as const)) if (options[field] !== undefined && typeof options[field] !== 'string') throw new Error('Invalid ' + field);
       await prepareWork(queue.taskId, { ...options, place: options.place === 'main' ? undefined : options.place });
-      if (options.auto_review !== undefined) updateTask(queue.taskId, { auto_review: options.auto_review });
-      const task = getTask(queue.taskId)!;
-      if (task.auto_review && !queue.stages.some(stage => stage.sessions.some(s => s.kind === 'review' && s.status !== 'complete'))) {
-        const agentId = queue.stages.flatMap(stage => stage.sessions).at(-1)!.agentId;
-        queue.stages.push({ id: randomUUID(), pauseAfter: false, sessions: [{ id: randomUUID(), kind: 'review', agentId, queueMode: 'execute', permissionPolicy: 'ask', status: 'queued' }] });
+      // Dependencies and the setup command are prepared only now, in the background: the first step starts at once and its commands wait.
+      void ensureWorkspaceSetup(queue.taskId).catch(() => {});
+      // The automatic review is chosen here; it starts once after the queue finishes (core/work/plan-tasks).
+      if (options.auto_review !== undefined) {
+        if (typeof options.auto_review !== 'boolean') throw new Error('Invalid auto_review');
+        updateTask(queue.taskId, { auto_review: options.auto_review, ...(options.review_agent !== undefined ? { review_agent: readReviewAgent(options.review_agent) ?? null } : {}) });
       }
       const orch = new Orchestrator(queue);
       try { await orch.start(); } catch (error) { await orch.fail(String(error)); throw error; }

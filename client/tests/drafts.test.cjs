@@ -75,7 +75,7 @@ test('ItemComposer restores input and attachments, isolates locations, clears on
 test('plan editor retains its source version across remounts; taking latest and cancel work',async()=>{
   const { PlanPanel, useDocumentDraft }=await compiled
   const source=reactive({text:'Original plan',version:1}); const key=reactive({id:'a'})
-  const Editor={setup(){const d=useDocumentDraft(()=>`task:${key.id}:plan-edit`,()=>source);d.start();return()=>h(PlanPanel,{projectId:'p',taskId:key.id,plan:null,readonly:false,planningOpen:false,editingPlan:d.active.value,planContent:d.text.value,staleDraft:d.stale.value,checkboxLinePreviews:[],planningLive:false,selectedPlanningChat:null,planningLaunching:false,planningError:'',planningChats:[],initials:{},doneCount:0,progressPct:0,queueFrozen:false,'onUpdate:planContent':v=>{d.text.value=v},onReloadDraft:d.reload,onCancelEdit:d.cancel})}}
+  const Editor={setup(){const d=useDocumentDraft(()=>`task:${key.id}:plan-edit`,()=>source);d.start();return()=>h(PlanPanel,{projectId:'p',taskId:key.id,plan:null,readonly:false,planningOpen:false,editingPlan:d.active.value,planContent:d.text.value,staleDraft:d.stale.value,planningLive:false,selectedPlanningChat:null,planningLaunching:false,planningError:'',planningChats:[],initials:{},doneCount:0,progressPct:0,queueFrozen:false,'onUpdate:planContent':v=>{d.text.value=v},onReloadDraft:d.reload,onCancelEdit:d.cancel})}}
   let view=await mount(Editor,{})
   try{
     await type(view.el.querySelector('textarea'),'My manual edit');const pinia=view.pinia;view.close(); source.text='Updated by agent';source.version=2;view=await mount(Editor,{},pinia)
@@ -117,5 +117,26 @@ test('material and analysis editors restore edits and detect updates made while 
       await click(button(view.el,'Взять актуальный'));assert.equal(view.el.querySelector('textarea').value,'Agent update')
       await click(button(view.el,'Отмена'));view.close();view=await mount(Component,props,pinia);assert.equal(view.el.querySelector('textarea'),null)
     }finally{view.close()}
+  }
+})
+
+
+test('new preparation chats offer interview before a session exists and send the original command', async () => {
+  const { NewChatPanel } = await compiled
+  for (const interview of [true, false]) {
+    const sent = []
+    const view = await mount(NewChatPanel, { projectId: 'p', draftKey: 'new:interview:' + interview, title: 'Plan', text: 'Start', interview, onStart: request => sent.push(request) })
+    try {
+      const input = view.el.querySelector('textarea')
+      input.setSelectionRange = (start, end) => { input.selectionStart = start; input.selectionEnd = end }
+      input.setSelectionRange(6, 6)
+      await type(input, '/inter')
+      const tab = new window.Event('keydown', { bubbles: true, cancelable: true }); tab.key = 'Tab'
+      input.dispatchEvent(tab); await nextTick(); await nextTick()
+      assert.equal(input.value, interview ? '/interview ' : '/inter')
+      view.el.querySelector('form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }))
+      await nextTick()
+      assert.deepEqual(sent[0].content, [{ type: 'text', text: interview ? '/interview' : '/inter' }])
+    } finally { view.close() }
   }
 })

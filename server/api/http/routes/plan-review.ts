@@ -30,6 +30,10 @@ planReviewRouterRoutes.json('GET /api/projects/:projectId/tasks/:taskId/plan-rev
   const target = targetOf(req);
   res.json(target === 'plan' ? planReviewSkills(req.params.projectId) : materialReviewSkills(target, req.params.projectId));
  } catch (routeError) { return handleRouteError(routeError, res); } });
+planReviewRouterRoutes.json('GET /api/projects/:projectId/tasks/:taskId/plan-reviews/recipients', async (req, res) => { try {
+  const { candidates } = await import('../../../core/review/plan/planner-transport');
+  res.json(candidates(req.params.projectId, req.params.taskId, targetOf(req)));
+ } catch (routeError) { return handleRouteError(routeError, res); } });
 planReviewRouterRoutes.json('GET /api/projects/:projectId/tasks/:taskId/plan-reviews/:id', async (req, res) => { try { return res.json(planReviews().detail(req.params.projectId, req.params.taskId, req.params.id)); } catch (routeError) { return handleRouteError(routeError, res); } });
 planReviewRouterRoutes.json('PUT /api/projects/:projectId/tasks/:taskId/plan-reviews/:id/remarks/:rid/decision', async (req, res) => { try { return res.json(planReviews().decision(req.params.projectId, req.params.taskId, req.params.id, req.params.rid, body(req))); } catch (routeError) { return handleRouteError(routeError, res); } });
 // The developer rewrites a card by hand; the reviewer does it through its MCP tool.

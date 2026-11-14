@@ -40,8 +40,8 @@ export function getSession(id: string): AgentSession {
   return parse(row);
 }
 export function listSessions(projectId?: string): AgentSession[] {
-  return (projectId ? getDb().prepare('SELECT * FROM agent_sessions WHERE project_id=? ORDER BY created_at DESC').all(projectId)
-    : getDb().prepare('SELECT * FROM agent_sessions ORDER BY created_at DESC').all()).map(parse);
+  return (projectId ? getDb().prepare('SELECT * FROM agent_sessions WHERE project_id=? ORDER BY created_at DESC, rowid DESC').all(projectId)
+    : getDb().prepare('SELECT * FROM agent_sessions ORDER BY created_at DESC, rowid DESC').all()).map(parse);
 }
 export function createSession(data: Pick<AgentSession, 'project_id' | 'agent_id' | 'role' | 'policy'> & Partial<AgentSession>): AgentSession {
   const id = randomUUID();

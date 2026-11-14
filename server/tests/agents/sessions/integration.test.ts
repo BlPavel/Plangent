@@ -146,7 +146,7 @@ test('stdio ACP lifecycle persists coalesced messages, serializes queue, resolve
       const plannerMcp = sessionMcpConfig(planner, true)[0] as { url: string; headers: { name: string; value: string }[] };
       const plannerHeaders = Object.fromEntries(plannerMcp.headers.map(h => [h.name, h.value]));
       const tools = (await (await call(plannerHeaders, 'tools/list')).json() as { result: { tools: { name: string }[] } }).result.tools.map(t => t.name);
-      assert.deepEqual(tools, ['get_interview_guide', 'get_plan', 'submit_plan', 'get_plan_review_items', 'reply_plan_remark']);
+      assert.deepEqual(tools, ['get_interview_guide', 'get_plan', 'submit_plan', 'get_plan_review_items', 'reply_plan_remark', 'ask_interview_questions']);
       repository.updateSession(planner.id, { status: 'thinking' });
       const empty = await (await call(plannerHeaders, 'tools/call', { name: 'submit_plan', arguments: { content: 'just prose' } })).json() as { result: { isError?: boolean } };
       assert.equal(empty.result.isError, true);

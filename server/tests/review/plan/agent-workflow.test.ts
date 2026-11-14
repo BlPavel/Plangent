@@ -51,7 +51,7 @@ test('reviewer MCP and planner delivery preserve scoped cards, decisions, histor
   };
   try {
     createPlan({ task_id: task.id, content: '- [ ] (p1) First\n- [ ] (p2) Second' });
-    const opened = await launch(project.id, task.id, { agent_id: agent.id, wish: 'Check order' });
+    const opened = await launch(project.id, task.id, { agent_id: agent.id, wish: 'Check order', attachments: [{ name: 'notes.md', content: 'Mind dates' }] });
     const reviewer = opened.session_id;
     await untilReady(reviewer);
     assert.equal(sessions.getSession(reviewer).policy, 'read-only');
@@ -60,7 +60,7 @@ test('reviewer MCP and planner delivery preserve scoped cards, decisions, histor
     sessions.updateSession(reviewer, { status: 'thinking' });
     assert.equal((await call(reviewer, 'submit_plan', { content: 'Forbidden' })).failed, true);
     const brief = JSON.parse((await call(reviewer, 'get_plan_review_brief')).data!);
-    assert.ok(brief.protocol.length); assert.equal(brief.wish, 'Check order'); assert.ok(brief.analysis.groups);
+    assert.ok(brief.protocol.length); assert.equal(brief.wish, 'Check order'); assert.deepEqual(brief.wish_attachments, [{ name: 'notes.md', content: 'Mind dates' }]); assert.ok(brief.analysis.groups);
     assert.equal((await call(reviewer, 'add_plan_remark', { steps: ['p99'], kind: 'order', text: 'Bad' })).failed, true);
     const a = JSON.parse((await call(reviewer, 'add_plan_remark', { steps: ['p1'], kind: 'order', text: 'Fix order' })).data!);
     const b = JSON.parse((await call(reviewer, 'add_plan_remark', { steps: [], kind: 'unclear', text: 'Explain' })).data!);

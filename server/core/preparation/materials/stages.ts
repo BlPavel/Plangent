@@ -42,8 +42,10 @@ export function markPreparationStage(taskId: string, stage: PreparationStage, st
       throw new Error('Save material before marking it ready');
     const write = queries.writeInsertPreparationMarks;
     write(taskId, stage, status, current.material_version);
+    // Approving a stage accepts the earlier unmarked ones: a stage with material becomes ready, an empty one skipped.
     if (status === 'ready') for (const item of summary.slice(0, preparationStages.indexOf(stage))) {
-      if (item.status !== 'ready' && item.status !== 'skipped') write(taskId, item.stage, 'skipped', item.material_version);
+      if (item.status === 'draft') write(taskId, item.stage, 'ready', item.material_version);
+      else if (item.status === 'not_started') write(taskId, item.stage, 'skipped', item.material_version);
     }
   });
   const stages = getPreparationStages(taskId);

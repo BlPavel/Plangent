@@ -12,7 +12,7 @@ export { selectedStepContext } from './analysis-context';
 export { analysisToolContext } from './analysis-context';
 export type { MaterialType } from './materials/index';
 export { MATERIAL_KINDS } from './materials/kinds';
-export { getReadyMaterials } from './materials/stages';
+export { getReadyMaterials, getPreparationStages } from './materials/stages';
 export { onPlanSaved } from './plan-events';
 export type { PlanSaved } from './plan-events';
 export { parseMaterialIdentifiers } from './materials/index';

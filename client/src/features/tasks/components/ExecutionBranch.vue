@@ -1,65 +1,43 @@
 <template>
   <section class="execution-branch" aria-label="Ветка выполнения">
     <header class="branch-heading">
-      <UIIconGitBranch class="branch-icon" />
-      <div class="branch-summary">
-        <h3>Ветка выполнения</h3>
+      <h3>Ветка выполнения</h3>
+      <span class="branch-spacer" />
+      <WhereToWork v-if="configurable" :model-value="modelValue" :project-id="task.project_id" ordinary :taken="taken" @update:model-value="$emit('update:modelValue', $event)" />
+      <ChangeWorkBranch v-else-if="workspace?.status === 'ready' && !task.closed_at && task.status !== 'done'" :task="task" :workspace="workspace" :taken="taken" :locked-reason="lockedReason" @changed="changed" />
+      <template v-else>
         <code :title="branch">{{ branch }}</code>
-      </div>
-      <AppButton v-if="configurable" ref="toggle" size="xs" :aria-expanded="editing" @click="editing = !editing">{{ editing ? 'Свернуть' : 'Изменить ветку' }}</AppButton>
-      <span v-else class="branch-fixed">{{ workspace?.status === 'failed' ? 'Ошибка подготовки' : 'Закреплена за задачей' }}</span>
+        <span class="branch-fixed">{{ workspace?.status === 'failed' ? 'Ошибка подготовки' : 'Закреплена за задачей' }}</span>
+      </template>
     </header>
-    <p v-if="editing" class="branch-caption">{{ caption }}</p>
-    <div v-if="editing && configurable" class="branch-editor">
-      <WhereToWork ref="where" :model-value="modelValue" :project-id="task.project_id" ordinary inline :taken="taken" @update:model-value="$emit('update:modelValue', $event)" />
-      <div class="branch-editor-footer">
-        <span>Выбор применится при запуске очереди.</span>
-        <AppButton size="sm" variant="blue" :disabled="where?.invalid" @click="finish">Готово</AppButton>
-      </div>
-    </div>
   </section>
 </template>
 
 <script setup lang="ts">
-import { IconGitBranch as UIIconGitBranch } from '@shared/ui/icons'
-import { computed, nextTick, ref } from 'vue'
+import { computed } from 'vue'
+import ChangeWorkBranch from './ChangeWorkBranch.vue'
 import type { Task, Workspace } from '@contracts'
-import AppButton from '@shared/ui/AppButton.vue'
 import WhereToWork, { type WorkPlace } from './WhereToWork.vue'
 import { useWorkStore } from '../stores/work'
 
-const props = defineProps<{ task: Task; modelValue: WorkPlace; workspace?: Workspace | null; configurable: boolean }>()
-defineEmits<{ 'update:modelValue': [value: WorkPlace] }>()
-const work = useWorkStore()
-const editing = ref(false)
-const where = ref<InstanceType<typeof WhereToWork>>()
-const toggle = ref<InstanceType<typeof AppButton>>()
-const taken = computed(() => Object.fromEntries(work.entries.filter(e => e.task.project_id === props.task.project_id && e.task.id !== props.task.id && e.workspace && e.workspace.status !== 'removed' && !e.task.closed_at).map(e => [e.workspace!.branch, e.task.title || e.task.key])))
-const branch = computed(() => !props.configurable
-  ? props.workspace?.branch || props.task.branch_name || 'Текущая ветка проекта'
-  : props.modelValue.place === 'existing' ? props.modelValue.branch || 'Выберите существующую ветку' : props.modelValue.branch_name || 'Укажите имя новой ветки')
-const caption = computed(() => !props.configurable
-  ? 'Очередь продолжит работу в этой ветке.'
-  : props.modelValue.place === 'new' ? `Новая ветка от ${props.modelValue.base_branch ? 'origin/' + props.modelValue.base_branch : 'базовой ветки проекта'}. Будет создана при первом запуске.` : 'Существующая ветка. Место работы будет показано при выборе.')
-
-async function finish() {
-  if (where.value?.invalid) return
-  editing.value = false
-  await nextTick()
-  toggle.value?.$el.focus({ preventScroll: true })
+const props = defineProps<{ task: Task; modelValue: WorkPlace; workspace?: Workspace | null; configurable: boolean; lockedReason?: string }>()
+const emit = defineEmits<{ 'update:modelValue': [value: WorkPlace]; changed: [task: Task] }>()
+async function changed(value: { task: Task; workspace: Workspace }) {
+  const entry = work.entries.find(e => e.task.id === value.task.id)
+  if (entry) { entry.task = value.task; entry.workspace = value.workspace }
+  emit('changed', value.task)
+  await work.load()
 }
+const work = useWorkStore()
+const taken = computed(() => Object.fromEntries(work.entries.filter(e => e.task.project_id === props.task.project_id && e.task.id !== props.task.id && e.workspace && e.workspace.status !== 'removed' && !e.task.closed_at).map(e => [e.workspace!.branch, e.task.title || e.task.key])))
+const branch = computed(() => props.workspace?.branch || props.task.branch_name || 'Текущая ветка проекта')
 </script>
 
 <style scoped>
 .execution-branch { margin-bottom: 12px; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg2); }
-.branch-heading { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.branch-icon { width: 14px; height: 14px; flex-shrink: 0; color: var(--text-muted); }
-.branch-summary { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; }
-.branch-summary h3 { flex-shrink: 0; font-size: var(--fs-xs); font-weight: 500; color: var(--text-muted); }
-.branch-summary code { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); color: var(--text); }
-.branch-caption { margin-top: 10px; font-size: var(--fs-sm); line-height: 1.5; color: var(--text-muted); overflow-wrap: anywhere; }
-.branch-fixed { font-size: var(--fs-xs); color: var(--text-muted); }
-.branch-editor { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
-.branch-editor-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; }
-.branch-editor-footer span { font-size: var(--fs-sm); color: var(--text-muted); }
+.branch-heading { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.branch-heading h3 { flex-shrink: 0; font-size: var(--fs-xs); font-weight: 500; color: var(--text-muted); }
+.branch-spacer { flex: 1; }
+.branch-heading code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); color: var(--text); }
+.branch-fixed { flex-shrink: 0; font-size: var(--fs-xs); color: var(--text-muted); }
 </style>

@@ -1,9 +1,9 @@
 <template>
   <div class="review-settings">
-    <label><span>Агент</span><AppSelect block :model-value="session.agentId" :options="agentOptions" size="sm" @update:model-value="patch({ agentId: $event, model: undefined, reasoningEffort: undefined })" /></label>
-    <label v-if="choices.models.length"><span>Модель</span><AppSelect block :model-value="session.model ?? agent?.model ?? ''" :options="choices.models" size="sm" @update:model-value="patch({ model: $event })" /></label>
-    <label v-if="choices.efforts.length"><span>Рассуждения</span><AppSelect block :model-value="session.reasoningEffort ?? agent?.reasoning_effort ?? ''" :options="choices.efforts" size="sm" @update:model-value="patch({ reasoningEffort: $event })" /></label>
-    <label><span>Скилл ревью</span><AppSelect block :model-value="currentSkill" :options="skillOptions" size="sm" @update:model-value="patch({ skillId: $event || undefined })" /></label>
+    <label><span>Агент</span><AppSelect :popup-max-width="220" block :model-value="session.agentId" :options="agentOptions" size="sm" @update:model-value="patch({ agentId: $event, model: undefined, reasoningEffort: undefined })" /></label>
+    <label v-if="choices.models.length"><span>Модель</span><AppSelect :popup-max-width="220" block :model-value="session.model ?? agent?.model ?? ''" :options="choices.models" size="sm" @update:model-value="patch({ model: $event })" /></label>
+    <label v-if="choices.efforts.length"><span>Рассуждения</span><AppSelect :popup-max-width="220" block :model-value="session.reasoningEffort ?? agent?.reasoning_effort ?? ''" :options="choices.efforts" size="sm" @update:model-value="patch({ reasoningEffort: $event })" /></label>
+    <label><span>Скилл ревью</span><AppSelect :popup-max-width="220" block :model-value="currentSkill" :options="skillOptions" size="sm" @update:model-value="patch({ skillId: $event || undefined })" /></label>
   </div>
 </template>
 

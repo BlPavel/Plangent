@@ -5,7 +5,8 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import type { McpServer } from '@agentclientprotocol/sdk';
-import { getSession, addEvent } from '../../core/agents';
+import { getSession, addEvent, history } from '../../core/agents';
+import { interviewBlocksTool } from '../../core/library';
 import { getProject } from '../../core/projects';
 import type { AgentSession } from '../../core/agents';
 import { getFinish } from '../../core/git/finish';
@@ -47,6 +48,8 @@ export async function callTool(id: string, name: string, args: Record<string, un
     if (field === 'line' ? !Number.isInteger(args[field]) || Number(args[field]) < 1 : typeof args[field] !== 'string' || !String(args[field]).trim()) throw new Error(`Invalid ${field}`);
   }
   try {
+    const blocked = interviewBlocksTool(session, name, () => history(id));
+    if (blocked) throw new Error(blocked);
     const result = await tool.handle(session, args, (event, payload) => addEvent(id, event, payload));
     return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
   } catch (error) {

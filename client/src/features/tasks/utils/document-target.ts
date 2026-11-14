@@ -1,7 +1,8 @@
 import type { AnalysisSection, Material, MaterialType } from '@contracts'
 
-/** Match the server's identifier lines, excluding examples in fenced code. */
-function hasIdentifier(content: string, identifier: string): boolean {
+/** Identifiers in the order they appear, matching the server's identifier lines and excluding examples in fenced code. */
+export function materialIdentifiers(content: string): string[] {
+  const ids: string[] = []
   let fence: string | undefined
   for (const line of content.split(/\r?\n/)) {
     const delimiter = line.match(/^\s*(`{3,}|~{3,})/)
@@ -10,10 +11,12 @@ function hasIdentifier(content: string, identifier: string): boolean {
       else if (delimiter[1][0] === fence[0] && delimiter[1].length >= fence.length) fence = undefined
       continue
     }
-    if (!fence && line.match(/^ {0,3}(?:#{1,6}\s+)?\*\*((?:D|Q)[1-9]\d*)\*\*(?=\s|[:.\-—]|$)/)?.[1] === identifier) return true
+    const id = fence ? undefined : line.match(/^ {0,3}(?:#{1,6}\s+)?\*\*((?:D|Q)[1-9]\d*)\*\*(?=\s|[:.\-—]|$)/)?.[1]
+    if (id && !ids.includes(id)) ids.push(id)
   }
-  return false
+  return ids
 }
+const hasIdentifier = (content: string, identifier: string) => materialIdentifiers(content).includes(identifier)
 
 /** Resolve both legacy analysis links and links to a saved preparation document. */
 export function resolveDocumentTarget(target: string, sections: AnalysisSection[], materials: Record<MaterialType, Material | null>) {

@@ -53,12 +53,15 @@ test('material versions, files, HTTP ownership, preparation marks and ready sour
     assert.deepEqual(materials.parseMaterialIdentifiers('# **D1** Boundary\n**Q3** Test\nText **Q4**\n```md\n**Q5** Example\n```\n**Q3** Again'), ['D1', 'Q3']);
     assert.deepEqual(stages.getReadyMaterials(task.id).analysis, []);
     createAnalysisSection({ task_id: task.id, title: 'Requirements', description: 'Goal' });
-    stages.markPreparationStage(task.id, 'analysis', 'ready');
     const plan = createPlan({ task_id: task.id, content: '- [ ] (p1) Implement' });
+    // Approving the plan accepts the earlier unmarked stages: with material ready, empty skipped.
+    assert.deepEqual(stages.getPreparationStages(task.id).map(item => item.status), ['draft', 'draft', 'not_started', 'draft']);
     assert.equal((await request('/preparation/plan', 'POST', { status: 'ready' })).status, 200);
-    assert.deepEqual(stages.getPreparationStages(task.id).map(item => item.status), ['ready', 'skipped', 'skipped', 'ready']);
-    assert.equal(stages.getReadyMaterials(task.id).architecture, null);
+    assert.deepEqual(stages.getPreparationStages(task.id).map(item => item.status), ['ready', 'ready', 'skipped', 'ready']);
+    assert.equal(stages.getReadyMaterials(task.id).architecture?.content, '**D2** Other');
     assert.ok(stages.getReadyMaterials(task.id).analysis.length);
+    stages.markPreparationStage(task.id, 'architecture', 'skipped');
+    assert.equal(stages.getReadyMaterials(task.id).architecture, null);
     assert.equal((await request('/preparation/qa', 'POST', { status: 'ready' })).status, 400);
     stages.markPreparationStage(task.id, 'architecture', 'ready');
     materials.saveMaterial({ task_id: task.id, type: 'architecture', content: 'Changed' });

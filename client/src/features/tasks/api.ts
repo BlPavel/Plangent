@@ -7,7 +7,10 @@ const root = (p: string) => '/projects/' + encodeURIComponent(p)
 const task = (p: string, t: string) => root(p) + '/tasks/' + encodeURIComponent(t)
 /** A new errand: номер and/or описание, who does it and where (see the server's ErrandInput); `text` is sent to the agent at once. */
 export type ErrandInput = Endpoints['POST /api/projects/:projectId/errands']['body']
+/** A new task with a plan: its branch and automatic review are chosen at creation, as an errand's. */
+export type PlanTaskInput = Endpoints['POST /api/projects/:projectId/plan-tasks']['body']
 export const workApi = {
+  changeBranch: endpoint('POST /api/projects/:projectId/tasks/:taskId/switch-branch'),
   list: (p: string) => api.get<Endpoints['GET /api/projects/:projectId/work']['response']>(root(p) + '/work'),
   attention: () => api.get<Endpoints['GET /api/work/attention']['response']>('/work/attention'),
   close: (p: string, t: string, discard = false) => api.post<Endpoints['POST /api/projects/:projectId/tasks/:taskId/close']['response']>(task(p, t) + '/close', { discard }),
@@ -16,6 +19,7 @@ export const workApi = {
   addPlan: (p: string, t: string) => api.post<Endpoints['POST /api/projects/:projectId/tasks/:taskId/add-plan']['response']>(task(p, t) + '/add-plan', {}),
   remove: (p: string, t: string, discard = false) => api.delete<Endpoints['DELETE /api/projects/:projectId/tasks/:taskId']['response']>(task(p, t) + (discard ? '?discard=1' : '')),
   errand: (p: string, body: ErrandInput) => tasksEndpoints.postProjectsByProjectIdErrands({ params: { projectId: p }, body }),
+  planTask: (p: string, body: PlanTaskInput) => tasksEndpoints.postProjectsByProjectIdPlanTasks({ params: { projectId: p }, body }),
   errandFrom: (p: string, t: string, input: ErrandInput) => api.post<Endpoints['POST /api/projects/:projectId/tasks/:taskId/errand']['response']>(task(p, t) + '/errand', input),
   chat: (p: string, t: string, agent_id?: string, workspace?: string) => tasksEndpoints.postProjectsByProjectIdTasksByTaskIdChat({ params: { projectId: p, taskId: t }, body: { agent_id }, query: { workspace } }),
   review: (p: string, t: string, body: Endpoints['POST /api/projects/:projectId/tasks/:taskId/review']['body'] = {}, workspace?: string) => tasksEndpoints.reviewTask({ params: { projectId: p, taskId: t }, body, query: { workspace } }),
@@ -63,6 +67,7 @@ export const tasksEndpoints = {
   moveTask: endpoint('POST /api/projects/:projectId/tasks/:taskId/move'),
   listTasks: endpoint('GET /api/projects/:projectId/tasks'),
   postProjectsByProjectIdErrands: endpoint('POST /api/projects/:projectId/errands'),
+  postProjectsByProjectIdPlanTasks: endpoint('POST /api/projects/:projectId/plan-tasks'),
   postProjectsByProjectIdTasksByTaskIdChat: endpoint('POST /api/projects/:projectId/tasks/:taskId/chat'),
   getProjectsByProjectIdTasksByTaskId: endpoint('GET /api/projects/:projectId/tasks/:taskId'),
   postProjectsByProjectIdTasks: endpoint('POST /api/projects/:projectId/tasks'),

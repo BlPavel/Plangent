@@ -3,7 +3,7 @@
     <div v-if="!changes.length" class="cl-empty"><slot name="empty">{{ emptyText }}</slot></div>
     <div v-else class="cl-list" role="listbox" tabindex="0" @keydown="onKey">
       <template v-for="group in groups" :key="group.id">
-        <div v-if="group.title" class="cl-group">
+        <div v-if="group.title" class="cl-group" @contextmenu.prevent="openGroupMenu($event, group)">
           <AppCheckbox
             v-if="stageable" :model-value="group.items.every(staged)" :indeterminate="group.items.some(staged) && !group.items.every(staged)"
             :disabled="!!stageDisabled" :title="stageDisabled || 'Все к коммиту'" :aria-label="'К коммиту: ' + group.title" @update:model-value="emit('stage-many', group.items, $event)"
@@ -29,6 +29,7 @@
       </template>
     </div>
     <ContextMenu :items="menuItems" :at="menuAt" @close="menuAt = null" />
+    <ContextMenu :items="groupMenuItems" :at="groupMenuAt" @close="groupMenuAt = null" />
   </div>
 </template>
 
@@ -50,7 +51,7 @@ const props = withDefaults(defineProps<{
 }>(), { emptyText: '', stageDisabled: '' })
 const emit = defineEmits<{
   open: [change: GitChange]; 'toggle-stage': [change: GitChange]; 'stage-many': [changes: GitChange[], stage: boolean]
-  discard: [change: GitChange]
+  discard: [changes: GitChange[]]
 }>()
 /** A file that is not in HEAD yet: there is nothing to restore, so «discard» deletes it. */
 const isNew = (change: GitChange) => change.status === '?' || change.status === 'A'
@@ -71,12 +72,31 @@ const menuItems = computed<MenuItem[]>(() => {
     const on = staged(change)
     items.push({ label: on ? 'Убрать из коммита' : 'К коммиту', disabled: !!blocked, hint: blocked, action: () => emit('toggle-stage', change) })
     items.push({ separator: true })
-    items.push({ label: isNew(change) ? 'Удалить файл' : 'Отменить изменения', danger: true, disabled: !!blocked, action: () => emit('discard', change) })
+    items.push({ label: isNew(change) ? 'Удалить файл' : 'Отменить изменения', danger: true, disabled: !!blocked, action: () => emit('discard', [change]) })
   }
   items.push({ separator: true })
   items.push({ label: 'Копировать путь', action: () => copy(change.path) })
   items.push({ label: 'Копировать имя файла', action: () => copy(nameOf(change.path)) })
   return items
+})
+
+/** The menu of a group header acts on the whole group: stage it or discard every change in it. */
+const groupMenuAt = ref<{ x: number; y: number } | null>(null)
+const menuGroup = ref<{ title: string; items: GitChange[] } | null>(null)
+function openGroupMenu(event: MouseEvent, group: { title: string; items: GitChange[] }) {
+  if (!props.stageable) return
+  menuGroup.value = group; groupMenuAt.value = { x: event.clientX, y: event.clientY }
+}
+const groupMenuItems = computed<MenuItem[]>(() => {
+  const group = menuGroup.value
+  if (!group) return []
+  const blocked = props.stageDisabled || undefined, fresh = group.items.every(isNew)
+  return [
+    { label: 'Все к коммиту', disabled: !!blocked, hint: blocked, action: () => emit('stage-many', group.items, true) },
+    { label: 'Убрать все из коммита', disabled: !!blocked, hint: blocked, action: () => emit('stage-many', group.items, false) },
+    { separator: true },
+    { label: fresh ? 'Удалить все файлы' : 'Отменить все изменения', danger: true, disabled: !!blocked, hint: blocked, action: () => emit('discard', group.items) },
+  ]
 })
 
 /** A conflicted file is not staged yet: ticking it (`git add`) marks the conflict resolved. */

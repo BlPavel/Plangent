@@ -9,6 +9,8 @@ export interface Workspace {
     // 0 is the main folder; each active workspace of a project gets its own slot, so its ports differ.
     port_slot: number;
     status: 'preparing' | 'ready' | 'failed' | 'removed';
+    // 0 until files, dependency folders and the setup command are prepared; that happens when the work starts executing.
+    setup_done: number;
     error: string;
     setup_log: string;
     created_at: string;
@@ -40,6 +42,8 @@ export interface WorkEntry {
     task: Task;
     workspace: Workspace | null;
     state: WorkState;
+    /** A task's preparation stages (Анализ, Архитектура, QA, План); absent for an errand. */
+    stages?: import('./tasks').StageSummary[];
 }
 export type ErrandPlace = 'new' | 'existing' | 'main';
 export interface ErrandReviewAgent {
@@ -61,6 +65,18 @@ export interface ErrandInput {
     auto_review?: boolean;
     /** Who reviews the work: the agent shown at creation (the project's review agent by default). */
     review_agent?: ErrandReviewAgent;
+    place?: ErrandPlace;
+    base_branch?: string;
+    branch_name?: string;
+    branch?: string;
+}
+/** A task with a plan: its branch and automatic review are chosen at creation, as for an errand. */
+export interface PlanTaskInput {
+    title?: string;
+    external_key?: string;
+    auto_review?: boolean;
+    review_agent?: ErrandReviewAgent;
+    /** Omitted: the branch is chosen when the execution starts (a group's work). */
     place?: ErrandPlace;
     base_branch?: string;
     branch_name?: string;
@@ -98,8 +114,16 @@ export type WorkPOSTErrandsResponse = {
     task: C.Task;
 };
 export type WorkPOSTErrandsBody = C.ErrandInput;
+export type WorkPOSTPlanTasksResponse = {
+    task: C.Task;
+};
+export type WorkPOSTPlanTasksBody = C.PlanTaskInput;
 export type WorkPOSTTasksTaskIdChatBody = {
     agent_id?: string;
+    /** Start a new follow-up agent of a task even though one exists; the old chat stays as a journal. */
+    replace?: boolean;
+    model?: string;
+    reasoning_effort?: string;
 };
 /** The range of a work's review: `task` — everything since the work began, `worktree` — uncommitted changes only, `branch` — against a branch. */
 export type WorkReviewMode = 'task' | 'worktree' | 'branch';
@@ -181,11 +205,13 @@ export type WorkPOSTTasksTaskIdErrandResponse = {
 };
 export type WorkPOSTTasksTaskIdErrandBody = C.ErrandInput;
 export interface WorkEndpoints {
+    "POST /api/projects/:projectId/tasks/:taskId/switch-branch": Endpoint<"POST /api/projects/:projectId/tasks/:taskId/switch-branch", { branch: string; create?: boolean; base?: string }, { task: C.Task; workspace: C.Workspace }, Record<string, never>, "json", never>;
     "GET /api/projects/:projectId/workspaces": Endpoint<"GET /api/projects/:projectId/workspaces", never, (C.Workspace)[], Record<string, never>, "json", never>;
     "GET /api/projects/:projectId/workspaces/viewing": Endpoint<"GET /api/projects/:projectId/workspaces/viewing", never, null | C.Workspace, Record<string, never>, "json", never>;
     "PUT /api/projects/:projectId/workspaces/viewing": Endpoint<"PUT /api/projects/:projectId/workspaces/viewing", WorkspacesPUTViewingBody, WorkspacesPUTViewingResponse, Record<string, never>, "json", never>;
     "POST /api/projects/:projectId/workspaces/:id/recreate": Endpoint<"POST /api/projects/:projectId/workspaces/:id/recreate", WorkspacesPOSTIdRecreateBody, C.Workspace, Record<string, never>, "json", never>;
     "POST /api/projects/:projectId/errands": Endpoint<"POST /api/projects/:projectId/errands", WorkPOSTErrandsBody, WorkPOSTErrandsResponse, Record<string, never>, "json", never>;
+    "POST /api/projects/:projectId/plan-tasks": Endpoint<"POST /api/projects/:projectId/plan-tasks", WorkPOSTPlanTasksBody, WorkPOSTPlanTasksResponse, Record<string, never>, "json", never>;
     "POST /api/projects/:projectId/tasks/:taskId/chat": Endpoint<"POST /api/projects/:projectId/tasks/:taskId/chat", WorkPOSTTasksTaskIdChatBody, C.AgentSession, Record<string, never>, "json", never>;
     "POST /api/projects/:projectId/tasks/:taskId/review": Endpoint<"POST /api/projects/:projectId/tasks/:taskId/review", WorkPOSTTasksTaskIdReviewBody, C.AgentSession, Record<string, never>, "json", never>;
     "GET /api/projects/:projectId/tasks/:taskId/check": Endpoint<"GET /api/projects/:projectId/tasks/:taskId/check", never, WorkCheck, Record<string, never>, "json", never>;

@@ -45,7 +45,7 @@ test('material author MCP: own type only, ready architecture for QA, stale saves
   const value = (result: unknown) => JSON.parse((result as { content: { text: string }[] }).content[0].text);
   try {
     const arch = await connect(architect), qaClient = await connect(qa);
-    assert.deepEqual((await arch.listTools()).tools.map(t => t.name), ['get_interview_guide', 'get_material', 'submit_material', 'get_plan_review_items', 'reply_plan_remark']);
+    assert.deepEqual((await arch.listTools()).tools.map(t => t.name), ['get_interview_guide', 'get_material', 'submit_material', 'get_plan_review_items', 'reply_plan_remark', 'ask_interview_questions']);
     assert.ok(!allowed(architect).some(name => ['submit_plan', 'save_section', 'complete_step'].includes(name)));
     await assert.rejects(arch.callTool({ name: 'mark_stage', arguments: {} }));
 
@@ -56,6 +56,8 @@ test('material author MCP: own type only, ready architecture for QA, stale saves
     assert.ok(!('architecture' in before) && !JSON.stringify(before).includes('PLAN SECRET'));
     assert.match(before.template, /Context and boundaries/);
     assert.match(before.format, /submit_material/);
+    assert.match(before.format, /never copy this block/);
+    assert.doesNotMatch(before.format, /do not remove/);
     await assert.rejects(arch.callTool({ name: 'submit_material', arguments: { content: '' } }), /Invalid content/);
 
     const saved = value(await arch.callTool({ name: 'submit_material', arguments: { content: '**D1** Boundary' } }));
@@ -84,6 +86,18 @@ test('material author MCP: own type only, ready architecture for QA, stale saves
     assert.equal(value(await qaClient.callTool({ name: 'submit_material', arguments: { content: '**Q1** Rule' } })).version, 1);
     assert.equal(materials.getLatestMaterial(task.id, 'architecture')!.content, 'merged');
     assert.equal(stages.getPreparationStages(task.id).find(s => s.stage === 'qa')!.status, 'draft');
+
+    // Copied service protocols are rejected for both document kinds, without changing stored content or versions.
+    for (const [client, type] of [[arch, 'architecture'], [qaClient, 'qa']] as const) {
+      const context = value(await client.callTool({ name: 'get_material', arguments: {} }));
+      const previous = materials.getLatestMaterial(task.id, type)!;
+      for (const protocol of [context.format, '## Plangent protocol (do not remove)\nLegacy instructions']) {
+        const rejected = await client.callTool({ name: 'submit_material', arguments: { content: previous.content + '\n\n' + protocol } });
+        assert.equal(rejected.isError, true);
+        assert.match(JSON.stringify(rejected), /Remove the service protocol block/);
+        assert.deepEqual(materials.getLatestMaterial(task.id, type), previous);
+      }
+    }
 
     // submit before get_material is refused.
     const fresh = await connect(session('qa'));

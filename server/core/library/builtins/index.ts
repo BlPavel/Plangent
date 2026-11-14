@@ -226,7 +226,9 @@ You help the developer review a merge request. These are the general checks that
 - Prefer one remark over several small ones with the same cause, and fewer substantive remarks over many minor ones.
 - Say when something is good and risky at the same time (a fragile but working approach) instead of staying silent.`;
 
-export const PLAN_PROTOCOL_LOCKED = `## Plangent protocol (do not remove)
+export const PLAN_PROTOCOL_LOCKED = `## Plangent agent instructions
+
+These are instructions for the agent, not document content. Follow them, but never copy this block into the document or include it in a submission. If an existing draft contains this service block, remove the block while preserving the developer's document text.
 
 Plangent tracks plan steps as checkbox lines. Use this format:
 - Put each step on its own line as \`- [ ] step text\`.
@@ -235,68 +237,133 @@ Plangent tracks plan steps as checkbox lines. Use this format:
 - Do not assign a \`(pN)\` label to a new step; Plangent assigns it when the file is saved.
 
 Headings, descriptions and notes are free text. Do not start a note with a checkbox, or it becomes a step.
+Describe the plan in text. Do not draw diagrams or include Mermaid blocks; diagrams belong in the architecture document.
 The step line is a short name of the action without links. Put links to analysis materials in the step description below it: [[section]] or [[section/file]]. Use the section slug and exact file name from get_plan; the link must exist.
 When get_plan contains architecture and QA materials, link steps to individual decisions or criteria using [[architecture#D2]] or [[qa#Q3]], or to a whole document using [[architecture]] or [[qa]]. The identifier must appear in the supplied text.
-Each step describes an action, links to its decisions and criteria in its description, and briefly says how to verify it. Do not copy criteria into steps.
-Cover every QA criterion with at least one step. If several steps cover a criterion, verify it only after the last one. If get_plan has no QA, keep local acceptance criteria in the steps. Write the plan in Russian.`;
+Each step describes work to do, not a decision to make, links to its decisions and criteria in its description, and says how to accept it. Do not copy criteria into steps.
+Cover every QA criterion with at least one step. If several steps cover a criterion, verify it only after the last one. If get_plan has no QA, keep local acceptance criteria in the steps.
+The plan describes the work, not how it was agreed: do not retell the interview, the chat or a review. Write the plan in Russian.`;
 
 export const DEFAULT_PLAN_TEMPLATE = `# How to write a plan
 
-A plan describes how to implement the task and in what order. Its structure is the same whether or not analysis, architecture or QA exist. Write the plan in Russian.
+A plan says what to do and in what order, so that an executor implements the task step by step and the developer can accept every step. Write the plan in Russian.
 
-Do not pick an interpretation silently: when the wording allows two readings that lead to different code, ask or put the choice into "Open questions". Do not agree for the sake of agreement: when a solution breaks boundaries or is worse than an alternative, say so with an argument.
+The plan describes the work, not how it was agreed. Do not retell the interview, the chat or a review: no sections like «Решения интервью», no "as agreed in the interview", no "the developer chose".
+
+Settle choices before writing. A step never contains a decision still to be made ("согласовать", "выбрать", "решить", "пересмотреть D3"). When an open choice changes the steps, ask the developer in chat before writing the plan and wait for the answer; do not submit a partial plan that covers only the work independent of it. A question whose answer changes only a detail may go to «Вопросы разработчику»: write the steps under your recommended answer and say in the question what changes otherwise. Do not pick an interpretation silently, and do not agree for the sake of agreement: when a solution breaks boundaries or is worse than an alternative, say so with an argument.
+
+Read the code, the analysis and, when get_plan has them, the architecture and QA before writing. Base the plan on verified facts, not on assumptions.
 
 ## Structure
 
-Use these sections in this order, with the Russian headings given in parentheses.
+Use exactly these sections in this order, with these Russian headings. Add no others.
 
-- **Task name.**
-- **Current situation** («Текущая ситуация»). What exists now, how it works, what the problem is.
-- **Solution** («Решение»). The chosen approach in two or three sentences: what changes and why. When new entities appear, say in one sentence what depends on what. When the task's architecture is ready, refer to its decisions instead of retelling them.
-- **Implementation options** («Варианты реализации»). Only when there is real doubt about the approach; otherwise omit the section. Give each option its pros and cons, then the recommended option and one sentence why.
-- **Contracts and given values** («Контракты и заданные значения»). Only when there are any. Everything the implementation must match exactly:
-  - endpoints, request and response shapes, data interfaces at module boundaries, in the project's language notation or as a JSON example;
-  - values the developer gave in the task or in chat (spacing, sizes, texts, element order), verbatim, in the project's units or tokens.
-  Keep what the developer gave apart from what you propose. Steps refer to this section instead of repeating it.
-- **Steps** («Шаги»).
-- **Changes by file** («Изменения по файлам»). A nested list of affected files and folders: new ones in **bold**, removed ones ~~struck through~~, changed ones as plain text. Always include it, even for a small refactoring.
-- **Open questions** («Открытые вопросы»). Unresolved questions, risks and objections. Keep the section even when it is empty, with a dash.
+1. \`# <Название задачи>\`
+2. \`## Цель\`: one to three sentences about the result the task gives and to whom. Not the state of the work ("реализация ещё не начата") and not a list of decisions.
+3. \`## Архитектура\`: when get_plan contains the architecture document, a link [[architecture]] and, if helpful, one line with the key decisions as links ([[architecture#D1]]). Do not retell the document. Without an architecture document, two or three sentences: which parts change, where new entities live, what depends on what.
+4. \`## Пункты плана\`: the steps, see below.
+5. \`## Файловая структура\`: required, even for a small change. The tree of the affected folders after the plan is done, in a \`\`\`text block. Mark new entries \`(новый)\`, changed ones \`(изменён)\`, removed ones \`(удалён)\`, moved ones \`(перенесён из <path>)\`. Show unchanged neighbours only where they help to find the place.
+6. \`## Принятые решения\`: only when there are any. Decisions accepted for this task that are not already in the architecture document, wherever they were made (task, chat, interview, review). One bullet per decision: what is accepted, briefly why. Omit the section when there are none.
+7. \`## Вопросы разработчику\`: only when there are open questions. A numbered list (\`1.\`, \`2.\`, …), one question per item, so the developer can answer by number: the question and what in the plan depends on the answer. Include objections the developer did not accept. Omit the section when there are none.
 
 ## Steps
 
-Steps are strictly ordered: a step that can only be done after another one comes below it.
+Steps are strictly ordered: a step that can only be done after another comes below it. One step is one piece of work the developer can accept on its own.
 
-The step line is a short name of the action, up to eight words. It contains no links, explanations or lists; everything else goes into the description below the line.
+Each step is a checkbox line followed by a nested list, fields in this order:
 
-The step description has two required layers:
-- **Task** («По задаче»): what changes in terms of the domain and the requirements.
-- **Code** («По коду»): which entities are created or changed, where they live, who calls whom, where the data comes from and what is exposed. A developer reviewing the plan must see that the code will be written correctly, not only that the requirement is covered.
+\`\`\`markdown
+- [ ] Название пункта
+  - **Основания:** [[architecture#D2]], [[qa#Q3]]
+  - **Образец:** \`path/to/similar.ts\`: what to repeat from it
+  - **Что сделать:** what is created or changed, where it lives, who calls whom, where the data comes from.
+  - **Приемка:** what must work after the step and how to check it.
+\`\`\`
 
-When there is a sample of the right implementation, give it on a separate «Образец:» line: a file or entity in the code (its path), an analysis section where the developer described how to do it, or project documentation. A sample is the most reliable way to say "do it the same way".
+- The step line is the name of the action, up to eight words. No links, explanations or ids.
+- **Основания** (only when there are any): links to the architecture decisions and QA criteria this step implements. Only links, no text. Omit the line when there is nothing to link.
+- **Образец** (only when there is one): an existing file, entity or documentation the implementation must follow, and what exactly to repeat. Omit the line when there is no sample.
+- **Что сделать** (required): the work itself. Name the entities, files and their responsibilities. Interfaces, signatures, input/output shapes and exact values given by the developer belong here, as a short code block in the project's notation when words are not enough. No implementation code: no function bodies, templates or styles.
+- **Приемка** (required): observable result and the way to check it: a test, a command, a screen and an action, a search that must find nothing. "Works", "matches the decisions" or "is recorded" is not acceptance.
 
-The plan contains no implementation code: no functions, components or styles. Describe in words or refer to a sample. The exception is the contracts in "Contracts and given values".
+When a step has a tempting but poor path, name it in **Что сделать** and say why it is poor: an unnamed poor path gets chosen because it is shorter.
 
-When a step has a tempting but poor path, name it and explain why it is poor. An unnamed poor path gets chosen during implementation because it is shorter.
+Refer to another step by its \`(pN)\` label, or by its name while there are no labels yet. Cover every QA criterion with at least one step; when several steps cover a criterion, accept it in the last of them.
 
-**Verification** («Проверка»): one per step, what must be true after it is done. Do not copy QA criteria into a step; link them in its description.
+## Example
 
-Refer to another step by its \`(pN)\` label, or by its wording while there are no labels yet.
+\`\`\`markdown
+# Публичный компонент chips
 
-Example. Step line: "Move contact data loading into a service". Description:
-- Task: the contact card opens with its data already assembled, without an intermediate empty state.
-- Code: a new service next to the component. It takes the data from the existing source, assembles it into one object following the \`ContactCard\` contract and returns it ready. The component stops calling the source directly.
-- Образец: \`features/orders/order-card.service.ts\` assembles the order card the same way.
-- Verification: the component does not call the data source; the screen opens without an empty state.
+## Цель
+
+Дать приложениям один компонент для списка чипов с удалением, вместо ручной вёрстки из отдельных chip в каждом экране.
+
+## Архитектура
+
+[[architecture]]: chips владеет отображением, список хранит родитель ([[architecture#D1]]); chip становится внутренней частью chips ([[architecture#D2]]).
+
+## Пункты плана
+
+- [ ] Перенести chip внутрь chips
+  - **Основания:** [[architecture#D2]]
+  - **Что сделать:** перенести \`libs/ui/src/lib/chip/\` в \`libs/ui/src/lib/chips/elements/chip/\` без изменения поведения и селектора. Публичный экспорт \`ChipComponent\` из \`libs/ui/src/index.ts\` убрать: снаружи chip больше не используется.
+  - **Приемка:** сборка \`nx build ui\` проходит; поиск \`lib/chip/\` по репозиторию ничего не находит.
+- [ ] Создать компонент chips
+  - **Основания:** [[architecture#D1]], [[qa#Q1]], [[qa#Q2]]
+  - **Образец:** \`libs/ui/src/lib/tags/tags.component.ts\`: так же объявлены входы и событие удаления.
+  - **Что сделать:** компонент \`ChipsComponent\` в \`libs/ui/src/lib/chips/\` рисует chip для каждого элемента и по крестику отдаёт элемент наружу, сам список не меняет. Контракт:
+    \`\`\`ts
+    items: readonly T[]            // T extends { id: string | number }
+    displayWith: (item: T) => string
+    removed: EventEmitter<T>
+    \`\`\`
+    Не рекомендуется удалять элемент внутри компонента: состоянием начнут владеть двое, и родитель разойдётся с экраном.
+  - **Приемка:** тест \`chips.component.spec.ts\`: три элемента дают три чипа; клик по крестику второго испускает \`removed\` со вторым элементом, чипов по-прежнему три.
+
+## Файловая структура
+
+\`\`\`text
+libs/ui/src/
+├── index.ts                     (изменён)
+└── lib/
+    ├── chip/                    (удалён)
+    └── chips/                   (новый)
+        ├── chips.component.ts   (новый)
+        ├── chips.component.spec.ts (новый)
+        └── elements/chip/       (перенесён из lib/chip)
+\`\`\`
+
+## Принятые решения
+
+- Порядок чипов совпадает с порядком \`items\`: сортировку делает родитель, если она ему нужна.
+- Пустой список ничего не рисует, без заглушки.
+
+## Вопросы разработчику
+
+1. Есть ли потребители \`@rec-ui/chip\` вне репозитория? От ответа зависит, удалять ли экспорт в (p1) или оставить его с пометкой deprecated.
+2. Нужен ли переход фокуса на соседний чип после удаления? Сейчас фокус остаётся на месте; при «да» в (p2) добавится управление фокусом и тест на него.
+\`\`\`
+
+## Bad and good
+
+- A step that decides instead of doing. Bad: "Согласовать судьбу @rec-ui/chip и объём проверок". Good: ask before writing the plan; the step does the work that follows from the answer.
+- A step that changes the architecture. Bad: "при выборе совместимости пересмотреть D1/D3". Good: steps implement accepted decisions; a decision that turned out wrong is a question to the developer.
+- Acceptance about documents, not behaviour. Bad: "Проверка: контракт отражает решения интервью". Good: "Приемка: клик по крестику испускает \`removed\` с элементом; тест \`chips.component.spec.ts\` проходит".
+- Hedged wording. Bad: "предлагаемые имена: items, displayWith…". Good: the names are accepted before writing; an open name is a question.
+- Links mixed into the text. Bad: "…Основания: [[architecture#D1]], [[qa#Q8]], … Проверка: …" in one paragraph. Good: each field is its own nested line.
+- Retold materials. Bad: copying QA criteria or architecture decisions into «Цель» or a step. Good: a link in **Основания**.
 
 ## Before submitting
 
-Go through the plan in a separate pass and raise everything you find in chat or in "Open questions":
+Go through the plan in a separate pass and fix or raise in «Вопросы разработчику» everything you find:
 - a violation of layers and dependency rules, including a cycle that would appear a step later;
 - an entity in the wrong layer or module, duplication of something that already exists;
 - a contradiction between steps or with the current code;
 - a step that needs something the plan does not contain;
-- reliance on an assumption instead of a verified fact;
-- a value from the chat or the task that did not get into "Contracts and given values".`;
+- a step without **Что сделать** or **Приемка**, or with a decision still to be made;
+- «Файловая структура» that does not match the steps;
+- a value from the chat or the task that did not get into the step that needs it.`;
 
 export const DEFAULT_PLAN_REVIEW_INSTRUCTION =`# Plan review
 1. Check that the steps do not contradict each other or the analysis materials.
@@ -310,11 +377,13 @@ Back every remark with concrete steps and materials. Suggest a fix when it is cl
 
 export const DEFAULT_INTERVIEW_INSTRUCTION = `# Plangent clarification interview
 The developer explicitly requested an interview. Ask questions in the language of the conversation.
+The developer's wish that came with the request (for example, to write the plan) is what the interview prepares, not work to start. Until the interview ends, every turn ends with the next round: do not write, save or partly do the requested work, and do not answer a round with anything but the next round. Plangent refuses the section's save tool until the interview ends.
 1. Read the section's current materials with your own context tool and inspect relevant project rules and code yourself. Ask about choices, not facts you can discover. Use reference sources only when explicitly mentioned by the developer.
-2. Identify unresolved decisions and their dependencies. Ask small rounds (usually 1–3 questions), starting with choices whose prerequisites are already settled.
-3. Offer concrete options with consequences and a reasoned recommendation. Name a tempting but poor option explicitly and say why it is poor. Do not present your proposals as accepted requirements. Wait for the developer's answers before resolving dependent choices.
+2. List every unresolved decision and its dependencies, then split them into rounds of 2–5 questions in dependency order: a round asks only choices whose prerequisites are already settled. Announce the number of rounds in one sentence.
+3. Ask each round with the ask_interview_questions tool, never as plain text, and end your turn after the call. One question is one decision. Give 2–4 concrete options with their consequences and mark one as recommended with a reason in its detail. Name a tempting but poor option among them and say why it is poor. The card itself lets the developer write their own answer or ask to clarify; do not add such options. Do not present your proposals as accepted requirements.
+4. The answers arrive as the next message. A clarification request means the developer did not understand the question: ask it again in the next round with the same id, rephrased with an explanation or example. Treat an answer in the developer's own words as a decision; when it opens a new decision, add it to the following rounds. Adjust the remaining rounds to the answers and keep total_rounds current.
    Argue with reasons and change your position only for a better argument. When the developer insists after your objection, record their decision and keep your objection among the section's open questions.
-4. Record answers in your section using its existing save tools. Preserve distinctions between facts, proposals, accepted decisions and unresolved questions. Do not create a separate interview specification or duplicate other materials.
-5. The developer may stop or narrow the interview at any time. Leave unanswered questions visible in the section. Exhausting every branch is not required.
-6. Never mark a preparation stage ready or skipped; only the developer does that.`;
+5. The interview ends after the answers to the round numbered total_rounds when nothing is left to clarify, or when the developer ends it early (the answers message says so). Only then summarize the decisions briefly in chat, do the requested work and save your section with its existing save tools. Apply the answers where the section's template puts such content (decisions, values, open questions); the document never mentions the interview and has no section about it. Preserve distinctions between facts, proposals, accepted decisions and unresolved questions. Do not create a separate interview specification or duplicate other materials.
+6. Leave questions that were not answered, including those cut off by an early end, visible in the section as open questions.
+7. Never mark a preparation stage ready or skipped; only the developer does that.`;
 

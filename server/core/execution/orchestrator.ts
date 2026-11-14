@@ -344,7 +344,12 @@ const chat = createChat({ project_id: projectId, task_id: taskId, // Plangent's 
   // and run again (for their undone points) when the queue is relaunched.
   async stop(reason = 'Остановлена разработчиком'): Promise<void> {
     active.delete(this.queue.taskId);
-    const live = this.sessions().filter(s => isActive(s) || (s.kind === 'review' && s.status === 'queued'));
+    const inFlight = this.sessions().filter(s => isActive(s) || (s.kind === 'review' && s.status === 'queued'));
+    // An executor that already reported complete_step has finished its steps: they are checked off, not lost to the stop.
+    const reported = inFlight.filter(s => s.kind !== 'review' && s.sessionId && s.status === 'running' && getChat(s.sessionId).status === 'complete');
+    const live = inFlight.filter(s => !reported.includes(s));
+    this.queue.status = 'stopped'; // before completing, so that no next stage starts
+    for (const s of reported) await this.completeSession(s);
     for (const s of live) {
       s.status = 'stopped';
       s.reason = undefined;

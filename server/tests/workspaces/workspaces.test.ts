@@ -148,8 +148,13 @@ test('workspace lifecycle, preparation, roots, permissions and library', async t
       fs.writeFileSync(path.join(repo, '.env'), 'TOKEN=fixture');
       projects.updateProject(project.id, { git_settings: { workspace_copy_files: ['.env'],
         workspace_setup_command: 'node -e "require(\'fs\').writeFileSync(\'setup.txt\',process.env.SETUP_VALUE);console.log(\'setup complete\')"' }, config: { extra_env: { SETUP_VALUE: 'configured' } } });
-      const created = await workspaces.createWorkspace(task.id, { branch: 'feature/setup', base: 'main' });
-      assert.equal(created.status, 'ready');
+      const pending = await workspaces.createWorkspace(task.id, { branch: 'feature/setup', base: 'main' });
+      // Creating the workspace is quick; files and the setup command wait until the work starts.
+      assert.equal(pending.status, 'ready'); assert.equal(pending.setup_done, 0);
+      assert.ok(!fs.existsSync(path.join(pending.path, '.env')) && !fs.existsSync(path.join(pending.path, 'setup.txt')));
+      await Promise.all([workspaces.ensureWorkspaceSetup(task.id), workspaces.ensureWorkspaceSetup(task.id)]);
+      const created = workspaces.getWorkspace(pending.id);
+      assert.equal(created.status, 'ready'); assert.equal(created.setup_done, 1);
       assert.equal(fs.readFileSync(path.join(created.path, '.env'), 'utf8'), 'TOKEN=fixture');
       assert.equal(fs.readFileSync(path.join(created.path, 'setup.txt'), 'utf8'), 'configured');
       assert.match(created.setup_log, /setup complete/);
@@ -201,7 +206,9 @@ test('workspace lifecycle, preparation, roots, permissions and library', async t
       fs.symlinkSync(path.join(repo, 'packages', 'local'), path.join(modules, 'local'), 'junction');
       projects.updateProject(project.id, { git_settings: { workspace_link_dirs: ['node_modules'], workspace_ports: ['PORT=3001', 'VITE_PORT=5173'],
         workspace_setup_command: 'node -e "require(\'fs\').writeFileSync(\'ports.txt\',process.env.PORT+\' \'+process.env.VITE_PORT+\' \'+process.env.PLANGENT_PORT_SLOT)"' } });
-      const created = await workspaces.createWorkspace(task.id, { branch: 'feature/linked', base: 'main' });
+      await workspaces.createWorkspace(task.id, { branch: 'feature/linked', base: 'main' });
+      await workspaces.ensureWorkspaceSetup(task.id);
+      const created = workspaces.activeWorkspace(task.id)!;
       assert.equal(created.status, 'ready', created.error);
       const linked = path.join(created.path, 'node_modules');
       assert.equal(fs.statSync(path.join(linked, 'pkg', 'index.js')).nlink, 2);

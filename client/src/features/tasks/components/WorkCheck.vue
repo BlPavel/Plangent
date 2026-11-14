@@ -124,14 +124,14 @@ async function review() {
 }
 async function send() {
   await run(async () => {
-    const chat = await tasksEndpoints.sendCheck({ params: params(), body: { item_ids: chosen.value, agent_id: props.defaultAgentId ?? undefined } })
+    const chat = await tasksEndpoints.sendCheck({ params: params(), body: { item_ids: chosen.value } })
     chats.put(chat); selected.value = []; side.value = 'chat'
   })
 }
 async function reply(item: CodeReviewItem) {
   await run(async () => {
     await codeEndpoints.taskMessage({ params: { projectId: props.task.project_id, reviewId: item.review_id, itemId: item.id }, query: query(), body: { kind: 'text', text: replies.value[item.id] } })
-    const chat = await tasksEndpoints.sendCheck({ params: params(), body: { item_ids: [item.id], agent_id: props.defaultAgentId ?? undefined } })
+    const chat = await tasksEndpoints.sendCheck({ params: params(), body: { item_ids: [item.id] } })
     chats.put(chat); replies.value[item.id] = ''
   })
 }

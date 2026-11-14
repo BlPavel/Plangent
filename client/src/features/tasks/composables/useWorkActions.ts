@@ -1,7 +1,12 @@
 import { useDraftsStore } from '@core/stores/drafts'
 import { useAppStore } from '@core/stores/app'
+import { ref } from 'vue'
 import type { Task } from '@contracts'
 import { workApi } from '../api'
+
+/** Works being deleted: the request takes a while, and the list and the page both show it. A deleted one stays marked until it is gone from the list. */
+const removing = ref<string[]>([])
+export const isRemoving = (id: string) => removing.value.includes(id)
 
 interface Blockers { files?: string[]; commits?: string[] }
 const blockersOf = (cause: unknown) => (cause as { blockers?: Blockers }).blockers
@@ -51,7 +56,10 @@ export function useWorkActions() {
   async function remove(t: Task) {
     // One question: deleting already means throwing away the workspace with whatever is unsaved or unpushed in it.
     if (!await app.confirm(`Удалить «${t.kind === 'errand' ? t.title || 'поручение' : t.key}»? Рабочее место удалится вместе со всеми изменениями, в том числе несохранёнными и неотправленными. Действие необратимо.`, { confirmLabel: 'Удалить', danger: true })) return false
-    return (await attempt(() => workApi.remove(t.project_id, t.id, true).then(() => { useDraftsStore().clearPrefix(`task:${t.id}:`); return true }))) === true
+    removing.value.push(t.id)
+    const done = (await attempt(() => workApi.remove(t.project_id, t.id, true).then(() => { useDraftsStore().clearPrefix(`task:${t.id}:`); return true }))) === true
+    if (!done) removing.value = removing.value.filter(id => id !== t.id)
+    return done
   }
   async function errandFrom(t: Task, request: string, agentId?: string | null) {
     if (!request.trim()) return

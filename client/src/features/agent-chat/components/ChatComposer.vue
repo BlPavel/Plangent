@@ -44,7 +44,7 @@
         <AppButton variant="subtle" size="sm" icon type="button"  title="Упомянуть файл (@)" @click="insertAt">@</AppButton>
         <slot name="tools" />
       </div>
-      <div class="actions">
+      <div v-if="!field" class="actions">
         <slot name="status" />
         <AppButton v-if="busy && !canSend" type="button" variant="ghost" size="sm" title="Остановить агента" @click="$emit('cancel')">
           <svg viewBox="0 0 16 16"><rect x="4" y="4" width="8" height="8" rx="1.5" fill="currentColor" /></svg>
@@ -86,7 +86,9 @@ const props = withDefaults(defineProps<{
   disabled?: boolean
   initialText?: string
   placeholder?: string
-}>(), { workspaceId: undefined, initialText: undefined, commands: () => [], busy: false, disabled: false, placeholder: 'Напишите агенту…  @ — файл, / — команда' })
+  /** A field of a form, not a message: no send button, Enter breaks the line, only text files attach; the form reads `content()`. */
+  field?: boolean
+}>(), { field: false, workspaceId: undefined, initialText: undefined, commands: () => [], busy: false, disabled: false, placeholder: 'Напишите агенту…  @ — файл, / — команда' })
 const emit = defineEmits<{ send: [content: ContentBlock[]]; cancel: []; error: [message: string] }>()
 
 const inputComponent = ref<InstanceType<typeof AppTextarea>>()
@@ -164,7 +166,7 @@ function keydown(event: KeyboardEvent) {
     if ((event.key === 'Enter' || event.key === 'Tab') && !event.shiftKey && count) { event.preventDefault(); void pick(suggestItems.value[active.value], event.key === 'Tab'); return }
     if (event.key === 'Escape') { event.preventDefault(); dismissedAt = suggest.value.start; suggest.value = null; return }
   }
-  if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); submit() }
+  if (event.key === 'Enter' && !event.shiftKey && !props.field) { event.preventDefault(); submit() }
 }
 
 function caretMoved(event: KeyboardEvent) {
@@ -202,8 +204,7 @@ onMounted(resize)
 watch(text, resize, { flush: 'post' })
 
 // ── Sending ───────────────────────────────────────────────────────────────
-function submit() {
-  if (!canSend.value || props.disabled) return
+function content(): ContentBlock[] {
   const value = text.value.trim()
   const links: ContentBlock[] = []
   const seen = new Set<string>()
@@ -213,17 +214,25 @@ function submit() {
     const uri = mentions.value.get(path)
     if (uri && !seen.has(path)) { seen.add(path); links.push({ type: 'resource_link', uri, name: path }) }
   }
-  emit('send', [...(value ? [{ type: 'text' as const, text: value }] : []), ...links, ...attachments.value.map(a => a.block)])
+  return [...(value ? [{ type: 'text' as const, text: value }] : []), ...links, ...attachments.value.map(a => a.block)]
+}
+function clear() {
   text.value = ''
   attachments.value = []
   mentions.value.clear()
   suggest.value = null
   void nextTick(resize)
 }
+function submit() {
+  if (!canSend.value || props.disabled || props.field) return
+  emit('send', content())
+  clear()
+}
 
 async function addFiles(list: File[]) {
   for (const file of list) {
     if (file.size > 10_000_000) { emit('error', `«${file.name}» больше 10 МБ — не прикреплён`); continue }
+    if (props.field && file.type && !file.type.startsWith('text/') && !/\.(md|txt|json|ya?ml|csv|xml|html?|[cm]?[jt]sx?|vue|py|java|go|rs|sql|sh|css)$/i.test(file.name)) { emit('error', `«${file.name}»: здесь можно приложить только текстовые файлы`); continue }
     if (file.type.startsWith('image/')) {
       const url = await new Promise<string>((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(String(r.result)); r.onerror = reject; r.readAsDataURL(file) })
       attachments.value.push({ name: file.name || 'изображение', preview: url, block: { type: 'image', mimeType: file.type, data: url.split(',')[1] } })
@@ -306,6 +315,7 @@ watch(() => props.projectId, () => { clearFiles() })
 watch(() => props.draftKey, () => { suggest.value = null; dismissedAt = -1; clearFiles() })
 
 defineExpose({
+  content, clear,
   focus: () => input.value?.focus(),
   setText: async (value: string) => { text.value = value; await nextTick(); resize(); input.value?.focus() },
 })

@@ -7,6 +7,7 @@ import { resolveMaterialTemplate } from '../../library';
 import { getLatestMaterial, isMaterialType, parseMaterialIdentifiers, saveMaterial, MaterialConflict, type MaterialType } from './index';
 import { getReadyMaterials } from './stages';
 import { MATERIAL_KINDS } from './kinds';
+import { assertDocumentWithoutProtocol } from '../document-protocol';
 
 /** The material type belongs to the session, not to tool arguments: an architecture author cannot overwrite QA. */
 function authorContext(session: AgentSession): { type: MaterialType; taskId: string } {
@@ -47,6 +48,7 @@ export function submitMaterial(session: AgentSession, args: Record<string, unkno
   if (typeof args.content !== 'string' || !args.content.trim()) throw new Error('Invalid content');
   const read = getSession(session.id).metadata.material_read_version;
   if (typeof read !== 'number') throw new Error('Call get_material before submit_material.');
+  assertDocumentWithoutProtocol(args.content);
   let material;
   try { material = saveMaterial({ task_id: taskId, type, content: args.content, expected_version: read, author: 'agent', session_id: session.id }); }
   catch (error) {

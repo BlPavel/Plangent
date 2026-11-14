@@ -1,4 +1,5 @@
 import { moduleDependencies } from './dependencies';
+import { assertDocumentWithoutProtocol } from './document-protocol';
 import fs from 'fs';
 import { validateAnalysisLinks } from './analysis-context';
 import path from 'path';
@@ -213,6 +214,7 @@ export function watchPlanDirForCreate(task: Task, repoPath: string): void {
  * the plan file. Ids are Plangent's, so ones the agent invented are dropped and renumbered.
  */
 export function submitPlan(task: Task, repoPath: string, content: string, renumber: boolean, sessionId?: string): { steps: string[]; removed: string[] } {
+  assertDocumentWithoutProtocol(content);
   validateAnalysisLinks(task.id, content);
   const previous = getLatestPlan(task.id);
   const known = new Set(parsePlanSteps(previous?.content ?? '').map(s => s.id?.toLowerCase()).filter(Boolean));

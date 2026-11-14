@@ -31,14 +31,14 @@ plansRouterRoutes.json('POST /api/projects/:projectId/tasks/:taskId/plans', (req
   const t = getTask(req.params.taskId);
   if (!t) return res.status(404).json({ error: 'Task not found' });
   const { content } = req.body;
-  if (!content) return res.status(400).json({ error: 'content required' });
+  if (typeof content !== 'string') return res.status(400).json({ error: 'content required' });
   const plan = createPlan({ task_id: t.id, content });
   res.status(201).json({ ...plan, steps: parsePlanSteps(plan.content) });
 });
 
 plansRouterRoutes.json('PATCH /api/projects/:projectId/tasks/:taskId/plans/:planId', (req, res) => {
   const { content } = req.body;
-  if (!content) return res.status(400).json({ error: 'content required' });
+  if (typeof content !== 'string') return res.status(400).json({ error: 'content required' });
   const plan = updatePlan(req.params.planId, content);
   if (!plan) return res.status(404).json({ error: 'Not found' });
   res.json({ ...plan, steps: parsePlanSteps(plan.content) });

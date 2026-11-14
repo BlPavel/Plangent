@@ -33,7 +33,8 @@
         </div>
 
         <template v-for="row in rows" :key="row.seq">
-          <div v-if="row.type === 'user'" class="msg-user">
+          <template v-if="row.type === 'user' && answerSeqs.has(row.seq)" />
+          <div v-else-if="row.type === 'user'" class="msg-user">
             <div class="bubble">
               <div v-if="row.payload.text" class="bubble-text"><template v-for="(part, i) in withMentions(row.payload.text)" :key="i"><span v-if="part.mention" class="mention">{{ part.text }}</span><template v-else>{{ part.text }}</template></template></div>
               <div v-if="extras(row).length" class="bubble-extras">
@@ -54,7 +55,19 @@
           <div v-else-if="row.type === 'save_section'" class="card notice">
             <MessageMarkdown :text="String(row.payload.summary ?? '') + ' ' + String(row.payload.link ?? '')" />
           </div>
+          <InterviewCard
+            v-else-if="row.type === 'interview_questions' && row.payload.questions?.length"
+            :session-id="sessionId"
+            :seq="row.seq"
+            :round="row.payload as InterviewRound"
+            :sent="interview.sent.get(row.seq)?.answers ?? sending.get(row.seq)?.answers ?? null"
+            :finished="interview.sent.get(row.seq)?.finish ?? sending.get(row.seq)?.finish"
+            :closed="row.seq !== interview.latest"
+            :clarified="interview.clarified.get(row.seq)"
+            :submit="(answers, finish) => answerRound(row, answers, finish)"
+          />
           <slot v-else-if="cards?.includes(row.type)" name="card" :event="row" />
+          <template v-else-if="row.type === 'tool_call' && String(row.payload.title ?? '').endsWith('ask_interview_questions')" />
           <ToolCallCard v-else-if="row.type === 'tool_call'" :call="row.payload" />
           <div v-else-if="row.type === 'git_action_progress'" class="card notice">
             <div class="card-label">Git · {{ row.payload.state === 'finished' ? 'завершено' : 'выполняется' }}</div>
@@ -156,6 +169,9 @@ import AppButton from '@shared/ui/AppButton.vue'
 import ChatComposer, { type ContentBlock } from './ChatComposer.vue'
 import { MessageMarkdown } from '@shared/markdown'
 import ToolCallCard from './ToolCallCard.vue'
+import InterviewCard from './InterviewCard.vue'
+import { answersMessage, clarifiedQuestions, sentAnswers, type InterviewRound } from '../utils/interview'
+import type { InterviewAnswer } from '@contracts'
 import UsageMeter, { type UsageInfo } from './UsageMeter.vue'
 import AgentSettingsBar from './AgentSettingsBar.vue'
 import { agentSelects, type AgentOptionsSource, type AgentSelect } from '../utils/agent-options'
@@ -243,6 +259,25 @@ const rows = computed(() => {
   const seq = (snap.value!.events[snap.value!.events.length - 1]?.seq ?? 0) + 1
   return [...committedRows.value, { seq, session_id: props.sessionId, type: streaming.type === 'thought' ? 'thought' : 'assistant', payload: { text: streaming.text }, live: true } as Row]
 })
+// Interview answers are a user message whose text block carries `_meta.plangent_interview`: the round's card shows
+// them, so the message itself is not repeated as a bubble. Only the newest round can still be answered.
+const interview = computed(() => {
+  const events = snap.value?.events ?? []
+  const sent = sentAnswers(events)
+  return { sent, clarified: clarifiedQuestions(events, sent), latest: [...events].reverse().find(e => e.type === 'interview_questions')?.seq ?? -1 }
+})
+const answerSeqs = computed(() => new Set([...interview.value.sent.values()].map(s => s.userSeq)))
+// Answers accepted by the server but not in the history yet (the agent is finishing its turn: they wait in the queue).
+const sending = ref(new Map<number, { answers: InterviewAnswer[]; finish: boolean }>())
+async function answerRound(row: Row, answers: InterviewAnswer[], finish: boolean) {
+  try {
+    error.value = ''; follow = true
+    await agentChatEndpoints.postAgentSessionsByIdByAction({ params: { id: props.sessionId, action: 'prompt' }, body: { content: [answersMessage(row.seq, row.payload as InterviewRound, answers, finish)] } })
+    sending.value.set(row.seq, { answers, finish })
+    await store.load(props.sessionId)
+    return true
+  } catch (e) { error.value = String(e); return false }
+}
 const hasConversation = computed(() => rows.value.some(r => r.type === 'user' && r.payload.text))
 // The whole conversation becomes the errand's first message; the oldest part is dropped if it is too long for one.
 function makeErrand() {
@@ -286,6 +321,7 @@ watch(() => props.sessionId, async id => {
   gitForTurn.value = false
   error.value = ''
   pending.value = []
+  sending.value = new Map()
   follow = true
   await store.connect()
   try { await store.load(id) } catch (e) { error.value = String(e); return }

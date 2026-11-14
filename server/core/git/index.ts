@@ -1,4 +1,5 @@
 
+export { executeGitOperation } from './repo/operation';
 export { captureTaskBaseCommit } from './repo/base-commit';
 export { ensureReviewWorktree } from './repo/review-worktrees';
 export { removeReviewWorktrees } from './repo/review-worktrees';

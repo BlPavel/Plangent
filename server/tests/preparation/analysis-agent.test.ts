@@ -48,7 +48,7 @@ test('analyst MCP, plan references and execution material selection', async () =
   function value(result: unknown) { return JSON.parse((result as { content: { text: string }[] }).content[0].text); }
   try {
     const client = await connect(analyst);
-    assert.deepEqual((await client.listTools()).tools.map(t => t.name), ['get_interview_guide', 'get_analysis', 'save_section']);
+    assert.deepEqual((await client.listTools()).tools.map(t => t.name), ['get_interview_guide', 'get_analysis', 'save_section', 'ask_interview_questions']);
     assert.deepEqual(allowed({ ...analyst, role: 'executor' }), ['get_step_context', 'request_help', 'report_progress']);
     assert.ok(!allowed({ ...analyst, role: 'planner' }).includes('save_section'));
     const initial = value(await client.callTool({ name: 'get_analysis', arguments: {} }));
@@ -99,6 +99,16 @@ test('analyst MCP, plan references and execution material selection', async () =
     const planning = await connect(planner);
     assert.ok(value(await planning.callTool({ name: 'get_plan', arguments: {} })).analysis);
     assert.equal((await planning.callTool({ name: 'submit_plan', arguments: { content: '- [ ] Invalid [[missing]]' } })).isError, true);
+    const currentPlan = getLatestPlan(task.id)!;
+    const format = value(await planning.callTool({ name: 'get_plan', arguments: {} })).format;
+    assert.match(format, /never copy this block/);
+    assert.doesNotMatch(format, /do not remove/);
+    for (const protocol of [format, '## Plangent protocol (do not remove)\nLegacy instructions']) {
+      const rejected = await planning.callTool({ name: 'submit_plan', arguments: { content: currentPlan.content + '\n\n' + protocol } });
+      assert.equal(rejected.isError, true);
+      assert.match(JSON.stringify(rejected), /Remove the service protocol block/);
+      assert.deepEqual(getLatestPlan(task.id), currentPlan);
+    }
     const queue = getQueue(task.id, project.id);
     queue.status = 'running';
     queue.stages = [{ id: 'stage', pauseAfter: false, sessions: [{ id: 'active', points: ['p1'], agentId: 'agent-codex', queueMode: 'execute', permissionPolicy: 'ask', status: 'running' }] }];

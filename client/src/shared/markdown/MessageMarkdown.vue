@@ -62,8 +62,9 @@ function openDocument(event: MouseEvent) {
 .md :deep(th), .md :deep(td) { padding: 6px 10px; border: 1px solid var(--border); text-align: left; }
 .md :deep(th) { background: var(--bg2); font-weight: var(--fw-semibold); }
 
-/* Mermaid: a diagram replaces its source; a broken one keeps the source with the message */
-.md :deep(.mermaid-block) { margin: 0 0 12px; }
+/* Mermaid: a diagram replaces its source; a broken one keeps the source with the message.
+   Labels are measured outside .md, so its word breaking must not reach them or long names get clipped. */
+.md :deep(.mermaid-block) { margin: 0 0 12px; overflow-wrap: normal; }
 .md :deep(.mermaid-block[data-mermaid='done']) { display: flex; justify-content: center; overflow-x: auto; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg2); }
 .md :deep(.mermaid-block svg) { max-width: 100%; height: auto; }
 .md :deep(.mermaid-block pre) { margin: 0; }

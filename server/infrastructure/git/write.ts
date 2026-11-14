@@ -92,7 +92,8 @@ export async function unstage(root: string, paths: string[], options: GitOperati
   return serializeGit(root, async () => {
     await check(root, options, true);
     const info = await repositoryInfo(root);
-    return run(root, info?.head ? ['restore', '--staged', '--', ...list] : ['rm', '--cached', '-r', '--ignore-unmatch', '--', ...list], options);
+    // `reset` tolerates paths git does not know (already unstaged new files); `restore --staged` fails on them for the whole call.
+    return run(root, info?.head ? ['reset', '-q', 'HEAD', '--', ...list] : ['rm', '--cached', '-r', '--ignore-unmatch', '--', ...list], options);
   });
 }
 /** Throws away the local changes of the files: tracked ones go back to HEAD, new ones (untracked or only added) are deleted. */

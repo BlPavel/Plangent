@@ -25,6 +25,7 @@ test('execution roots, errands, task chats and independent review rounds', async
   const { prepareWork } = await import('../../core-services').then(() => import('../../core/work/start'));
   const { createErrand } = await import('../../core-services').then(() => import('../../core/work/errands'));
   const { taskChat } = await import('../../core-services').then(() => import('../../core/work/task-chat'));
+  const { taskContextFor } = await import('../../core/work/task-context');
   const taskReview = await import('../../core-services').then(() => import('../../core/review/code/task-review'));
   const { reviews } = await import('../../core-services').then(() => import('../../core/review/code/reviews'));
   const { createReviewStore } = await import('../../infrastructure/db/repositories/review/code');
@@ -69,12 +70,14 @@ test('execution roots, errands, task chats and independent review rounds', async
       const report = sessions.history(executor.id).filter(e => e.type === 'assistant').map(e => e.payload.text).join('');
       assert.equal(JSON.parse(report).cwd, workspace.path);
       await getOrchestrator(queueTask.id)!.stop();
-      assert.equal((await post(url, { branch_name: 'ignored-on-restart', auto_review: true })).status, 202);
-      assert.equal(getOrchestrator(queueTask.id)!.queue.stages.at(-1)!.sessions[0].kind, 'review');
+      assert.equal((await post(url, { branch_name: 'ignored-on-restart', auto_review: true, review_agent: { agent_id: agent.id } })).status, 202);
+      assert.equal(tasks.getTask(queueTask.id)!.auto_review, true);
+      assert.equal(tasks.getTask(queueTask.id)!.review_agent?.agent_id, agent.id);
+      assert.equal(getOrchestrator(queueTask.id)!.queue.stages.flatMap(stage => stage.sessions).some(s => s.kind === 'review'), false, 'the automatic review follows the queue');
       assert.equal(workspaces.activeWorkspace(queueTask.id)!.id, workspace.id);
       await getOrchestrator(queueTask.id)!.stop();
     });
-    await t.test('failed preparation never starts executor', async () => {
+    await t.test('failed setup is recorded, the folder stays usable and commands report it', async () => {
       const badRepo = path.join(temporary, 'bad-repo');
       git(temporary, 'clone', remote, badRepo);
       const badProject = projects.createProject({ name: 'Bad setup', repo_path: badRepo, default_agent_id: agent.id,
@@ -82,10 +85,11 @@ test('execution roots, errands, task chats and independent review rounds', async
       const task = tasks.createTask({ project_id: badProject.id });
       createPlan({ task_id: task.id, content: '- [ ] (p1) Implement' });
       queues.saveQueue(queues.replaceStages(queues.getQueue(task.id, badProject.id), [{ sessions: [{ points: ['p1'], agentId: agent.id }] }]));
-      assert.equal((await post('/projects/' + badProject.id + '/tasks/' + task.id + '/queue/start')).status, 400);
-      assert.equal(workspaces.activeWorkspace(task.id)!.status, 'failed');
-      assert.equal(sessions.listSessions(badProject.id).length, 0);
-      assert.equal(getOrchestrator(task.id), undefined);
+      assert.equal((await post('/projects/' + badProject.id + '/tasks/' + task.id + '/queue/start')).status, 202);
+      await until(() => /code 7/.test(workspaces.activeWorkspace(task.id)!.error));
+      assert.equal(workspaces.activeWorkspace(task.id)!.status, 'ready');
+      await assert.rejects(workspaces.ensureWorkspaceSetup(task.id), /code 7/);
+      await getOrchestrator(task.id)?.stop();
     });
     const errand = await createErrand(project.id, { text: 'Correct card spacing', agent_id: agent.id });
     await t.test('errand runs in workspace, keeps the developer\'s title and chat stays the same', async () => {
@@ -103,9 +107,20 @@ test('execution roots, errands, task chats and independent review rounds', async
       sessions.updateSession(executor.id, { status: 'complete', reason: 'Implemented requested behavior' });
       const chat = await taskChat(queueTask.id);
       assert.equal(chat.role, 'task-chat');
-      assert.match(String(chat.metadata.briefing), /Implemented requested behavior/);
-      assert.match(String(chat.metadata.briefing), /Implement/);
+      // The briefing only points at the tool; the context itself is read on demand.
+      assert.match(String(chat.metadata.briefing), /get_task_context/);
+      assert.doesNotMatch(String(chat.metadata.briefing), /Implemented requested behavior/);
+      const context = await taskContextFor(queueTask.id);
+      assert.match(JSON.stringify(context.executor_reports), /Implemented requested behavior/);
+      assert.match(context.plan, /Implement/);
       assert.equal((await taskChat(queueTask.id)).id, chat.id);
+      assert.equal(chat.agent_id, agent.id, 'the first follow-up agent is the executor\'s');
+      // Replacing starts a new agent; later rounds go to it, the old chat stays.
+      sessions.updateSession(chat.id, { status: 'ready' });
+      const replaced = await taskChat(queueTask.id, agent.id, { replace: true });
+      assert.notEqual(replaced.id, chat.id); assert.equal(replaced.role, 'task-chat');
+      assert.equal((await taskChat(queueTask.id)).id, replaced.id);
+      assert.equal((await taskChat(errand.task.id, undefined, { replace: true })).id, errand.session.id, 'an errand changes its agent in place');
     });
     await t.test('manual reviews retain rounds including rejected, fixed and empty results', async () => {
       const task = errand.task, workspace = workspaces.activeWorkspace(task.id)!;
@@ -190,6 +205,28 @@ test('execution roots, errands, task chats and independent review rounds', async
       assert.equal(await workspaces.rootForSession(main.session), project.repo_path);
       await assert.rejects(createErrand(project.id, { title: 'Second', agent_id: agent.id, place: 'main' }), /основной папке уже идёт работа/);
       tasks.updateTask(main.task.id, { closed_at: new Date().toISOString(), status: 'done' });
+    });
+    await t.test('a task with a plan gets its branch and review agent at creation and one automatic review after its queue', async () => {
+      git(repo, 'branch', 'feature/planned');
+      const response = await post('/projects/' + project.id + '/plan-tasks', { title: 'Planned', place: 'existing', branch: 'feature/planned',
+        auto_review: true, review_agent: { agent_id: agent.id } });
+      assert.equal(response.status, 202);
+      const { task } = await response.json() as { task: import('../../models').Task };
+      assert.equal(task.kind, 'task'); assert.deepEqual(task.review_agent, { agent_id: agent.id, model: '', effort: '' });
+      await until(() => workspaces.activeWorkspace(task.id)?.status === 'ready' && !!tasks.getTask(task.id)!.base_commit);
+      assert.equal(workspaces.activeWorkspace(task.id)!.branch, 'feature/planned');
+      fs.writeFileSync(path.join(workspaces.activeWorkspace(task.id)!.path, 'planned.txt'), 'done\n');
+      const { broadcast } = await import('../../core-services').then(() => import('../../core/shared'));
+      const reviewers = () => sessions.listSessions(project.id).filter(s => s.task_id === task.id && s.role === 'task-reviewer');
+      broadcast({ type: 'queue_finished', taskId: task.id, projectId: project.id, failed: 0 });
+      await until(() => reviewers().length === 1);
+      assert.equal(reviewers()[0].agent_id, agent.id);
+      broadcast({ type: 'queue_finished', taskId: task.id, projectId: project.id, failed: 0 });
+      await new Promise(resolve => setTimeout(resolve, 100));
+      assert.equal(reviewers().length, 1, 'a later queue run is a follow-up');
+      await until(() => sessions.getSession(reviewers()[0].id).status === 'thinking');
+      await taskReview.submitTaskReview(reviewers()[0], 'Plan review complete');
+      await host.closeSession(reviewers()[0].id);
     });
     await t.test('automatic errand review runs once after a normal turn', async () => {
       const errand = await createErrand(project.id, { text: 'Review this automatically', agent_id: agent.id, auto_review: true });

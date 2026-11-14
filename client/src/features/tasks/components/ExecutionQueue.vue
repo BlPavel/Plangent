@@ -287,10 +287,8 @@ function drop(to: { stageId: string } | { index: number }) {
 .stage-dot { width: 8px; height: 8px; border-radius: var(--radius-xs); background: var(--stage-color); }
 
 .history { display: flex; flex-direction: column; gap: 8px; padding-top: 4px; border-top: 1px solid var(--border); }
-.history-toggle { display: inline-flex; align-items: center; gap: 6px; align-self: flex-start; padding: 4px 2px; background: none; border: none; color: var(--text-muted); font-size: var(--fs-sm); font-family: inherit; cursor: pointer; }
-.history-toggle:hover { color: var(--text); }
-.history-toggle svg { width: 14px; height: 14px; transition: transform var(--motion-modal); }
-.history-toggle svg.open { transform: rotate(90deg); }
+.history > button svg { width: 14px; height: 14px; transition: transform var(--motion-modal); }
+.history > button svg.open { transform: rotate(90deg); }
 .history-runs { display: flex; flex-direction: column; gap: 12px; }
 .history-run { display: flex; flex-direction: column; gap: 4px; }
 .history-date { font-size: var(--fs-xs); color: var(--text-faint); }

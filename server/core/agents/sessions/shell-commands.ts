@@ -45,6 +45,8 @@ export async function runSessionCommand(session: AgentSession, args: Record<stri
   const seconds = args.timeout_seconds === undefined ? DEFAULT_TIMEOUT_S : Number(args.timeout_seconds);
   if (!Number.isFinite(seconds) || seconds < 1) throw new Error('Invalid timeout_seconds');
   const signal = captureTurn(session.id);
+  // Reading and editing never wait for the folder's setup (dependencies, setup command); running commands does.
+  if (session.task_id) await moduleDependencies.workspaces.ensureWorkspaceSetup(session.task_id);
   const cwd = await commandFolder(session, args.cwd);
   await authorize(session, command, signal);
   const project = getProject(session.project_id);

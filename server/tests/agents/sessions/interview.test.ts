@@ -18,10 +18,10 @@ test('preparation settings and interview: live MCP instructions, role access, ou
   const { createProject } = await import('../../../core-services').then(() => import('../../../core/projects'));
   const { createTask } = await import('../../../core-services').then(() => import('../../../core/tasks'));
   const { createAgent } = await import('../../../core-services').then(() => import('../../../core/agents/catalog'));
-  const { initSessions, createSession, history, updateSession } = await import('../../../core-services').then(() => import('../../../core/agents/sessions/sessions'));
+  const { initSessions, createSession, history, updateSession, addEvent } = await import('../../../core-services').then(() => import('../../../core/agents/sessions/sessions'));
   const host = await import('../../../core-services').then(() => import('../../../core/agents/sessions/acp-host'));
   const { commandPrompt, sessionCommands } = await import('../../../core-services').then(() => import('../../../core/agents/sessions/commands'));
-  const { interviewGuide, DEFAULT_INTERVIEW_INSTRUCTION } = await import('../../../core-services').then(() => import('../../../core/library/interview-instruction'));
+  const { interviewGuide, interviewPending, DEFAULT_INTERVIEW_INSTRUCTION } = await import('../../../core-services').then(() => import('../../../core/library/interview-instruction'));
   const { libraryRouter } = await import('../../../core-services').then(() => import('../../../api/http/routes/library'));
   const { mcpRouter, sessionMcpConfig, allowed } = await import('../../../core-services').then(() => import('../../../api/mcp/server'));
   const { MATERIAL_KINDS } = await import('../../../core-services').then(() => import('../../../core/preparation/materials/kinds'));
@@ -46,13 +46,13 @@ test('preparation settings and interview: live MCP instructions, role access, ou
     assert.ok(response.ok, await response.clone().text());
     return response.status === 204 ? {} : response.json() as Promise<Record<string, string>>;
   };
-  const call = async (session: typeof architect, name: string) => {
+  const call = async (session: typeof architect, name: string, args: Record<string, unknown> = {}) => {
     const config = sessionMcpConfig(session, true)[0] as { url: string; headers: { name: string; value: string }[] };
-    const response = await fetch(config.url, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', ...Object.fromEntries(config.headers.map(h => [h.name, h.value])) }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: {} } }) });
+    const response = await fetch(config.url, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', ...Object.fromEntries(config.headers.map(h => [h.name, h.value])) }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }) });
     return response.json() as Promise<{ error?: unknown; result?: { isError?: boolean; content: { text: string }[] } }>;
   };
-  const read = async (session: typeof architect, name: string) => {
-    const result = await call(session, name); assert.ok(!result.error && !result.result?.isError, JSON.stringify(result));
+  const read = async (session: typeof architect, name: string, args: Record<string, unknown> = {}) => {
+    const result = await call(session, name, args); assert.ok(!result.error && !result.result?.isError, JSON.stringify(result));
     return JSON.parse(result.result!.content[0].text);
   };
   try {
@@ -78,6 +78,43 @@ test('preparation settings and interview: live MCP instructions, role access, ou
     assert.deepEqual(commandPrompt(architect, [{ type: 'text', text: '/agent:interview native' }]), [{ type: 'text', text: '/interview native' }]);
     assert.deepEqual(commandPrompt(architect, [{ type: 'text', text: 'mention /interview later' }]), [{ type: 'text', text: 'mention /interview later' }]);
     assert.deepEqual(commandPrompt(architect, [{ type: 'text', text: '/interviewer' }]), [{ type: 'text', text: '/interviewer' }]);
+
+    const round = { round: 1, total_rounds: 2, topic: 'Данные', upcoming: ['Проверки'], questions: [{ id: 'items', text: 'Формат элементов?', options: [{ label: 'Массив { id, text }', detail: 'Стабильные ключи', recommended: true }, { label: 'Массив строк' }] }] };
+    assert.deepEqual(await read(qa, 'ask_interview_questions', round), { shown: true, next: 'End your turn now. The developer’s answers arrive as the next message. Do not do the requested work before the interview ends.' });
+    assert.deepEqual(history(qa.id).filter(e => e.type === 'interview_questions').map(e => e.payload), [round]);
+    for (const invalid of [
+      { ...round, questions: [{ text: 'Один вариант?', options: [{ label: 'Да' }] }] },
+      { ...round, questions: [{ text: 'Две рекомендации?', options: [{ label: 'A', recommended: true }, { label: 'B', recommended: true }] }] },
+      { ...round, round: 3 },
+      { ...round, questions: [] },
+    ]) {
+      const result = await call(qa, 'ask_interview_questions', invalid);
+      assert.ok(result.error || result.result?.isError, JSON.stringify(invalid));
+    }
+    assert.equal(history(qa.id).filter(e => e.type === 'interview_questions').length, 1);
+    assert.ok(!allowed(executor).includes('ask_interview_questions'));
+
+    // The section waits for the whole interview, whatever the developer asked for.
+    const save = () => call(qa, 'submit_material', { content: '# QA' });
+    const blocked = async (pattern: RegExp) => { const result = await save(); assert.ok(result.result?.isError, JSON.stringify(result)); assert.match(result.result!.content[0].text, pattern); };
+    const notBlocked = async () => { const result = await save(); assert.doesNotMatch(JSON.stringify(result), /interview is in progress/); };
+    const answer = (roundSeq: number, answers: unknown[], finish = false) => addEvent(qa.id, 'user', { text: 'answers', content: [{ type: 'text', text: 'answers', _meta: { plangent_interview: { round_seq: roundSeq, answers, ...(finish ? { finish } : {}) } } }] });
+    const lastRound = () => history(qa.id).filter(e => e.type === 'interview_questions').at(-1)!.seq;
+    await blocked(/wait for the developer's answers to round 1/);
+    answer(lastRound(), [{ question_id: 'items', kind: 'option', index: 0 }]);
+    await blocked(/ask round 2 of 2/);
+    await read(qa, 'ask_interview_questions', { ...round, round: 2 });
+    answer(lastRound(), [{ question_id: 'items', kind: 'clarify', text: 'Что такое id?' }]);
+    await blocked(/clarify/);
+    await read(qa, 'ask_interview_questions', { ...round, round: 3, total_rounds: 3 });
+    answer(lastRound(), [{ question_id: 'items', kind: 'option', index: 1 }]);
+    await notBlocked();
+    await read(qa, 'ask_interview_questions', { ...round, round: 1, total_rounds: 4 });
+    await blocked(/round 1/);
+    answer(lastRound(), [], true);
+    await notBlocked();
+    assert.equal(interviewPending([]), null);
+    assert.equal((await read(architect, 'get_interview_guide')).ask, 'ask_interview_questions');
 
     const instruction = await request('/library', 'POST', { type: 'interview-instruction', slug: 'interview', title: 'Interview', scope: 'global', content: 'CUSTOM GUIDE' });
     assert.equal((await read(architect, 'get_interview_guide')).instruction, 'CUSTOM GUIDE');

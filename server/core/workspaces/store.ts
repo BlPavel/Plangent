@@ -31,8 +31,8 @@ export function insertWorkspace(input: Pick<Workspace, 'project_id' | 'task_id' 
 export function activePortSlots(projectId: string): number[] {
   return records.activePortSlots(projectId);
 }
-export function updateWorkspace(id: string, patch: Partial<Pick<Workspace, 'status' | 'error' | 'setup_log' | 'removed_at'>>): Workspace {
-  const entries = Object.entries(patch).filter(([key]) => ['status', 'error', 'setup_log', 'removed_at'].includes(key));
+export function updateWorkspace(id: string, patch: Partial<Pick<Workspace, 'status' | 'error' | 'setup_log' | 'removed_at' | 'setup_done'>>): Workspace {
+  const entries = Object.entries(patch).filter(([key]) => ['status', 'error', 'setup_log', 'removed_at', 'setup_done'].includes(key));
   if (entries.length) records.patchWorkspace(id, entries);
   const workspace = getWorkspace(id);
   if (workspace.status !== 'ready' && patch.status) {

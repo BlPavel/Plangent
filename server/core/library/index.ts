@@ -23,7 +23,7 @@ export function libraryItemsFor(project: Project, type?: LibraryItemType): (Libr
 
 
 export { buildCodeFixerBriefing } from './code-fixer-instruction';
-export { interviewFocus } from './interview-instruction';
+export { interviewFocus, interviewGuide, interviewRound, interviewPending, interviewBlocksTool, type InterviewRound } from './interview-instruction';
 export { resolvePlanTemplate } from './plan-template';
 export { resolveCommitRules } from './commit-rules';
 export { resolveMaterialTemplate } from './section-settings';

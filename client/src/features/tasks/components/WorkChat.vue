@@ -4,8 +4,10 @@
       <AppSelect v-model="selected" :options="chatOptions" size="sm" prefix="Чат" />
     </div>
     <div v-if="error" class="chat-note error" role="alert">{{ error }}</div>
-    <ChatView v-if="shown" :key="shown" :session-id="shown" :workspace-id="workspace?.id ?? null" :no-composer="closed" :start="awaitingBrief" />
-    <WorkPreparing v-else-if="task.kind === 'errand' && !closed" :workspace="workspace" />
+    <!-- A new errand keeps its preparation card until the agent can take the request: the chat opens ready to write. -->
+    <WorkPreparing v-if="connecting && !introPassed" :workspace="workspace" :placed="!!task.base_commit" agent-connecting />
+    <ChatView v-else-if="shown" :key="shown" :session-id="shown" :workspace-id="workspace?.id ?? null" :no-composer="closed" :start="awaitingBrief" />
+    <WorkPreparing v-else-if="task.kind === 'errand' && !closed" :workspace="workspace" :placed="!!task.base_commit" />
     <AppButton variant="ghost" size="sm" v-else-if="!loading && !closed" class="chat-open" @click="open">Открыть чат задачи</AppButton>
     <span v-else-if="loading" class="chat-note">Подготовка чата…</span>
   </div>
@@ -31,6 +33,14 @@ const chatOptions = computed(() => [
   { value: '', label: props.task.kind === 'errand' ? 'Поручение' : 'Задача (знает всю задачу)' },
   ...(props.task.kind !== 'errand' ? steps.value.map(s => ({ value: s.id, label: s.title || 'Шаг' })) : []),
 ])
+/** A new errand whose agent is still connecting and has had no request yet. */
+const connecting = computed(() => {
+  const session = chats.sessions.find(s => s.id === shown.value)
+  return session?.role === 'errand' && session.status === 'starting' && !!session.metadata.awaiting_brief && !closed.value
+})
+/** The card is for the very first connection; a later reconnect (a changed agent) shows the chat with its own loading dots. */
+const introPassed = ref(false)
+watch([connecting, shown], ([isConnecting, id]) => { if (id && !isConnecting) introPassed.value = true }, { immediate: true })
 /** A new errand: its chat is open, the developer writes the request. */
 const awaitingBrief = computed(() => {
   const session = chats.sessions.find(s => s.id === shown.value)
@@ -50,7 +60,7 @@ async function open() {
   finally { loading.value = false }
 }
 watch(() => props.task.id, () => {
-  selected.value = ''; primary.value = ''; error.value = ''
+  selected.value = ''; primary.value = ''; error.value = ''; introPassed.value = false
   const existing = mine.value.find(s => s.role === primaryRole.value)
   if (existing) primary.value = existing.id
   // An errand's chat appears by itself once its folder is ready; a task's chat is created on demand.

@@ -12,10 +12,12 @@
         <span class="setup-label">Агент</span>
         <AgentPicker :key="setupKey" v-model="choice" :default-agent-id="defaultAgentId" />
         <span class="setup-label">Скилл</span>
-        <AppSelect v-if="skills.length" v-model="skill" :options="skills.map(s => ({ value: s.id, label: s.title + ' · ' + origins[s.origin] }))" :label="L.skill" />
+        <AppSelect v-if="skills.length" v-model="skill" :options="skills.map(s => ({ value: s.id, label: s.title + ' · ' + origins[s.origin] }))" :label="L.skill" :popup-max-width="220" size="sm" />
         <span v-else class="muted">Нет скиллов проекта: только общие проверки из настроек</span>
         <span class="setup-label">Пожелание</span>
-        <AppTextarea v-model="wish" block rows="4" placeholder="Необязательно: на что обратить внимание, что не проверять" spellcheck="false" />
+        <div class="wish">
+          <ChatComposer ref="wishField" field :project-id="projectId" :workspace-id="workspaceId" :draft-key="`task:${taskId}:review:${target}:wish`" placeholder="Необязательно: на что обратить внимание, что не проверять.  @ — файл проекта" @error="state.error.value = $event" />
+        </div>
       </div>
       <p v-if="unfinishedText" class="warn">{{ unfinishedText }}</p>
       <div class="setup-actions">
@@ -28,7 +30,7 @@
     </div>
     <template v-if="detail">
       <label v-if="state.reviews.value.length > 1">Раунд
-        <AppSelect v-model="state.selected.value" :options="state.reviews.value.map((r, i) => ({ value: r.id, label: 'Раунд ' + r.round + (i === 0 ? ' · последний' : '') }))" label="Раунд ревью" />
+        <AppSelect v-model="state.selected.value" :options="state.reviews.value.map((r, i) => ({ value: r.id, label: 'Раунд ' + r.round + (i === 0 ? ' · последний' : '') }))" label="Раунд ревью" :popup-max-width="220" size="sm" />
       </label>
       <p class="phase" :class="'phase-' + phase" role="status"><span class="phase-dot" />{{ reviewerName }} · {{ phaseText }}</p>
       <p v-if="phase === 'stalled' || phase === 'failed'" role="status" class="warn">{{ stalledText }}</p>
@@ -59,7 +61,7 @@
           <AppButton v-if="!readonly && countOf('discussing')" size="sm" :variant="askCount ? 'blue' : 'ghost'" :disabled="locked || state.busy.value || !askCount || reviewerWorking || !isLatest" :title="askCount ? (reviewerWorking ? 'Ревьюер ещё отвечает: дождитесь конца хода' : 'Ваши сообщения в обсуждаемых карточках уйдут ревьюеру одной пачкой') : 'Нажмите «Обсудить» в карточке и напишите ревьюеру'" @click="ask">
             Отправить ревьюеру{{ askCount ? ` (${askCount})` : '' }}
           </AppButton>
-          <AppButton v-if="!readonly" size="sm" :variant="canSend ? 'blue' : 'ghost'" :disabled="locked || state.busy.value || !canSend || !isLatest" :title="sendHint" @click="send">
+          <AppButton v-if="!readonly" size="sm" :variant="canSend ? 'blue' : 'ghost'" :disabled="locked || state.busy.value || !canSend || !isLatest" :title="sendHint" @click="openSend">
             Отправить {{ L.recipient }} ({{ acceptedCount }})
           </AppButton>
         </div>
@@ -68,23 +70,38 @@
       <p v-else-if="reportChat" class="report-link" role="status">{{ L.recipientNom }} вносил изменения. Отчёт о том, что и как исправлено, он пишет в своём чате, там же можно задать вопрос или попросить поправить.
         <AppButton variant="link" size="md" type="button"  @click="$emit('openPlanner', reportChat)">Открыть {{ L.recipientChat }}</AppButton></p>
       <RemarkCard :task-id="taskId"
-        v-for="(remark, index) in detail.remarks" :key="remark.id" :ref="el => setCard(remark.id, el)"
-        :remark="remark" :target="target" :number="index + 1" :readonly="readonly || locked" :busy="state.busy.value" :selected="focused === remark.id" :planner="plannerState(remark)" :reviewer-working="reviewerWorking"
+        v-for="remark in activeRemarks" :key="remark.id" :ref="el => setCard(remark.id, el)"
+        :remark="remark" :target="target" :number="cardNumber(remark.id)" :readonly="readonly || locked" :busy="state.busy.value" :selected="focused === remark.id" :planner="plannerState(remark)" :reviewer-working="reviewerWorking"
         @highlight="$emit('highlight', $event)" @open-planner="remark.planner_session_id && $emit('openPlanner', remark.planner_session_id)" @edit="(text, suggestion) => state.run(() => api.edit(projectId, taskId, detail!.review.id, remark.id, text, suggestion))"
         @decision="(status, comment) => state.run(() => api.decision(projectId, taskId, detail!.review.id, remark.id, status, comment))"
       />
+      <details v-if="appliedRemarks.length" :key="`${projectId}:${taskId}:${target}:${detail.review.id}`" ref="appliedSection" class="applied-remarks">
+        <summary>Учтено ({{ appliedRemarks.length }})</summary>
+        <div class="applied-cards">
+          <RemarkCard :task-id="taskId"
+            v-for="remark in appliedRemarks" :key="remark.id" :ref="el => setCard(remark.id, el)"
+            :remark="remark" :target="target" :number="cardNumber(remark.id)" :readonly="readonly || locked" :busy="state.busy.value" :selected="focused === remark.id" :planner="plannerState(remark)" :reviewer-working="reviewerWorking"
+            @highlight="$emit('highlight', $event)" @open-planner="remark.planner_session_id && $emit('openPlanner', remark.planner_session_id)" @edit="(text, suggestion) => state.run(() => api.edit(projectId, taskId, detail!.review.id, remark.id, text, suggestion))"
+            @decision="(status, comment) => state.run(() => api.decision(projectId, taskId, detail!.review.id, remark.id, status, comment))"
+          />
+        </div>
+      </details>
     </template>
     <p v-if="detail && !detail.remarks.length" class="muted">{{ phase === 'running' ? 'Замечаний пока нет: ревьюер ещё работает.' : 'Ревьюер не нашёл замечаний.' }}</p>
+    <AppModal v-model="sendOpen" size="small" :title="'Отправить ' + L.recipient" confirm-label="Отправить" @confirm="send">
+      <p class="muted">Принятых карточек: {{ acceptedCount }}. {{ L.recipientNom }} исправит {{ L.subject }}.</p>
+      <AppSelect v-model="recipient" :options="recipientOptions" label="Кому отправить принятые карточки" block :popup-max-width="360" />
+      <AgentPicker v-if="sendOpen && recipient === NEW_RECIPIENT" v-model="authorChoice" :default-agent-id="defaultAgentId" />
+    </AppModal>
   </aside>
 </template>
 <script setup lang="ts">
-import AppTextarea from '@shared/ui/AppTextarea.vue'
-import { useDraft } from '@core/composables/useDraft'
-import { computed, onBeforeUnmount, ref, toRef, watch, type ComponentPublicInstance } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, shallowRef, toRef, watch, type ComponentPublicInstance } from 'vue'
 import { useAgentsStore } from '@features/agents'
-import { useChatStore } from '@features/agent-chat'
+import { useChatStore, ChatComposer } from '@features/agent-chat'
 import AppButton from '@shared/ui/AppButton.vue'
 import AppSelect from '@shared/ui/AppSelect.vue'
+import AppModal from '@shared/ui/AppModal.vue'
 import { MessageMarkdown } from '@shared/markdown'
 import { planReviewApi as api } from '../../plan-review/api'
 import { usePlanReview } from '../../plan-review/usePlanReview'
@@ -92,14 +109,17 @@ import type { Launch, Remark, ReviewTarget, Skill } from '../../plan-review/type
 import { reviewLabels } from '../../plan-review/labels'
 import AgentPicker from './AgentPicker.vue'
 import RemarkCard from './RemarkCard.vue'
-const props = withDefaults(defineProps<{ projectId: string; taskId: string; target?: ReviewTarget; defaultAgentId?: string | null; locked: boolean; readonly: boolean }>(), { target: 'plan' })
+const props = withDefaults(defineProps<{ projectId: string; workspaceId?: string | null; taskId: string; target?: ReviewTarget; defaultAgentId?: string | null; locked: boolean; readonly: boolean }>(), { target: 'plan' })
 const emit = defineEmits<{ highlight: [ids: string[]]; counts: [counts: Record<string, number>]; attention: [count: number]; close: []; openPlanner: [sessionId: string] }>()
 const target = toRef(props, 'target')
 const L = computed(() => reviewLabels[props.target])
 const state = usePlanReview(toRef(props, 'projectId'), toRef(props, 'taskId'), target)
 const detail = state.detail, agents = useAgentsStore(), chats = useChatStore()
+const activeRemarks = computed(() => detail.value?.remarks.filter(r => r.status !== 'applied') ?? [])
+const appliedRemarks = computed(() => detail.value?.remarks.filter(r => r.status === 'applied') ?? [])
+const appliedSection = shallowRef<HTMLDetailsElement>()
 watch(state.counts, counts => emit('counts', counts), { immediate: true })
-const wish = useDraft(() => `task:${props.taskId}:review:${props.target}:wish`, () => ''), skill = ref(''), skills = ref<Skill[]>([])
+const wishField = ref<InstanceType<typeof ChatComposer>>(), skill = ref(''), skills = ref<Skill[]>([])
 const origins = { direct: 'проект', group: 'группа', global: 'везде' }
 const choice = ref<Launch>({ agent_id: '' })
 const acceptedCount = computed(() => detail.value?.remarks.filter(r => r.status === 'accepted').length || 0)
@@ -113,7 +133,7 @@ const sending = ref('')
 const plannerWorking = computed(() => detail.value?.remarks.some(r => plannerState(r) === 'working') ?? false)
 const activityText = computed(() => sending.value
   || (plannerWorking.value ? `${L.value.recipientNom} исправляет ${L.value.subject} по принятым карточкам…` : '')
-  || (reviewerWorking.value && phase.value === 'done' ? 'Ревьюер отвечает в карточках…' : ''))
+  || (reviewerAnswering.value && phase.value === 'done' ? 'Ревьюер отвечает в карточках…' : ''))
 // The planner's report is written in its chat; the panel points there once cards have gone to it.
 const reportChat = computed(() => detail.value?.remarks.filter(r => ['sent', 'applied', 'answered'].includes(r.status) && r.planner_session_id).at(-1)?.planner_session_id || '')
 const askCount = computed(() => detail.value?.remarks.filter(r => r.status === 'discussing' && r.messages.some(m => m.author === 'developer' && !m.sent)).length || 0)
@@ -140,6 +160,9 @@ const phase = computed(() => {
 })
 // Cards under discussion wait for the reviewer's chat to answer.
 const reviewerWorking = computed(() => ['starting', 'thinking', 'waiting'].includes(reviewerChat.value?.status || ''))
+// Completing the report precedes the end of its agent turn. Only sent discussion messages mean an answer is pending.
+const reviewerAnswering = computed(() => reviewerWorking.value && !!detail.value?.remarks.some(r =>
+  r.status === 'discussing' && r.messages.at(-1)?.author === 'developer' && !!r.messages.at(-1)?.sent))
 const phaseText = computed(() => ({ none: '', running: 'Ревью выполняется…', stalled: 'Ревьюер остановился', failed: 'Ревью не удалось', done: 'Ревью завершено' })[phase.value])
 const stalledText = computed(() => {
   const why = reviewerChat.value?.status === 'error' ? 'Агент завершился с ошибкой' + (reviewerChat.value.reason ? ': ' + reviewerChat.value.reason : '') + '. ' : ''
@@ -193,9 +216,12 @@ function setCard(id: string, el: Element | ComponentPublicInstance | null) {
   else cards.delete(id)
 }
 function cardNumber(id: string) { return (detail.value?.remarks.findIndex(r => r.id === id) ?? -1) + 1 }
-function focusCard(id: string) {
-  focused.value = id; cards.get(id)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+async function focusCard(id: string) {
   const remark = detail.value?.remarks.find(r => r.id === id)
+  if (remark?.status === 'applied' && appliedSection.value) appliedSection.value.open = true
+  focused.value = id
+  await nextTick()
+  cards.get(id)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
   if (remark) emit('highlight', remark.steps.filter(s => !s.deleted).map(s => s.id))
 }
 // The settings sit in the panel, open until the first review exists and then behind «Новый раунд».
@@ -221,15 +247,47 @@ async function loadSkills(p: string, t: string) {
 watch(() => [props.projectId, props.taskId, props.target, state.reviews.value[0]?.id], loadSetup, { immediate: true })
 async function launch() {
   if (props.locked || props.readonly || !choice.value.agent_id) return
-  if (await state.run(() => api.launch(props.projectId, props.taskId, { ...choice.value, ...(skill.value ? { skill_id: skill.value } : {}), wish: wish.value }, props.target))) { wish.value = ''; setupOpen.value = false }
+  // The wish is the text (its @path mentions are read by the reviewer in the project) and the attached text files.
+  const blocks = wishField.value?.content() ?? []
+  const wish = blocks.flatMap(b => b.type === 'text' ? [b.text] : []).join('\n')
+  const attachments = blocks.flatMap(b => b.type === 'resource' && 'text' in b.resource ? [{ name: decodeURIComponent(b.resource.uri.replace(/^file:\/+/, '')), content: b.resource.text }] : [])
+  if (await state.run(() => api.launch(props.projectId, props.taskId, { ...choice.value, ...(skill.value ? { skill_id: skill.value } : {}), wish, ...(attachments.length ? { attachments } : {}) }, props.target))) { wishField.value?.clear(); setupOpen.value = false }
 }
 // No dialog: the planner that wrote the plan continues if it is free, otherwise a new one starts with the default agent.
+// Sending asks who gets the cards: a free chat of the author (the one that wrote the document is preselected) or a new agent.
+const NEW_RECIPIENT = 'new'
+const sendOpen = ref(false)
+const recipients = ref<{ id: string; title: string; available: boolean; busy: boolean }[]>([]), recipient = ref(NEW_RECIPIENT), authorChoice = ref<Launch>({ agent_id: '' })
+// Chats are named as in the chat tabs: the entity and the number among the task's chats of this kind, oldest first.
+const chatNames = computed(() => {
+  const own = chats.sessions.filter(s => s.task_id === props.taskId && (props.target === 'plan' ? s.role === 'planner' : s.role === 'material-author' && s.metadata?.material_type === props.target))
+    .sort((a, b) => (a.created_at ?? '').localeCompare(b.created_at ?? ''))
+  const label = { plan: 'План', architecture: 'Архитектура', qa: 'QA' }[props.target]
+  return new Map(own.map((s, i) => [s.id, `${label} ${i + 1}`]))
+})
+const recipientOptions = computed(() => [
+  ...recipients.value.map(s => ({ value: s.id, label: chatNames.value.get(s.id) ?? s.title, description: s.available ? '' : s.busy ? 'отвечает сейчас' : 'нельзя продолжить', disabled: !s.available })),
+  { value: NEW_RECIPIENT, label: 'Новый агент' },
+])
+async function openSend() {
+  if (!detail.value || props.locked || props.readonly || state.busy.value || !canSend.value) return
+  try {
+    const found = await api.recipients(props.projectId, props.taskId, props.target)
+    recipients.value = found.sessions
+    recipient.value = found.default_session_id ?? found.sessions.find(s => s.available)?.id ?? NEW_RECIPIENT
+  } catch { recipients.value = []; recipient.value = NEW_RECIPIENT }
+  sendOpen.value = true
+}
 async function send() {
   if (!detail.value || props.locked || props.readonly || state.busy.value || !canSend.value) return
+  const fresh = recipient.value === NEW_RECIPIENT
+  if (fresh && !authorChoice.value.agent_id) { state.error.value = 'Выберите агента, которому отправить карточки'; sendOpen.value = false; return }
+  const input = fresh ? { ...authorChoice.value, session_id: null } : { session_id: recipient.value }
+  sendOpen.value = false
   sending.value = `Отправляю карточки ${L.value.recipient}…`
-  try { await state.run(() => api.send(props.projectId, props.taskId, detail.value!.review.id, props.defaultAgentId ? { agent_id: props.defaultAgentId } : {})) } finally { sending.value = '' }
+  try { await state.run(() => api.send(props.projectId, props.taskId, detail.value!.review.id, input)) } finally { sending.value = '' }
 }
-watch(() => [props.projectId, props.taskId, props.target], () => { focused.value = ''; emit('highlight', []) })
+watch(() => [props.projectId, props.taskId, props.target], () => { sendOpen.value = false; focused.value = ''; emit('highlight', []) })
 watch(state.selected, () => { focused.value = ''; emit('highlight', []) })
 </script>
 <style scoped>
@@ -241,6 +299,8 @@ h3, p { margin: 0; } h3 { font-size: var(--fs-md); }
 .counts { color: var(--text-muted); font-size: var(--fs-sm); }
 .next { padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg2); }
 .spacer { flex: 1; }
+.applied-remarks > summary { cursor: pointer; color: var(--text-muted); font-size: var(--fs-sm); }
+.applied-cards { display: flex; flex-direction: column; gap: var(--sp-3); margin-top: var(--sp-3); }
 .error-box { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 12px; border: 1px solid var(--danger); border-radius: var(--radius-sm); background: var(--danger-soft); color: var(--danger-hover); }
 .activity { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: var(--radius-sm); font-weight: 600; background: var(--warning-soft); color: var(--warning-text); }
 .activity .phase-dot { animation: phase-pulse 1.2s ease-in-out infinite; }

@@ -185,7 +185,7 @@ const props = defineProps<{
   /** Workspace the screen shows (the one being viewed); null — the main place. */
   workspaceId?: string | null
   /** The task the screen was opened from: shows the «← Задача-N» crumb and files the review under it. */
-  task?: { id: string; key: string } | null
+  task?: { id: string; key: string; kind?: 'task' | 'errand' } | null
   /** Agent preselected when sending a round: the task's agent, else the project's. */
   defaultAgentId?: string | null
   /** Проверка inside a work's page: the work's folder is finished in place, remarks go to the work's chat. */
@@ -203,11 +203,11 @@ watch(() => props.projectId, id => external.reset(id, props.workspaceId ?? undef
 const pathsOf = (list: GitChange[]) => list.flatMap(c => [c.path, ...(c.originalPath ? [c.originalPath] : [])])
 async function stageMany(list: GitChange[], stage: boolean) { try { await git.run(stage ? 'stage' : 'unstage', { paths: pathsOf(list) }); await store.refresh() } catch { /* git error displayed in the branch bar */ } }
 const toggleStage = (change: GitChange) => stageMany([change], change.status === 'U' || ['.', ' ', '?'].includes(change.indexStatus))
-async function discardChange(change: GitChange) {
-  const isNew = change.status === '?' || change.status === 'A'
-  const message = isNew ? `Удалить новый файл ${change.path}? Это нельзя отменить.` : `Отменить все изменения в ${change.path}? Они будут потеряны безвозвратно.`
+async function discardChange(list: GitChange[]) {
+  const isNew = list.every(c => c.status === '?' || c.status === 'A'), what = list.length === 1 ? list[0].path : `${list.length} файлов`
+  const message = isNew ? `Удалить новые файлы (${what})? Это нельзя отменить.` : `Отменить все изменения: ${what}? Они будут потеряны безвозвратно.`
   if (!(await app.confirm(message, { confirmLabel: isNew ? 'Удалить' : 'Отменить изменения', danger: true }))) return
-  try { await git.run('discard', { paths: pathsOf([change]) }); await store.refresh() } catch { /* git error displayed in the branch bar */ }
+  try { await git.run('discard', { paths: pathsOf(list) }); await store.refresh() } catch { /* git error displayed in the branch bar */ }
 }
 /** Ticks «к коммиту» only make sense for the folder against HEAD. */
 const stageable = computed(() => !!store.repository && store.effectiveBase === 'head' && !store.openedReviewId)
@@ -223,8 +223,8 @@ type LeftTab = 'changes' | 'files' | 'search'
 const leftTab = ref<LeftTab>('changes')
 const agent = useReviewAgentStore()
 // In a work the remarks go to the work's own chat unless another agent is chosen.
-watch(() => [props.work, props.task?.id, props.workspaceId], () => {
-  agent.work = props.work && props.task ? { projectId: props.projectId, taskId: props.task.id, workspaceId: props.workspaceId ?? undefined } : null
+watch(() => [props.work, props.task?.id, props.task?.kind, props.workspaceId], () => {
+  agent.work = props.work && props.task ? { projectId: props.projectId, taskId: props.task.id, workspaceId: props.workspaceId ?? undefined, kind: props.task.kind } : null
 }, { immediate: true })
 const mode = ref<'diff' | 'file'>('diff')
 const quickOpen = ref(false)

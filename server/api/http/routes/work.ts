@@ -1,10 +1,12 @@
 import { listWork, workAttention } from '../../../core/work';
+import { changeWorkBranch } from '../../../core/work/branch';
 import { closeWork, reopenWork, cancelErrand, addPlan, errandFromWork } from '../../../core/work/actions';
 import { WorkspaceRemovalError } from '../../../core/workspaces';
 import { Router } from 'express';
 import { typedRoutes, type JsonHandler } from '../typed-route';
 import type { EndpointKey, Endpoints } from '@contracts';
 import { createErrand } from '../../../core/work/errands';
+import { createPlanTask } from '../../../core/work/plan-tasks';
 import { taskChat } from '../../../core/work/task-chat';
 import { launchIndependentReview } from '../../../core/review/code/task-review';
 import { getTask } from '../../../core/tasks';
@@ -21,9 +23,24 @@ work.json('POST /api/projects/:projectId/errands', async (req, res) => {
   catch (error) { if (!res.headersSent) res.status(400).json({ error: String(error instanceof Error ? error.message : error) }); }
 });
 
+work.json('POST /api/projects/:projectId/plan-tasks', async (req, res) => {
+  try { await createPlanTask(req.params.projectId, req.body ?? {}, task => res.status(202).json({ task })); }
+  catch (error) { if (!res.headersSent) res.status(400).json({ error: String(error instanceof Error ? error.message : error) }); }
+});
+
+work.json('POST /api/projects/:projectId/tasks/:taskId/switch-branch', async (req, res) => {
+  const controller = new AbortController();
+  const cancel = () => { if (!res.writableEnded) controller.abort(); };
+  res.once('close', cancel);
+  try { res.json(await changeWorkBranch(req.params.projectId, req.params.taskId, req.body, controller.signal)); }
+  catch (error) { res.status(error instanceof DomainError ? error.status : 400).json({ error: error instanceof Error ? error.message : String(error),
+    ...('output' in Object(error) ? { output: (error as { output: string }).output } : {}) }); }
+  finally { res.off('close', cancel); }
+});
+
 work.json('POST /api/projects/:projectId/tasks/:taskId/chat', async (req, res) => {
   if (getTask(req.params.taskId)?.project_id !== req.params.projectId) return res.status(404).json({ error: 'Task not found' });
-  try { res.json(await taskChat(req.params.taskId, req.body?.agent_id)); }
+  try { res.json(await taskChat(req.params.taskId, req.body?.agent_id, { replace: req.body?.replace === true, model: req.body?.model, reasoningEffort: req.body?.reasoning_effort })); }
   catch (error) { res.status(400).json({ error: String(error instanceof Error ? error.message : error) }); }
 });
 

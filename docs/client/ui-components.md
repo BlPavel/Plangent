@@ -4,6 +4,8 @@ Use `@shared/ui` primitives for controls so their appearance, keyboard handling
 and disabled states remain consistent. Choose AppButton (including link/icon
 variants), AppInput, AppTextarea, AppSelect/Combobox, AppCheckbox, AppRadioGroup,
 AppSwitch, AppTabs, AppSegmented, AppBadge/Count/Chip, AppModal and AppPopover.
+AppChoiceList is a single choice among options that each need an explanation line
+(selectable tiles with radio semantics, an optional badge and quieter `secondary` fallbacks).
 FormField wraps common fields; BranchSelect wraps the combobox. List entries with a title,
 badges, buttons on the right and meta lines below are AppItemCard (`nested` for a card inside
 a card); sidebar-style rows are AppTreeRow. Do not restyle such cards locally.

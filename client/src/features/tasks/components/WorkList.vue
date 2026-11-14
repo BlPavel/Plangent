@@ -37,7 +37,8 @@
             </template>
             <template #subtitle>
               <div class="work-meta">
-                <span class="work-state" :class="{ live: e.state.agentWorking, 'is-attention': e.state.group === 'attention', 'is-failed': workTone(e.state) === 'danger' }">{{ e.state.text }}</span>
+                <span v-if="isRemoving(e.task.id)" class="work-state" role="status"><i class="work-spin" />Удаляется…</span>
+                <span v-else class="work-state" :class="{ live: e.state.agentWorking, 'is-attention': e.state.group === 'attention', 'is-failed': workTone(e.state) === 'danger' }">{{ e.state.text }}</span>
                 <span v-if="branchOf(e)" class="work-branch" :title="'Ветка: ' + branchOf(e)">⎇ {{ branchOf(e) }}</span>
                 <span v-if="inMainFolder(e)" class="work-main-folder" title="Работа идёт в основной папке проекта">основная папка</span>
                 <span v-if="e.task.kind !== 'errand' && e.state.counts.steps">шаги {{ e.state.counts.completed }}/{{ e.state.counts.steps }}</span>
@@ -51,7 +52,7 @@
               </div>
               <div class="work-actions">
                 <template v-if="e.state.group !== 'done'">
-                  <AppButton :variant="e.state.group === 'attention' ? 'primary' : 'subtle'" size="sm" @click.stop="open(e)">{{ e.state.actionLabel }}</AppButton>
+                  <AppButton :variant="e.state.group === 'attention' ? 'primary' : 'subtle'" size="sm" @click.stop="open(e)">{{ actionLabel(e) }}</AppButton>
                 </template>
                 <template v-else>
                   <AppButton v-if="e.state.action === 'errand'" variant="subtle" size="sm" @click.stop="startFollowUp(e.task)">Поручение по этой</AppButton>
@@ -94,7 +95,7 @@ import AppMenu, { type MenuItem } from '@shared/ui/AppMenu.vue'
 import FormField from '@shared/ui/FormField.vue'
 import NewWork from './NewWork.vue'
 import { useWorkStore } from '../stores/work'
-import { useWorkActions } from '../composables/useWorkActions'
+import { isRemoving, useWorkActions } from '../composables/useWorkActions'
 import { workGroups, workStageIndex, workStagesOf, workTab, workTone } from '../utils/work-state'
 
 const props = defineProps<{ project: Project; members: Project[]; agents: Agent[]; defaultAgentId?: string | null; ownerName: (projectId: string) => string }>()
@@ -124,14 +125,19 @@ const groups = computed(() => workGroups
 
 const branchOf = (e: WorkEntry) => e.workspace?.branch ?? e.task.branch_name ?? ''
 const inMainFolder = (e: WorkEntry) => !isGroup.value && !e.workspace && !!e.task.base_commit && e.state.group !== 'done'
-const stageName = (e: WorkEntry) => e.state.group === 'done' ? 'Готово' : workStagesOf(e.task)[Math.min(workStageIndex(e.task, e.state), workStagesOf(e.task).length - 1)]?.label ?? ''
+const stageIndex = (e: WorkEntry) => workStageIndex(e.task, e.state, undefined, e.stages)
+/** The stage the work is on now; a task during preparation — the one its stage strip marks as current. */
+const currentStage = (e: WorkEntry) => workStagesOf(e.task)[Math.min(stageIndex(e), workStagesOf(e.task).length - 1)]
+const preparing = (e: WorkEntry) => e.task.kind === 'task' && e.state.stage === 'plan' && e.state.group === 'preparation'
+const stageName = (e: WorkEntry) => e.state.group === 'done' ? 'Готово' : currentStage(e)?.label ?? ''
+const actionLabel = (e: WorkEntry) => preparing(e) ? currentStage(e)!.label + ' →' : e.state.actionLabel
 const stageTitle = (e: WorkEntry) => workStagesOf(e.task).map(s => s.label).join(' → ')
 /** One bar per stage: passed — green, the current one — by what it waits for, the rest — grey. */
 function bars(e: WorkEntry) {
-  const current = workStageIndex(e.task, e.state), tone = e.state.group === 'attention' ? 'attention' : 'current'
+  const current = stageIndex(e), tone = e.state.group === 'attention' ? 'attention' : 'current'
   return workStagesOf(e.task).map((_, i) => i < current ? 'passed' : i === current ? tone : '')
 }
-function open(e: WorkEntry) { emit('open', e.task, workTab(e.state, e.task.kind)) }
+function open(e: WorkEntry) { if (isRemoving(e.task.id)) return; emit('open', e.task, preparing(e) ? currentStage(e)!.tab : workTab(e.state, e.task.kind)) }
 function onCreated(task: Task, tab: string) {
   void work.load(); emit('changed')
   emit('open', task, tab)
@@ -143,7 +149,7 @@ function rowMenu(task: Task): MenuItem[] {
   return [
     { label: 'Редактировать', hint: 'Номер задачи и описание', action: () => void edit(task) },
     { separator: true },
-    { label: 'Удалить', hint: 'Без возможности восстановления', danger: true, action: () => void remove(task) },
+    { label: 'Удалить', hint: 'Без возможности восстановления', danger: true, disabled: isRemoving(task.id), action: () => void remove(task) },
   ]
 }
 const editing = ref<Task | null>(null), saving = ref(false), editError = ref('')
@@ -205,6 +211,8 @@ async function submitFollowUp() {
 .work-number { flex-shrink: 0; font-size: var(--fs-sm); color: var(--text-muted); }
 .work-title { min-width: 0; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .work-meta { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: var(--fs-sm); color: var(--text-faint); white-space: nowrap; overflow: hidden; }
+.work-spin { display: inline-block; width: 10px; height: 10px; margin-right: 6px; border: 2px solid var(--border-strong); border-top-color: var(--blue-hover); border-radius: var(--radius-round); vertical-align: -1px; animation: work-spin 0.8s linear infinite; }
+@keyframes work-spin { to { transform: rotate(360deg); } }
 .work-state { color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; }
 .work-state.is-attention { color: var(--warning-text); }
 .work-state.is-failed { color: var(--danger-hover); }

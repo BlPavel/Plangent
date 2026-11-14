@@ -10,12 +10,17 @@ import { getProject } from '../projects';
 import { Task } from '../../models';
 
 function parseTask(row: Record<string, unknown>): Task {
-  return { ...row, auto_review: !!row.auto_review } as unknown as Task;
+  return { ...row, auto_review: !!row.auto_review, review_agent: parseReviewAgent(row.review_agent) } as unknown as Task;
+}
+
+function parseReviewAgent(value: unknown): Task['review_agent'] {
+  try { return typeof value === 'string' && value ? JSON.parse(value) : null; } catch { return null; }
 }
 
 function validateWorkFields(data: Partial<Task>): void {
   if (data.kind !== undefined && !['task', 'errand'].includes(data.kind)) throw new Error('Invalid task kind');
   if (data.auto_review !== undefined && typeof data.auto_review !== 'boolean') throw new Error('Invalid auto_review');
+  if (data.review_agent != null && (typeof data.review_agent !== 'object' || typeof data.review_agent.agent_id !== 'string' || !data.review_agent.agent_id)) throw new Error('Invalid review_agent');
   if (data.close_reason != null && !['done', 'cancelled'].includes(data.close_reason)) throw new Error('Invalid close reason');
   if (data.closed_at != null && (typeof data.closed_at !== 'string' || !Number.isFinite(Date.parse(data.closed_at)))) throw new Error('Invalid closed_at');
   if (data.origin_task_id != null && (typeof data.origin_task_id !== 'string' || !getTask(data.origin_task_id))) throw new Error('Origin task not found');
@@ -33,7 +38,7 @@ export function getTask(id: string): Task | null {
   return row ? parseTask(row) : null;
 }
 
-export function createTask(data: { project_id: string; key?: string; title?: string; description?: string; jira_url?: string; branch_name?: string } & Partial<Pick<Task, 'kind' | 'auto_review' | 'closed_at' | 'close_reason' | 'origin_task_id' | 'external_key'>>): Task {
+export function createTask(data: { project_id: string; key?: string; title?: string; description?: string; jira_url?: string; branch_name?: string } & Partial<Pick<Task, 'kind' | 'auto_review' | 'review_agent' | 'closed_at' | 'close_reason' | 'origin_task_id' | 'external_key'>>): Task {
   const id = uuidv4();
   validateWorkFields(data);
   if (data.key !== undefined && (typeof data.key !== 'string' || !data.key.trim())) throw new Error('Invalid task key');
@@ -41,7 +46,7 @@ export function createTask(data: { project_id: string; key?: string; title?: str
     const lastNumber = (queries.lastNumberSelectTasks(data.project_id) as { key: string }[])
       .reduce((max, row) => { const match = /^Задача-(\d+)$/.exec(row.key); return match ? Math.max(max, Number(match[1])) : max; }, 0);
     const key = data.key ?? 'Задача-' + (lastNumber + 1);
-    queries.createTaskInsertTasks(id, data.project_id, key, data.title ?? null, data.description ?? null, data.jira_url ?? null, data.branch_name ?? null, data.kind ?? 'task', +(data.auto_review ?? false), data.closed_at ?? null, data.close_reason ?? null, data.origin_task_id ?? null, data.external_key ?? null);
+    queries.createTaskInsertTasks(id, data.project_id, key, data.title ?? null, data.description ?? null, data.jira_url ?? null, data.branch_name ?? null, data.kind ?? 'task', +(data.auto_review ?? false), data.closed_at ?? null, data.close_reason ?? null, data.origin_task_id ?? null, data.external_key ?? null, data.review_agent ? JSON.stringify(data.review_agent) : null);
     if (data.description?.trim()) {
       moduleDependencies.preparation.createAnalysisSection({ task_id: id, title: 'Описание задачи', description: data.description, kind: 'source', author: 'developer' });
     }
@@ -60,7 +65,7 @@ export function updateTask(id: string, data: Partial<Task>): Task | null {
   if (data.target_branch != null && (typeof data.target_branch !== 'string' || /[\r\n\0]/.test(data.target_branch))) throw new Error('Invalid target branch');
   if (data.base_branch != null && (typeof data.base_branch !== 'string' || /[\r\n\0]/.test(data.base_branch))) throw new Error('Invalid base branch');
   const u = { ...current, ...Object.fromEntries(Object.entries(data).filter(([,v]) => v !== undefined)) };
-  queries.updateTaskUpdateTasks(u.key, u.title ?? null, u.description ?? null, u.jira_url ?? null, u.branch_name ?? null, u.status, u.finish_scenario ?? null, u.target_branch ?? null, u.external_key ?? null, u.base_branch ?? null, u.kind, +u.auto_review, u.closed_at ?? null, u.close_reason ?? null, u.origin_task_id ?? null, id);
+  queries.updateTaskUpdateTasks(u.key, u.title ?? null, u.description ?? null, u.jira_url ?? null, u.branch_name ?? null, u.status, u.finish_scenario ?? null, u.target_branch ?? null, u.external_key ?? null, u.base_branch ?? null, u.kind, +u.auto_review, u.closed_at ?? null, u.close_reason ?? null, u.origin_task_id ?? null, u.review_agent ? JSON.stringify(u.review_agent) : null, id);
   broadcast({ type: 'task_updated', taskId: id, projectId: current.project_id });
   return getTask(id);
 }

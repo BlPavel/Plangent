@@ -4,7 +4,7 @@ import { groupMembers, listProjects } from './index';
 export interface ReferenceEntry { key: string; name: string; path: string; description: string; kind: 'project' | 'source' }
 
 /** Increment when existing sessions need to receive revised workspace instructions. */
-export const WORKSPACE_BRIEFING_VERSION = 4;
+export const WORKSPACE_BRIEFING_VERSION = 5;
 
 const entry = (p: Project): ReferenceEntry => ({ key: p.key ?? '', name: p.name, path: p.repo_path, description: p.description, kind: p.kind === 'source' ? 'source' : 'project' });
 

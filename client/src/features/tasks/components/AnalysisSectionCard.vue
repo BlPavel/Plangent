@@ -10,20 +10,19 @@
   >
     <header class="card-head">
       <span v-if="!locked && !editing" class="grip" title="Перетащите, чтобы поменять порядок, или выберите в меню ⋯">⠿</span>
-      <AppButton variant="subtle" size="xs" icon :aria-expanded="expanded" :title="expanded ? 'Свернуть' : 'Развернуть'" @click="expanded = !expanded">
+      <!-- The chevron is the control; the title beside it folds too. The body starts under the title's first letter. -->
+      <AppButton variant="subtle" size="xs" icon :aria-expanded="expanded" :title="expanded ? 'Свернуть' : 'Развернуть'" :aria-label="(expanded ? 'Свернуть: ' : 'Развернуть: ') + section.title" @click="expanded = !expanded">
         <UIIconChevronRight class="chevron" :class="{ open: expanded }" />
-        <span class="card-title">{{ section.title }}</span>
       </AppButton>
+      <span class="card-title" :title="section.title" @click="expanded = !expanded">{{ section.title }}</span>
       <span v-if="highlight" class="card-fresh">изменено агентом</span>
-      <AppBadge class="author" :tone="section.author === 'agent' ? 'open' : 'neutral'" :title="section.author === 'agent' ? 'Раздел записал агент' : 'Раздел добавили вы'">{{ section.author === 'agent' ? '✦ агент' : 'ты' }}</AppBadge>
+      <AppBadge class="author" :tone="section.author === 'agent' ? 'open' : 'neutral'" :title="section.author === 'agent' ? 'Раздел записал агент' : 'Раздел добавили вы'">{{ section.author === 'agent' ? '✦ агент' : 'вы' }}</AppBadge>
+      <!-- Quiet until the card is hovered: editing at hand, the rest (moving, deleting) in ⋯. -->
       <div v-if="!locked && !editing" class="card-actions">
         <AppButton variant="subtle" size="xs" icon title="Редактировать" aria-label="Редактировать раздел" @click="startEdit(); editing = true; expanded = true">
           <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M10.8 2.7l2.5 2.5M3 13l.6-3L10.3 3.3a1 1 0 011.4 0l1 1a1 1 0 010 1.4L6 12.4 3 13z" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" /></svg>
         </AppButton>
-        <AppButton variant="danger-ghost" size="xs" icon title="Удалить раздел" aria-label="Удалить раздел" @click="$emit('remove')">
-          <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2.5 4h11M6 4V2.8c0-.4.3-.8.8-.8h2.4c.5 0 .8.4.8.8V4m2 0l-.5 8.4c0 .5-.4.9-.9.9H4.9c-.5 0-.9-.4-.9-.9L3.5 4M6.5 7v4M9.5 7v4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" /></svg>
-        </AppButton>
-        <AppMenu :items="menu" size="xs" />
+        <AppMenu :items="menu" size="xs" title="Ещё" />
       </div>
     </header>
 
@@ -40,7 +39,7 @@
       <MessageMarkdown v-if="section.description.trim()" class="card-body" :text="section.description" />
       <p v-else class="card-empty">Без описания</p>
     </template>
-    <p v-else-if="section.description.trim()" class="card-preview" @click="expanded = true">{{ section.description.trim().split('\n')[0].replace(/^[#>*\-\s]+/, '') }}</p>
+    <p v-else-if="section.description.trim()" class="card-preview" @click="expanded = true">{{ preview }}</p>
 
     <ul v-if="section.files.length" class="files">
       <li v-for="file in section.files" :key="file.id" class="file">
@@ -106,16 +105,21 @@ const editing = computed({ get: () => sectionDraft.value.active, set: value => {
 const title = computed({ get: () => sectionDraft.value.title, set: value => { sectionDraft.value.title = value } })
 const description = computed({ get: () => sectionDraft.value.description, set: value => { sectionDraft.value.description = value } })
 const conflict = computed(() => editing.value && sectionDraft.value.version !== JSON.stringify([props.section.title, props.section.description]))
+const preview = computed(() => {
+  const [first, ...rest] = props.section.description.trim().split('\n')
+  const text = first.replace(/^[#>*\-\s]+/, '')
+  return rest.some(line => line.trim()) ? `${text}…` : text
+})
 watch(() => props.opened, value => { if (value) expanded.value = true }, { immediate: true })
 function showChanges() { title.value = props.section.title; description.value = props.section.description; sectionDraft.value.version = JSON.stringify([props.section.title, props.section.description]) }
 function cancelEdit() { editing.value = false; title.value = ''; description.value = ''; sectionDraft.value.version = '' }
 function startEdit() { if (!editing.value) showChanges() }
 const menu = computed(() => [
-  { label: 'Редактировать', action: () => { startEdit(); editing.value = true; expanded.value = true } },
   { label: props.section.kind === 'source' ? 'В проработанные' : 'В исходные', action: () => emit('move', props.section.kind === 'source' ? 'worked' : 'source') },
   { label: 'Переместить выше', action: () => emit('shift', -1) },
   { label: 'Переместить ниже', action: () => emit('shift', 1) },
-  { label: 'Удалить раздел', danger: true, action: () => emit('remove') },
+  { separator: true },
+  { label: 'Удалить раздел', hint: 'Вместе с файлами', danger: true, action: () => emit('remove') },
 ])
 function drop(event: DragEvent) {
   if (props.locked || editing.value) return
@@ -131,9 +135,10 @@ function selectFiles(event: Event) { const input = event.target as HTMLInputElem
 function paste(event: ClipboardEvent) { const files = Array.from(event.clipboardData?.files ?? []); if (files.length) { event.preventDefault(); emit('upload', files) } }
 </script>
 <style scoped>
-.card { --indent: 20px; display: flex; flex-direction: column; gap: 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); transition: border-color var(--motion-modal), background var(--motion-modal), box-shadow var(--motion-slow); }
+/* --indent: where the title starts — after the grip and the chevron button — so the body lines up under it. */
+.card { --indent: calc(var(--size-xs) + 6px); display: flex; flex-direction: column; gap: 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); transition: border-color var(--motion-modal), background var(--motion-modal), box-shadow var(--motion-slow); }
 .card:hover { border-color: var(--border-strong); }
-.card.movable { --indent: 38px; }
+.card.movable { --indent: calc(12px + 6px + var(--size-xs) + 6px); }
 .card.expanded { background: var(--bg2); padding-bottom: 12px; }
 .card.editing { border-color: var(--blue); background: var(--bg2); box-shadow: 0 0 0 3px var(--blue-soft); }
 .card.opened { border-color: var(--blue-hover); }
@@ -144,14 +149,12 @@ function paste(event: ClipboardEvent) { const files = Array.from(event.clipboard
 .grip { width: 12px; flex-shrink: 0; color: var(--text-faint); font-size: var(--fs-sm); line-height: 1; cursor: grab; user-select: none; opacity: 0; transition: opacity var(--motion-fast); }
 .card:hover .grip, .card:focus-within .grip { opacity: 1; }
 .card.movable:active { cursor: grabbing; }
-.card-toggle { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; padding: 2px 4px 2px 0; background: none; border: none; color: var(--text); font-family: inherit; font-size: var(--fs-md); font-weight: 600; text-align: left; cursor: pointer; }
-.card-toggle:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; border-radius: var(--radius-4); }
 .chevron { width: 14px; height: 14px; flex-shrink: 0; color: var(--text-muted); transition: transform var(--motion-modal); }
 .chevron.open { transform: rotate(90deg); }
-.card-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-title { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-md); font-weight: 600; color: var(--text); cursor: pointer; }
 .card-fresh { font-size: var(--fs-xs); color: var(--blue-hover); white-space: nowrap; }
-.author { flex-shrink: 0; }
-.card-actions { display: flex; align-items: center; gap: 2px; opacity: 0.55; transition: opacity var(--motion-fast); }
+.author { flex-shrink: 0; margin-left: auto; }
+.card-actions { display: flex; align-items: center; gap: 2px; opacity: 0; transition: opacity var(--motion-fast); }
 .card:hover .card-actions, .card:focus-within .card-actions { opacity: 1; }
 
 .card-preview { padding-left: var(--indent); font-size: var(--fs-md); color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
