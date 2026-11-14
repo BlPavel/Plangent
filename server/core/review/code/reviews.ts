@@ -400,14 +400,18 @@ export function createReviewService(records = createCodeReviewRepository(), depe
       const { info } = await context(projectId);
       editable(reviewFor(projectId, reviewId), info);
       const item = itemFor(reviewId, itemId);
-      if (item.status === 'draft') throw new DomainError('Edit the draft instead', 409);
-      const kind = input.kind === 'implement' ? 'implement' : 'text';
+      // The developer's own draft is edited; a draft of the review agent can be talked over before it is sent.
+      const discussed = item.status === 'draft' && item.author === 'agent' && !item.outdated;
+      if (item.status === 'draft' && !discussed) throw new DomainError('Edit the draft instead', 409);
+      const kind = input.kind === 'implement' && !discussed ? 'implement' : 'text';
       const text = typeof input.text === 'string' ? input.text.trim().slice(0, 8000) : '';
       if (!text) throw new DomainError('Message text required');
       const choice = Number.isInteger(input.choice) ? Number(input.choice) : null;
       const message = records.transaction(() => {
         const created = store.createMessage({ item_id: item.id, author: 'developer', kind, text, choice });
         if (kind === 'implement' && item.kind === 'question') store.updateItem(item.id, { kind: 'fix' });
+        // A discussed remark is a question to the agent: it answers instead of changing the code.
+        if (discussed && item.kind !== 'question') store.updateItem(item.id, { kind: 'question' });
         if (item.closed) store.updateItem(item.id, { closed: false, ...(item.status === 'rejected' ? { status: 'needs_decision' as const } : {}) });
         return created;
       });

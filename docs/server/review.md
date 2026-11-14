@@ -77,6 +77,10 @@ Code review items can be closed before dispatch, while queued, or while the agen
 Closing preserves queued replies but excludes the item from future batches. A late agent reply
 is recorded without reopening the item. Explicitly adding a developer reply reopens the discussion.
 
+A draft of the review agent (not outdated) accepts a developer reply before it is sent, like a branch review remark
+accepts a discussion: the reply queues, the item becomes a question and the next batch carries the thread. An
+`implement` reply is not allowed on a draft; the developer's own drafts are still edited, not replied to.
+
 An implement reply from the developer converts a code review question into a fix item in the
 same transaction as saving the reply. Ordinary discussion replies preserve the question kind.
 

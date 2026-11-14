@@ -25,7 +25,7 @@
       </div>
 
       <div v-if="item.author === 'agent' && state === 'draft' && !readOnly && !item.outdated" class="it-note muted">
-        {{ decision === 'accepted' ? 'Вы приняли замечание: оно уйдёт агенту на исправление по «Отправить».' : 'Замечание агента ждёт вашего решения. «Принять» — оно уйдёт на исправление по «Отправить»; «Обсудить» — станет вопросом, и агент ответит.' }}
+        {{ decision === 'accepted' ? 'Вы приняли замечание: оно уйдёт агенту на исправление по «Отправить».' : 'Замечание агента ждёт вашего решения. «Принять» — оно уйдёт на исправление по «Отправить»; «Обсудить» — напишите агенту: сообщение встанет в очередь и уйдёт по «Отправить».' }}
       </div>
 
       <div v-for="message in thread" :key="message.id" class="it-msg" :class="[message.author, message.kind, { queued: !message.sent }]">
@@ -54,8 +54,8 @@
       <!-- Everything the developer can do with the item is here, at the bottom: write, discuss, request changes, finish. -->
       <form v-if="!readOnly || canGoto" class="it-reply" @submit.prevent="submitText">
         <AppTextarea
-          v-if="!readOnly && state !== 'draft' && (item.closed || !queuedReplies.length)"
-          v-model="text" :disabled="actionBusy" block rows="2" :placeholder="state === 'closed' ? 'Написать агенту (пункт откроется снова)…' : 'Ответить агенту…'"
+          v-if="!readOnly && (state !== 'draft' || discussing) && (item.closed || !queuedReplies.length)"
+          v-model="text" :disabled="actionBusy" block rows="2" :placeholder="state === 'draft' ? 'Что в этом замечании непонятно или с чем вы не согласны? Написанное встанет в очередь и уйдёт агенту вместе с остальным. Ctrl+Enter — в очередь' : state === 'closed' ? 'Написать агенту (пункт откроется снова)…' : 'Ответить агенту…'"
           @keydown.enter.ctrl.prevent="submitText" @keydown.enter.meta.prevent="submitText"
         />
         <div v-if="canGoto || item.outdated || mode !== 'none' || canReopen || (!readOnly && !item.closed) || $slots.extra" class="it-actions">
@@ -72,8 +72,9 @@
             <AppButton class="it-act" size="xs" variant="ghost" type="button" :disabled="actionBusy" title="Убрать написанное из очереди: текст вернётся в поле ответа" @click="cancelQueued">Отменить</AppButton>
           </template>
           <template v-else-if="mode === 'typing'">
-            <AppButton v-if="item.kind === 'question' && !noImplement" class="it-act" size="xs" variant="primary" type="button" :disabled="actionBusy" title="Написанное станет заданием: агент внесёт изменения в код" @click="requestChange">Исправить</AppButton>
-            <AppButton type="submit" class="it-act" size="xs" variant="blue" :disabled="actionBusy" title="Продолжить обсуждение: ответ уйдёт агенту со следующей отправкой">{{ item.kind === 'question' ? 'Обсудить' : 'В очередь' }}</AppButton>
+            <AppButton v-if="state === 'draft'" class="it-act" size="xs" variant="subtle" type="button" :disabled="actionBusy" @click="emit('stop-discussing')">Отмена</AppButton>
+            <AppButton v-if="item.kind === 'question' && !noImplement && state !== 'draft'" class="it-act" size="xs" variant="primary" type="button" :disabled="actionBusy" title="Написанное станет заданием: агент внесёт изменения в код" @click="requestChange">Исправить</AppButton>
+            <AppButton type="submit" class="it-act" size="xs" variant="blue" :disabled="actionBusy" title="Продолжить обсуждение: ответ уйдёт агенту со следующей отправкой">{{ item.kind === 'question' && state !== 'draft' ? 'Обсудить' : 'В очередь' }}</AppButton>
           </template>
           <template v-else-if="mode === 'idle'">
             <AppButton v-if="item.kind === 'question' && !noImplement" class="it-act" size="xs" variant="primary" type="button" :disabled="actionBusy" title="Попросить агента внести в код то, о чём договорились (уйдёт со следующей отправкой)" @click="requestChange">Исправить</AppButton>
@@ -112,6 +113,8 @@ const props = defineProps<{
   noImplement?: boolean
   /** A flag in the head that names what the item is («вопрос»), for screens where the kinds are mixed. */
   kindLabel?: string
+  /** The developer is writing to the agent about its draft remark (it is still a draft, so the reply box is opened by hand). */
+  discussing?: boolean
   /** The agent said it works on this item now. */
   working?: boolean
   permissions?: { permissionId: string; toolCall: { title?: string | null }; options: { optionId: string; name: string; kind: string }[] }[]
@@ -122,6 +125,7 @@ const emit = defineEmits<{
   'remove-message': [id: string]
   close: [resolution: 'accept' | 'answered' | 'reject' | 'reopen', complete: (success: boolean) => void]
   permission: [permissionId: string, optionId: string]
+  'stop-discussing': []
   'open-ref': [ref: string]
 }>()
 
@@ -149,7 +153,7 @@ const canGoto = computed(() => !!props.showLocation && !!props.item.file && !pro
 const mode = computed<'draft' | 'queued' | 'typing' | 'idle' | 'none'>(() => {
   if (props.readOnly) return 'none'
   if (props.item.closed) return text.value.trim() ? 'typing' : 'none'
-  if (props.state === 'draft') return 'draft'
+  if (props.state === 'draft') return props.discussing ? 'typing' : 'draft'
   if (queuedReplies.value.length) return 'queued'
   if (text.value.trim()) return 'typing'
   return props.state === 'waiting' && !props.item.closed ? 'idle' : 'none'

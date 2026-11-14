@@ -5,8 +5,8 @@
   />
   <ItemCard
     v-else :draft-key="`code-review:${item.review_id}:item:${item.id}:${place}:text`" :item="item" :thread="thread" :state="state" :read-only="readOnly" :show-location="showLocation" :embedded="embedded" :busy="busy" :error="error"
-    :decision="decision" :working="working" :permissions="working ? agent.permissions : []"
-    @edit="editing = true" @remove="remove" @general="general" @goto="emit('goto')" @open-ref="emit('open-ref', $event)"
+    :decision="decision" :discussing="discussing" :working="working" :permissions="working ? agent.permissions : []"
+    @stop-discussing="discussing = false" @edit="editing = true" @remove="remove" @general="general" @goto="emit('goto')" @open-ref="emit('open-ref', $event)"
     @reply="reply" @remove-message="removeMessage" @close="close"
     @permission="(permission, option) => agent.answerPermission(permission, option)"
   >
@@ -14,7 +14,7 @@
     <template v-if="item.author === 'agent' && state === 'draft' && !item.outdated && !readOnly" #extra>
       <AppButton v-if="!accepted" class="it-act" size="xs" variant="primary" type="button" :disabled="busy" title="Согласны: пункт уйдёт агенту на исправление вместе с остальными по «Отправить»" @click="setAccepted(item, true)">Принять</AppButton>
       <AppButton v-else class="it-act" size="xs" variant="ghost" type="button" :disabled="busy" title="Вернуть пункт на ваше решение: он не уйдёт с «Отправить»" @click="setAccepted(item, false)">Отменить принятие</AppButton>
-      <AppButton v-if="!accepted && item.kind !== 'question'" class="it-act" size="xs" variant="ghost" type="button" :disabled="busy" title="Сначала обсудить: пункт станет вопросом, агент ответит по «Отправить»" @click="discuss">Обсудить</AppButton>
+      <AppButton v-if="!accepted && !discussing" class="it-act" size="xs" variant="ghost" type="button" :disabled="busy" title="Сначала обсудить: напишите агенту, сообщение встанет в очередь и уйдёт по «Отправить», агент ответит в карточке" @click="discussing = true">Обсудить</AppButton>
     </template>
   </ItemCard>
 </template>
@@ -67,12 +67,15 @@ async function save(value: { kind: 'fix' | 'question'; text: string; refs: strin
 }
 const accepted = computed(() => isAccepted(props.item))
 const decision = computed(() => props.item.author === 'agent' && state.value === 'draft' && !props.item.outdated ? (accepted.value ? 'accepted' : 'pending') : undefined)
-/** Talking it over is a question to the agent: it is sent like any other and the thread goes on in the card. */
-async function discuss() { if (await run(() => store.updateDraft(props.item.review_id, props.item.id, { kind: 'question' }), 'Не удалось изменить пункт')) setAccepted(props.item, true) }
+/** Talking over the agent's draft: the reply box opens in the card, what is written queues like any reply and the thread goes on there. */
+const discussing = useDraft(() => `code-review:${props.item.review_id}:item:${props.item.id}:${place.value}:discussing`, () => false)
 const remove = () => run(() => store.removeItem(props.item.review_id, props.item.id), 'Не удалось удалить')
 const general = () => run(() => store.makeGeneral(props.item.review_id, props.item.id), 'Не удалось превратить в общий')
-const reply = async (text: string, complete: (success: boolean) => void, kind: 'text' | 'implement') =>
-  complete(await run(() => store.addMessage(props.item.review_id, props.item.id, { kind, text }), 'Не удалось сохранить ответ'))
+const reply = async (text: string, complete: (success: boolean) => void, kind: 'text' | 'implement') => {
+  const success = await run(() => store.addMessage(props.item.review_id, props.item.id, { kind, text }), 'Не удалось сохранить ответ')
+  if (success) discussing.value = false
+  complete(success)
+}
 const removeMessage = (id: string) => run(() => store.removeMessage(props.item.review_id, props.item.id, id), 'Не удалось убрать ответ')
 const close = async (resolution: 'accept' | 'answered' | 'reject' | 'reopen', complete: (success: boolean) => void) => complete(await run(() => store.closeItem(props.item.review_id, props.item.id, resolution), 'Не удалось изменить статус'))
 </script>
