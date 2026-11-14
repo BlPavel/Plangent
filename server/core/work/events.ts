@@ -1,8 +1,8 @@
-import { onBroadcast, broadcast } from '../shared/events';
+import * as records from '../../infrastructure/db/repositories/work/events';
+import { onBroadcast, broadcast } from '../shared';
 import { getTask } from '../tasks';
-import { getSession, history, updateSession } from '../agent-sessions/sessions';
-import { sessionSignals } from '../agent-sessions/acp-host';
-import { getDb } from '../../infrastructure/db/schema';
+import { getSession, history, updateSession } from '../agents';
+import { onAgentEvent} from '../agents';
 let initialized = false;
 export function initWorkEvents() {
   if (initialized) return;
@@ -18,12 +18,12 @@ export function initWorkEvents() {
     const projectId = event.projectId ?? task?.project_id ?? session?.project_id ?? run?.project_id;
     if (projectId) broadcast({ type: 'work:update', projectId, taskId });
     if (queue?.status === 'finished' && task) {
-      const previous = getDb().prepare('SELECT value FROM app_settings WHERE key=?').get('work:queue:' + task.id) as { value: string } | undefined;
+      const previous = records.initWorkEventsAppSettings('work:queue:' + task.id) as { value: string } | undefined;
       if (previous?.value !== 'finished') broadcast({ type: 'work:ready_for_check', projectId: task.project_id, taskId: task.id, taskKey: task.key });
     }
-    if (queue && task) getDb().prepare('INSERT INTO app_settings(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run('work:queue:' + task.id, queue.status);
+    if (queue && task) records.initWorkEventsAppSettings2('work:queue:' + task.id, queue.status);
   });
-  sessionSignals.on('turn_end', (id: string) => {
+  onAgentEvent('turn_end', (id: string) => {
     const session = getSession(id), task = session.task_id ? getTask(session.task_id) : null;
     if (!task || task.closed_at || task.status === 'done' || !['errand', 'task-chat'].includes(session.role) || !['ready', 'complete'].includes(session.status)) return;
     const end = history(id).filter(e => e.type === 'turn_end').at(-1);

@@ -1,70 +1,66 @@
 <template>
   <div class="tree">
-    <div ref="tools" class="tree-tools">
-      <input v-model="query" class="tree-filter app-no-drag" placeholder="Поиск…" />
-      <button type="button" class="tree-toggle app-no-drag" :class="{ on: filtered || filterOpen }" title="Что показывать" @click="filterOpen = !filterOpen">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 3.5h11l-4.2 5v4l-2.6 1.2V8.5z" /></svg>
-      </button>
-      <div v-if="filterOpen" class="filter-pop app-no-drag">
-        <label v-for="k in KINDS" :key="k.id" class="filter-opt">
-          <input type="checkbox" :checked="show[k.id]" @change="toggleKind(k.id)" /> {{ k.label }}
-        </label>
-      </div>
+    <div class="tree-tools">
+      <AppInput v-model="query" size="sm" class="tree-filter app-no-drag" placeholder="Поиск…" />
+      <span ref="filterAnchor" class="app-no-drag">
+        <AppButton variant="ghost" size="sm" icon :pressed="filtered || filterOpen" title="Что показывать" @click="filterOpen = !filterOpen">
+          <IconFilter />
+        </AppButton>
+      </span>
+      <AppPopover v-model="filterOpen" :anchor="filterAnchor" align="right" role="group">
+        <AppCheckbox v-for="k in KINDS" :key="k.id" block :model-value="show[k.id]" @update:model-value="toggleKind(k.id)">{{ k.label }}</AppCheckbox>
+      </AppPopover>
     </div>
 
     <div class="tree-list">
       <template v-for="node in visibleGroups" :key="node.group.id">
-        <div class="row group-row app-no-drag" :class="{ active: isActive(node.group) }" @click="$emit('select', node.group)">
-          <button type="button" class="chevron" :class="{ open: !isCollapsed(node.group.id) }" :title="isCollapsed(node.group.id) ? 'Развернуть' : 'Свернуть'" @click.stop="toggle(node.group.id)">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4l4 4-4 4" /></svg>
-          </button>
-          <span class="row-icon">🗂</span>
-          <span class="row-name">{{ node.group.name }}</span>
-          <span v-if="badgeCount(node.group, node.members)" class="row-blocked" :title="badgeTitle(node.group, node.members)">{{ badgeCount(node.group, node.members) }}</span>
-        </div>
+        <AppTreeRow
+          class="app-no-drag"
+          :icon="GROUP_ICON"
+          :name="node.group.name"
+          :active="isActive(node.group)"
+          :expanded="node.members.length ? !isCollapsed(node.group.id) : undefined"
+          :count="badgeCount(node.group, node.members)"
+          :count-title="badgeTitle(node.group, node.members)"
+          @click="$emit('select', node.group)"
+          @toggle="toggle(node.group.id)"
+        />
         <template v-if="!isCollapsed(node.group.id) || query">
-          <ProjectRow v-for="p in node.members" :key="p.id" :project="p" nested />
+          <AppTreeRow v-for="p in node.members" :key="p.id" class="app-no-drag" v-bind="projectRow(p)" nested @click="$emit('select', p)" />
         </template>
       </template>
 
-      <ProjectRow v-for="p in visibleLoose" :key="p.id" :project="p" />
+      <AppTreeRow v-for="p in visibleLoose" :key="p.id" class="app-no-drag" v-bind="projectRow(p)" @click="$emit('select', p)" />
 
       <div v-if="!projectsStore.workProjects.length && !projectsStore.groups.length" class="tree-empty">Пока нет проектов</div>
       <div v-else-if="!visibleGroups.length && !visibleLoose.length && !visibleSources.length" class="tree-empty">Ничего не найдено</div>
 
-      <div v-if="show.sources" class="section-label">
-        <span>Справочники</span>
-        <button type="button" class="section-add app-no-drag" title="Добавить справочник" @click="$emit('create', 'source')">+</button>
-      </div>
-      <div
-        v-for="s in visibleSources"
-        :key="s.id"
-        class="row source-row app-no-drag"
-        :class="{ active: isActive(s) }"
-        :title="s.repo_path"
-        @click="$emit('select', s)"
-      >
-        <span class="row-icon">📘</span>
-        <span class="row-name">@{{ s.key }}</span>
-      </div>
-      <div v-if="show.sources && !projectsStore.sources.length" class="tree-empty">Папки, на которые можно сослаться через @</div>
+      <template v-if="visibleSources.length">
+        <div class="section-label">Справочники</div>
+        <AppTreeRow v-for="s in visibleSources" :key="s.id" class="app-no-drag" :icon="SOURCE_ICON" :name="'@' + s.key" :title="s.repo_path" :active="isActive(s)" @click="$emit('select', s)" />
+      </template>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, defineComponent, h, onMounted, onUnmounted, ref, watch } from 'vue'
-import type { Project, ProjectKind } from '@core/models'
-import AppMenu, { type MenuItem } from '@shared/ui/AppMenu.vue'
+import { AppButton, AppCheckbox, AppInput, AppPopover, AppTreeRow, IconFilter } from '@shared/ui'
+import { computed, onMounted, ref, watch } from 'vue'
+import type { Project } from '@contracts'
 import { useProjectsStore } from '../stores/projects'
 import { useWorkAttentionStore } from '../stores/attention'
 
 interface Blocked { taskKey: string; reason: string }
 const props = defineProps<{ currentId: string | null; blocked: (projectId: string) => Blocked[] }>()
-const emit = defineEmits<{ select: [project: Project]; create: [kind: ProjectKind]; regroup: [project: Project, groupId: string | null] }>()
+defineEmits<{ select: [project: Project] }>()
 const projectsStore = useProjectsStore()
 const attention = useWorkAttentionStore()
 onMounted(() => void attention.load())
+
+// The variation selector forces the emoji glyph, so the three icons render at the same size.
+const GROUP_ICON = '🗂️'
+const PROJECT_ICON = '📁'
+const SOURCE_ICON = '📘'
 
 // Collapsed groups and what the list shows survive restarts.
 const STORE_KEY = 'plangent.sidebar'
@@ -77,11 +73,8 @@ const query = ref('')
 watch([collapsed, show], () => localStorage.setItem(STORE_KEY, JSON.stringify({ collapsed: [...collapsed.value], show: show.value })), { deep: true })
 
 const filterOpen = ref(false)
-const tools = ref<HTMLElement | null>(null)
+const filterAnchor = ref<HTMLElement | null>(null)
 const filtered = computed(() => Object.values(show.value).some(v => !v))
-const closeFilter = (e: MouseEvent) => { if (!tools.value?.contains(e.target as Node)) filterOpen.value = false }
-onMounted(() => document.addEventListener('mousedown', closeFilter))
-onUnmounted(() => document.removeEventListener('mousedown', closeFilter))
 
 // At least one kind stays on, so the list is never blank by accident.
 function toggleKind(id: Kind) {
@@ -121,147 +114,34 @@ const badgeTitle = (group: Project, members: Project[]) => [
 ].filter(Boolean).join('\n')
 const blockedTitle = (group: Project, members: Project[]) => blockedOf(group, members).map(b => `${b.taskKey}: ${b.reason}`).join('\n')
 
-const ProjectRow = defineComponent({
-  props: { project: { type: Object as () => Project, required: true }, nested: Boolean },
-  setup(rowProps) {
-    return () => {
-      const p = rowProps.project
-      const blocked = props.blocked(p.id)
-      const waiting = Math.max(attention.countFor(p.id), blocked.length)
-      const waitingTitle = [attention.countFor(p.id) ? 'Работ ждут вашего действия: ' + attention.countFor(p.id) : '', ...blocked.map(b => `${b.taskKey}: ${b.reason}`)].filter(Boolean).join('\n')
-      const menu: MenuItem[] = [
-        { heading: 'Переместить в группу' },
-        ...projectsStore.groups.filter(g => g.id !== p.group_id).map(g => ({ label: `🗂 ${g.name}`, action: () => emit('regroup', p, g.id) })),
-        ...(p.group_id ? [{ label: 'Убрать из группы', action: () => emit('regroup', p, null) }] : []),
-        ...(projectsStore.groups.length ? [] : [{ label: 'Групп пока нет', disabled: true }]),
-      ]
-      return h('div', { class: ['row', 'project-row', 'app-no-drag', { active: isActive(p), nested: rowProps.nested }], onClick: () => emit('select', p) }, [
-        h('span', { class: 'row-icon' }, '📁'),
-        h('span', { class: 'row-name' }, p.name),
-        waiting ? h('span', { class: 'row-blocked', title: waitingTitle }, String(waiting)) : null,
-        h('span', { class: 'row-menu', onClick: (e: Event) => e.stopPropagation() }, [h(AppMenu, { items: menu, size: 'xs', title: 'Ещё', align: 'left' })]),
-      ])
-    }
-  },
-})
+function projectRow(p: Project) {
+  const blocked = props.blocked(p.id)
+  const mine = attention.countFor(p.id)
+  return {
+    icon: PROJECT_ICON,
+    name: p.name,
+    active: isActive(p),
+    count: Math.max(mine, blocked.length),
+    countTitle: [mine ? 'Работ ждут вашего действия: ' + mine : '', ...blocked.map(b => `${b.taskKey}: ${b.reason}`)].filter(Boolean).join('\n'),
+  }
+}
 </script>
 
 <style scoped>
 .tree { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
 .tree-tools { display: flex; gap: 4px; }
-.tree-filter {
-  flex: 1;
-  min-width: 0;
-  height: 28px;
-  padding: 0 8px;
-  background: var(--bg3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  color: var(--text);
-  font: inherit;
-  font-size: 12px;
-}
-.tree-filter:focus { outline: none; border-color: var(--blue); }
-.tree-tools { position: relative; }
-.tree-toggle {
-  width: 28px;
-  height: 28px;
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: none;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  color: var(--text-faint);
-  cursor: pointer;
-}
-.tree-toggle svg { width: 14px; height: 14px; }
-.tree-toggle:hover { color: var(--text); }
-.tree-toggle.on { color: var(--blue-hover); border-color: var(--blue); background: var(--blue-soft); }
-.filter-pop {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 0;
-  min-width: 160px;
-  padding: 6px;
-  background: var(--bg2);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-md);
-  z-index: 60;
-}
-.filter-opt { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--radius-sm); font-size: 13px; color: var(--text); cursor: pointer; }
-.filter-opt:hover { background: var(--bg3); }
+.tree-filter { flex: 1; }
 
-.tree-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
-.tree-empty { padding: 6px 10px; font-size: 12px; color: var(--text-faint); }
+.tree-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: var(--sp-1); }
+.tree-empty { padding: 6px 10px; font-size: var(--fs-sm); color: var(--text-faint); }
 
 .section-label {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   margin-top: var(--sp-3);
   padding: 0 6px 4px;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--text-faint);
-}
-.section-add { width: 18px; height: 18px; background: none; border: none; border-radius: 4px; color: var(--text-faint); font-size: 15px; line-height: 1; cursor: pointer; }
-.section-add:hover { background: var(--bg3); color: var(--text); }
-
-:deep(.row) {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 34px;
-  padding: 0 6px 0 10px;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--text-muted);
-  transition: background 0.12s, color 0.12s;
-}
-:deep(.row.nested) { padding-left: 30px; }
-.group-row { padding-left: 2px; }
-:deep(.row:hover) { background: var(--bg3); color: var(--text); }
-:deep(.row.active) { background: var(--bg3); color: var(--text); box-shadow: inset 2px 0 0 var(--blue); }
-:deep(.row-icon) { width: 16px; flex-shrink: 0; text-align: center; font-size: 13px; }
-:deep(.row-name) { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-:deep(.row-menu) { flex-shrink: 0; opacity: 0; transition: opacity 0.12s; }
-:deep(.row:hover .row-menu), :deep(.row-menu:has(.menu.open)) { opacity: 1; }
-.chevron {
-  width: 18px;
-  height: 18px;
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: none;
-  border: none;
-  border-radius: 4px;
-  color: var(--text-faint);
-  cursor: pointer;
-}
-.chevron svg { width: 12px; height: 12px; transition: transform 0.12s; }
-.chevron.open svg { transform: rotate(90deg); }
-.chevron:hover { background: var(--bg-hover); color: var(--text); }
-/* Tasks whose running queue is stuck until the developer answers; details in the tooltip. */
-:deep(.row-blocked) {
-  flex-shrink: 0;
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
-  border-radius: var(--radius-pill);
-  background: var(--warning);
-  color: #0d1117;
-  font-size: 10.5px;
-  font-weight: 700;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
 }
 </style>

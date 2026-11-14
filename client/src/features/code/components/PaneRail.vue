@@ -1,17 +1,18 @@
 <template>
   <nav class="pr" :class="side" :aria-label="side === 'left' ? 'Левая панель свёрнута' : 'Правая панель свёрнута'">
-    <button type="button" class="pr-toggle" :title="`Развернуть панель (${shortcut})`" @click="emit('expand')">{{ side === 'left' ? '»' : '«' }}</button>
-    <button v-for="item in items" :key="item.id" type="button" class="pr-item" :title="item.label" :aria-label="item.label" @click="emit('pick', item.id)">
+    <AppButton variant="subtle" size="sm" icon :title="`Развернуть панель (${shortcut})`" @click="emit('expand')">{{ side === 'left' ? '»' : '«' }}</AppButton>
+    <AppButton v-for="item in items" :key="item.id" variant="subtle" size="sm" icon :title="item.label" :aria-label="item.label" @click="emit('pick', item.id)">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path v-for="(d, i) in ICONS[item.icon]" :key="i" :d="d" />
       </svg>
       <span v-if="item.count" class="pr-count" :class="item.tone">{{ item.count > 99 ? '99+' : item.count }}</span>
       <span v-else-if="item.dot" class="pr-dot" :class="item.dot" />
-    </button>
+    </AppButton>
   </nav>
 </template>
 
 <script setup lang="ts">
+import AppButton from '@shared/ui/AppButton.vue'
 interface RailItem {
   id: string
   label: string
@@ -42,14 +43,14 @@ const emit = defineEmits<{ pick: [id: string]; expand: [] }>()
 .pr { display: flex; flex-direction: column; align-items: center; gap: 4px; height: 100%; padding: 6px 0; background: var(--bg); }
 .pr.left { border-right: 1px solid var(--border); }
 .pr.right { border-left: 1px solid var(--border); }
-.pr-toggle, .pr-item { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; font: inherit; font-size: 13px; color: var(--text-muted); background: none; border: none; border-radius: var(--radius-sm); cursor: pointer; }
+.pr-toggle, .pr-item { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; font: inherit; font-size: var(--fs-md); color: var(--text-muted); background: none; border: none; border-radius: var(--radius-sm); cursor: pointer; }
 .pr-toggle { margin-bottom: 4px; }
 .pr-toggle:hover, .pr-item:hover { color: var(--text); background: var(--bg3); }
 .pr-toggle:focus-visible, .pr-item:focus-visible { outline: 2px solid var(--blue); outline-offset: -1px; }
 .pr-item svg { width: 16px; height: 16px; }
-.pr-count { position: absolute; top: 0; right: -2px; min-width: 14px; padding: 0 3px; font-size: 9px; font-weight: 600; line-height: 14px; text-align: center; border-radius: var(--radius-pill); background: var(--bg3); color: var(--text-muted); }
+.pr-count { position: absolute; top: 0; right: -2px; min-width: 14px; padding: 0 3px; font-size: var(--fs-xs); font-weight: 600; line-height: 14px; text-align: center; border-radius: var(--radius-pill); background: var(--bg3); color: var(--text-muted); }
 .pr-count.warning { background: var(--warning-text); color: var(--bg); }
-.pr-dot { position: absolute; top: 3px; right: 3px; width: 7px; height: 7px; border-radius: 50%; background: var(--border-strong); }
+.pr-dot { position: absolute; top: 3px; right: 3px; width: 7px; height: 7px; border-radius: var(--radius-round); background: var(--border-strong); }
 .pr-dot.thinking, .pr-dot.starting { background: var(--blue-hover); animation: pr-pulse 1.4s ease-in-out infinite; }
 .pr-dot.waiting { background: var(--warning-text); }
 .pr-dot.complete, .pr-dot.ready { background: var(--accent-hover); }

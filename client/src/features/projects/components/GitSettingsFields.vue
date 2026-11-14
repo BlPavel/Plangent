@@ -2,56 +2,86 @@
   <div class="git-settings">
     <div v-for="field in fields" :key="field.key" class="setting">
       <div class="gs-head">
-        <label v-if="field.kind === 'boolean'" class="gs-check"><input type="checkbox" :checked="Boolean(value(field.key))" @change="set(field.key, ($event.target as HTMLInputElement).checked)" /> {{ field.label }}</label>
+        <AppCheckbox v-if="field.kind === 'boolean'" :model-value="Boolean(value(field.key))" @update:model-value="set(field.key, $event)">{{ field.label }}</AppCheckbox>
         <span v-else class="gs-label">{{ field.label }}</span>
         <!-- Only a value changed here can be reset; an inherited one is just shown. -->
-        <button v-if="changed(field.key)" type="button" class="gs-link" :title="'Вернуть ' + (sources?.[field.key] === 'group' ? 'значение группы' : sources?.[field.key] === 'global' ? 'глобальное значение' : 'значение по умолчанию')" @click="reset(field.key)">сбросить</button>
+        <AppButton v-if="changed(field.key)" variant="link" size="xs" :title="'Вернуть ' + (sources?.[field.key] === 'group' ? 'значение группы' : sources?.[field.key] === 'global' ? 'глобальное значение' : 'значение по умолчанию')" @click="reset(field.key)">сбросить</AppButton>
       </div>
 
-      <PlainSelect v-if="field.key === 'finish_scenario'" :model-value="String(value(field.key) ?? '')" :options="Object.entries(scenarios).map(([option, label]) => ({ value: option, label }))" small :label="field.label" @update:model-value="set(field.key, $event)" />
+      <AppSelect v-if="field.key === 'finish_scenario'" :model-value="String(value(field.key) ?? '')" :options="Object.entries(scenarios).map(([option, label]) => ({ value: option, label }))" small :label="field.label" @update:model-value="set(field.key, $event)" />
       <template v-else-if="field.kind === 'boolean'" />
       <BranchSelect
         v-else-if="field.kind === 'branch' && branches?.length" :model-value="String(value(field.key) ?? '')" :options="branchOptions(String(value(field.key) ?? '')).map(name => ({ value: name, label: name }))"
-        small empty-label="Не задана" placeholder="Не задана" :label="field.label" @update:model-value="set(field.key, $event)"
+        small :popup-max-width="260" empty-label="Не задана" placeholder="Не задана" :label="field.label" @update:model-value="set(field.key, $event)"
       />
-      <input v-else-if="field.kind === 'branch'" class="control control-sm" :value="String(value(field.key) ?? '')" :placeholder="field.placeholder" @input="set(field.key, ($event.target as HTMLInputElement).value)" />
+      <AppInput v-else-if="field.kind === 'branch'" size="sm" :model-value="String(value(field.key) ?? '')" :placeholder="field.placeholder" @update:model-value="set(field.key, $event)" />
       <template v-else-if="field.kind === 'tags'">
         <div class="gs-tags">
-          <span v-for="tag in tags(field.key)" :key="tag" class="gs-tag">{{ tagLabel(field.key, tag) }}<button type="button" class="gs-x" :aria-label="'Убрать ' + tag" @click="removeTag(field.key, tag)">×</button></span>
-          <input
-            v-if="!(isPeople(field.key) && members?.length)" class="gs-tag-input" :placeholder="tags(field.key).length ? 'Добавить…' : field.placeholder"
+          <div class="gs-chips">
+            <span v-if="!tags(field.key).length" class="gs-empty">Пока ничего не добавлено</span>
+            <AppChip v-for="tag in tags(field.key)" :key="tag" removable :remove-label="'Убрать ' + tag" @remove="removeTag(field.key, tag)">{{ tagLabel(field.key, tag) }}</AppChip>
+          </div>
+          <!-- People come only from the code host: without its members the button stays, disabled. -->
+          <MemberPicker v-if="isPeople(field.key)" :members="freeMembers(field.key)" @pick="set(field.key, [...tags(field.key), $event])" />
+          <AppInput
+            v-else class="gs-tag-input" size="sm" :placeholder="tags(field.key).length ? 'Добавить…' : field.placeholder"
             @keydown.enter.prevent="addTag(field.key, $event)" @blur="addTag(field.key, $event)"
           />
-          <MemberPicker v-else :members="freeMembers(field.key)" @pick="set(field.key, [...tags(field.key), $event])" />
         </div>
-        <button v-if="field.defaults && !tags(field.key).length" type="button" class="gs-link gs-apply" @click="set(field.key, [...field.defaults])">Применить дефолтные: {{ field.defaults.join(', ') }}</button>
+        <AppButton v-if="field.defaults && !tags(field.key).length" variant="link" size="xs" @click="set(field.key, [...field.defaults])">Применить дефолтные: {{ field.defaults.join(', ') }}</AppButton>
       </template>
-      <textarea v-else class="control" rows="4" :placeholder="field.placeholder" :value="String(value(field.key) ?? '')" @input="set(field.key, ($event.target as HTMLTextAreaElement).value)" />
+      <AppTextarea block v-else rows="4" :placeholder="field.placeholder" :model-value="String(value(field.key) ?? '')" @update:model-value="set(field.key, $event)" />
 
-      <small v-if="isPeople(field.key) && membersNote" class="gs-hint">{{ membersNote }}</small>
+      <small v-if="isPeople(field.key) && (membersNote || !members?.length)" class="gs-hint">{{ membersNote || 'Список людей берётся с хостинга: выберите подключение в «Хостинг кода».' }}</small>
       <small v-if="field.hint" class="gs-hint">{{ field.hint }}</small>
     </div>
   </div>
 </template>
 <script setup lang="ts">
+import { AppButton, AppCheckbox, AppChip, AppInput, AppTextarea } from '@shared/ui'
 import { computed } from 'vue'
-import type { ProjectGitSettings } from '@core/models'
+import type { ProjectGitSettings } from '@contracts'
 import MemberPicker from '@shared/ui/MemberPicker.vue'
 import BranchSelect from '@shared/ui/BranchSelect.vue'
-import PlainSelect from '@shared/ui/PlainSelect.vue'
-import { finishScenarioLabels } from '@shared/utils/finish-scenarios'
+import AppSelect from '@shared/ui/AppSelect.vue'
+import { finishScenarioLabels } from '@features/finish'
 type Member = { value: string; login: string; name: string }
-const props = defineProps<{ modelValue: ProjectGitSettings; inherited: ProjectGitSettings; sources?: Record<string, string>; section: 'branches' | 'mr' | 'workspace'; branches?: string[]; members?: Member[]; membersNote?: string }>()
+type Section = 'branches' | 'mr' | 'workspace-files' | 'workspace-setup' | 'review'
+/** `group`: a group has no repository of its own, so its branches and people are chosen per project. */
+const props = defineProps<{ modelValue: ProjectGitSettings; inherited: ProjectGitSettings; sources?: Record<string, string>; section: Section; branches?: string[]; members?: Member[]; membersNote?: string; group?: boolean }>()
 const emit = defineEmits<{ 'update:modelValue': [value: ProjectGitSettings] }>()
 const scenarios = finishScenarioLabels
 const DEFAULT_PREFIXES = ['feature', 'fix', 'hotfix']
 type Key = keyof ProjectGitSettings
 type Field = { key: Key; label: string; kind?: 'tags' | 'boolean' | 'branch'; placeholder?: string; hint?: string; defaults?: string[] }
-const sections: Record<'branches' | 'mr' | 'workspace', Field[]> = {
- workspace: [
-  { key: 'workspace_copy_files', label: 'Файлы для копирования', kind: 'tags', placeholder: '.env', hint: 'Путь или маска от корня проекта, например .env. Копируется из основной папки в каждое новое рабочее место: в git этих файлов нет.' },
-  { key: 'workspace_setup_command', label: 'Команда подготовки', placeholder: 'npm install', hint: 'Plangent запускает её в новом рабочем месте после копирования; агент этим не занимается. Пусто — ничего не запускать. Действует на рабочие места, созданные после сохранения.' },
-  { key: 'auto_review', label: 'Ревью агентом: автоматически', kind: 'boolean', hint: 'Выключено по умолчанию. Можно переключить для отдельной работы; ручной запуск ревью доступен всегда.' },
+const sections: Record<Section, Field[]> = {
+ 'workspace-files': [
+  {
+    key: 'workspace_copy_files', label: 'Файлы и папки для копирования', kind: 'tags', placeholder: '.env',
+    hint: 'Пути и маски от корня проекта; Enter — добавить следующий. Примеры: .env, config/local.json, .claude/skills/мой-скилл. Папка копируется целиком, с вложенным; вложенные файлы задаются масками: packages/*/.env (* — любое имя), apps/**/.env.local (** — любая вложенность), config/*.{json,yml}.\n'
+      + 'Не начинайте маску с ** — это обход всего проекта вместе с node_modules; лучше указать папку. Чего нет в основной папке, пропускается без ошибки. Папка .git не копируется; ссылки (symlink) копировать нельзя — рабочее место не подготовится.\n'
+      + 'Скиллы и инструкции, созданные в Plangent для проекта или группы, копировать не нужно: Plangent сам раскладывает их в рабочее место. Свои файлы с ними, которых нет в git, добавьте здесь.',
+  },
+  {
+    key: 'workspace_link_dirs', label: 'Папки зависимостей из основной папки', kind: 'tags', placeholder: 'node_modules',
+    hint: 'Любая папка из основной папки проекта переносится в рабочее место жёсткими ссылками: за секунды и почти без места на диске. Команда подготовки после этого доставляет только то, что добавила ветка. Например: node_modules, client/node_modules, vendor; без масок. Пусто — ничего не переносится.\n'
+      + 'Файлы общие с основной папкой: всё, что перезапишет файл на месте, изменит его и там. Подходит для папок, где менеджер пакетов заменяет пакеты целиком (node_modules, composer vendor). Не подходит для того, что пересобирается или правится на месте: Python .venv (его pip ставит пакеты в основной venv), bin/obj в .NET, target в Rust. Не правьте эти файлы вручную в рабочем месте.\n'
+      + 'Нативные модули Node (*.node, build/Release), файлы в корне папки (служебные файлы менеджера пакетов) и кэши .cache и .vite копируются отдельно. Ссылки возможны, только если рабочие места на том же диске, что и проект; иначе файлы копируются, это видно в логе подготовки.',
+  },
+ ],
+ 'workspace-setup': [
+  {
+    key: 'workspace_setup_command', label: 'Команда подготовки', placeholder: 'npm install',
+    hint: 'Выполняется один раз в новом рабочем месте, после копирования файлов: так ставятся зависимости и собирается то, что не лежит в git. Например: npm install или pnpm i && pnpm build. Запускается в оболочке из папки рабочего места, с переменными окружения проекта; вывод сохраняется в логе рабочего места. Агент этим не занимается.\n'
+      + 'Пусто — ничего не запускать. Если команда завершилась ошибкой или шла дольше 10 минут, рабочее место помечается неготовым. Действует на рабочие места, созданные после сохранения.',
+  },
+  {
+    key: 'workspace_ports', label: 'Порты', kind: 'tags', placeholder: 'PORT=3001',
+    hint: 'ПЕРЕМЕННАЯ=порт, по одной на приложение: PORT=3001, VITE_PORT=5173. В рабочем месте №1 порты +10, в №2 +20. Приложение должно читать порт из этой переменной.',
+  },
+ ],
+ review: [
+  { key: 'auto_review', label: 'Автоматически ревьюить поручения', kind: 'boolean', hint: 'Когда агент впервые выполнил поручение, Plangent один раз запускает ревью его изменений агентом для ревью; дописки агенту после этого ревью не запускают. Выключено по умолчанию; это начальное значение для новых поручений, при создании его можно переключить. Ручной запуск ревью доступен всегда.' },
  ],
  branches: [
   { key: 'branch_prefixes', label: 'Префиксы веток', kind: 'tags', placeholder: 'feature', defaults: DEFAULT_PREFIXES, hint: 'Доступны при создании ветки: feature/ABC-1. Enter — добавить, первый подставляется по умолчанию.' },
@@ -62,11 +92,12 @@ const sections: Record<'branches' | 'mr' | 'workspace', Field[]> = {
   { key: 'mr_description_prompt', label: 'Как описывать МР', placeholder: 'Коротко: что и зачем изменено. Без списка файлов. Упомяни миграции и breaking changes.', hint: 'Инструкция для агента, который пишет описание. Пусто — агент решает сам.' },
   { key: 'mr_remove_branch', label: 'Удалять исходную ветку после слияния', kind: 'boolean' },
   { key: 'mr_squash', label: 'Объединять коммиты при слиянии (squash)', kind: 'boolean' },
-  { key: 'mr_assignees', label: 'Исполнители по умолчанию', kind: 'tags', placeholder: 'логин или ID', hint: 'Назначаются на МР при создании (Assignees).' },
-  { key: 'mr_reviewers', label: 'Ревьюеры по умолчанию', kind: 'tags', placeholder: 'логин или ID' },
+  { key: 'mr_assignees', label: 'Исполнители по умолчанию', kind: 'tags', hint: 'Назначаются на МР при создании (Assignees).' },
+  { key: 'mr_reviewers', label: 'Ревьюеры по умолчанию', kind: 'tags' },
  ],
 }
-const fields = computed(() => sections[props.section])
+const PROJECT_ONLY: Key[] = ['base_branch', 'mr_assignees', 'mr_reviewers']
+const fields = computed(() => sections[props.section].filter(field => !props.group || !PROJECT_ONLY.includes(field.key)))
 const has = (key: Key) => Object.hasOwn(props.modelValue, key)
 // What applies now: the own value, else the group's or the built-in one.
 const value = (key: Key) => has(key) ? props.modelValue[key] : props.inherited[key]
@@ -93,18 +124,11 @@ function removeTag(key: Key, tag: string) { set(key, tags(key).filter(item => it
 .git-settings { display: flex; flex-direction: column; gap: 18px; }
 .setting { display: flex; flex-direction: column; gap: 4px; }
 .gs-head { display: flex; align-items: center; gap: 8px; min-height: 18px; }
-.gs-label { font-size: 12.5px; font-weight: 500; color: var(--text); }
-.gs-link { padding: 0; font: inherit; font-size: 11.5px; color: var(--text-faint); background: none; border: none; cursor: pointer; }
-.gs-link:hover { color: var(--blue-hover); }
-.gs-apply { align-self: flex-start; }
-.control { width: 100%; }
-textarea.control { height: auto; padding: 6px 10px; resize: vertical; line-height: 1.45; }
-.gs-check { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text); cursor: pointer; }
-.gs-check input { margin: 0; accent-color: var(--blue); }
-.gs-hint { font-size: 11px; color: var(--text-faint); overflow-wrap: anywhere; }
-.gs-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 4px 6px; background: var(--bg3); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); }
-.gs-tag { display: inline-flex; align-items: center; gap: 4px; padding: 1px 4px 1px 8px; font-size: 12px; background: var(--blue-soft); color: var(--blue-hover); border-radius: var(--radius-pill); }
-.gs-x { padding: 0 3px; font: inherit; line-height: 1; color: inherit; background: none; border: none; cursor: pointer; }
-.gs-tag-input { flex: 1; min-width: 90px; padding: 2px 4px; font: inherit; font-size: 12px; color: var(--text); background: none; border: none; }
-.gs-tag-input:focus { outline: none; }
+.gs-label { font-size: var(--fs-md); font-weight: 500; color: var(--text); }
+.gs-hint { font-size: var(--fs-xs); color: var(--text-faint); overflow-wrap: anywhere; white-space: pre-line; }
+.gs-tags { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.gs-empty { font-size: var(--fs-sm); color: var(--text-faint); }
+.gs-tag-input { width: 280px; max-width: 100%; }
+/* A row is always reserved, so the first chip does not push the input down. */
+.gs-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-height: var(--size-sm); }
 </style>

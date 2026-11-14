@@ -30,11 +30,11 @@ const stageText = computed(() => props.stage === 'stopping'
 .install-overlay {
   position: fixed;
   inset: 0;
-  z-index: 2000;
+  z-index: var(--z-install);
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(1, 4, 9, 0.82);
+  background: var(--overlay);
   backdrop-filter: blur(4px);
   animation: install-fade 0.2s ease;
 }
@@ -57,13 +57,13 @@ const stageText = computed(() => props.stage === 'stopping'
   margin-bottom: var(--sp-4);
   border-radius: var(--radius-lg);
   background: var(--accent-soft);
-  font-size: 24px;
+  font-size: var(--fs-2xl);
   display: flex;
   align-items: center;
   justify-content: center;
 }
-.install-title { font-size: 16px; font-weight: 700; letter-spacing: -0.01em; }
-.install-stage { margin-top: 6px; font-size: 13px; color: var(--text-muted); }
+.install-title { font-size: var(--fs-lg); font-weight: 700; letter-spacing: -0.01em; }
+.install-stage { margin-top: 6px; font-size: var(--fs-md); color: var(--text-muted); }
 .install-progress {
   position: relative;
   width: 100%;
@@ -82,7 +82,7 @@ const stageText = computed(() => props.stage === 'stopping'
   background: var(--accent-hover);
   animation: install-slide 1.3s ease-in-out infinite;
 }
-.install-hint { font-size: 12px; line-height: 1.5; color: var(--text-faint); }
+.install-hint { font-size: var(--fs-sm); line-height: 1.5; color: var(--text-faint); }
 
 @keyframes install-fade { from { opacity: 0; } }
 @keyframes install-slide {

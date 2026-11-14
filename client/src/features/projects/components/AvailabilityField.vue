@@ -2,21 +2,19 @@
   <div class="availability">
     <label class="caption">{{ label }}</label>
     <div v-if="!within || allowEverywhere" class="modes">
-      <label class="mode"><input type="radio" :checked="modelValue.everywhere" @change="set({ everywhere: true })" /> Везде</label>
-      <label class="mode"><input type="radio" :checked="!modelValue.everywhere" @change="set({ everywhere: false })" /> Выбранным</label>
+      <AppRadioGroup :model-value="modelValue.everywhere ? 'all' : 'selected'" :options="[{ value: 'all', label: 'Везде' }, { value: 'selected', label: 'Выбранным' }]" :label="label" @update:model-value="set({ everywhere: $event === 'all' })" />
     </div>
     <template v-if="(within && !allowEverywhere) || !modelValue.everywhere">
       <div v-if="ownFolder && options.length > 1" class="bulk">
-        <button type="button" class="bulk-btn" @click="selectAll">Выбрать все</button>
-        <button type="button" class="bulk-btn" :disabled="!selected.size" @click="commit(new Set())">Снять выбор</button>
+        <AppButton variant="link" size="xs" @click="selectAll">Выбрать все</AppButton>
+        <AppButton variant="link" size="xs" :disabled="!selected.size" @click="commit(new Set())">Снять выбор</AppButton>
       </div>
       <div class="targets">
-        <label v-for="o in options" :key="o.id" class="target">
-          <input type="checkbox" :checked="isChecked(o.id)" @change="toggle(o.id)" />
-          <span>{{ o.kind === 'group' ? '🗂' : '📁' }} {{ o.name }}</span>
+        <AppCheckbox v-for="o in options" :key="o.id" :model-value="isChecked(o.id)" @update:model-value="toggle(o.id)">
+          <span>{{ o.kind === 'group' ? '🗂️' : '📁' }} {{ o.name }}</span>
           <span v-if="o.kind === 'group'" class="hint">{{ ownFolder ? 'папка группы' : 'со всеми проектами' }}</span>
           <span v-else-if="o.group_id" class="hint">{{ projectsStore.byId(o.group_id)?.name }}</span>
-        </label>
+        </AppCheckbox>
         <span v-if="!options.length" class="hint">Пока нет проектов и групп.</span>
       </div>
     </template>
@@ -25,6 +23,7 @@
 </template>
 
 <script setup lang="ts">
+import { AppButton, AppCheckbox, AppRadioGroup } from '@shared/ui'
 import { computed } from 'vue'
 import { useProjectsStore } from '../stores/projects'
 
@@ -89,9 +88,8 @@ function set(patch: Partial<Availability>) {
 
 <style scoped>
 .availability { display: flex; flex-direction: column; gap: 6px; }
-.caption { font-size: 12px; font-weight: 500; color: var(--text-muted); }
-.modes { display: flex; gap: 16px; font-size: 13px; }
-.mode { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.caption { font-size: var(--fs-sm); font-weight: 500; color: var(--text-muted); }
+.modes { display: flex; gap: 16px; font-size: var(--fs-md); }
 .targets {
   display: flex;
   flex-direction: column;
@@ -103,10 +101,6 @@ function set(patch: Partial<Availability>) {
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
 }
-.target { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 13px; cursor: pointer; }
 .bulk { display: flex; gap: 12px; }
-.bulk-btn { padding: 0; background: none; border: none; font: inherit; font-size: 12px; color: var(--blue-hover); cursor: pointer; }
-.bulk-btn:hover:not(:disabled) { text-decoration: underline; }
-.bulk-btn:disabled { color: var(--text-faint); cursor: default; }
-.hint { font-size: 11px; color: var(--text-faint); }
+.hint { font-size: var(--fs-xs); color: var(--text-faint); }
 </style>

@@ -1,11 +1,11 @@
 <template>
-  <div v-if="proposal" class="proposal" :class="[proposal.status, { main: proposal.type === 'main' }]">
-    <div class="head">
+  <AppItemCard v-if="proposal" class="proposal" :accent="accent" :class="proposal.status">
+    <template #title>
       <span class="kind">{{ kindLabel }}</span>
       <span class="title">{{ proposal.title }}</span>
       <code class="slug">{{ proposal.slug }}</code>
       <span class="status" :class="proposal.status">{{ STATUS[proposal.status] }}</span>
-    </div>
+    </template>
 
     <div class="explanation">{{ proposal.explanation }}</div>
 
@@ -28,32 +28,27 @@
 
     <details class="diff" :open="diffOpen" @toggle="diffOpen = ($event.target as HTMLDetailsElement).open">
       <summary>
-        {{ proposal.action === 'create' ? 'Текст' : 'Изменения' }}
-        <span class="stat"><span class="plus">+{{ stats.add }}</span><span v-if="proposal.action === 'update'" class="minus">−{{ stats.del }}</span></span>
-        <span v-if="proposal.action === 'update' && !stats.add && !stats.del" class="stat-none">текст не меняется</span>
+        {{ hasBase ? 'Изменения' : 'Текст' }}
+        <span class="stat"><span class="plus">+{{ stats.add }}</span><span v-if="hasBase" class="minus">−{{ stats.del }}</span></span>
+        <span v-if="hasBase && !stats.add && !stats.del" class="stat-none">текст не меняется</span>
       </summary>
-      <div class="diff-body">
-        <template v-for="(row, i) in rows" :key="i">
-          <div v-if="row.kind === 'skip'" class="line skip">… {{ row.count }} {{ plural(row.count) }} без изменений</div>
-          <div v-else class="line" :class="row.kind"><span class="sign">{{ row.kind === 'add' ? '+' : row.kind === 'del' ? '−' : ' ' }}</span>{{ row.text || ' ' }}</div>
-        </template>
-      </div>
+      <div class="diff-body"><CodeView fit-content class="proposal-code" :file="{ path: proposal.slug + '.md', kind: 'text', content: proposal.content, size: proposal.content.length }" :hunks="diffTextHunks(baseContent, proposal.content)" mode="diff" /></div>
     </details>
 
-    <div v-if="pending" class="where">
+    <div v-if="pending && proposal.scope !== 'global'" class="where">
       <span class="where-label">Доступно:</span>
       <span class="where-value">{{ whereLabel }}</span>
-      <button v-if="!shared" type="button" class="link" @click="editWhere = !editWhere">{{ editWhere ? 'Готово' : 'Изменить' }}</button>
+      <AppButton variant="link" size="md" v-if="!shared" type="button"  @click="editWhere = !editWhere">{{ editWhere ? 'Готово' : 'Изменить' }}</AppButton>
     </div>
     <AvailabilityField
-      v-if="editWhere && pending && !shared"
+      v-if="editWhere && pending && !shared && proposal.scope !== 'global'"
       v-model="availability" class="availability" own-folder allow-everywhere :within="proposal.project_id"
       label="Где будет доступно"
     />
 
     <div v-if="proposal.status === 'stale'" class="state-note stale">
       Элемент изменили после того, как агент подготовил предложение, поэтому применять его небезопасно.
-      <button type="button" class="link" @click="$emit('discuss', `Элемент «${proposal.slug}» изменился. Перечитай его и подготовь предложение заново.`)">Попросить агента обновить</button>
+      <AppButton variant="link" size="md" type="button"  @click="$emit('discuss', `Элемент «${proposal.slug}» изменился. Перечитай его и подготовь предложение заново.`)">Попросить агента обновить</AppButton>
     </div>
     <div v-else-if="proposal.status === 'applied'" class="state-note applied">
       ✓ Применено — элемент в списке инструкций и разложен по папкам агентов.
@@ -68,28 +63,35 @@
       <AppButton size="sm" variant="ghost" :disabled="busy" @click="$emit('discuss', `По предложению «${proposal.slug}»: `)">Изменить в чате</AppButton>
       <span v-if="invalidWhere" class="hint">Выберите, где будет доступно.</span>
     </div>
-  </div>
-  <div v-else class="proposal missing">Предложение не найдено.</div>
+  </AppItemCard>
+  <AppItemCard v-else accent="muted"><span class="missing">Предложение не найдено.</span></AppItemCard>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useAppStore } from '@core/stores/app'
 import { AvailabilityField, useProjectsStore, type Availability } from '@features/projects'
-import type { LibraryProposal } from '@core/models'
+import type { LibraryProposal } from '@contracts'
 import AppButton from '@shared/ui/AppButton.vue'
+import { AppItemCard } from '@shared/ui'
 import { useLibraryStore } from '../stores/library'
-import { diffLines, foldDiff } from '../utils/line-diff'
+import { CodeView, diffLines, diffTextHunks } from '@shared/code-viewer'
 
 const props = defineProps<{ proposalId: string }>()
 defineEmits<{ discuss: [text: string] }>()
 const store = useLibraryStore(), projects = useProjectsStore(), app = useAppStore()
 const proposal = computed<LibraryProposal | undefined>(() => store.proposals[props.proposalId])
 const pending = computed(() => proposal.value?.status === 'pending')
+const accent = computed(() => ({ applied: 'success', rejected: 'muted', stale: 'muted' } as const)[proposal.value?.status as 'applied'] ?? (proposal.value?.type === 'main' ? 'warning' : 'blue'))
 const busy = ref(false), error = ref(''), editWhere = ref(false)
 
 const STATUS: Record<LibraryProposal['status'], string> = { pending: 'ждёт решения', applied: 'применено', rejected: 'отклонено', stale: 'устарело' }
-const TYPE: Record<LibraryProposal['type'], [string, string]> = { skill: ['Новый скилл', 'Изменение скилла'], command: ['Новая команда', 'Изменение команды'], main: ['Новый главный файл', 'Изменение главного файла'], 'review-skill': ['Новый скилл ревью', 'Изменение скилла ревью'], 'plan-review-skill': ['Новый скилл ревью плана', 'Изменение скилла ревью плана'] }
+const TYPE: Record<LibraryProposal['type'], [string, string]> = { skill: ['Новый скилл', 'Изменение скилла'], command: ['Новая команда', 'Изменение команды'], main: ['Новый главный файл', 'Изменение главного файла'], 'review-skill': ['Новый скилл ревью', 'Изменение скилла ревью'], 'plan-review-skill': ['Новый скилл ревью плана', 'Изменение скилла ревью плана'], 'architecture-review-skill': ['Новый скилл ревью архитектуры', 'Изменение скилла ревью архитектуры'], 'qa-review-skill': ['Новый скилл ревью QA', 'Изменение скилла ревью QA'],
+  'instruction-guide': ['Новое руководство по инструкциям', 'Изменение руководства по инструкциям'], 'code-fixer-instruction': ['Новая инструкция агента доработки', 'Изменение инструкции агента доработки'],
+  'commit-rules': ['Новые правила коммитов', 'Изменение правил коммитов'], 'plan-template': ['Новый шаблон плана', 'Изменение шаблона плана'],
+  'plan-review-instruction': ['Новая инструкция ревью плана', 'Изменение инструкции ревью плана'], 'mr-review-instruction': ['Новая инструкция ревью МР', 'Изменение инструкции ревью МР'], 'interview-instruction': ['Новая инструкция уточняющего интервью', 'Изменение инструкции уточняющего интервью'],
+  'architecture-template': ['Новый шаблон «Как писать архитектуру»', 'Изменение шаблона «Как писать архитектуру»'], 'architecture-review-instruction': ['Новая инструкция ревью архитектуры', 'Изменение инструкции ревью архитектуры'],
+  'qa-template': ['Новый шаблон «Как писать QA»', 'Изменение шаблона «Как писать QA»'], 'qa-review-instruction': ['Новая инструкция ревью QA', 'Изменение инструкции ревью QA'] }
 const kindLabel = computed(() => proposal.value ? TYPE[proposal.value.type][proposal.value.action === 'create' ? 0 : 1] : '')
 
 // A group's item proposed from one of its projects is applied as that project's own copy: the level is fixed.
@@ -139,16 +141,14 @@ const fields = computed(() => {
     : list.filter(f => f.after).map(f => ({ ...f, before: undefined }))
 })
 
-const lines = computed(() => proposal.value ? diffLines(proposal.value.snapshot?.content ?? '', proposal.value.content) : [])
-const rows = computed(() => proposal.value?.action === 'create' ? lines.value : foldDiff(lines.value))
+const baseContent = computed(() => proposal.value?.base_content ?? proposal.value?.snapshot?.content ?? '')
+const hasBase = computed(() => proposal.value?.action === 'update' || baseContent.value.length > 0)
+const lines = computed(() => proposal.value ? diffLines(baseContent.value, proposal.value.content) : [])
 const stats = computed(() => ({ add: lines.value.filter(l => l.kind === 'add').length, del: lines.value.filter(l => l.kind === 'del').length }))
 // Main is always in context, so its diff is shown open; a long new text starts folded.
-const diffOpen = ref(proposal.value?.type === 'main' || proposal.value?.action === 'update' || lines.value.length <= 40)
+const diffOpen = ref(proposal.value?.type === 'main' || hasBase.value || lines.value.length <= 40)
 
-function plural(n: number) {
-  const d = n % 10, h = n % 100
-  return d === 1 && h !== 11 ? 'строка' : d >= 2 && d <= 4 && (h < 12 || h > 14) ? 'строки' : 'строк'
-}
+
 
 async function apply() {
   const p = proposal.value
@@ -172,58 +172,47 @@ async function reject() {
 </script>
 
 <style scoped>
-.proposal { padding: 12px 14px; background: var(--bg2); border: 1px solid var(--border); border-left: 3px solid var(--blue); border-radius: var(--radius); display: flex; flex-direction: column; gap: 10px; }
-.proposal.main { border-left-color: var(--warning); }
-.proposal.applied { border-left-color: var(--accent); }
-.proposal.rejected, .proposal.stale { border-left-color: var(--border-strong); }
 .proposal.rejected .diff, .proposal.rejected .fields { opacity: 0.6; }
-.proposal.missing { font-size: 12px; color: var(--text-muted); border-left-color: var(--border-strong); }
+.missing { font-size: var(--fs-sm); color: var(--text-muted); }
 
-.head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
-.kind { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); }
-.title { font-weight: 600; font-size: 13.5px; }
-.slug { font-family: 'Cascadia Code', 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--text-muted); }
-.status { margin-left: auto; font-size: 11px; padding: 1px 8px; border-radius: var(--radius-pill); border: 1px solid var(--border); color: var(--text-muted); white-space: nowrap; }
+.kind { font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); }
+.title { font-size: var(--fs-base); }
+.slug { font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--text-muted); }
+.status { margin-left: auto; font-size: var(--fs-xs); padding: 1px 8px; border-radius: var(--radius-pill); border: 1px solid var(--border); color: var(--text-muted); white-space: nowrap; }
 .status.pending { color: var(--blue-hover); border-color: var(--blue-soft); background: var(--blue-soft); }
 .status.applied { color: var(--accent-hover); border-color: var(--accent-soft); background: var(--accent-soft); }
 .status.stale { color: var(--warning-text); border-color: var(--warning-soft); background: var(--warning-soft); }
 
-.explanation { font-size: 13px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
-.main-note, .shared-note { font-size: 12px; line-height: 1.45; padding: 7px 10px; border-radius: var(--radius-sm); }
+.explanation { font-size: var(--fs-md); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.main-note, .shared-note { font-size: var(--fs-sm); line-height: 1.45; padding: 7px 10px; border-radius: var(--radius-sm); }
 .main-note { background: var(--warning-soft); color: var(--warning-text); }
 .shared-note { background: var(--blue-soft); color: var(--text-muted); }
 
 .fields { display: flex; flex-direction: column; gap: 4px; }
-.field { display: flex; gap: 10px; font-size: 12.5px; }
+.field { display: flex; gap: 10px; font-size: var(--fs-md); }
 .field-label { flex: 0 0 120px; color: var(--text-muted); }
 .field-value { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; overflow-wrap: anywhere; }
 .field-value del { color: var(--danger-hover); opacity: 0.8; }
 
-.diff summary { font-size: 12px; font-weight: 600; color: var(--text-muted); cursor: pointer; user-select: none; display: flex; align-items: center; gap: 8px; }
+.diff summary { font-size: var(--fs-sm); font-weight: 600; color: var(--text-muted); cursor: pointer; user-select: none; display: flex; align-items: center; gap: 8px; }
 .diff summary:hover { color: var(--text); }
-.stat { display: inline-flex; gap: 6px; font-family: 'Cascadia Code', 'JetBrains Mono', monospace; font-weight: 500; }
+.stat { display: inline-flex; gap: 6px; font-family: var(--font-mono); font-weight: 500; }
 .plus { color: var(--accent-hover); }
 .minus { color: var(--danger-hover); }
 .stat-none { font-weight: 400; color: var(--text-faint); }
-.diff-body { margin-top: 6px; max-height: 420px; overflow: auto; background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 6px 0; font-family: 'Cascadia Code', 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.5; }
-.line { white-space: pre-wrap; overflow-wrap: anywhere; padding: 0 10px 0 4px; }
-.sign { display: inline-block; width: 16px; color: var(--text-faint); user-select: none; }
-.line.add { background: var(--accent-soft); }
-.line.add .sign { color: var(--accent-hover); }
-.line.del { background: var(--danger-soft); }
-.line.del .sign { color: var(--danger-hover); }
-.line.skip { color: var(--text-faint); font-style: italic; padding: 2px 20px; }
+.diff-body { margin-top: var(--sp-2); max-height: 420px; overflow: hidden; }
+.proposal-code { max-height: 420px; }
 
-.where { display: flex; align-items: baseline; gap: 6px; font-size: 12.5px; }
+.where { display: flex; align-items: baseline; gap: 6px; font-size: var(--fs-md); }
 .where-label { color: var(--text-muted); }
 .availability { padding: 8px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); }
-.link { background: none; border: none; padding: 0; font: inherit; font-size: 12px; color: var(--blue-hover); cursor: pointer; }
+.link { background: none; border: none; padding: 0; font: inherit; font-size: var(--fs-sm); color: var(--blue-hover); cursor: pointer; }
 .link:hover { text-decoration: underline; }
 
-.state-note { font-size: 12.5px; color: var(--text-muted); }
+.state-note { font-size: var(--fs-md); color: var(--text-muted); }
 .state-note.stale { color: var(--warning-text); }
 .state-note.applied { color: var(--accent-hover); }
-.error { font-size: 12px; color: var(--danger-hover); overflow-wrap: anywhere; }
+.error { font-size: var(--fs-sm); color: var(--danger-hover); overflow-wrap: anywhere; }
 .actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.hint { font-size: 11.5px; color: var(--text-faint); }
+.hint { font-size: var(--fs-sm); color: var(--text-faint); }
 </style>

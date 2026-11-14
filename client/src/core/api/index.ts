@@ -1,18 +1,20 @@
-﻿const BASE = '/api'
+import type { ApiError } from '@contracts'
 
-async function response(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<Response> {
-  const opts: RequestInit = { method, headers: { 'Content-Type': 'application/json' }, signal }
+const BASE = '/api'
+
+async function response(method: string, path: string, body?: unknown, signal?: AbortSignal, keepalive?: boolean): Promise<Response> {
+  const opts: RequestInit = { method, headers: { 'Content-Type': 'application/json' }, signal, keepalive }
   if (body !== undefined) opts.body = JSON.stringify(body)
   const result = await fetch(BASE + path, opts)
   if (!result.ok) {
-    const data = await result.json().catch(() => null)
-    throw Object.assign(new Error(data?.error || result.statusText), { code: data?.code, output: data?.output, status: result.status, blockers: data?.blockers, warnings: data?.warnings })
+    const data: ApiError | null = await result.json().catch(() => null)
+    throw Object.assign(new Error(data?.error || result.statusText), data, { status: result.status })
   }
   return result
 }
 
-async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
-  const result = await response(method, path, body, signal)
+async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal, keepalive?: boolean): Promise<T> {
+  const result = await response(method, path, body, signal, keepalive)
   return result.status === 204 ? null as T : result.json()
 }
 
@@ -51,9 +53,10 @@ export const api = {
   get: <T>(path: string, signal?: AbortSignal) => request<T>('GET', path, undefined, signal),
   post: <T>(path: string, body?: unknown) => request<T>('POST', path, body),
   patch: <T>(path: string, body?: unknown) => request<T>('PATCH', path, body),
-  put: <T>(path: string, body?: unknown) => request<T>('PUT', path, body),
+  put: <T>(path: string, body?: unknown, keepalive?: boolean) => request<T>('PUT', path, body, undefined, keepalive),
   delete: <T>(path: string) => request<T>('DELETE', path),
   stream,
+  text: async (path: string) => (await response('GET', path)).text(),
 }
 
 /** Append workspace without changing the existing query or callers' cancellation signals. */

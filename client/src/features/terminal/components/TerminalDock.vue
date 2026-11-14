@@ -4,32 +4,36 @@
       <div class="dock-resizer" role="separator" aria-orientation="horizontal" aria-label="Высота терминала" title="Потяните, чтобы изменить высоту" @pointerdown="startResize" />
       <header class="dock-head">
         <span class="dock-place" :title="shown.workspaceId ? 'Папка этой работы' : 'Основная папка проекта'">⌨ {{ shown.label }}</span>
-        <button v-if="other" type="button" class="dock-link" @click="other = null">← вернуться: {{ context?.label }}</button>
+        <AppButton v-if="other" variant="link" size="xs" @click="other = null">← вернуться: {{ context?.label }}</AppButton>
         <span class="dock-spacer" />
-        <button type="button" class="dock-close" title="Скрыть (Ctrl+`)" aria-label="Скрыть терминал" @click="open = false">
-          <svg viewBox="0 0 16 16" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
-        </button>
+        <AppButton variant="subtle" size="xs" icon title="Скрыть (Ctrl+`)" aria-label="Скрыть терминал" @click="open = false">
+          <UIIconChevron />
+        </AppButton>
       </header>
       <p v-if="shown.blocked" class="dock-blocked">{{ shown.blocked }}</p>
-      <TerminalsView v-else :key="shown.projectId + ':' + (shown.workspaceId ?? '')" class="dock-body" :project-id="shown.projectId" :workspace-id="shown.workspaceId" :visible="open" />
+      <TerminalsView v-else :key="shown.projectId + ':' + (shown.workspaceId ?? '')" class="dock-body" compact :project-id="shown.projectId" :workspace-id="shown.workspaceId" :visible="open" />
     </section>
     <footer class="status">
       <span class="status-spacer" />
-      <button
-        v-for="r in runningElsewhere" :key="r.workspaceId ?? 'main'" type="button" class="status-run"
+      <AppButton
+        v-for="r in runningElsewhere" :key="r.workspaceId ?? 'main'" variant="subtle" size="xs"
         :title="'Запущено: ' + r.processes.join(', ') + ' — открыть этот терминал'" @click="showPlace(r)"
-      >▶ {{ r.label }}</button>
-      <AppButton type="button" size="sm" class="status-toggle" :class="{ on: open }" :aria-expanded="open" :disabled="!context" :title="context ? 'Терминал: ' + context.label + ' (Ctrl+`)' : 'Выберите проект'" @click="open = !open">
-        <svg viewBox="0 0 16 16" fill="none"><path d="M3 4.5L6.5 8 3 11.5M8 11.5h5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
+      >▶ {{ r.label }}</AppButton>
+      <AppButton variant="subtle" size="xs" :pressed="open" :aria-expanded="open" :disabled="!context" :title="context ? 'Терминал: ' + context.label + ' (Ctrl+`)' : 'Терминал доступен в проекте'" @click="open = !open">
+        <UIIconTerminal />
         Терминал<span v-if="runningHere" class="status-dot" title="Здесь что-то запущено" />
       </AppButton>
+      <slot name="buttons" />
     </footer>
   </div>
 </template>
 
 <script setup lang="ts">
+import { IconTerminal as UIIconTerminal } from '@shared/ui/icons'
+import { IconChevron as UIIconChevron } from '@shared/ui/icons'
+import { terminalEndpoints } from '../api'
+
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { api } from '@core/api'
 import AppButton from '@shared/ui/AppButton.vue'
 import TerminalsView from './TerminalsView.vue'
 
@@ -47,7 +51,7 @@ watch(() => props.context && props.context.projectId + ':' + props.context.works
 const shown = computed(() => other.value ?? props.context)
 
 // Where something runs in the project's terminals (an app, a watcher): one look at the processes every few seconds.
-type Running = { id: string; title: string; workspaceId: string | null; processes: { name: string }[] }
+import type { RunningTerminal as Running } from '@contracts'
 const running = ref<Running[]>([])
 let timer: ReturnType<typeof setInterval> | undefined, version = 0
 async function poll() {
@@ -55,7 +59,7 @@ async function poll() {
   const mine = ++version
   if (!projectId || document.hidden) { if (!projectId) running.value = []; return }
   try {
-    const rows = await api.get<Running[]>('/terminals/running?projectId=' + encodeURIComponent(projectId))
+    const rows = await terminalEndpoints.getTerminalsRunning({ params: {  }, query: Object.fromEntries(new URLSearchParams("projectId=" + encodeURIComponent(projectId))) })
     if (mine === version) running.value = rows
   } catch { /* the indicator is best-effort */ }
 }
@@ -100,25 +104,14 @@ onBeforeUnmount(() => { clearInterval(timer); window.removeEventListener('keydow
 <style scoped>
 .dock-wrap { flex-shrink: 0; display: flex; flex-direction: column; }
 .dock { position: relative; display: flex; flex-direction: column; min-height: 0; border-top: 1px solid var(--border-strong); background: var(--bg); }
-.dock-resizer { position: absolute; top: -3px; left: 0; right: 0; height: 6px; cursor: row-resize; z-index: 2; }
+.dock-resizer { position: absolute; top: -3px; left: 0; right: 0; height: 6px; cursor: row-resize; z-index: var(--z-local-raised); }
 .dock-resizer:hover { background: var(--blue); opacity: 0.6; }
-.dock-head { display: flex; align-items: center; gap: 10px; height: 28px; padding: 0 6px 0 12px; border-bottom: 1px solid var(--border); flex-shrink: 0; font-size: 12px; }
+.dock-head { display: flex; align-items: center; gap: 10px; height: 28px; padding: 0 6px 0 12px; border-bottom: 1px solid var(--border); flex-shrink: 0; font-size: var(--fs-sm); }
 .dock-place { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); font-weight: 500; }
-.dock-link { padding: 0; font: inherit; color: var(--blue-hover); background: none; border: none; cursor: pointer; white-space: nowrap; }
 .dock-spacer { flex: 1; }
-.dock-close { width: 22px; height: 22px; display: grid; place-items: center; background: none; border: none; border-radius: 5px; color: var(--text-muted); cursor: pointer; }
-.dock-close:hover { background: var(--bg3); color: var(--text); }
-.dock-close svg { width: 14px; height: 14px; }
-.dock-blocked { padding: 16px; font-size: 13px; color: var(--text-muted); }
+.dock-blocked { padding: 16px; font-size: var(--fs-md); color: var(--text-muted); }
 .dock-body { flex: 1; min-height: 0; }
-.dock-body :deep(.strip) { height: 36px; }
-.status { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 5px 12px; border-top: 1px solid var(--border); background: var(--bg2); font-size: 13px; }
+.status { display: flex; align-items: center; gap: 6px; min-height: 28px; padding: 2px 12px; border-top: 1px solid var(--border); background: var(--bg2); font-size: var(--fs-sm); }
 .status-spacer { flex: 1; }
-.status-run { max-width: 260px; height: 28px; padding: 0 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: inherit; color: var(--accent-hover); background: none; border: none; border-radius: 4px; cursor: pointer; }
-.status-run:hover { background: var(--bg3); }
-.status-toggle { gap: 6px; padding: 0 9px; font-size: 12px; font-weight: 400; color: var(--text-muted); border-color: transparent; }
-.status-toggle svg { width: 14px; height: 14px; }
-.status-toggle:hover:not(:disabled), .status-toggle.on { background: var(--bg3); color: var(--text); }
-.status-toggle:disabled { opacity: 0.45; cursor: default; }
-.status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-hover); }
+.status-dot { width: 6px; height: 6px; border-radius: var(--radius-round); background: var(--accent-hover); }
 </style>

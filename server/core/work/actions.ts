@@ -1,20 +1,21 @@
-import { getDb } from '../../infrastructure/db/schema';
+import * as records from '../../infrastructure/db/repositories/work/actions';
 import { getTask, updateTask } from '../tasks';
-import { activeWorkspace, createWorkspace, removeWorkspace, removalBlockers, WorkspaceRemovalError, getWorkspace } from '../workspaces';
+import { activeWorkspace, createWorkspace, ensureWorkspaceSetup, removeWorkspace, removalBlockers, WorkspaceRemovalError, getWorkspace } from '../workspaces';
 import { withWorkStart } from './start';
-import { getQueue, isFrozen } from '../orchestration/queue';
-import { listSessions, updateSession } from '../agent-sessions/sessions';
-import { closeSession } from '../agent-sessions/acp-host';
-import { getOrchestrator } from '../orchestration/orchestrator';
-import { taskMrs } from '../task-mr';
-import { activeFinish } from '../finish/store';
+import { getQueue, isFrozen } from '../execution';
+import { listSessions, updateSession } from '../agents';
+import { closeSession } from '../agents';
+import { getOrchestrator } from '../execution';
+import { taskMrs } from '../git';
+import { activeFinish } from '../git';
 import { createErrand, type ErrandInput } from './errands';
-import { broadcast } from '../shared/events';
-import { CodeError } from '../code/files';
+import { broadcast } from '../shared';
+import { DomainError } from '../../models/domain-error';
+import { initTaskFile } from '../tasks';
 
 function taskContext(id: string) {
   const task = getTask(id);
-  if (!task) throw new CodeError('Task not found', 404);
+  if (!task) throw new DomainError('Task not found', 404);
   return task;
 }
 function changed(id: string) {
@@ -25,7 +26,7 @@ function changed(id: string) {
 function assertIdle(id: string) {
   const task = taskContext(id), workspace = activeWorkspace(id);
   if (isFrozen(getQueue(id, task.project_id)) || listSessions(task.project_id).some(s => s.task_id === id && ['thinking', 'starting', 'waiting'].includes(s.status))
-    || workspace && activeFinish(task.project_id, workspace.id)) throw new CodeError('Сначала остановите работу агента или Завершение', 409);
+    || workspace && activeFinish(task.project_id, workspace.id)) throw new DomainError('Сначала остановите работу агента или Завершение', 409);
 }
 export async function closeWork(id: string, input: { discard?: boolean } = {}) {
   return withWorkStart(id, async () => {
@@ -44,28 +45,30 @@ export async function closeWork(id: string, input: { discard?: boolean } = {}) {
 export async function reopenWork(id: string) {
   return withWorkStart(id, async () => {
     const task = taskContext(id);
-    if (!task.closed_at && task.status !== 'done') throw new CodeError('Работа уже открыта', 409);
+    if (!task.closed_at && task.status !== 'done') throw new DomainError('Работа уже открыта', 409);
     if (task.mr_link && (await taskMrs().refresh(task.project_id, id))?.state === 'merged')
-      throw new CodeError('МР влит — создайте поручение по этой работе', 409);
-    const previous = getDb().prepare('SELECT id FROM workspaces WHERE task_id=? ORDER BY rowid DESC LIMIT 1').get(id) as { id: string } | undefined;
+      throw new DomainError('МР влит — создайте поручение по этой работе', 409);
+    const previous = records.reopenWorkWorkspaces(id) as { id: string } | undefined;
     let workspace = activeWorkspace(id);
     if (!workspace && previous) {
       const old = getWorkspace(previous.id);
       workspace = await createWorkspace(id, { branch: old.branch, base: old.base_branch });
+      if (old.setup_done) void ensureWorkspaceSetup(id).catch(() => {});
     }
-    if (workspace && workspace.status !== 'ready') throw new CodeError(workspace.error || 'Рабочее место недоступно', 409);
+    if (workspace && workspace.status !== 'ready') throw new DomainError(workspace.error || 'Рабочее место недоступно', 409);
     if (workspace) for (const session of listSessions(task.project_id).filter(s => s.task_id === id))
       updateSession(session.id, { metadata: { ...session.metadata, workspace_id: workspace.id } });
     updateTask(id, { status: 'in_progress', closed_at: null, close_reason: null });
+    if (!workspace) initTaskFile(getTask(id)!);
     return changed(id);
   });
 }
 export async function cancelErrand(id: string, mode: 'discard' | 'keep') {
   return withWorkStart(id, async () => {
     const task = taskContext(id);
-    if (task.kind !== 'errand' || !['discard', 'keep'].includes(mode)) throw new CodeError('Выберите способ отмены поручения');
+    if (task.kind !== 'errand' || !['discard', 'keep'].includes(mode)) throw new DomainError('Выберите способ отмены поручения');
     const currentWorkspace = activeWorkspace(id);
-    if (currentWorkspace && activeFinish(task.project_id, currentWorkspace.id)) throw new CodeError('Сначала завершите Завершение', 409);
+    if (currentWorkspace && activeFinish(task.project_id, currentWorkspace.id)) throw new DomainError('Сначала завершите Завершение', 409);
     await getOrchestrator(id)?.stop('Поручение отменено');
     for (const session of listSessions(task.project_id).filter(s => s.task_id === id)) await closeSession(session.id);
     const workspace = activeWorkspace(id);
@@ -77,7 +80,7 @@ export async function cancelErrand(id: string, mode: 'discard' | 'keep') {
 export async function addPlan(id: string) {
   return withWorkStart(id, async () => {
     const task = taskContext(id);
-    if (task.kind !== 'errand' || task.closed_at) throw new CodeError('Нужно открытое поручение', 409);
+    if (task.kind !== 'errand' || task.closed_at) throw new DomainError('Нужно открытое поручение', 409);
     assertIdle(id);
     updateTask(id, { kind: 'task' });
     return changed(id);
@@ -85,10 +88,10 @@ export async function addPlan(id: string) {
 }
 export async function errandFromWork(id: string, input: ErrandInput) {
   const task = taskContext(id);
-  if (typeof input.text !== 'string' || !input.text.trim()) throw new CodeError('Введите текст поручения');
+  if (typeof input.text !== 'string' || !input.text.trim()) throw new DomainError('Введите текст поручения');
   if (!task.mr_link || (await taskMrs().refresh(task.project_id, id))?.state !== 'merged')
-    throw new CodeError('Поручение по этой работе доступно после влития МР', 409);
-  const sections = getDb().prepare('SELECT title,description FROM analysis_sections WHERE task_id=? ORDER BY position').all(id);
+    throw new DomainError('Поручение по этой работе доступно после влития МР', 409);
+  const sections = records.errandFromWorkAnalysisSections(id);
   return createErrand(task.project_id, { ...input, text: input.text + '\n\nИсходная работа: ' + task.key + ' ' + (task.title ?? '') + '\n' + JSON.stringify(sections) },
     created => { updateTask(created.id, { origin_task_id: id }); changed(created.id); });
 }

@@ -1,14 +1,17 @@
+import { writeLibraryFile, deleteLibraryFile, rethrowFileError } from './file-transaction';
+import { moduleDependencies } from './dependencies';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { Agent, LayoutProfile, LayoutSlot, LibraryItem, Project } from '../../models';
 import { libraryItemsFor, listLibraryItems } from './index';
-import { listAgents } from '../agents';
+import type { listAgents } from '../agents';
 import { groupMembers, listProjects } from '../projects';
-import { listWorkspaces } from '../workspaces/store';
+import type { listWorkspaces } from '../workspaces';
 import { readItemContent, readOverrideContent, buildSkillFileContent } from './library-manager';
 
-const NON_SYNC_TYPES = new Set<LibraryItem['type']>(['plan-template', 'instruction-guide', 'code-fixer-instruction', 'commit-rules', 'review-skill', 'plan-review-skill', 'plan-review-instruction']);
+const NON_SYNC_TYPES = new Set<LibraryItem['type']>(['plan-template', 'instruction-guide', 'code-fixer-instruction', 'commit-rules', 'review-skill', 'plan-review-skill', 'plan-review-instruction', 'mr-review-instruction',
+  'architecture-template', 'architecture-review-instruction', 'architecture-review-skill', 'qa-template', 'qa-review-instruction', 'qa-review-skill', 'interview-instruction']);
 
 const PLANGENT_MARKER_START = (slug: string) => `<!-- plangent:${slug}:start -->`;
 const PLANGENT_MARKER_END = (slug: string) => `<!-- plangent:${slug}:end -->`;
@@ -58,18 +61,18 @@ function safeWrite(targetPath: string, content: string): void {
     return;
   }
   fs.mkdirSync(path.dirname(targetPath), { recursive: true });
-  fs.writeFileSync(targetPath, content, 'utf-8');
+  writeLibraryFile(targetPath, content);
 }
 
 function safeDelete(targetPath: string): void {
   if (!isOurFile(targetPath)) return;
   try {
-    if (fs.existsSync(targetPath)) fs.unlinkSync(targetPath);
+    if (fs.existsSync(targetPath)) deleteLibraryFile(targetPath);
     const dir = path.dirname(targetPath);
     if (isOurFile(dir) && fs.existsSync(dir) && fs.readdirSync(dir).length === 0) {
       fs.rmdirSync(dir);
     }
-  } catch { /* ignore */ }
+  } catch (error) { rethrowFileError(error); }
 }
 
 function resolveBody(item: LibraryItem, agentType: string): string {
@@ -91,7 +94,7 @@ function upsertMainSection(mainFile: string, slug: string, content: string): voi
 
   if (!fs.existsSync(mainFile)) {
     fs.mkdirSync(path.dirname(mainFile), { recursive: true });
-    fs.writeFileSync(mainFile, block + '\n', 'utf-8');
+    writeLibraryFile(mainFile, block + '\n');
     return;
   }
 
@@ -105,7 +108,7 @@ function upsertMainSection(mainFile: string, slug: string, content: string): voi
     existing = existing.trimEnd() + '\n\n' + block + '\n';
   }
 
-  fs.writeFileSync(mainFile, existing, 'utf-8');
+  writeLibraryFile(mainFile, existing);
 }
 
 function removeMainSection(mainFile: string, slug: string): void {
@@ -118,9 +121,9 @@ function removeMainSection(mainFile: string, slug: string): void {
   if (startIdx === -1 || endIdx === -1) return;
   existing = (existing.slice(0, startIdx) + existing.slice(endIdx + end.length)).replace(/\n{3,}/g, '\n\n');
   if (existing.trim()) {
-    fs.writeFileSync(mainFile, existing, 'utf-8');
+    writeLibraryFile(mainFile, existing);
   } else {
-    fs.unlinkSync(mainFile);
+    deleteLibraryFile(mainFile);
   }
 }
 
@@ -132,7 +135,7 @@ function applyGitExclude(project: Project): void {
   fs.mkdirSync(path.dirname(excludeFile), { recursive: true });
 
   const paths = ['.plangent/'];
-  for (const agent of listAgents(true)) {
+  for (const agent of moduleDependencies.agents.listAgents(true)) {
     for (const slot of [agent.layout_profile?.skills, agent.layout_profile?.commands]) {
       const pattern = slot?.dir && `${slot.dir.replace(/\/+$/, '')}/plangent-*`;
       if (pattern && !paths.includes(pattern)) paths.push(pattern);
@@ -145,7 +148,7 @@ function applyGitExclude(project: Project): void {
   // (untracked) gets hidden.
   const hasMain = libraryItemsFor(project, 'main').some(item => item.enabled && item.origin !== 'global');
   if (hasMain) {
-    for (const agent of listAgents(true)) {
+    for (const agent of moduleDependencies.agents.listAgents(true)) {
       const mainFile = agent.layout_profile?.main?.file;
       if (mainFile && !paths.includes(mainFile)) paths.push(mainFile);
     }
@@ -164,7 +167,7 @@ function applyGitExclude(project: Project): void {
   } else {
     content = content.trimEnd() + '\n\n' + block + '\n';
   }
-  fs.writeFileSync(excludeFile, content, 'utf-8');
+  writeLibraryFile(excludeFile, content);
 }
 
 function removeGitExclude(project: Project): void {
@@ -177,7 +180,7 @@ function removeGitExclude(project: Project): void {
   const ei = content.indexOf(end);
   if (si === -1 || ei === -1) return;
   content = (content.slice(0, si) + content.slice(ei + end.length)).replace(/\n{3,}/g, '\n\n');
-  fs.writeFileSync(excludeFile, content, 'utf-8');
+  writeLibraryFile(excludeFile, content);
 }
 
 /**
@@ -219,7 +222,7 @@ interface SyncTarget {
 
 function workspaceProjects(projects: (Project | null)[]): (Project | null)[] {
   return projects.flatMap(project => project?.kind === 'project'
-    ? [project, ...listWorkspaces(project.id).filter(w => fs.existsSync(path.join(w.path, '.git'))).map(w => ({ ...project, repo_path: w.path }))]
+    ? [project, ...moduleDependencies.workspaces.listWorkspaces(project.id).filter(w => fs.existsSync(path.join(w.path, '.git'))).map(w => ({ ...project, repo_path: w.path }))]
     : [project]);
 }
 
@@ -228,7 +231,7 @@ export function syncWorkspaceLibrary(project: Project, root: string): void {
   const target = { ...project, repo_path: root };
   for (const item of libraryItemsFor(project)) {
     if (!item.enabled || item.scope === 'global') continue;
-    for (const agent of listAgents(true)) for (const t of targetsForItem(item, agent, target)) {
+    for (const agent of moduleDependencies.agents.listAgents(true)) for (const t of targetsForItem(item, agent, target)) {
       if (t.isMain && t.mainSlug) upsertMainSection(t.path, t.mainSlug, t.content);
       else safeWrite(t.path, t.content);
     }
@@ -280,7 +283,7 @@ export function syncItem(item: LibraryItem): void {
   if (NON_SYNC_TYPES.has(item.type)) return;
   if (!item.enabled) { unsyncItem(item); return; }
 
-  const agents = listAgents(true);
+  const agents = moduleDependencies.agents.listAgents(true);
   const projects = workspaceProjects(itemProjects(item));
 
   for (const agent of agents) {
@@ -303,7 +306,7 @@ export function syncItem(item: LibraryItem): void {
 /** Removes the item's files; `only` limits that to some projects (e.g. one that lost access to the item). */
 export function unsyncItem(item: LibraryItem, only?: Project[]): void {
   if (NON_SYNC_TYPES.has(item.type)) return;
-  const agents = listAgents(true);
+  const agents = moduleDependencies.agents.listAgents(true);
   const projects = workspaceProjects(only ?? itemProjects(item));
 
   for (const agent of agents) {
@@ -334,7 +337,7 @@ export function unsyncItem(item: LibraryItem, only?: Project[]): void {
 
 export function syncAll(): void {
   const items = listLibraryItems({ enabledOnly: true });
-  const agents = listAgents(true);
+  const agents = moduleDependencies.agents.listAgents(true);
   // Reference sources are never written to; a group's service folder has no git.
   const projects = listProjects('project');
 

@@ -1,7 +1,7 @@
 import { computed, ref, type InjectionKey, type Ref } from 'vue'
-import { api } from '@core/api'
+import { tasksEndpoints } from '../api'
 import { useAppStore } from '@core/stores/app'
-import type { OrchestratorQueueSession, PlanStep, QueueStage, TaskQueue } from '@core/models'
+import type { OrchestratorQueueSession, PlanStep, QueueStage, TaskQueue } from '@contracts'
 import type { MenuItem } from '@shared/ui/AppMenu.vue'
 import { isReviewStage } from '../utils/queue-status'
 
@@ -23,7 +23,7 @@ const draftSession = (s: NewQueueSession): OrchestratorQueueSession => ({ ...s, 
 export function useTaskQueue(projectId: Ref<string | undefined>, taskId: Ref<string | undefined>) {
   const app = useAppStore()
   const queue = ref<TaskQueue | null>(null)
-  const base = computed(() => `/projects/${projectId.value}/tasks/${taskId.value}/queue`)
+  const params = () => ({ projectId: projectId.value!, taskId: taskId.value! })
 
   const stages = computed(() => queue.value?.stages ?? [])
   const sessions = computed(() => stages.value.flatMap(st => st.sessions))
@@ -37,7 +37,7 @@ export function useTaskQueue(projectId: Ref<string | undefined>, taskId: Ref<str
 
   async function load() {
     if (!projectId.value || !taskId.value) return
-    try { queue.value = await api.get<TaskQueue>(base.value) } catch (e) { app.toast(String(e), 'error') }
+    try { queue.value = await tasksEndpoints.getQueue({ params: params() }) } catch (e) { app.toast(String(e), 'error') }
   }
 
   /** The last failed command, for dialogs that show it next to their own form. */
@@ -51,7 +51,7 @@ export function useTaskQueue(projectId: Ref<string | undefined>, taskId: Ref<str
   async function setStages(next: QueueStage[]) {
     if (!queue.value || frozen.value) return
     queue.value = { ...queue.value, stages: next }
-    const saved = await run(() => api.put<TaskQueue>(base.value, { stages: next }))
+    const saved = await run(() => tasksEndpoints.saveQueue({ params: params(), body: { stages: next } }))
     if (saved) queue.value = saved
   }
 
@@ -132,17 +132,17 @@ export function useTaskQueue(projectId: Ref<string | undefined>, taskId: Ref<str
   })
   const clearAll = () => setStages([])
 
-  async function command(path: string, body?: unknown) {
-    const next = await run(() => api.post<TaskQueue>(`${base.value}/${path}`, body ?? {}))
+  async function command(job: () => Promise<TaskQueue>) {
+    const next = await run(job)
     if (next) queue.value = next
     return next
   }
-  const start = (options: { base_branch?: string; branch_name?: string; auto_review?: boolean; place?: 'new' | 'existing'; branch?: string } = {}) => command('start', options)
-  const stop = () => command('stop')
-  const pauseAfterStage = (on: boolean) => command('pause', { on })
-  const resume = () => command('resume')
-  const clearHistory = () => command('clear-history')
-  const sessionAction = (id: string, action: SessionAction) => command(`sessions/${id}/${action}`)
+  const start = (options: import('@contracts').QueueStartBody = {}) => command(() => tasksEndpoints.start({ params: params(), body: options }))
+  const stop = () => command(() => tasksEndpoints.stop({ params: params() }))
+  const pauseAfterStage = (on: boolean) => command(() => tasksEndpoints.pause({ params: params(), body: { on } }))
+  const resume = () => command(() => tasksEndpoints.resume({ params: params() }))
+  const clearHistory = () => command(() => tasksEndpoints.clearhistory({ params: params() }))
+  const sessionAction = (id: string, action: SessionAction) => command(() => tasksEndpoints[action]({ params: { ...params(), sessionId: id } }))
 
   function applyEvent(event: { type: string; taskId?: unknown; queue?: unknown }) {
     if (event.type === 'queue_updated' && event.taskId === taskId.value) queue.value = event.queue as TaskQueue

@@ -110,6 +110,8 @@ export function fileRows(lineCount: number): DiffRow[] {
 export function diffRows(hunks: DiffHunk[], lineCount: number, options: { expanded?: ReadonlySet<number>; expandAll?: boolean } = {}): DiffRow[] {
   const rows: DiffRow[] = []
   let next = 1
+  // Hunks that overlap (the same new line twice) must not draw that line twice: it would double its comments too.
+  let shown = 0
   const unchanged = (from: number, to: number) => {
     const count = to - from + 1
     if (count <= 0) return
@@ -120,15 +122,16 @@ export function diffRows(hunks: DiffHunk[], lineCount: number, options: { expand
   for (const hunk of hunks) {
     // A hunk with no new lines (a deletion) is anchored after line newStart.
     const start = hunk.newLines === 0 ? hunk.newStart + 1 : hunk.newStart
-    unchanged(next, start - 1)
+    unchanged(Math.max(next, shown + 1), start - 1)
     let newLine = start
     let oldLine = hunk.oldStart
     for (const line of hunk.lines) {
       if (line.type === '-') rows.push({ kind: 'deleted', oldLine: oldLine++, text: line.text })
-      else if (line.type === '+') { rows.push({ kind: 'added', newLine }); newLine++ }
-      else { rows.push({ kind: 'context', newLine, oldLine }); newLine++; oldLine++ }
+      else if (line.type === '+') { if (newLine > shown) rows.push({ kind: 'added', newLine }); newLine++ }
+      else { if (newLine > shown) rows.push({ kind: 'context', newLine, oldLine }); newLine++; oldLine++ }
+      if (line.type !== '-') shown = Math.max(shown, newLine - 1)
     }
-    next = newLine
+    next = Math.max(next, newLine)
   }
   unchanged(next, lineCount)
   return rows

@@ -1,12 +1,13 @@
 <template>
   <div class="picker">
-    <AppSelect v-model="agentId" :options="agents.agents.map(a => ({ value: a.id, label: a.name }))" prefix="Агент" size="sm" />
-    <AppSelect v-if="options.models.length" v-model="model" :options="options.models" prefix="Модель" size="sm" />
-    <AppSelect v-if="options.efforts.length" v-model="effort" :options="options.efforts" prefix="Рассуждения" size="sm" />
-    <span v-if="optionsError" role="status">{{ optionsError }} <button type="button" @click="chat.fetchAgentOptions(agentId, true)">Повторить</button></span>
+    <AppSelect v-model="agentId" :options="agents.agents.map(a => ({ value: a.id, label: a.name }))" :popup-max-width="220" size="sm" />
+    <AppSelect v-if="options.models.length" v-model="model" :options="options.models" prefix="Модель" :popup-max-width="220" size="sm" />
+    <AppSelect v-if="options.efforts.length" v-model="effort" :options="options.efforts" prefix="Рассуждения" :popup-max-width="220" size="sm" />
+    <span v-if="optionsError" role="status">{{ optionsError }} <AppButton variant="link" size="xs" @click="chat.fetchAgentOptions(agentId, true)">Повторить</AppButton></span>
   </div>
 </template>
 <script setup lang="ts">
+import AppButton from '@shared/ui/AppButton.vue'
 import { computed, ref, watch } from 'vue'
 import { useAgentsStore } from '@features/agents'
 import { useChatStore, modelAndEffort } from '@features/agent-chat'

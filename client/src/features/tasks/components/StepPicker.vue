@@ -22,23 +22,20 @@
         class="step"
         :class="{ done: s.done, selected: isSelected(s), queued: !s.done && stageOf(s) > 0 }"
         :style="!s.done && stageOf(s) ? { '--stage-color': stageColor(stageOf(s) - 1) } : undefined"
+        :tabindex="s.id && !taskDone ? 0 : undefined"
         role="checkbox"
         :aria-checked="isSelected(s)"
-        :aria-label="[s.id, s.text].filter(Boolean).join(' ')"
         :aria-disabled="!s.id || taskDone"
-        :tabindex="s.id && !taskDone ? 0 : -1"
-        @keydown.space.prevent="toggle(s)"
-        @keydown.enter.prevent="toggle(s)"
         @click="toggle(s)"
+        @keydown.enter.prevent="toggle(s)"
+        @keydown.space.prevent="toggle(s)"
       >
-        <span class="step-select" :class="{ on: isSelected(s) }">
-          <svg v-if="isSelected(s)" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
-        </span>
+        <span class="step-check" aria-hidden="true"><AppCheckbox :model-value="isSelected(s)" :disabled="!s.id || taskDone" tabindex="-1" /></span>
         <code v-if="s.id" class="step-id">{{ s.id }}</code>
         <span class="step-text">{{ s.text }}</span>
-        <span v-if="s.parallelGroup" class="step-tag parallel" :title="`Метка плана @parallel:${s.parallelGroup}`">∥ {{ s.parallelGroup }}</span>
-        <span v-if="s.done" class="step-tag done">✓ готово</span>
-        <span v-else-if="stageOf(s)" class="step-tag queued">этап {{ stageOf(s) }}</span>
+        <AppBadge tone="open" v-if="s.parallelGroup"  :title="`Метка плана @parallel:${s.parallelGroup}`">∥ {{ s.parallelGroup }}</AppBadge>
+        <AppBadge tone="done" v-if="s.done" >✓ готово</AppBadge>
+        <AppBadge v-else-if="stageOf(s)" >этап {{ stageOf(s) }}</AppBadge>
       </div>
     </div>
 
@@ -59,18 +56,18 @@
       <div class="builder-grid">
         <span class="builder-label">Агент</span>
         <div class="builder-controls">
-          <AppSelect v-model="agentId" :options="agentOptions" size="sm" :disabled="!editable" />
-          <AppSelect v-if="modelChoices.length" v-model="model" :options="modelChoices" prefix="Модель" size="sm" :disabled="!editable" />
-          <AppSelect v-if="effortChoices.length" v-model="effort" :options="effortChoices" prefix="Рассуждения" size="sm" :disabled="!editable" />
+          <AppSelect :popup-max-width="220" v-model="agentId" :options="agentOptions" size="sm" :disabled="!editable" />
+          <AppSelect :popup-max-width="220" v-if="modelChoices.length" v-model="model" :options="modelChoices" prefix="Модель" size="sm" :disabled="!editable" />
+          <AppSelect :popup-max-width="220" v-if="effortChoices.length" v-model="effort" :options="effortChoices" prefix="Рассуждения" size="sm" :disabled="!editable" />
         </div>
         <span class="builder-label">Работа</span>
         <div class="builder-controls">
-          <AppSelect v-model="mode" :options="MODE_OPTIONS" size="sm" :disabled="!editable" />
-          <AppSelect v-model="policy" :options="POLICY_OPTIONS" size="sm" :disabled="!editable" heading="Опасные команды (rm -rf, git push --force и т. п.) всегда спрашиваются" />
+          <AppSelect :popup-max-width="220" v-model="mode" :options="MODE_OPTIONS" size="sm" :disabled="!editable" />
+          <AppSelect :popup-max-width="220" v-model="policy" :options="POLICY_OPTIONS" size="sm" :disabled="!editable" heading="Опасные команды (rm -rf, git push --force и т. п.) всегда спрашиваются" />
         </div>
         <span class="builder-label">Куда</span>
         <div class="builder-controls">
-          <AppSelect v-model="target" :options="targetOptions" size="sm" :disabled="!editable" heading="Шаги одного этапа выполняются параллельно" />
+          <AppSelect :popup-max-width="220" v-model="target" :options="targetOptions" size="sm" :disabled="!editable" heading="Шаги одного этапа выполняются параллельно" />
           <span class="spacer" />
           <AppButton variant="primary" size="sm" :disabled="!editable || !agentId || !addable.length" :title="addTitle" @click="add">
             Добавить{{ addable.length ? ` ${addable.length} ${stepsWord(addable.length)}` : '' }}
@@ -82,9 +79,12 @@
 </template>
 
 <script setup lang="ts">
+import AppBadge from '@shared/ui/AppBadge.vue'
+import AppCheckbox from '@shared/ui/AppCheckbox.vue'
+import { tasksEndpoints } from '../api'
+
 import { computed, inject, ref, watch } from 'vue'
-import type { ExecutionPolicy, Plan, PlanStep, QueueSessionMode } from '@core/models'
-import { api } from '@core/api'
+import type { ExecutionPolicy, Plan, PlanStep, QueueSessionMode } from '@contracts'
 import { useAppStore } from '@core/stores/app'
 import { useAgentsStore } from '@features/agents'
 import { useChatStore, modelAndEffort } from '@features/agent-chat'
@@ -199,7 +199,7 @@ async function setDone(done: boolean) {
   try {
     let plan = props.plan
     for (const step of list) {
-      plan = await api.patch<Plan>(`/projects/${props.projectId}/tasks/${props.taskId}/plans/${plan.id}/step/${step.index}`, { done })
+      plan = await tasksEndpoints.patchProjectsByProjectIdTasksByTaskIdPlansByPlanIdStepByStepIndex({ params: { projectId: props.projectId, taskId: props.taskId, planId: plan.id, stepIndex: step.index }, body: { done } })
     }
     emit('planChanged', plan)
     clear()
@@ -210,12 +210,12 @@ async function setDone(done: boolean) {
 <style scoped>
 .picker { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
 .picker-head { flex-shrink: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: var(--size-xs); }
-.section-label { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
-.picker-progress { font-size: 12px; color: var(--text-faint); }
+.section-label { font-size: var(--fs-xs); font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.picker-progress { font-size: var(--fs-sm); color: var(--text-faint); }
 .spacer { flex: 1; }
 
 .steps { flex: 1; min-height: 80px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; padding: 2px; }
-.step { display: flex; align-items: center; gap: 10px; font-size: 13px; padding: 6px 8px; border-radius: var(--radius-sm); border: 1px solid transparent; cursor: pointer; transition: background 0.12s, border-color 0.12s; }
+.step { display: flex; align-items: center; line-height: var(--lh-normal); gap: 6px; font-size: var(--fs-md); padding: 6px 8px; border-radius: var(--radius-sm); border: 1px solid transparent; cursor: pointer; transition: background var(--motion-fast), border-color var(--motion-fast); }
 .step:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
 .step:hover { background: var(--bg3); }
 /* Already in the queue: the stage's colour as a bar and a faint tint */
@@ -223,23 +223,24 @@ async function setDone(done: boolean) {
 .step.queued:hover { background: color-mix(in srgb, var(--stage-color) 12%, transparent); }
 .step.selected { border-color: var(--blue); background: var(--blue-soft); }
 .step.done .step-text { color: var(--text-muted); text-decoration: line-through; text-decoration-color: var(--text-faint); }
-.step-select { width: 16px; height: 16px; border: 1.5px solid var(--border-strong); border-radius: 4px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: #fff; }
+.step-select { width: 16px; height: 16px; border: 1.5px solid var(--border-strong); border-radius: var(--radius-4); display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: var(--on-accent); }
 .step-select.on { background: var(--blue); border-color: var(--blue); }
 .step-select svg { width: 12px; height: 12px; }
-.step-id { font-family: 'Cascadia Code', 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-muted); flex-shrink: 0; }
-.step-text { flex: 1; min-width: 0; }
-.step-tag { font-size: 10.5px; padding: 1px 7px; border-radius: var(--radius-pill); white-space: nowrap; flex-shrink: 0; }
+.step .step-check { pointer-events: none; flex-shrink: 0; }
+.step-id { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-muted); flex-shrink: 0; min-width: 2ch; align-self: baseline; }
+.step-text { flex: 1; min-width: 0; align-self: baseline; }
+.step-tag { font-size: var(--fs-xs); padding: 1px 7px; border-radius: var(--radius-pill); white-space: nowrap; flex-shrink: 0; }
 .step-tag.done { color: var(--accent-hover); background: var(--accent-soft); }
 .step-tag.queued { color: var(--stage-color); border: 1px solid color-mix(in srgb, var(--stage-color) 45%, transparent); }
 .step-tag.parallel { color: var(--blue-hover); background: var(--blue-soft); }
 
-.picker-selected { font-size: 12px; color: var(--blue-hover); font-weight: 600; }
+.picker-selected { font-size: var(--fs-sm); color: var(--blue-hover); font-weight: 600; }
 
 .builder { flex-shrink: 0; display: flex; flex-direction: column; gap: 10px; padding: 10px 12px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg2); }
 .builder-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: var(--size-xs); }
-.builder-title { font-size: 12.5px; font-weight: 600; }
-.builder-status { font-size: 12px; color: var(--text-faint); min-width: 0; flex-basis: 100%; order: 1; line-height: 1.5; }
+.builder-title { font-size: var(--fs-md); font-weight: 600; }
+.builder-status { font-size: var(--fs-sm); color: var(--text-faint); min-width: 0; flex-basis: 100%; order: 1; line-height: 1.5; }
 .builder-grid { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px 12px; }
-.builder-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.4px; }
+.builder-label { font-size: var(--fs-xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.4px; }
 .builder-controls { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
 </style>

@@ -8,7 +8,7 @@ import { useChatStore } from '../stores/sessions'
  * Until something is picked, a select shows what Plangent applies on start: mode «default», the model and
  * reasoning depth from the agent's settings, else the agent's own default.
  */
-export function useAgentLaunchOptions(agentId: Ref<string>) {
+export function useAgentLaunchOptions(agentId: Ref<string>, preset?: () => { agentId?: string | null; model?: string; effort?: string }) {
   const store = useChatStore(), agents = useAgentsStore()
   const choices = ref<Record<string, string>>({})
   // The agent reports its own options; the first fetch opens a throwaway session (a few seconds).
@@ -20,6 +20,11 @@ export function useAgentLaunchOptions(agentId: Ref<string>) {
     if (choices.value[select.configId]) return choices.value[select.configId]
     const offered = (v: string | undefined) => !!v && select.options.some(o => o.value === v)
     if (select.kind === 'mode') return ['default', 'read-only'].find(offered) ?? select.current
+    // A preset (the review agent of the settings) speaks only for its own agent.
+    const wanted = preset?.()
+    const own = wanted && wanted.agentId === agentId.value ? wanted : null
+    if (select.kind === 'model' && offered(own?.model)) return own!.model!
+    if (select.category === 'thought_level' && offered(own?.effort)) return own!.effort!
     const agent = agents.agents.find(a => a.id === agentId.value)
     if (select.kind === 'model' && offered(agent?.model)) return agent!.model
     if (select.category === 'thought_level' && offered(agent?.reasoning_effort)) return agent!.reasoning_effort
@@ -39,5 +44,6 @@ export function useAgentLaunchOptions(agentId: Ref<string>) {
   }
   const pick = (select: AgentSelect, value: string) => { choices.value[select.configId] = value }
   const retry = () => store.fetchAgentOptions(agentId.value, true)
-  return { resolvedSelects, state, launch, pick, retry }
+  const commands = computed(() => reported.value && !('error' in reported.value) ? reported.value.commands ?? [] : [])
+  return { resolvedSelects, commands, state, launch, pick, retry }
 }

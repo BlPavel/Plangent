@@ -1,4 +1,4 @@
-import type { OrchestratorQueueSession, QueueStage, QueueStatus } from '@core/models'
+import type { OrchestratorQueueSession, QueueStage, QueueStatus } from '@contracts'
 
 interface ChatLike { status: string; reason: string }
 

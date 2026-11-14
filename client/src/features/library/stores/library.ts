@@ -1,8 +1,9 @@
+
+import { libraryEndpoints } from '../api'
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { api } from '@core/api'
 import { onServerEvent } from '@core/api/events'
-import type { LibraryItem, LibraryItemType, LibraryProposal, LibraryScope } from '@core/models'
+import type { LibraryItem, LibraryItemType, LibraryProposal, LibraryScope } from '@contracts'
 
 export const useLibraryStore = defineStore('library', () => {
   const items = ref<LibraryItem[]>([])
@@ -18,65 +19,65 @@ export const useLibraryStore = defineStore('library', () => {
       if (filters.projectId) params.set('projectId', filters.projectId)
       if (filters.forProject) params.set('forProject', filters.forProject)
       const qs = params.toString()
-      items.value = await api.get<LibraryItem[]>(`/library${qs ? '?' + qs : ''}`)
+      items.value = await libraryEndpoints.getLibrary({ params: {}, query: Object.fromEntries(new URLSearchParams(qs)) })
     } finally {
       loading.value = false
     }
   }
 
   async function getItem(id: string): Promise<LibraryItem> {
-    return api.get<LibraryItem>(`/library/${id}`)
+    return libraryEndpoints.getLibraryById({ params: { id: id } })
   }
 
   // Returns the id of the existing main file for the scope, or null
   async function findMainId(scope: LibraryScope, projectId?: string): Promise<string | null> {
     const params = new URLSearchParams({ type: 'main', scope })
     if (scope === 'project' && projectId) params.set('projectId', projectId)
-    const list = await api.get<LibraryItem[]>(`/library?${params.toString()}`)
+    const list = await libraryEndpoints.getLibrary({ params: {  }, query: Object.fromEntries(new URLSearchParams(params.toString())) })
     return list[0]?.id ?? null
   }
 
   async function create(data: Partial<LibraryItem> & { type: LibraryItemType; slug: string; title: string; scope: LibraryScope; content?: string }): Promise<LibraryItem> {
-    const item = await api.post<LibraryItem>('/library', data)
+    const item = await libraryEndpoints.postLibrary({ params: {  }, body: data })
     items.value.push(item)
     return item
   }
 
   async function update(id: string, data: Partial<LibraryItem> & { content?: string }): Promise<LibraryItem> {
-    const item = await api.put<LibraryItem>(`/library/${id}`, data)
+    const item = await libraryEndpoints.putLibraryById({ params: { id: id }, body: data })
     const idx = items.value.findIndex(i => i.id === id)
     if (idx !== -1) items.value[idx] = item
     return item
   }
 
   async function remove(id: string): Promise<void> {
-    await api.delete(`/library/${id}`)
+    await libraryEndpoints.deleteLibraryById({ params: { id: id } })
     items.value = items.value.filter(i => i.id !== id)
   }
 
   // A group's item changed or removed inside one project: that project gets its own copy / nothing, the group keeps its item.
-  const detach = (id: string, projectId: string) => api.post<LibraryItem>(`/library/${id}/detach`, { projectId })
-  const exclude = (id: string, projectId: string) => api.post(`/library/${id}/exclude`, { projectId })
+  const detach = (id: string, projectId: string, changes?: Partial<LibraryItem>) => libraryEndpoints.postLibraryByIdDetach({ params: { id }, body: { projectId, changes } })
+  const exclude = (id: string, projectId: string) => libraryEndpoints.postLibraryByIdExclude({ params: { id: id }, body: { projectId } })
 
   async function syncAll(): Promise<void> {
-    await api.post('/library/sync')
+    await libraryEndpoints.postLibrarySync({ params: {  } })
   }
 
   async function getPlanTemplateDefaults(): Promise<{ lockedProtocol: string }> {
-    return api.get<{ lockedProtocol: string }>('/library/plan-template/defaults')
+    return libraryEndpoints.getLibraryPlanTemplateDefaults({ params: {  } })
   }
 
   async function getOverride(id: string, agentType: string): Promise<string | null> {
-    const r = await api.get<{ content: string | null }>(`/library/${id}/overrides/${agentType}`)
+    const r = await libraryEndpoints.getLibraryByIdOverridesByAgentType({ params: { id: id, agentType: agentType } })
     return r.content
   }
 
   async function setOverride(id: string, agentType: string, content: string): Promise<void> {
-    await api.put(`/library/${id}/overrides/${agentType}`, { content })
+    await libraryEndpoints.putLibraryByIdOverridesByAgentType({ params: { id: id, agentType: agentType }, body: { content } })
   }
 
   async function deleteOverride(id: string, agentType: string): Promise<void> {
-    await api.delete(`/library/${id}/overrides/${agentType}`)
+    await libraryEndpoints.deleteLibraryByIdOverridesByAgentType({ params: { id: id, agentType: agentType } })
   }
 
   // ── Librarian proposals: loaded per project, kept fresh by server events ──
@@ -86,10 +87,10 @@ export const useLibraryStore = defineStore('library', () => {
   function putProposal(p: LibraryProposal) { proposals.value[p.id] = p }
 
   async function loadProposals(projectId: string): Promise<void> {
-    for (const p of await api.get<LibraryProposal[]>(`/library/proposals?projectId=${encodeURIComponent(projectId)}`)) putProposal(p)
     unsubscribe ??= onServerEvent<{ type: string; proposal?: LibraryProposal }>(event => {
       if (event.type === 'library_proposal' && event.proposal) putProposal(event.proposal)
     })
+    for (const p of await libraryEndpoints.getLibraryProposals({ params: {  }, query: Object.fromEntries(new URLSearchParams("projectId=" + encodeURIComponent(projectId))) })) putProposal(p)
   }
 
   function proposalsFor(filter: { projectId?: string; sessionId?: string }): LibraryProposal[] {
@@ -100,19 +101,19 @@ export const useLibraryStore = defineStore('library', () => {
 
   // A conflict (stale snapshot, taken slug) comes back as an error; the new status arrives as an event.
   async function applyProposal(id: string, availability?: { scope: LibraryScope; targets: string[]; own_only: string[] }): Promise<LibraryItem> {
-    return api.post<LibraryItem>(`/library/proposals/${id}/apply`, availability ? { availability } : {})
+    return libraryEndpoints.postLibraryProposalsByProposalIdApply({ params: { proposalId: id }, body: availability ? { availability } : {} })
   }
 
   async function rejectProposal(id: string): Promise<void> {
-    putProposal(await api.post<LibraryProposal>(`/library/proposals/${id}/reject`))
+    putProposal(await libraryEndpoints.postLibraryProposalsByProposalIdReject({ params: { proposalId: id } }))
   }
 
   async function getInstructionGuideDefault(): Promise<string> {
-    return (await api.get<{ content: string }>('/library/instruction-guide/defaults')).content
+    return (await libraryEndpoints.getLibraryInstructionGuideDefaults({ params: {  } })).content
   }
 
   async function getCodeFixerInstructionDefault(): Promise<string> {
-    return (await api.get<{ content: string }>('/library/code-fixer-instruction/defaults')).content
+    return (await libraryEndpoints.getLibraryCodeFixerInstructionDefaults({ params: {  } })).content
   }
 
   return {

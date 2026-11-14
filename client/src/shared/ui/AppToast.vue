@@ -2,22 +2,38 @@
   <div class="toast-container">
     <TransitionGroup name="toast">
       <div
-        v-for="t in store.toasts"
+        v-for="t in toasts"
         :key="t.id"
         class="toast"
         :class="t.type"
-        @click="store.dismissToast(t.id)"
+        @click="emit('dismiss', t.id)"
       >
         {{ t.msg }}
-        <button v-if="t.action" type="button" class="toast-action" @click.stop="store.dismissToast(t.id); t.action.run()">{{ t.action.label }}</button>
+        <button v-if="t.action" type="button" class="toast-action" @click.stop="emit('action', t.id)">{{ t.action.label }}</button>
       </div>
     </TransitionGroup>
   </div>
 </template>
 
 <script setup lang="ts">
-import { useAppStore } from '@core/stores/app'
-const store = useAppStore()
+defineProps<{
+    toasts: Array<{
+        id: number;
+        msg: string;
+        type: string;
+        action?: {
+            label: string;
+        };
+    }>;
+}>();
+const emit = defineEmits<{
+    dismiss: [
+        id: number
+    ];
+    action: [
+        id: number
+    ];
+}>();
 </script>
 
 <style scoped>
@@ -28,19 +44,19 @@ const store = useAppStore()
   display: flex;
   flex-direction: column;
   gap: 8px;
-  z-index: 200;
+  z-index: var(--z-menu);
 }
 .toast {
   background: var(--bg3);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 10px 16px;
-  font-size: 13px;
+  font-size: var(--fs-md);
   max-width: 320px;
   word-break: break-word;
   cursor: pointer;
 }
-.toast-action { display: block; margin-top: 6px; padding: 0; font: inherit; font-size: 12px; font-weight: 600; color: var(--blue-hover); background: none; border: none; cursor: pointer; }
+.toast-action { display: block; margin-top: 6px; padding: 0; font: inherit; font-size: var(--fs-sm); font-weight: var(--fw-semibold); color: var(--blue-hover); background: none; border: none; cursor: pointer; }
 .toast-action:hover { text-decoration: underline; }
 .toast.error { border-color: var(--danger); }
 .toast.success { border-color: var(--accent); }

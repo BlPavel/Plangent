@@ -1,0 +1,211 @@
+import { moduleDependencies } from '../dependencies';
+import { sendReviewBatch } from '../kernel';
+import { activeWorkspace } from '../../workspaces';
+import { markAgentWorkFinished } from '../../agents';
+import { rootForTask } from '../../workspaces';
+import type { Agent, OrchestratorQueueSession, TaskQueue } from '../../../models';
+import type { AgentSession } from '../../agents';
+import { createAgentSession, getSession, history, listSessions, updateSession } from '../../agents';
+import { onAgentEvent} from '../../agents';
+import { getTask } from '../../tasks';
+import { getProject } from '../../projects';
+import { getAgent } from '../../agents';
+import { reviewAgent } from '../../settings';
+import { randomUUID } from 'node:crypto';
+import { createReviewStore } from '../../../infrastructure/db/repositories/review/code';
+import { assertTaskWorkspaceReady } from '../../workspaces';
+import type { withWorkStart } from '../../work';
+import { getLatestPlan } from '../../preparation';
+import { analysisToolContext } from '../../preparation';
+import { repositoryInfo, reviewBase, taskWorktreeChanges } from '../../../infrastructure/git/read';
+import type { WorkPOSTTasksTaskIdReviewBody } from '@contracts';
+import { reviews } from './reviews';
+import { resolveMrReviewInstruction, resolveReviewSkill } from '../../library';
+import { getOrchestrator } from '../../execution';
+import { isActive, saveQueue, getQueue } from '../../execution';
+import { DomainError } from '../../../models/domain-error';
+import { getReadyMaterials } from '../../preparation';
+
+export const TASK_REVIEW_PROTOCOL = [
+  'You are a task reviewer. Read files and run read-only commands only. Never edit files or change Git state.',
+  'Call get_task_review_brief first. Follow the review instruction and the selected review skill, if any. Review implementation against the task, analysis, plan and executor reports, including failed/skipped work.',
+  'The captured diff spans the task baseline to the worktree at launch, including committed, staged, unstaged and untracked changes. Other work may share the branch: report only problems related to this task.',
+  'The brief holds developer_requests: what the developer wrote to the executor agent in chat before and during the work. It is part of the task statement: check the implementation against it. developer_context, when present, is free text from the developer for this review: follow it.',
+  'Read existing branch review items and threads. Do not duplicate them, including dismissed or already addressed findings, without new evidence.',
+  'Use add_task_remark for actionable findings: scope line/file/general, kind fix/question, text, file and optional line_start/line_end. Lines refer to the current worktree, never old-side lines. Invalid lines become file remarks.',
+  'Finish with submit_task_review and a short summary, even when there are no findings. Findings are agent drafts in Code; the queue continues without waiting for their resolution.',
+];
+
+function scope(session: AgentSession) {
+  const orch = session.task_id ? getOrchestrator(session.task_id) : undefined;
+  const item = orch?.sessions().find(s => s.kind === 'review' && s.sessionId === session.id);
+  const persisted = getSession(session.id);
+  const independent = persisted.metadata.task_review_independent === true && persisted.metadata.task_review_active === true
+    && persisted.task_id === session.task_id && persisted.project_id === session.project_id
+    && getTask(session.task_id!)?.project_id === session.project_id;
+  if (session.role !== 'task-reviewer' || session.policy !== 'read-only'
+    || (!independent && (!orch || !item || !isActive(item) || orch.queue.projectId !== session.project_id)))
+    throw new DomainError('No active task review', 403);
+  return { orch: item ? orch : undefined, item };
+}
+
+export function taskReviewCount(sessionId: string): number {
+  const ids = getSession(sessionId).metadata.task_review_items;
+  return Array.isArray(ids) ? ids.length : 0;
+}
+
+/** What a review covers and what the developer told its agent; a queue review always covers the whole work. */
+export interface TaskReviewOptions { range?: { mode: 'task' | 'worktree' | 'branch'; ref?: string }; context?: string; config?: Record<string, string> }
+
+export async function launchTaskReview(queue: TaskQueue, item: OrchestratorQueueSession, agent: Agent, save: () => void, independent = false, options: TaskReviewOptions = {}) {
+  const task = getTask(queue.taskId)!, project = getProject(queue.projectId)!;
+  assertTaskWorkspaceReady(task.id);
+  const root = rootForTask(task.id);
+  const repository = await repositoryInfo(root);
+  const range = options.range ?? { mode: 'task' as const };
+  let base: string | null = task.base_commit ?? null;
+  if (repository && range.mode !== 'task') {
+    base = await reviewBase(root, range.mode === 'branch' ? range.ref : undefined).catch(error => {
+      throw new DomainError(error instanceof Error && /Ветка не найдена|первый коммит/.test(error.message) ? error.message : 'Не удалось определить общую базу для ревью');
+    });
+  }
+  const changes = repository && base ? await taskWorktreeChanges(root, base) : null;
+  if (range.mode !== 'task' && changes && !changes.length) throw new DomainError('В выбранной области нет изменений');
+  // A stop may arrive while Git is collecting the context.
+  if (queue.status !== 'running' || item.status !== 'reviewing') return;
+  const plan = getLatestPlan(task.id);
+  const session = createAgentSession({ project_id: project.id, task_id: task.id, agent_id: agent.id, model: agent.model, role: 'task-reviewer', policy: 'read-only', title: task.key + ' · Ревью', config: options.config,
+    metadata: { task_review_independent: independent, task_review_active: true, reasoningEffort: agent.reasoning_effort, briefing: TASK_REVIEW_PROTOCOL.join('\n'),
+      task_review_repository: repository, task_review_changes: changes, task_review_items: [],
+      task_review_range: { mode: range.mode, ref: range.mode === 'branch' ? range.ref : undefined, base },
+      task_review_context: options.context?.trim().slice(0, 20000) || null,
+      task_review_skill: resolveReviewSkill(project.id, item.skillId) } });
+  item.sessionId = session.id;
+  item.mode = 'acp';
+  try {
+    const round = await reviews(activeWorkspace(task.id)?.id, task.id).startAgentRound(project.id, task.id, session.id);
+    item.reviewId = round.review_id;
+    updateSession(session.id, { metadata: { ...getSession(session.id).metadata, task_review_round: round.id } });
+  } catch (error) {
+    updateSession(session.id, { status: 'error', reason: String(error), metadata: { ...getSession(session.id).metadata, task_review_active: false } });
+    throw error;
+  }
+  save();
+  await sendReviewBatch(session.id, 'Call get_task_review_brief, review the task implementation, save findings with add_task_remark, and finish with submit_task_review. Write for the developer in their language, Russian by default.');
+}
+
+/** The developer's own words to the agents of the work (an errand's request, a task chat): the statement the reviewer checks against. */
+function developerRequests(taskId: string, projectId: string) {
+  return listSessions(projectId).filter(s => s.task_id === taskId && ['errand', 'task-chat', 'executor'].includes(s.role))
+    .map(s => ({ session_id: s.id, role: s.role,
+      messages: history(s.id).filter(e => e.type === 'user').map(e => String(e.payload.text ?? '').trim()).filter(Boolean).slice(0, 10).map(text => text.slice(0, 20000)) }))
+    .filter(request => request.messages.length);
+}
+
+/** The review agent picked when the errand was created; the project's settings decide otherwise. */
+function pickedReviewAgent(taskId: string, projectId: string) {
+  // Chosen when the work was created; older errands keep it in their session's metadata.
+  const pick = getTask(taskId)?.review_agent ?? listSessions(projectId).find(s => s.task_id === taskId && s.role === 'errand')?.metadata.review_agent as { agent_id?: string; model?: string; effort?: string } | undefined;
+  return pick?.agent_id ? pick : undefined;
+}
+
+export async function taskReviewBrief(session: AgentSession) {
+  const { orch } = scope(session);
+  const task = getTask(session.task_id!)!, project = getProject(session.project_id)!;
+  const current = await reviews(activeWorkspace(session.task_id!)?.id, session.task_id!).current(project.id);
+  const { architecture, qa } = getReadyMaterials(task.id);
+  return { protocol: [...TASK_REVIEW_PROTOCOL,
+    'When ready architecture or QA materials are provided, check implementation against architecture decisions (structure) and QA criteria (code behavior, even without tests). Findings about violations must reference the relevant D… decision or Q… criterion (for example [[architecture#D1]] or [[qa#Q3]]).'],
+    task, plan: getLatestPlan(task.id)?.content ?? '', architecture, qa,
+    analysis: analysisToolContext(task.id, project.repo_path, task.key),
+    instruction: resolveMrReviewInstruction(project.id),
+    skill: session.metadata.task_review_skill,
+    range: { ...((session.metadata.task_review_range as { mode: string; ref?: string; base: string | null } | undefined) ?? { mode: 'task', base: task.base_commit ?? null }), repository: session.metadata.task_review_repository, captured_at: session.created_at },
+    developer_context: session.metadata.task_review_context ?? null,
+    developer_requests: developerRequests(task.id, project.id),
+    changes: session.metadata.task_review_changes,
+    limitation: session.metadata.task_review_changes === null
+      ? 'Git or the task base commit is unavailable, so there is no diff. Review files using the executor reports and plan; do not claim to have reviewed the full diff.' : null,
+    executor_reports: listSessions(project.id).filter(s => s.task_id === task.id && ['executor', 'errand'].includes(s.role))
+      .map(s => ({ id: s.id, steps: s.step_ids, status: s.status, summary: s.reason })),
+    queue: [...(orch?.queue ?? getQueue(task.id, project.id)).stages, ...((orch?.queue ?? getQueue(task.id, project.id)).history ?? []).flatMap(r => r.stages)],
+    rounds: current.rounds,
+    existing_review: { review: current.review, items: current.items, messages: current.messages } };
+}
+
+export async function addTaskRemark(session: AgentSession, input: Record<string, unknown>) {
+  scope(session);
+  const project = getProject(session.project_id)!;
+  const captured = session.metadata.task_review_repository as Awaited<ReturnType<typeof repositoryInfo>>;
+  const now = await repositoryInfo(rootForTask(session.task_id!));
+  if (captured?.branch !== now?.branch || (!captured?.branch && captured?.head !== now?.head))
+    throw new DomainError('Review branch changed; restart the review', 409);
+  const result = await reviews(activeWorkspace(session.task_id!)?.id, session.task_id!).addAgentDraft(session.project_id, session.task_id!, {
+    scope: input.scope as 'line' | 'file' | 'general', kind: input.kind as 'fix' | 'question', text: input.text as string,
+    file: input.file as string | undefined, line_start: input.line_start as number | undefined, line_end: input.line_end as number | undefined,
+  });
+  // Preserve the session's current metadata when several tool calls run concurrently.
+  const fresh = getSession(session.id);
+  const ids = Array.isArray(fresh.metadata.task_review_items) ? fresh.metadata.task_review_items : [];
+  updateSession(session.id, { metadata: { ...fresh.metadata, task_review_items: [...ids, result.item.id] } });
+  const { orch, item } = scope(session);
+  if (typeof fresh.metadata.task_review_round === 'string') {
+    createReviewStore().updateItem(result.item.id, { round_id: fresh.metadata.task_review_round });
+  }
+  if (orch && item) {
+    item.reviewId = result.review.id; item.remarks = ids.length + 1;
+    saveQueue(orch.queue);
+  }
+  return result;
+}
+
+export async function submitTaskReview(session: AgentSession, summary: unknown) {
+  const { orch } = scope(session);
+  if (typeof summary !== 'string' || !summary.trim()) throw new DomainError('Summary required');
+  updateSession(session.id, { status: 'complete', reason: summary.trim() });
+  markAgentWorkFinished(session.id);
+  if (orch) await orch.onChatTurnEnd(session.id);
+  else finishIndependentReview(session.id);
+  return { completed: true, remarks: taskReviewCount(session.id) };
+}
+
+function finishIndependentReview(id: string, error?: string) {
+  const session = getSession(id);
+  if (!session.metadata.task_review_independent || !session.metadata.task_review_active) return;
+  if (session.metadata.code_review && !session.metadata.code_review_submitted) error ??= 'Проверка прервана или агент завершил ход без итогового отчёта';
+  updateSession(id, { status: error ? 'error' : 'complete', ...(error ? { reason: error } : {}),
+    metadata: { ...session.metadata, task_review_active: false } });
+  markAgentWorkFinished(id);
+}
+onAgentEvent('turn_end', (id: string) => finishIndependentReview(id));
+onAgentEvent('error-state', (id: string, error: string) => finishIndependentReview(id, error));
+
+export async function launchIndependentReview(taskId: string, input: WorkPOSTTasksTaskIdReviewBody = {}) {
+  for (const key of ['agent_id', 'model', 'effort', 'skill_id', 'context', 'ref'] as const) {
+    if (input[key] !== undefined && typeof input[key] !== 'string') throw new DomainError('Invalid ' + key);
+  }
+  if (input.mode !== undefined && !['task', 'worktree', 'branch'].includes(input.mode)) throw new DomainError('Выберите область ревью');
+  if (input.mode === 'branch' && !input.ref?.trim()) throw new DomainError('Выберите ветку для сравнения');
+  if (input.config !== undefined && (!input.config || typeof input.config !== 'object' || Array.isArray(input.config)
+    || Object.values(input.config).some(value => typeof value !== 'string'))) throw new DomainError('Invalid config');
+  return moduleDependencies.work.withWorkStart(taskId, async () => {
+    const task = getTask(taskId);
+    if (!task || task.closed_at || task.status === 'done') throw new DomainError('Работа закрыта или не найдена', 409);
+    if (getOrchestrator(taskId)) throw new DomainError('Дождитесь завершения очереди', 409);
+    const sessions = listSessions(task.project_id).filter(s => s.task_id === taskId);
+    if (sessions.some(s => s.role === 'task-reviewer' && s.metadata.task_review_active
+      && ['starting', 'thinking', 'waiting'].includes(s.status))) throw new DomainError('Ревью уже выполняется', 409);
+    // Explicit pick, then the one made at creation, then the project's review agent from the settings.
+    const picked = input.agent_id ? undefined : pickedReviewAgent(taskId, task.project_id);
+    const selected = reviewAgent(task.project_id, { agentId: input.agent_id ?? picked?.agent_id, model: input.model ?? picked?.model, effort: input.effort ?? picked?.effort });
+    const baseAgent = getAgent(selected.agentId);
+    if (!baseAgent) throw new DomainError('Агент не найден');
+    const agent = { ...baseAgent, model: selected.model || baseAgent.model, reasoning_effort: selected.effort || baseAgent.reasoning_effort };
+    const queue = { ...getQueue(taskId, task.project_id), status: 'running' as const };
+    const item: OrchestratorQueueSession = { id: randomUUID(), kind: 'review', status: 'reviewing',
+      agentId: agent.id, queueMode: 'execute', permissionPolicy: 'ask', skillId: input.skill_id };
+    try { await launchTaskReview(queue, item, agent, () => {}, true, { range: { mode: input.mode ?? 'task', ref: input.ref?.trim() }, context: input.context, config: input.config }); }
+    catch (error) { if (item.sessionId) finishIndependentReview(item.sessionId, String(error)); throw error; }
+    return getSession(item.sessionId!);
+  });
+}

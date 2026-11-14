@@ -1,38 +1,20 @@
+import { agentsApi } from '@features/agents'
+
+import { agentChatEndpoints } from '../api'
+import type { ChatSession, AgentLimits, SocketMessage, ChatSnapshot } from '@contracts';
+export type { ChatSession, ChatPayload, LimitWindow, AgentLimits, ChatEvent, ChatSnapshot } from '@contracts';
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { api } from '@core/api'
 import { platform } from '@core/platform'
 import type { AgentOptionsSource } from '../utils/agent-options'
 import { useChatDraftsStore } from './drafts'
-export interface ChatSession {
-  id: string; project_id: string; task_id: string | null; agent_id: string; model: string;
-  title: string; status: string; reason: string; policy: string; role: string;
-  metadata: Record<string, unknown>; created_at?: string; updated_at?: string;
-}
-export interface ChatPayload {
-  link?: string;
-  text?: string; toolCallId?: string; title?: string; status?: string; kind?: string; rawOutput?: unknown;
-  content?: { type: string; path?: string; oldText?: string; newText?: string; content?: { text?: string } }[];
-  entries?: { status: string; content: string }[];
-  availableCommands?: { name: string; description: string }[];
-  file?: string; line?: number; severity?: string; message?: string;
-  verdict?: string; summary?: string; question?: string; note?: string;
-  /** propose_library_change: the proposal the card shows. */
-  proposal_id?: string;
-  /** The user message also carried Plangent's hidden briefing. */
-  briefing?: boolean;
-  permissionId?: string;
-}
-export interface LimitWindow { id: string; label: string; percent: number; resetsAt: number | null }
-export interface AgentLimits { agentId: string; at: number; windows: LimitWindow[]; error?: string }
-export interface ChatEvent { seq: number; session_id: string; type: string; payload: ChatPayload }
-type SocketMessage = { type: 'agent_delta'; kind: string; text: string } | { type: 'agent_event'; event: ChatEvent }
-export interface ChatSnapshot {
-  session: ChatSession; events: ChatEvent[];
-  queue: { id: string; content: string }[];
-  streaming: { text: string; type: string } | null;
-  permissions: { permissionId: string; toolCall: { title: string }; options: { optionId: string; name: string; kind: string }[] }[];
-}
+
+
+
+
+
+
+
 export const useChatStore = defineStore('agent-chat', () => {
   const sessions = ref<ChatSession[]>([])
   const snapshots = ref<Record<string, ChatSnapshot>>({})
@@ -58,7 +40,7 @@ export const useChatStore = defineStore('agent-chat', () => {
     if (!missed.has(id)) missed.set(id, new Set())
     missed.get(id)!.add(buffer)
     let snap: ChatSnapshot
-    try { snap = await api.get<ChatSnapshot>(`/agent-sessions/${id}`) }
+    try { snap = await agentChatEndpoints.getAgentSessionsById({ params: { id: id } }) }
     finally { missed.get(id)!.delete(buffer); if (!missed.get(id)!.size) missed.delete(id) }
     const previous = snapshots.value[id]
     // The server takes a snapshot atomically, so a delta is surely newer than it only once an event newer
@@ -93,17 +75,17 @@ export const useChatStore = defineStore('agent-chat', () => {
     delete snapshots.value[id]
   }
   async function remove(id: string) {
-    await api.delete(`/agent-sessions/${id}`)
+    await agentChatEndpoints.deleteAgentSessionsById({ params: { id: id } })
     drop(id)
   }
   async function connect() {
     if (connecting || socket) return
     connecting = true
     try {
-      sessions.value = await api.get<ChatSession[]>('/agent-sessions')
+      sessions.value = await agentChatEndpoints.getAgentSessions({ params: {  } })
       socket = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws/events`)
       socket.onopen = () => {
-        void api.get<ChatSession[]>('/agent-sessions').then(rows => { sessions.value = rows })
+        void agentChatEndpoints.getAgentSessions({ params: {  } }).then(rows => { sessions.value = rows })
         for (const id of Object.keys(snapshots.value)) void load(id)
       }
       socket.onmessage = message => {
@@ -127,7 +109,7 @@ export const useChatStore = defineStore('agent-chat', () => {
   function fetchLimits(agentId: string, force = false) {
     if (!agentId) return Promise.resolve()
     if (inflight.has(agentId)) return inflight.get(agentId)!
-    const job = api.get<AgentLimits>(`/agents/${agentId}/limits${force ? '?refresh=1' : ''}`)
+    const job = agentsApi.limits({ params: { id: agentId }, query: { refresh: force ? '1' : undefined } })
       .then(value => { limits.value[agentId] = value })
       .catch(() => {})
       .finally(() => inflight.delete(agentId))
@@ -142,7 +124,7 @@ export const useChatStore = defineStore('agent-chat', () => {
     if (!agentId) return Promise.resolve()
     if (optionJobs.has(agentId)) return optionJobs.get(agentId)!
     const query = refresh === 'cached' ? '?cached=1' : refresh ? '?refresh=1' : ''
-    const job = api.get<AgentOptionsSource | null>(`/agents/${agentId}/acp-options${query}`)
+    const job = agentsApi.options({ params: { id: agentId }, query: Object.fromEntries(new URLSearchParams(query)) })
       .then(value => { if (value) agentOptions.value[agentId] = value })
       .catch(e => { agentOptions.value[agentId] = { error: e instanceof Error ? e.message : String(e) } })
       .finally(() => optionJobs.delete(agentId))

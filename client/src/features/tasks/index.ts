@@ -1,4 +1,5 @@
 export { taskRoutes } from './routes'
+export { onWorkEvent, onWorkspaceEvent } from './events'
 export { startQueueNotifications } from './composables/useQueueNotifications'
 export { useBlockedQueuesStore } from './stores/blockedQueues'
 export { TerminalPane } from '@features/terminal'
@@ -9,3 +10,5 @@ export { workApi, workspacesApi } from './api'
 export { default as WorkList } from './components/WorkList.vue'
 export { useWorkStore } from './stores/work'
 export { useWorkActions } from './composables/useWorkActions'
+
+export { tasksEndpoints } from './api'

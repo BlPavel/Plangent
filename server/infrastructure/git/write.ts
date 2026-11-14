@@ -1,0 +1,232 @@
+import { killProcessTree } from '../terminal/process-tree';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { execFile } from 'node:child_process';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { codePath } from '../files/code-path';
+import { DomainError } from '../../models/domain-error';
+import { isRepository, localBranchHead, repositoryInfo, branches, gitOperation } from './read';
+
+export interface GitOperationOptions {
+  signal?: AbortSignal; timeoutMs?: number; onOutput?: (chunk: string) => void;
+  assertIdle?: () => void;
+}
+export class GitOperationError extends DomainError {
+  constructor(message: string, public output = '', public code = 'git_failed') { super(message, 409); }
+}
+const queues = new Map<string, Promise<unknown>>();
+const ownership = new AsyncLocalStorage<{ key: string; active: boolean }>();
+export async function serializeGit<T>(root: string, operation: () => Promise<T>): Promise<T> {
+  const canonical = await fs.realpath(root);
+  const key = process.platform === 'win32' ? canonical.toLowerCase() : canonical;
+  if (ownership.getStore()?.key === key && ownership.getStore()?.active) return operation();
+  const previous = queues.get(key) ?? Promise.resolve();
+  const next = previous.catch(() => {}).then(() => {
+    const owner = { key, active: true };
+    return ownership.run(owner, async () => { try { return await operation(); } finally { owner.active = false; } });
+  });
+  queues.set(key, next);
+  try { return await next; } finally { if (queues.get(key) === next) queues.delete(key); }
+}
+export function redactGitOutput(text: string): string {
+  return text.replace(/(https?:\/\/)[^\s/@]+(?::[^\s/@]*)?@/gi, '$1***@');
+}
+const run = runGit;
+/** Commands that run the repository's hooks. `--literal-pathspecs` is exported to hooks as GIT_LITERAL_PATHSPECS and breaks their own globs (`git add ./apps/**\/*.scss`). */
+const HOOK_COMMANDS = new Set(['commit', 'push', 'switch', 'checkout', 'merge', 'pull', 'rebase', 'clone']);
+function runGitRaw(root: string, args: string[], options: GitOperationOptions = {}, input?: string): Promise<string> {
+  options.signal?.throwIfAborted();
+  return new Promise((resolve, reject) => {
+    let output = '', cancelled = false, timedOut = false, terminating = false, killError: Error | undefined;
+    const hooks = HOOK_COMMANDS.has(args[0]);
+    const env: NodeJS.ProcessEnv = { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_PAGER: 'cat', GCM_INTERACTIVE: 'never' };
+    if (hooks) delete env.GIT_LITERAL_PATHSPECS;
+    const child = execFile('git', ['-c', 'core.quotepath=off', ...(hooks ? [] : ['--literal-pathspecs']), ...args], {
+      cwd: root, windowsHide: true, maxBuffer: 64 * 1024 * 1024, env,
+    }, (error, stdout) => {
+      clearTimeout(timer); options.signal?.removeEventListener('abort', abort);
+      if (killError) return reject(killError);
+      if (cancelled || timedOut) return reject(new GitOperationError(timedOut ? 'Git operation timed out' : 'Git operation cancelled', output, timedOut ? 'timeout' : 'cancelled'));
+      if (error) {
+        const auth = /authentication failed|could not read Username|permission denied|access denied|HTTP Basic: Access denied|terminal prompts disabled/i.test(output);
+        const divergence = args[0] === 'pull' && /diverg|fast-forward|not possible to fast-forward/i.test(output);
+        return reject(new GitOperationError(auth ? 'Ошибка авторизации. Для SSO используйте PAT вместо пароля или SSH.' : divergence ? 'Ветки разошлись. Откройте внешний Git-клиент.' : 'Git operation failed', output, auth ? 'authentication' : divergence ? 'diverged' : 'git_failed'));
+      }
+      resolve(stdout);
+    });
+    const collect = (chunk: Buffer | string) => { const text = redactGitOutput(String(chunk)); output = (output + text).slice(-1024 * 1024); options.onOutput?.(text); };
+    child.stdout?.on('data', collect); child.stderr?.on('data', collect);
+    const kill = () => {
+      if (!child.pid || terminating) return;
+      terminating = true;
+      void killProcessTree(child.pid, { child, onError: error => { killError = error; } });
+    };
+    const abort = () => { cancelled = true; kill(); };
+    const timer = setTimeout(() => { timedOut = true; kill(); }, options.timeoutMs ?? 120000);
+    options.signal?.addEventListener('abort', abort, { once: true });
+    if (options.signal?.aborted) abort();
+    child.stdin?.end(input);
+  });
+}
+export async function check(root: string, options: GitOperationOptions, idle = false) {
+  options.signal?.throwIfAborted();
+  if (!await isRepository(root)) throw new DomainError('Project is not a Git repository');
+  if (idle) options.assertIdle?.();
+}
+const operationNames = { merge: 'merge', rebase: 'rebase', 'cherry-pick': 'cherry-pick', revert: 'revert', conflict: 'conflict resolution' };
+/** The developer runs merge/rebase themselves; until they finish it, Plangent does not commit, switch, pull or push. */
+export async function assertNoGitOperation(root: string) {
+  const operation = await gitOperation(root);
+  if (operation) throw new GitOperationError('Идёт ' + operationNames[operation.kind] + ': завершите или отмените его в своём git-клиенте', '', 'operation_in_progress');
+}
+function files(root: string, list: string[]): string[] {
+  if (!Array.isArray(list) || !list.length || list.length > 10000 || list.some(file => typeof file !== 'string')) throw new DomainError('Choose files');
+  return list.map(file => path.relative(root, codePath(root, file)).replace(/\\/g, '/'));
+}
+export async function stage(root: string, paths: string[], options: GitOperationOptions = {}) {
+  const list = files(root, paths);
+  return serializeGit(root, async () => { await check(root, options, true); return run(root, ['add', '-A', '--', ...list], options); });
+}
+export async function unstage(root: string, paths: string[], options: GitOperationOptions = {}) {
+  const list = files(root, paths);
+  return serializeGit(root, async () => {
+    await check(root, options, true);
+    const info = await repositoryInfo(root);
+    // `reset` tolerates paths git does not know (already unstaged new files); `restore --staged` fails on them for the whole call.
+    return run(root, info?.head ? ['reset', '-q', 'HEAD', '--', ...list] : ['rm', '--cached', '-r', '--ignore-unmatch', '--', ...list], options);
+  });
+}
+/** Throws away the local changes of the files: tracked ones go back to HEAD, new ones (untracked or only added) are deleted. */
+export async function discard(root: string, paths: string[], options: GitOperationOptions = {}) {
+  const list = files(root, paths);
+  return serializeGit(root, async () => {
+    await check(root, options, true);
+    await assertNoGitOperation(root);
+    const info = await repositoryInfo(root);
+    const known = info?.head ? new Set((await run(root, ['ls-tree', '-r', '--name-only', '-z', 'HEAD', '--', ...list], options)).split('\0').filter(Boolean)) : new Set<string>();
+    const tracked = list.filter(file => known.has(file)), added = list.filter(file => !known.has(file));
+    let output = '';
+    if (tracked.length) output += await run(root, ['restore', '--source=HEAD', '--staged', '--worktree', '--', ...tracked], options);
+    if (added.length) {
+      output += await run(root, ['rm', '--cached', '-r', '--ignore-unmatch', '-q', '--', ...added], options);
+      for (const file of added) await fs.rm(codePath(root, file), { recursive: true, force: true });
+    }
+    return output;
+  });
+}
+export async function fetchRepository(root: string, options: GitOperationOptions = {}) {
+  return serializeGit(root, async () => { await check(root, options); return run(root, ['fetch', '--progress', '--prune', 'origin', '+refs/heads/*:refs/remotes/origin/*'], options); });
+}
+export async function pull(root: string, options: GitOperationOptions = {}) {
+  return serializeGit(root, async () => { await check(root, options, true); await assertNoGitOperation(root); return run(root, ['pull', '--ff-only', '--progress'], options); });
+}
+/** Replays local commits on top of the upstream; on a failure the rebase is aborted so the folder is left as it was. */
+export async function pullRebase(root: string, options: GitOperationOptions = {}) {
+  return serializeGit(root, async () => {
+    await check(root, options, true);
+    await assertNoGitOperation(root);
+    try { return await run(root, ['pull', '--rebase', '--progress'], options); }
+    catch (error) {
+      await run(root, ['rebase', '--abort']).catch(() => undefined);
+      if (error instanceof GitOperationError && error.code === 'git_failed')
+        throw new GitOperationError('Rebase не удался: конфликты или незакоммиченные изменения. Он отменён, ничего не изменилось.', error.output, 'rebase_failed');
+      throw error;
+    }
+  });
+}
+export async function push(root: string, options: GitOperationOptions = {}, force = false) {
+  return serializeGit(root, async () => {
+    await check(root, options, true);
+    await assertNoGitOperation(root);
+    const info = await repositoryInfo(root);
+    if (!info?.branch) throw new DomainError('Choose a branch before pushing');
+    const upstream = await run(root, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'], options).catch(() => '');
+    const lease = force ? ['--force-with-lease'] : [];
+    // A branch cut from origin/develop tracks develop; a plain push (push.default=simple) refuses that, so it is published under its own name.
+    const sameName = upstream.trim().split('/').slice(1).join('/') === info.branch;
+    return run(root, upstream && sameName ? ['push', '--progress', ...lease] : ['push', '--progress', ...lease, '--set-upstream', 'origin', info.branch], options);
+  });
+}
+export async function switchBranch(root: string, branch: string, options: GitOperationOptions = {}) {
+  return serializeGit(root, async () => {
+    await check(root, options, true);
+    await assertNoGitOperation(root);
+    if (typeof branch !== 'string') throw new DomainError('Invalid branch name');
+    const selected = (await branches(root)).find(item => item.name === branch);
+    if (!selected) throw new DomainError('Branch not found');
+    if (!selected.remote) return run(root, ['switch', '--no-guess', '--', branch], options);
+    const local = branch.replace(/^origin\//, '');
+    if (await localBranchHead(root, local)) return run(root, ['switch', '--no-guess', '--', local], options);
+    // Single-branch clones need a persistent mapping so Git can resolve the new upstream.
+    const mappings = (await run(root, ['config', '--get-all', 'remote.origin.fetch'], options)).trim().split('\n').map(value => value.replace(/^\+/, ''));
+    if (!mappings.includes('refs/heads/*:refs/remotes/origin/*') && !mappings.includes('refs/heads/' + local + ':' + selected.ref))
+      await run(root, ['remote', 'set-branches', '--add', 'origin', local], options);
+    return run(root, ['switch', '--track', '-c', local, selected.ref], options);
+  });
+}
+export async function createBranch(root: string, name: string, base: string, options: GitOperationOptions = {}) {
+  return serializeGit(root, async () => {
+    await check(root, options, true);
+    await assertNoGitOperation(root);
+    if (typeof name !== 'string' || name.startsWith('-')) throw new DomainError('Invalid branch name');
+    const checkedName = (await run(root, ['check-ref-format', '--branch', name], options)).trim();
+    if (checkedName !== name) throw new DomainError('Use an explicit branch name');
+    const source = (await branches(root)).find(branch => branch.name === base);
+    if (!source) throw new DomainError('Base branch not found');
+    return run(root, ['switch', '-c', name, source.ref], options);
+  });
+}
+export async function stashChanges(root: string, action: 'push' | 'pop' | 'apply' | 'drop', reference: string | undefined, options: GitOperationOptions = {}) {
+  return serializeGit(root, async () => {
+    await check(root, options, true);
+    await assertNoGitOperation(root);
+    if (!['push', 'pop', 'apply', 'drop'].includes(action)) throw new DomainError('Invalid stash action');
+    if (reference !== undefined && !/^stash@\{\d+\}$/.test(reference)) throw new DomainError('Invalid stash reference');
+    if (action === 'push' && reference !== undefined) throw new DomainError('Invalid stash reference');
+    return run(root, ['stash', action, ...(reference ? [reference] : [])], options);
+  });
+}
+export async function integrateBranch(root: string, action: 'merge' | 'rebase', branch: string, options: GitOperationOptions = {}) {
+  return serializeGit(root, async () => {
+    await check(root, options, true);
+    await assertNoGitOperation(root);
+    if (action !== 'merge' && action !== 'rebase') throw new DomainError('Invalid integration action');
+    const selected = (await branches(root)).find(item => item.name === branch);
+    if (!selected) throw new DomainError('Branch not found');
+    return run(root, action === 'merge' ? ['merge', '--no-edit', '--', selected.ref] : ['rebase', '--', selected.ref], options);
+  });
+}
+/** Reserved for finish reassembly: the workflow must provide its original HEAD. No HTTP route. */
+export async function resetForReassembly(root: string, base: string, expectedHead: string, options: GitOperationOptions = {}) {
+  return serializeGit(root, async () => {
+    await check(root, options, true);
+    await assertNoGitOperation(root);
+    if (!/^[a-f0-9]{40,64}$/.test(base) || !/^[a-f0-9]{40,64}$/.test(expectedHead)) throw new DomainError('Invalid commit');
+    if ((await repositoryInfo(root))?.head !== expectedHead) throw new GitOperationError('HEAD changed; reassembly is unavailable');
+    await run(root, ['merge-base', '--is-ancestor', base, expectedHead], options);
+    return run(root, ['reset', '--mixed', base], options);
+  });
+}
+export async function cloneRepository(url: string, destination: string, options: GitOperationOptions = {}) {
+  // Parent is the queue key, since the destination does not exist yet.
+  return serializeGit(path.dirname(destination), async () => run(path.dirname(destination), ['clone', '--progress', '--', url, destination], options));
+}
+
+/** Overwrites the remote branch only if nobody pushed to it since our last fetch. */
+export const pushForce = (root: string, options: GitOperationOptions = {}) => push(root, options, true);
+
+/** Fetch and push share refs across worktrees, so serialize them by the common Git directory. */
+const networkQueues = new Map<string, Promise<unknown>>();
+export async function serializeNetworkGit<T>(root: string, operation: () => Promise<T>): Promise<T> {
+  const common = (await runGitRaw(root, ['rev-parse', '--git-common-dir'])).trim();
+  const canonical = await fs.realpath(path.resolve(root, common));
+  const key = process.platform === 'win32' ? canonical.toLowerCase() : canonical;
+  const previous = networkQueues.get(key) ?? Promise.resolve();
+  const next = previous.catch(() => {}).then(operation);
+  networkQueues.set(key, next);
+  try { return await next; } finally { if (networkQueues.get(key) === next) networkQueues.delete(key); }
+}
+export function runGit(root: string, args: string[], options: GitOperationOptions = {}, input?: string): Promise<string> {
+  const operation = () => runGitRaw(root, args, options, input);
+  return ['fetch', 'push', 'pull'].includes(args[0]) ? serializeNetworkGit(root, operation) : operation();
+}

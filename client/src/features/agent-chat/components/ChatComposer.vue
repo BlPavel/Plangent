@@ -1,5 +1,5 @@
 <template>
-  <form class="composer" :class="{ focused, dragging }" @submit.prevent="submit" @dragover.prevent="dragging = true" @dragleave="dragging = false" @drop.prevent="drop">
+  <form ref="root" class="chat-composer" :class="{ focused, dragging, flashing }" @submit.prevent="submit" @dragover="dragover" @dragleave="dragleave" @drop.prevent="drop">
     <SuggestMenu
       v-if="suggest"
       :anchor="input"
@@ -14,36 +14,37 @@
     />
 
     <div v-if="attachments.length" class="attachments">
-      <span v-for="(file, index) in attachments" :key="index" class="chip">
+      <AppChip v-for="(file, index) in attachments" :key="index" removable remove-label="Убрать" @remove="attachments.splice(index, 1)">
         <img v-if="file.preview" :src="file.preview" alt="" />
         <span class="chip-name">{{ file.name }}</span>
-        <button type="button" class="chip-remove" title="Убрать" @click="attachments.splice(index, 1)">×</button>
-      </span>
+      </AppChip>
     </div>
 
-    <textarea
-      ref="input"
+    <AppTextarea block
+      ref="inputComponent"
+      composer
       v-model="text"
       rows="1"
       :placeholder="placeholder"
-      @input="changed"
+      @input="typed"
       @keydown="keydown"
       @click="detect"
       @keyup="caretMoved"
-      @focus="focused = true"
+      @focus="focused = true; touch()"
       @blur="blur"
       @paste="paste"
     />
 
     <div class="toolbar">
       <div class="tools">
-        <label class="btn btn-subtle btn-sm btn-icon" title="Прикрепить файл">
-          <svg viewBox="0 0 16 16" fill="none"><path d="M13 7.5l-5.2 5.2a3.2 3.2 0 0 1-4.5-4.5l5.6-5.6a2.1 2.1 0 0 1 3 3L6.3 11.2a1 1 0 0 1-1.5-1.5L10 4.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" /></svg>
-          <input type="file" multiple hidden @change="filesSelected" />
-        </label>
-        <button type="button" class="btn btn-subtle btn-sm btn-icon" title="Упомянуть файл (@)" @click="insertAt">@</button>
+        <AppButton variant="subtle" size="sm" icon title="Прикрепить файл" aria-label="Прикрепить файл" @click="fileInput?.element?.click()">
+          <UIIconAttach />
+        </AppButton>
+        <AppInput ref="fileInput" type="file" multiple hidden @change="filesSelected" />
+        <AppButton variant="subtle" size="sm" icon type="button"  title="Упомянуть файл (@)" @click="insertAt">@</AppButton>
+        <slot name="tools" />
       </div>
-      <div class="actions">
+      <div v-if="!field" class="actions">
         <slot name="status" />
         <AppButton v-if="busy && !canSend" type="button" variant="ghost" size="sm" title="Остановить агента" @click="$emit('cancel')">
           <svg viewBox="0 0 16 16"><rect x="4" y="4" width="8" height="8" rx="1.5" fill="currentColor" /></svg>
@@ -59,38 +60,51 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { IconAttach as UIIconAttach } from '@shared/ui/icons'
+import AppChip from '@shared/ui/AppChip.vue'
+import AppInput from '@shared/ui/AppInput.vue'
+import AppTextarea from '@shared/ui/AppTextarea.vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useMentionFiles } from '../composables/useMentionFiles'
-import { emptyDraft, useChatDraftsStore } from '../stores/drafts'
+import { projectsEndpoints } from '@features/projects'
+import { MENTION_DRAG_TYPE, mentionText, readMentionDrag, type MentionDrag } from '../utils/mention-drag'
+import { useDraft } from '@core/composables/useDraft'
+import { emptyDraft } from '../stores/drafts'
+import { useComposerTargetsStore, type ComposerTarget } from '../stores/composer-targets'
+import { commandSuggestions, type ChatCommand } from '../utils/commands'
 import AppButton from '@shared/ui/AppButton.vue'
 import SuggestMenu, { type SuggestItem } from './SuggestMenu.vue'
 
-export type ContentBlock = Record<string, unknown>
+export type ContentBlock = NonNullable<import('@contracts').AgentSessionsPOSTIdActionBody['content']>[number]
 
 const props = withDefaults(defineProps<{
   projectId: string
-  draftKey?: string
-  commands?: { name: string; description: string }[]
+  workspaceId?: string | null
+  draftKey: string
+  commands?: ChatCommand[]
   busy?: boolean
   disabled?: boolean
   initialText?: string
   placeholder?: string
-}>(), { draftKey: undefined, initialText: undefined, commands: () => [], busy: false, disabled: false, placeholder: 'Напишите агенту…  @ — файл, / — команда' })
+  /** A field of a form, not a message: no send button, Enter breaks the line, only text files attach; the form reads `content()`. */
+  field?: boolean
+}>(), { field: false, workspaceId: undefined, initialText: undefined, commands: () => [], busy: false, disabled: false, placeholder: 'Напишите агенту…  @ — файл, / — команда' })
 const emit = defineEmits<{ send: [content: ContentBlock[]]; cancel: []; error: [message: string] }>()
 
-const input = ref<HTMLTextAreaElement>()
-const drafts = useChatDraftsStore()
-const localDraft = reactive(emptyDraft(props.initialText))
-const draft = computed(() => props.draftKey ? drafts.get(props.draftKey, props.initialText) : localDraft)
-const text = computed({ get: () => draft.value.text, set: value => { draft.value.text = value } })
-watch(() => props.initialText, value => { if (value !== undefined) text.value = value })
+const inputComponent = ref<InstanceType<typeof AppTextarea>>()
+const input = computed(() => inputComponent.value?.element)
+const fileInput = ref<InstanceType<typeof AppInput>>()
+const draft = useDraft(() => props.draftKey, () => emptyDraft(props.initialText))
+const text = computed({ get: () => draft.value.text, set: value => { draft.value.touched = true; draft.value.text = value } })
+watch(() => props.initialText, value => { if (value !== undefined && !draft.value.touched && !draft.value.attachments.length) draft.value.text = value })
 const attachments = computed({ get: () => draft.value.attachments, set: value => { draft.value.attachments = value } })
-const focused = ref(false), dragging = ref(false)
+const root = ref<HTMLElement>()
+const focused = ref(false), dragging = ref(false), flashing = ref(false)
 const canSend = computed(() => !!text.value.trim() || attachments.value.length > 0)
 
 // ── @files and /commands suggestions ──────────────────────────────────────
 const suggest = ref<{ kind: 'file' | 'command'; start: number; end: number; query: string } | null>(null)
-const { files, suggestions: fileSuggestions, loading: loadingFiles, search: searchFiles, clear: clearFiles } = useMentionFiles(() => props.projectId)
+const { files, suggestions: fileSuggestions, loading: loadingFiles, search: searchFiles, clear: clearFiles } = useMentionFiles(() => props.projectId, () => props.workspaceId)
 const active = ref(0)
 const mentions = computed(() => draft.value.mentions) // inserted path -> file URI
 let dismissedAt = -1
@@ -98,9 +112,7 @@ let dismissedAt = -1
 const suggestItems = computed<SuggestItem[]>(() => {
   if (!suggest.value) return []
   if (suggest.value.kind === 'command') {
-    const q = suggest.value.query.toLowerCase()
-    return props.commands.filter(c => c.name.toLowerCase().includes(q)).slice(0, 50)
-      .map(c => ({ value: c.name, label: '/' + c.name, detail: c.description, command: true }))
+    return commandSuggestions(props.commands, suggest.value.query)
   }
   return fileSuggestions.value
 })
@@ -154,7 +166,7 @@ function keydown(event: KeyboardEvent) {
     if ((event.key === 'Enter' || event.key === 'Tab') && !event.shiftKey && count) { event.preventDefault(); void pick(suggestItems.value[active.value], event.key === 'Tab'); return }
     if (event.key === 'Escape') { event.preventDefault(); dismissedAt = suggest.value.start; suggest.value = null; return }
   }
-  if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); submit() }
+  if (event.key === 'Enter' && !event.shiftKey && !props.field) { event.preventDefault(); submit() }
 }
 
 function caretMoved(event: KeyboardEvent) {
@@ -192,27 +204,35 @@ onMounted(resize)
 watch(text, resize, { flush: 'post' })
 
 // ── Sending ───────────────────────────────────────────────────────────────
-function submit() {
-  if (!canSend.value || props.disabled) return
+function content(): ContentBlock[] {
   const value = text.value.trim()
   const links: ContentBlock[] = []
   const seen = new Set<string>()
   for (const match of value.matchAll(/(?:^|\s)@(\S+)/g)) {
-    const path = match[1].replace(/\/$/, '')
+    const token = match[1].replace(/\/$/, '')
+    const path = mentions.value.has(token) ? token : token.replace(/:\d+(?:-\d+)?$/, '')
     const uri = mentions.value.get(path)
     if (uri && !seen.has(path)) { seen.add(path); links.push({ type: 'resource_link', uri, name: path }) }
   }
-  emit('send', [...(value ? [{ type: 'text', text: value }] : []), ...links, ...attachments.value.map(a => a.block)])
+  return [...(value ? [{ type: 'text' as const, text: value }] : []), ...links, ...attachments.value.map(a => a.block)]
+}
+function clear() {
   text.value = ''
   attachments.value = []
   mentions.value.clear()
   suggest.value = null
   void nextTick(resize)
 }
+function submit() {
+  if (!canSend.value || props.disabled || props.field) return
+  emit('send', content())
+  clear()
+}
 
 async function addFiles(list: File[]) {
   for (const file of list) {
     if (file.size > 10_000_000) { emit('error', `«${file.name}» больше 10 МБ — не прикреплён`); continue }
+    if (props.field && file.type && !file.type.startsWith('text/') && !/\.(md|txt|json|ya?ml|csv|xml|html?|[cm]?[jt]sx?|vue|py|java|go|rs|sql|sh|css)$/i.test(file.name)) { emit('error', `«${file.name}»: здесь можно приложить только текстовые файлы`); continue }
     if (file.type.startsWith('image/')) {
       const url = await new Promise<string>((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(String(r.result)); r.onerror = reject; r.readAsDataURL(file) })
       attachments.value.push({ name: file.name || 'изображение', preview: url, block: { type: 'image', mimeType: file.type, data: url.split(',')[1] } })
@@ -222,20 +242,87 @@ async function addFiles(list: File[]) {
   }
 }
 function filesSelected(event: Event) { const el = event.target as HTMLInputElement; void addFiles(Array.from(el.files ?? [])); el.value = '' }
-function drop(event: DragEvent) { dragging.value = false; void addFiles(Array.from(event.dataTransfer?.files ?? [])) }
+function dragover(event: DragEvent) {
+  if (!event.dataTransfer?.types.some(type => type === MENTION_DRAG_TYPE || type === 'Files')) return
+  event.preventDefault()
+  dragging.value = true
+  event.dataTransfer.dropEffect = 'copy'
+}
+function dragleave(event: DragEvent) {
+  if (!(event.relatedTarget instanceof Node) || !(event.currentTarget as HTMLElement).contains(event.relatedTarget)) dragging.value = false
+}
+async function drop(event: DragEvent) {
+  dragging.value = false
+  const transfer = event.dataTransfer
+  if (!transfer?.types.includes(MENTION_DRAG_TYPE)) { void addFiles(Array.from(transfer?.files ?? [])); return }
+  const mention = readMentionDrag(transfer)
+  if (!mention || props.disabled) return
+  void insertMention(mention)
+}
+
+/** Resolves the exact path in the field's own folder and puts `@path` at the caret; false when nothing was inserted. */
+async function insertMention(mention: MentionDrag): Promise<boolean> {
+  if (mention.projectId !== props.projectId || mention.workspaceId !== (props.workspaceId ?? null)) {
+    emit('error', 'Упоминание относится к другой рабочей папке')
+    return false
+  }
+  const target = draft.value
+  const projectId = props.projectId, workspaceId = props.workspaceId, draftKey = props.draftKey
+  const before = text.value
+  const start = input.value?.selectionStart ?? before.length
+  const end = input.value?.selectionEnd ?? start
+  try {
+    const rows = await projectsEndpoints.getProjectsByIdMentions({ params: { id: projectId }, query: { path: mention.path, workspace: workspaceId ?? undefined } })
+    if (draft.value !== target || props.draftKey !== draftKey || props.projectId !== projectId || props.workspaceId !== workspaceId || text.value !== before) return false
+    const hit = rows.find(row => row.path.replace(/\/$/, '') === mention.path.replace(/\/$/, '') && row.dir === mention.dir)
+    if (!hit) { emit('error', 'Файл или папка для упоминания не найдены'); return false }
+    const path = hit.path.replace(/\/$/, '')
+    mentions.value.set(path, hit.uri)
+    suggest.value = null
+    clearFiles()
+    await replaceRange(start, end, `${start > 0 && !/\s/.test(before[start - 1]) ? ' ' : ''}${mentionText({ ...mention, path })} `)
+    return true
+  } catch (cause) {
+    if (draft.value === target) emit('error', cause instanceof Error ? cause.message : String(cause))
+    return false
+  }
+}
+
+// ── «В чат» from the code panel ───────────────────────────────────────────
+const composerTargets = useComposerTargetsStore()
+const entry: ComposerTarget = composerTargets.register({
+  projectId: () => props.projectId,
+  workspaceId: () => props.workspaceId ?? null,
+  visible: () => !!root.value && root.value.getClientRects().length > 0,
+  insert: async mention => {
+    const done = await insertMention(mention)
+    if (done) flash()
+    return done
+  },
+})
+const touch = () => composerTargets.touch(entry)
+function typed() { touch(); changed() }
+let flashTimer: ReturnType<typeof setTimeout> | undefined
+function flash() {
+  flashing.value = true
+  clearTimeout(flashTimer)
+  flashTimer = setTimeout(() => { flashing.value = false }, 1200)
+}
+onBeforeUnmount(() => { composerTargets.unregister(entry); clearTimeout(flashTimer) })
 function paste(event: ClipboardEvent) { if (event.clipboardData?.files.length) { event.preventDefault(); void addFiles(Array.from(event.clipboardData.files)) } }
 
 watch(() => props.projectId, () => { clearFiles() })
 watch(() => props.draftKey, () => { suggest.value = null; dismissedAt = -1; clearFiles() })
 
 defineExpose({
+  content, clear,
   focus: () => input.value?.focus(),
   setText: async (value: string) => { text.value = value; await nextTick(); resize(); input.value?.focus() },
 })
 </script>
 
 <style scoped>
-.composer {
+.chat-composer {
   position: relative;
   container: composer / inline-size;
   display: flex;
@@ -243,29 +330,14 @@ defineExpose({
   background: var(--bg2);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-lg);
-  transition: border-color 0.12s, box-shadow 0.12s;
+  transition: border-color var(--motion-fast), box-shadow var(--motion-fast);
 }
-.composer.focused { border-color: var(--blue); box-shadow: 0 0 0 3px var(--blue-soft); }
-.composer.dragging { border-style: dashed; border-color: var(--blue-hover); }
-textarea {
-  width: 100%;
-  min-height: 44px;
-  max-height: 240px;
-  padding: 12px 14px 4px;
-  resize: none;
-  background: transparent;
-  border: none;
-  outline: none;
-  color: var(--text);
-  font: inherit;
-  font-size: 14px;
-  line-height: 1.5;
-}
-textarea::placeholder { color: var(--text-faint); }
+.chat-composer.focused { border-color: var(--blue); box-shadow: 0 0 0 3px var(--blue-soft); }
+.chat-composer.flashing { border-color: var(--blue); box-shadow: 0 0 0 3px var(--blue-soft); }
+.chat-composer.dragging { border-style: dashed; border-color: var(--blue-hover); }
 .toolbar { display: flex; align-items: flex-end; gap: 8px; padding: 4px 8px 8px; }
 .tools { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 2px; }
 .actions { flex-shrink: 0; display: flex; align-items: center; gap: 4px; }
-.tools .btn-icon { font-size: 14px; font-weight: 600; }
 /* Narrow composer: rings without numbers, icon-only buttons. */
 @container composer (max-width: 460px) {
   .actions :deep(.meter-text), .send-label { display: none; }
@@ -281,10 +353,10 @@ textarea::placeholder { color: var(--text-faint); }
   background: var(--bg3);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
-  font-size: 12px;
+  font-size: var(--fs-sm);
 }
-.chip img { width: 20px; height: 20px; object-fit: cover; border-radius: 4px; margin-left: -4px; }
+.chip img { width: 20px; height: 20px; object-fit: cover; border-radius: var(--radius-4); margin-left: -4px; }
 .chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chip-remove { width: 20px; height: 20px; flex-shrink: 0; background: none; border: none; border-radius: 4px; color: var(--text-muted); cursor: pointer; font-size: 15px; line-height: 1; }
+.chip-remove { width: 20px; height: 20px; flex-shrink: 0; background: none; border: none; border-radius: var(--radius-4); color: var(--text-muted); cursor: pointer; font-size: var(--fs-lg); line-height: 1; }
 .chip-remove:hover { background: var(--bg-hover); color: var(--text); }
 </style>

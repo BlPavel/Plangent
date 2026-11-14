@@ -1,0 +1,110 @@
+{
+  "task-reviewer": [
+    "get_task_review_brief",
+    "add_task_remark",
+    "submit_task_review",
+    "request_help",
+    "report_progress"
+  ],
+  "branch-review": [
+    "get_review_brief",
+    "get_branch_questions",
+    "reply_branch_question",
+    "set_review_overview",
+    "add_review_remark",
+    "revise_review_remark"
+  ],
+  "plan-reviewer": [
+    "get_plan_review_brief",
+    "set_plan_review_overview",
+    "add_plan_remark",
+    "answer_plan_remark",
+    "revise_plan_remark"
+  ],
+  "errand": [
+    "complete_step",
+    "request_help",
+    "report_progress",
+    "get_review",
+    "start_review_item",
+    "reply_review_item",
+    "git_action",
+    "run_command",
+    "command_output"
+  ],
+  "task-chat": [
+    "request_help",
+    "report_progress",
+    "get_review",
+    "start_review_item",
+    "reply_review_item",
+    "git_action",
+    "run_command",
+    "command_output",
+    "get_task_context"
+  ],
+  "chat": ["git_action", "run_command", "command_output"],
+  "executor": [
+    "get_step_context",
+    "complete_step",
+    "request_help",
+    "report_progress",
+    "run_command",
+    "command_output"
+  ],
+  "executor-readonly": [
+    "get_step_context",
+    "request_help",
+    "report_progress"
+  ],
+  "analyst": [
+    "get_interview_guide",
+    "get_analysis",
+    "save_section",
+    "ask_interview_questions"
+  ],
+  "material-author": [
+    "get_interview_guide",
+    "get_material",
+    "submit_material",
+    "get_plan_review_items",
+    "reply_plan_remark",
+    "ask_interview_questions"
+  ],
+  "code-fixer": [
+    "get_review",
+    "start_review_item",
+    "reply_review_item",
+    "run_command",
+    "command_output"
+  ],
+  "conflict-resolver": [
+    "get_conflicts",
+    "report_conflict_file"
+  ],
+  "committer": [
+    "get_finish_context",
+    "set_commits",
+    "finish_commits"
+  ],
+  "committer-full": [
+    "get_finish_context",
+    "set_commits",
+    "finish_commits",
+    "set_merge_request"
+  ],
+  "librarian": [
+    "get_library",
+    "get_library_item",
+    "get_instruction_text",
+    "propose_library_change"
+  ],
+  "planner": [
+    "get_interview_guide",
+    "get_plan",
+    "submit_plan",
+    "get_plan_review_items",
+    "reply_plan_remark",
+    "ask_interview_questions"
+  ]
+}

@@ -1,19 +1,19 @@
 <template>
   <Teleport to="body">
     <Transition name="modal">
-      <div v-if="store.confirmState" class="overlay">
+      <div v-if="state" class="overlay">
         <div class="modal">
-          <h2 class="modal-title">{{ store.confirmState.title ?? 'Подтверждение' }}</h2>
-          <p class="modal-message">{{ store.confirmState.message }}</p>
+          <h2 class="modal-title">{{ state.title ?? 'Подтверждение' }}</h2>
+          <p class="modal-message">{{ state.message }}</p>
           <div class="modal-actions">
-            <AppButton variant="ghost" @click="store.resolveConfirm(false)">
-              {{ store.confirmState.cancelLabel ?? 'Отмена' }}
+            <AppButton variant="ghost" @click="emit('resolve', false)">
+              {{ state.cancelLabel ?? 'Отмена' }}
             </AppButton>
             <AppButton
-              :variant="store.confirmState.danger === false ? 'primary' : 'danger'"
-              @click="store.resolveConfirm(true)"
+              :variant="state.danger ? 'danger' : 'primary'"
+              @click="emit('resolve', true)"
             >
-              {{ store.confirmState.confirmLabel ?? 'Удалить' }}
+              {{ state.confirmLabel ?? 'Удалить' }}
             </AppButton>
           </div>
         </div>
@@ -23,22 +23,33 @@
 </template>
 
 <script setup lang="ts">
-import AppButton from './AppButton.vue'
-import { useAppStore } from '@core/stores/app'
-
-const store = useAppStore()
+import AppButton from './AppButton.vue';
+defineProps<{
+    state: {
+        message: string;
+        title?: string;
+        cancelLabel?: string;
+        confirmLabel?: string;
+        danger?: boolean;
+    } | null;
+}>();
+const emit = defineEmits<{
+    resolve: [
+        result: boolean
+    ];
+}>();
 </script>
 
 <style scoped>
 .overlay {
   position: fixed;
   inset: 0;
-  background: rgba(1, 4, 9, 0.72);
+  background: var(--overlay);
   backdrop-filter: blur(2px);
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 300;
+  z-index: var(--z-toast);
 }
 .modal {
   background: var(--bg2);
@@ -53,22 +64,22 @@ const store = useAppStore()
   gap: var(--sp-5);
 }
 .modal-title {
-  font-size: 17px;
-  font-weight: 700;
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-bold);
   letter-spacing: -0.01em;
 }
 .modal-message {
-  font-size: 13px;
+  font-size: var(--fs-md);
   color: var(--text-muted);
-  line-height: 1.5;
+  line-height: var(--lh-normal);
 }
 .modal-actions {
   display: flex;
   justify-content: flex-end;
   gap: var(--sp-2);
 }
-.modal-enter-active, .modal-leave-active { transition: opacity 0.15s; }
-.modal-enter-active .modal, .modal-leave-active .modal { transition: transform 0.15s ease, opacity 0.15s; }
+.modal-enter-active, .modal-leave-active { transition: opacity var(--motion-modal); }
+.modal-enter-active .modal, .modal-leave-active .modal { transition: transform var(--motion-modal) ease, opacity var(--motion-modal); }
 .modal-enter-from, .modal-leave-to { opacity: 0; }
 .modal-enter-from .modal, .modal-leave-to .modal { transform: translateY(8px) scale(0.98); opacity: 0; }
 </style>

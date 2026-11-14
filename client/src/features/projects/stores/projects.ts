@@ -1,9 +1,11 @@
+
+import { projectsEndpoints } from '../api'
+
 import { defineStore } from 'pinia'
 import { computed, ref, onScopeDispose } from 'vue'
-import { api } from '@core/api'
 import { onServerEvent } from '@core/api/events'
-import type { SyncProgress } from '@core/models/integrations'
-import type { Project } from '@core/models'
+import type { SyncProgress } from '@contracts'
+import type { Project } from '@contracts'
 
 export type ProjectInput = Partial<Omit<Project, 'id' | 'created_at' | 'active_tasks'>> & { name: string; creation_mode?: 'folder' | 'clone'; operationId?: string; reuse_existing?: boolean }
 
@@ -33,30 +35,30 @@ export const useProjectsStore = defineStore('projects', () => {
 
   async function load() {
     loading.value = true
-    try { projects.value = await api.get<Project[]>('/projects') }
+    try { projects.value = await projectsEndpoints.getProjects({ params: {  } }) }
     finally { loading.value = false }
   }
 
   // Reloaded after a change: a project joining a group, for one, changes what the group shows.
   async function create(data: ProjectInput): Promise<Project> {
-    const p = await api.post<Project>('/projects', data)
+    const p = await projectsEndpoints.postProjects({ params: {  }, body: data })
     await load()
     return byId(p.id) ?? p
   }
 
   async function update(id: string, data: Partial<Project>): Promise<Project> {
-    const p = await api.patch<Project>(`/projects/${id}`, data)
+    const p = await projectsEndpoints.patchProjectsById({ params: { id: id }, body: data })
     await load()
     return byId(id) ?? p
   }
 
   async function remove(id: string) {
-    await api.delete(`/projects/${id}`)
+    await projectsEndpoints.deleteProjectsById({ params: { id: id } })
     await load()
   }
 
-  async function startSync(id: string, confirmedLarge = false) { await api.post('/projects/' + id + '/docs/sync', { confirmed_large: confirmedLarge }); await load() }
-  async function cancelSync(id: string) { await api.post('/projects/' + id + '/docs/cancel'); await load() }
+  async function startSync(id: string, confirmedLarge = false) { await projectsEndpoints.postProjectsByIdDocsSync({ params: { id: id }, body: { confirmed_large: confirmedLarge } }); await load() }
+  async function cancelSync(id: string) { await projectsEndpoints.postProjectsByIdDocsCancel({ params: { id: id } }); await load() }
 
   return { syncProgress, startSync, cancelSync, projects, loading, groups, sources, workProjects, members, byId, agentFor, load, create, update, remove }
 })

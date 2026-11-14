@@ -1,0 +1,25 @@
+import type Database from 'better-sqlite3';
+
+export const rowSelectProjects = (db: Database.Database) => db.prepare("SELECT id,repo_path,kind FROM projects WHERE id=?");
+export const projectSelectTasks = (db: Database.Database) => db.prepare('SELECT 1 FROM tasks WHERE id=? AND project_id=?');
+export const findReadyWorkspaceForProject = (db: Database.Database) => db.prepare("SELECT path FROM workspaces WHERE id=? AND project_id=? AND status='ready'");
+export const contextUpdateCodeReview = (db: Database.Database) => db.prepare('UPDATE code_review SET head_last=? WHERE id=?');
+export const contextUpdateCodeReview2 = (db: Database.Database) => db.prepare('UPDATE code_review SET closed_at=NULL WHERE id=?');
+export const checkOriginSelectTasks = (db: Database.Database) => db.prepare('SELECT id FROM tasks WHERE id=? AND project_id=?');
+export const taskBaseSelectTasks = (db: Database.Database) => db.prepare('SELECT base_commit FROM tasks WHERE id=?');
+export const itemSelectTasks = (db: Database.Database) => db.prepare('SELECT key FROM tasks WHERE id=?');
+export const activeSessionsSelectSqliteMaster = (db: Database.Database) => db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='agent_sessions'");
+export const findActiveSession = (db: Database.Database) => db.prepare("SELECT id,status FROM agent_sessions WHERE id=? AND status IN ('starting','thinking','waiting')");
+export const releaseDeveloperMessagesForRound = (db: Database.Database) => db.prepare("UPDATE code_review_message SET sent=0, round_id=NULL WHERE item_id=? AND round_id=? AND author='developer'");
+export const stopUpdateAgentSessions = (db: Database.Database) => db.prepare("UPDATE agent_sessions SET status='ready', reason='Остановлено разработчиком' WHERE id=?");
+export const rowSelectAgentSessions = (db: Database.Database) => db.prepare('SELECT * FROM agent_sessions WHERE id=?');
+export const rowSelectCodeReviewRound = (db: Database.Database) => db.prepare('SELECT review_id FROM code_review_round WHERE session_id=? ORDER BY n DESC LIMIT 1');
+export const sendRoundSelectCodeReviewRound = (db: Database.Database) => db.prepare('SELECT 1 FROM code_review_round WHERE session_id=? AND review_id<>?');
+export const renameUntitledSession = (db: Database.Database) => db.prepare("UPDATE agent_sessions SET title=? WHERE id=? AND title='Новый чат'");
+export const viewedFilesUpdateCodeReviewFileView = (db: Database.Database) => db.prepare('UPDATE code_review_file_view SET invalidated=1 WHERE review_id=? AND path=?');
+export const existsSelectSqliteMaster = (db: Database.Database) => db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='agent_session_events'");
+export const eventsSelectAgentSessionEvents = (db: Database.Database) => db.prepare('SELECT seq,type,payload,created_at FROM agent_session_events WHERE session_id=? ORDER BY seq');
+export const ownedSelectCodeReviewRound = (db: Database.Database) => db.prepare('SELECT 1 FROM code_review_round WHERE session_id=? AND review_id<>?');
+export const sessionTableSelectSqliteMaster = (db: Database.Database) => db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='agent_sessions'");
+export const removeReviewSelectAgentSessions = (db: Database.Database) => db.prepare('SELECT 1 FROM agent_sessions WHERE id=?');
+export const removeReviewDeleteAgentSessions = (db: Database.Database) => db.prepare('DELETE FROM agent_sessions WHERE id=?');

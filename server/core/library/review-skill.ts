@@ -1,16 +1,14 @@
-import { readItemContent } from './library-manager';
-import { getLibraryItem, libraryItemsFor, libraryOrigin } from './index';
+import { libraryItemsFor } from './index';
+import { resolveReviewSkillOf } from './section-settings';
 import { getProject } from '../projects';
 import type { LibraryOrigin } from './index';
 
 /**
- * Review skills tell the review agent what matters in a merge request of this project and what to skip.
+ * Review skills add the project's or group's own requirements to the general merge request review instruction
+ * (mr-review-instruction.ts): what matters in a merge request of this project and what to skip.
  * How the overview and the remarks are reported is Plangent's protocol (get_review_brief), not part of a skill.
  */
-export const DEFAULT_REVIEW_SKILL = `# Ревью
-Смотри на то, что ломает поведение или усложняет поддержку: ошибки в логике, необработанные случаи, гонки, утечки, нарушение границ модулей и контрактов API, дублирование, отсутствие тестов для нового поведения.
-Не пиши про форматирование, нейминг и комментарии в коде, если они не вводят в заблуждение.
-Одно замечание к МР целиком лучше нескольких мелких с одной причиной.`;
+
 
 /** For the librarian: what a review skill is, so it can write one for the project. */
 export const REVIEW_SKILL_AUTHORING = 'A review-skill (type "review-skill") is the developer\'s focus for reviewing merge requests of this project or group with an agent: ' +
@@ -29,11 +27,7 @@ export function reviewSkills(projectId: string): ReviewSkill[] {
     .map(item => ({ id: item.id, title: item.title, description: item.description, origin: item.origin }));
 }
 
-/** The chosen skill's text; an unknown or unavailable one falls back to the project's first skill, then to the default. */
-export function resolveReviewSkill(projectId: string, skillId: string | null | undefined): { id: string | null; title: string; content: string } {
-  const project = getProject(projectId);
-  const chosen = skillId ? getLibraryItem(skillId) : null;
-  const item = chosen && chosen.type === 'review-skill' && chosen.enabled && project && libraryOrigin(chosen, project) ? chosen
-    : (() => { const first = reviewSkills(projectId)[0]; return first ? getLibraryItem(first.id) : null; })();
-  return item ? { id: item.id, title: item.title, content: readItemContent(item) } : { id: null, title: 'Стандартный', content: DEFAULT_REVIEW_SKILL };
+/** The chosen skill's text; an unknown or unavailable one falls back to the project's first skill, and without any there is none: the general instruction applies alone. */
+export function resolveReviewSkill(projectId: string, skillId: string | null | undefined): { id: string; title: string; content: string } | null {
+  return resolveReviewSkillOf('review-skill', projectId, skillId);
 }

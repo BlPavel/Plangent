@@ -1,5 +1,5 @@
-﻿<template>
-  <div class="plan-tab" :class="{ 'with-review': plan && reviewShown }">
+<template>
+  <div class="plan-tab" :class="{ 'with-review': !planBlank && reviewShown }">
     <div ref="planMain" class="plan-main">
       <!-- Planning with an agent: plan on the left, chat on the right, header always visible -->
       <template v-if="!readonly && planningOpen">
@@ -17,88 +17,92 @@
               :disabled="!plan?.steps.length"
               :title="plan?.steps.length ? 'Остановить агентов и зафиксировать план. Чаты сохранятся' : 'Плана пока нет'"
               @click="$emit('approvePlan')"
-            >✓ Утвердить план</AppButton>
+            >✓ Утвердить</AppButton>
           </div>
         </header>
 
-        <div ref="split" class="planning-split" :class="{ dragging }">
-          <section class="plan-pane" :style="{ flexBasis: `${share}%` }">
-            <nav v-if="plan?.steps.length" class="review-step-nav" aria-label="Шаги плана">
-              <button v-for="s in plan.steps" :key="s.id ?? s.index" type="button" :data-step-id="s.id" :title="s.id && remarkCounts[s.id] ? `Открытых замечаний ревью плана: ${remarkCounts[s.id]}` : ''" :class="{ highlighted: !!s.id && highlighted.includes(s.id) }" @click="s.id && focusStepCard(s.id)">{{ s.id }}<span v-if="s.id && remarkCounts[s.id]"> ⚠{{ remarkCounts[s.id] }}</span></button>
-            </nav>
-            <MessageMarkdown v-if="planText" class="plan-doc" :text="planText" />
-            <div v-else class="plan-waiting">
-              {{ planningLive ? 'Ожидаем план от агента…' : 'План появится здесь, когда агент его составит' }}
-            </div>
-          </section>
-          <div
-            class="splitter"
-            role="separator"
-            aria-orientation="vertical"
-            title="Потяните, чтобы изменить ширину. Двойной клик — поровну"
-            @pointerdown="startDrag"
-            @dblclick="setShare(50)"
-          />
-          <TaskChats
-            class="chat-pane"
-            label="План"
-            :chats="planningChats"
-            :selected="selectedPlanningChat"
-            :initials="initials"
-            :draft-text="planningMessage"
-            @select="$emit('selectPlanningChat', $event)"
-            @remove="(id, name) => $emit('removePlanningChat', id, name)"
-          >
-            <template #new>
-              <NewChatPanel
-                :project-id="projectId"
-                :default-agent-id="defaultAgentId"
-                title="Планирование"
-                :text="plan ? 'Скажите, что изменить в плане. Агент изучит код и обновит план — в проекте он ничего не меняет.' : 'Опишите задачу — агент изучит код и составит план. В проекте он ничего не меняет, план появится слева.'"
-                :placeholder="plan ? 'Что изменить в плане…' : 'Опишите задачу…  @ — файл'"
-                fixed-policy="read-only"
-                :initial-text="planningMessage"
-                :busy="planningLaunching"
-                :error="planningError"
-                @start="$emit('launchPlanning', $event)"
-              />
-            </template>
-          </TaskChats>
-        </div>
+        <SplitPane storage-key="plangent.planningShare">
+          <template #start>
+            <section class="plan-pane">
+              <MessageMarkdown v-if="planText" class="plan-doc" :text="planText" />
+              <div v-else class="plan-waiting">
+                {{ planningLive ? 'Ожидаем план от агента…' : 'План появится здесь, когда агент его составит' }}
+              </div>
+            </section>
+          </template>
+          <template #end>
+            <TaskChats
+              :workspace-id="workspaceId"
+              class="chat-pane"
+              label="План"
+              :chats="planningChats"
+              :selected="selectedPlanningChat"
+              :initials="initials"
+              @select="$emit('selectPlanningChat', $event)"
+              @remove="(id, name) => $emit('removePlanningChat', id, name)"
+            >
+              <template #new>
+                <NewChatPanel interview :draft-key="`task:${taskId}:plan-chat`"
+                  :project-id="projectId"
+                  :workspace-id="workspaceId"
+                  :default-agent-id="defaultAgentId"
+                  title="Планирование"
+                  :text="plan ? 'Скажите, что изменить в плане. Агент изучит код и обновит план — в проекте он ничего не меняет.' : 'Опишите задачу — агент изучит код и составит план. В проекте он ничего не меняет, план появится слева.'"
+                  :placeholder="plan ? 'Что изменить в плане…' : 'Опишите задачу…  @ — файл'"
+                  fixed-policy="read-only"
+                  :initial-text="plan ? '' : 'Составь план по анализу задачи'"
+                  :busy="planningLaunching"
+                  :error="planningError"
+                  @start="$emit('launchPlanning', $event)"
+                />
+              </template>
+            </TaskChats>
+          </template>
+        </SplitPane>
       </template>
 
       <!-- Empty state — no plan yet -->
-      <div v-else-if="!plan && (!editingPlan || readonly)" class="plan-tab-content">
-        <div class="plan-panel-header">
-          <div class="progress-line"><span>Плана пока нет</span></div>
-          <div v-if="!readonly" class="plan-header-actions">
-            <AppButton variant="primary" size="sm" @click="$emit('openPlanning')">▸ Составить план с агентом</AppButton>
-            <AppButton variant="ghost" size="sm" @click="$emit('startManualEdit')">Написать вручную</AppButton>
-          </div>
-        </div>
-      </div>
+      <StageEmpty v-else-if="planBlank && (!editingPlan || readonly)" title="Плана пока нет">
+        <p>Шаги, которые агенты выполнят по очереди. Каждый шаг может ссылаться на анализ, архитектуру и критерии QA.</p>
+        <p>{{ readonly ? 'По задаче не было плана.' : 'Без плана выполнение не начнётся.' }}</p>
+        <template v-if="!readonly" #actions>
+          <AppButton variant="primary" size="sm" @click="$emit('openPlanning')">▸ Составить план с агентом</AppButton>
+          <AppButton variant="ghost" size="sm" @click="$emit('startManualEdit')">Написать вручную</AppButton>
+        </template>
+      </StageEmpty>
 
       <!-- Plan editor (manual) -->
-      <div v-else-if="editingPlan && !readonly" class="plan-tab-content">
-        <div class="plan-editor-wrap">
-          <textarea
-            :value="planContent"
-            @input="$emit('update:planContent', ($event.target as HTMLTextAreaElement).value)"
-            class="plan-editor"
-            placeholder="---&#10;plangent: 1&#10;key: KEY&#10;title: Title&#10;status: open&#10;---&#10;&#10;- [ ] (p1) Step 1&#10;- [ ] (p2) Step 2"
-          />
-          <div class="plan-editor-helper">
-            <span><code>[ ]</code> в начале строки = шаг очереди. Удалишь скобки - шаг пропадёт.</span>
-            <div v-if="checkboxLinePreviews.length" class="checkbox-preview">
-              <span v-for="line in checkboxLinePreviews" :key="line.text" class="checkbox-line"><code>{{ line.marker }}</code>{{ line.text }}</span>
-            </div>
-          </div>
-          <div class="plan-actions">
-            <AppButton variant="primary" size="sm" @click="$emit('savePlan')">Сохранить</AppButton>
+      <template v-else-if="editingPlan && !readonly">
+        <header class="planning-bar">
+          <div class="planning-status">Правка вручную</div>
+          <div class="planning-actions">
             <AppButton variant="ghost" size="sm" @click="$emit('cancelEdit')">Отмена</AppButton>
+            <AppButton variant="primary" size="sm" @click="$emit('savePlan')">Сохранить</AppButton>
           </div>
-        </div>
-      </div>
+        </header>
+        <StaleDraftNote v-if="staleDraft" class="plan-stale" @reload="$emit('reloadDraft')" />
+        <SplitPane storage-key="plangent.plan.editShare">
+          <template #start>
+            <section class="plan-edit-pane">
+              <AppTextarea
+                :model-value="planContent"
+                @update:model-value="$emit('update:planContent', $event)"
+                mono block class="plan-editor" aria-label="Текст плана" spellcheck="false"
+                placeholder="---&#10;plangent: 1&#10;key: KEY&#10;title: Title&#10;status: open&#10;---&#10;&#10;- [ ] (p1) Step 1&#10;- [ ] (p2) Step 2"
+              />
+              <div class="plan-editor-helper">
+                <span><code>[ ]</code> в начале строки = шаг очереди. Удалишь скобки - шаг пропадёт.</span>
+              </div>
+            </section>
+          </template>
+          <template #end>
+            <section class="plan-pane">
+              <MessageMarkdown v-if="editedText" class="plan-doc" :text="editedText" />
+              <p v-else class="plan-waiting">Предпросмотр появится, когда вы начнёте писать.</p>
+            </section>
+          </template>
+        </SplitPane>
+      </template>
 
       <!-- Plan view -->
       <div v-else class="plan-tab-content">
@@ -111,7 +115,7 @@
           </div>
           <div v-if="!readonly" class="plan-header-actions">
             <AppButton variant="blue" size="sm" @click="$emit('openPlanning')">▸ Изменить план с агентом</AppButton>
-            <AppButton variant="ghost" size="sm" :class="{ on: reviewOpen }" title="Показать или скрыть ревью утверждённого плана справа: агент проверит план, замечания разбираете вы" @click="reviewOpen = !reviewOpen">Ревью плана{{ attention ? ` (${attention})` : '' }}</AppButton>
+            <AppButton variant="ghost" size="sm" :pressed="reviewOpen" title="Показать или скрыть ревью утверждённого плана справа: агент проверит план, замечания разбираете вы" @click="reviewOpen = !reviewOpen">Ревью плана{{ attention ? ` (${attention})` : '' }}</AppButton>
             <AppButton variant="subtle" size="sm" @click="$emit('togglePlanEdit')">Редактировать вручную</AppButton>
           </div>
         </div>
@@ -120,32 +124,38 @@
             <span class="step-check readonly" :class="{ done: s.done }">{{ s.done ? '✓' : '' }}</span>
             <span class="step-id" v-if="s.id">{{ s.id }}</span>
             <span class="step-text"><AnalysisLinks :text="s.text" /></span>
-            <button v-if="s.id && remarkCounts[s.id]" type="button" class="remark-count" :aria-label="`Замечания к ${s.id}: ${remarkCounts[s.id]}`" :title="`Открытых замечаний ревью плана: ${remarkCounts[s.id]}`" @click="focusStepCard(s.id)">⚠{{ remarkCounts[s.id] }}</button>
-            <span v-if="s.parallelGroup" class="parallel-badge">параллельно: {{ s.parallelGroup }}</span>
+            <AppButton v-if="s.id && remarkCounts[s.id]" variant="subtle" size="xs" :aria-label="`Замечания к ${s.id}: ${remarkCounts[s.id]}`" :title="`Открытых замечаний ревью плана: ${remarkCounts[s.id]}`" @click="focusStepCard(s.id)">⚠{{ remarkCounts[s.id] }}</AppButton>
+            <AppBadge v-if="s.parallelGroup" >параллельно: {{ s.parallelGroup }}</AppBadge>
           </div>
         </div>
       </div>
     </div>
-    <PlanReviewPanel v-if="plan" v-show="reviewShown" ref="reviewPanel" :project-id="projectId" :task-id="taskId" :default-agent-id="defaultAgentId" :locked="queueFrozen" :readonly="!!readonly" @highlight="highlightSteps" @counts="remarkCounts = $event" @attention="attention = $event; $emit('reviewAttention', $event)" @close="reviewOpen = false" @open-planner="openPlannerChat" />
+    <PlanReviewPanel v-if="!planBlank" v-show="reviewShown" ref="reviewPanel" :project-id="projectId" :workspace-id="workspaceId" :task-id="taskId" :default-agent-id="defaultAgentId" :locked="queueFrozen" :readonly="!!readonly" @highlight="highlightSteps" @counts="remarkCounts = $event" @attention="attention = $event; $emit('reviewAttention', $event)" @close="reviewOpen = false" @open-planner="openPlannerChat" />
   </div>
 </template>
 <script setup lang="ts">
+import AppBadge from '@shared/ui/AppBadge.vue'
+import StaleDraftNote from '@shared/ui/StaleDraftNote.vue'
 import { computed, nextTick, ref } from 'vue'
 import PlanReviewPanel from './plan-review/PlanReviewPanel.vue'
 import AnalysisLinks from './AnalysisLinks.vue'
 import TaskChats from './TaskChats.vue'
-import { NewChatPanel, MessageMarkdown, type NewChatRequest, type ContentBlock } from '@features/agent-chat'
+import StageEmpty from './StageEmpty.vue'
+import { NewChatPanel, MessageMarkdown, useComposerReveal, type NewChatRequest, type ContentBlock } from '@features/agent-chat'
 import AppButton from '@shared/ui/AppButton.vue'
-import type { Plan } from '@core/models'
+import AppTextarea from '@shared/ui/AppTextarea.vue'
+import SplitPane from '@shared/ui/SplitPane.vue'
+import type { Plan } from '@contracts'
 
 const props = defineProps<{
   readonly?: boolean
-  planningMessage?: string
   plan: Plan | null
   projectId: string
+  workspaceId?: string | null
   taskId: string
   queueFrozen: boolean
   defaultAgentId?: string | null
+  staleDraft?: boolean
   planningOpen: boolean
   /** A planning chat is starting or thinking right now. */
   planningLive: boolean
@@ -156,11 +166,11 @@ const props = defineProps<{
   planningError: string
   editingPlan: boolean
   planContent: string
-  checkboxLinePreviews: { marker: string; text: string }[]
   doneCount: number
   progressPct: number
 }>()
 const emit = defineEmits<{
+  reloadDraft: []
   approvePlan: []
   reviewAttention: [count: number]
   openPlanning: []
@@ -185,150 +195,88 @@ function focusStepCard(id: string) { if (props.planningOpen) return; reviewOpen.
 function openPlannerChat(id: string) { emit('openPlanning'); emit('selectPlanningChat', id) }
 const highlighted = ref<string[]>([])
 const planMain = ref<HTMLElement>()
+// «В чат» while the plan is shown alone: open the planning chat (its new message field when no conversation exists).
+useComposerReveal(planMain, () => props, () => { if (!props.readonly && !props.planningOpen) emit('openPlanning') })
 const reviewPanel = ref<InstanceType<typeof PlanReviewPanel>>()
 function highlightSteps(ids: string[]) {
   highlighted.value = ids
   void nextTick(() => planMain.value?.querySelector<HTMLElement>('[data-step-id="' + ids[0] + '"]')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }))
 }
 // The plan file as a readable document: no frontmatter or Plangent's hint comment, steps as check marks.
-const planText = computed(() => (props.plan?.content ?? '')
+const readable = (content: string) => content
   .replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '')
   .replace(/<!--[\s\S]*?-->\r?\n?/g, '')
   .replace(/^(\s*)-\s*\[([ x])\]\s+(?:\((p\d+)\)\s+)?/gim, (_m, indent: string, mark: string, id?: string) =>
     `${indent}- ${mark === ' ' ? '☐' : '☑'} ${id ? `\`${id}\` ` : ''}`)
-  .trim())
+  .trim()
+// A saved plan with no text is the same as no plan.
+const planBlank = computed(() => !props.plan?.content.trim())
+const planText = computed(() => readable(props.plan?.content ?? ''))
+const editedText = computed(() => readable(props.planContent))
 
 function stepsWord(n: number) {
   const tens = n % 100, ones = n % 10
   return tens >= 11 && tens <= 14 ? 'шагов' : ones === 1 ? 'шаг' : ones >= 2 && ones <= 4 ? 'шага' : 'шагов'
 }
-
-// ── Plan / chat split: dragged by the developer, remembered between visits ──
-const SHARE_KEY = 'plangent.planningShare'
-const split = ref<HTMLElement>()
-const dragging = ref(false)
-const share = ref(readShare())
-function readShare() {
-  try { const saved = Number(localStorage.getItem(SHARE_KEY)); return saved >= 20 && saved <= 80 ? saved : 50 } catch { return 50 }
-}
-function setShare(value: number) {
-  share.value = Math.min(80, Math.max(20, Math.round(value * 10) / 10))
-  try { localStorage.setItem(SHARE_KEY, String(share.value)) } catch { /* storage unavailable */ }
-}
-function startDrag(event: PointerEvent) {
-  const handle = event.currentTarget as HTMLElement
-  const box = split.value!.getBoundingClientRect()
-  handle.setPointerCapture(event.pointerId)
-  dragging.value = true
-  const move = (e: PointerEvent) => setShare(((e.clientX - box.left) / box.width) * 100)
-  const stop = () => {
-    dragging.value = false
-    handle.removeEventListener('pointermove', move)
-    handle.removeEventListener('pointerup', stop)
-    handle.removeEventListener('pointercancel', stop)
-  }
-  handle.addEventListener('pointermove', move)
-  handle.addEventListener('pointerup', stop)
-  handle.addEventListener('pointercancel', stop)
-}
 </script>
 <style scoped>
-.review-step-nav { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 10px; }
-.review-step-nav button { color: var(--text-muted); background: var(--bg3); border: 1px solid var(--border); border-radius: 4px; cursor: pointer; }
-.review-step-nav .highlighted { border-color: var(--blue); background: var(--blue-soft); }
 .plan-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .plan-tab.with-review { flex-direction: row; }
 .plan-header-actions .on, .planning-actions .on { background: var(--bg3); color: var(--text); }
 .step.highlighted { background: var(--blue-soft); border-color: var(--blue); }
-.remark-count { border: 0; border-radius: 8px; color: var(--blue-hover); background: var(--blue-soft); cursor: pointer; }
+.remark-count { border: 0; border-radius: var(--radius); color: var(--blue-hover); background: var(--blue-soft); cursor: pointer; }
 .plan-tab { flex: 1; overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
 
 .planning-bar { display: flex; align-items: center; gap: 12px; padding: 8px 20px; border-bottom: 1px solid var(--border); background: var(--bg); flex-shrink: 0; }
-.planning-status { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--text-muted); }
-.planning-status.live { color: #e3b341; }
-.planning-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border-strong); }
-.live .planning-dot { background: #e3b341; animation: pulse 1.2s ease-in-out infinite; }
+.planning-status { display: flex; align-items: center; gap: 8px; font-size: var(--fs-md); font-weight: 600; color: var(--text-muted); }
+.planning-status.live { color: var(--warning-text); }
+.planning-dot { width: 8px; height: 8px; border-radius: var(--radius-round); background: var(--border-strong); }
+.live .planning-dot { background: var(--warning-text); animation: pulse 1.2s ease-in-out infinite; }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
-.planning-meta { font-size: 12px; color: var(--text-faint); }
+.planning-meta { font-size: var(--fs-sm); color: var(--text-faint); }
 .planning-actions { margin-left: auto; display: flex; gap: 8px; }
 
-.planning-split { flex: 1; min-height: 0; display: flex; }
-.planning-split.dragging { cursor: col-resize; user-select: none; }
-.plan-pane { flex-grow: 0; flex-shrink: 0; min-width: 0; overflow-y: auto; padding: 20px 24px; display: flex; flex-direction: column; }
+.plan-pane { flex: 1; min-width: 0; overflow-y: auto; padding: 20px 24px; display: flex; flex-direction: column; }
 .plan-doc :deep(ul) { list-style: none; padding-left: 4px; }
 .plan-doc :deep(ul ul) { padding-left: 20px; }
 /* [[раздел]] / [[раздел/файл]] in the plan document: the same label as AnalysisLinks in the step list */
-.plan-doc :deep(button.btn[data-analysis-target]) { height: 19px; margin: 0 1px; padding: 0 6px; vertical-align: 1px; border: 1px solid var(--blue-soft); border-radius: 5px; background: var(--blue-soft); color: var(--blue-hover); font-family: 'Cascadia Code', 'JetBrains Mono', monospace; font-size: 11.5px; font-weight: 400; }
-.plan-doc :deep(button.btn[data-analysis-target]:not(:disabled):hover) { border-color: var(--blue-hover); }
-.plan-doc :deep(button.btn[data-analysis-target]:disabled) { opacity: 1; border-style: dashed; border-color: var(--danger); background: var(--danger-soft); color: var(--danger-hover) !important; text-decoration: line-through; }
 .chat-pane { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
-.splitter { position: relative; width: 1px; flex-shrink: 0; background: var(--border); cursor: col-resize; touch-action: none; }
-.splitter::before { content: ''; position: absolute; inset: 0 -4px; }
-.splitter:hover, .dragging .splitter { background: var(--blue); box-shadow: 0 0 0 1px var(--blue); }
 
 .plan-tab-content { flex: 1; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 12px; }
 
 .plan-panel-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .plan-header-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
-.plan-waiting { flex: 1; display: flex; align-items: center; justify-content: center; text-align: center; color: var(--text-muted); font-size: 13px; min-height: 120px; }
+.plan-waiting { flex: 1; display: flex; align-items: center; justify-content: center; text-align: center; color: var(--text-muted); font-size: var(--fs-md); min-height: 120px; }
 
-.progress-line { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-muted); flex: 1; }
-.progress-bar { flex: 1; height: 4px; background: var(--bg3); border-radius: 2px; overflow: hidden; }
-.progress-fill { height: 100%; background: var(--accent); transition: width 0.3s; }
+.progress-line { display: flex; align-items: center; gap: 8px; font-size: var(--fs-sm); color: var(--text-muted); flex: 1; }
+.progress-bar { flex: 1; height: 4px; background: var(--bg3); border-radius: var(--radius-xs); overflow: hidden; }
+.progress-fill { height: 100%; background: var(--accent); transition: width var(--motion-slow); }
 
 .steps { display: flex; flex-direction: column; gap: 3px; }
-.step { display: flex; align-items: center; gap: 10px; font-size: 13px; padding: 7px 10px; border-radius: var(--radius-sm); cursor: pointer; transition: background 0.12s, border-color 0.12s; border: 1px solid transparent; }
+.step { display: flex; align-items: center; gap: 10px; font-size: var(--fs-md); padding: 7px 10px; border-radius: var(--radius-sm); cursor: pointer; transition: background var(--motion-fast), border-color var(--motion-fast); border: 1px solid transparent; }
 .step:hover { background: var(--bg3); }
 .step.done { color: var(--text-muted); }
 .step.done .step-text { text-decoration: line-through; text-decoration-color: var(--text-faint); }
-.step-check { width: 18px; height: 18px; border: 1.5px solid var(--border-strong); border-radius: 5px; background: none; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 11px; flex-shrink: 0; color: white; transition: background 0.12s, border-color 0.12s; }
+.step-check { width: 18px; height: 18px; border: 1.5px solid var(--border-strong); border-radius: var(--radius-5); background: none; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: var(--fs-xs); flex-shrink: 0; color: white; transition: background var(--motion-fast), border-color var(--motion-fast); }
 .step-check.done { background: var(--accent); border-color: var(--accent); }
 .step-check.readonly { cursor: default; }
 .step-check.readonly:not(.done):hover { background: none; border-color: var(--border-strong); }
-.step-id { font-size: 10px; color: var(--text-muted); font-family: monospace; flex-shrink: 0; }
+.step-id { font-size: var(--fs-xs); color: var(--text-muted); font-family: var(--font-mono); flex-shrink: 0; }
 .step-text { flex: 1; }
-.parallel-badge { font-size: 10px; color: var(--blue); background: rgba(88,166,255,0.12); padding: 1px 6px; border-radius: 8px; white-space: nowrap; }
+.parallel-badge { font-size: var(--fs-xs); color: var(--blue); background: var(--blue-soft); padding: 1px 6px; border-radius: var(--radius); white-space: nowrap; }
 
-.plan-editor-wrap { display: flex; flex-direction: column; gap: 8px; flex: 1; min-height: 0; }
-.plan-editor {
-  background: var(--bg3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--text);
-  font-family: 'Cascadia Code', 'JetBrains Mono', monospace;
-  font-size: 13px;
-  padding: 10px;
-  flex: 1;
-  min-height: 200px;
-  resize: none;
-}
-.plan-editor:focus { outline: none; border-color: var(--blue); }
-.plan-editor-helper { display: flex; flex-direction: column; gap: 8px; color: var(--text-muted); font-size: 11px; line-height: 1.4; }
+.plan-stale { flex-shrink: 0; margin: 12px 20px 0; }
+.plan-edit-pane { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 8px; padding: 12px 20px; overflow-y: auto; }
+.plan-editor { flex: 1; }
+.plan-editor-helper { display: flex; flex-direction: column; gap: 8px; color: var(--text-muted); font-size: var(--fs-xs); line-height: 1.4; }
 .plan-editor-helper > span code, .plan-editor-helper code {
-  font-family: 'Cascadia Code', 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   background: var(--bg3);
   border: 1px solid var(--border-strong);
-  border-radius: 4px;
+  border-radius: var(--radius-4);
   padding: 1px 5px;
   color: var(--text);
 }
-.checkbox-preview { display: flex; gap: 6px; flex-wrap: wrap; }
-.checkbox-line {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  max-width: 100%;
-  padding: 4px 8px 4px 6px;
-  background: var(--bg2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.checkbox-line code { flex-shrink: 0; border-color: var(--blue); color: var(--blue-hover); background: var(--blue-soft); font-weight: 600; }
-.plan-actions { display: flex; gap: 8px; }
 </style>
-
 

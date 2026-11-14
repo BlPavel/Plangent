@@ -1,5 +1,7 @@
+import { DEFAULT_CODE_FIXER_INSTRUCTION } from './builtins';
+export { DEFAULT_CODE_FIXER_INSTRUCTION } from './builtins';
 import { readItemContent } from './library-manager';
-import { libraryItemsFor, listLibraryItems } from './index';
+import { resolveLibraryItem } from './section-settings';
 import { getProject } from '../projects';
 
 /**
@@ -7,12 +9,7 @@ import { getProject } from '../projects';
  * are read and resolved is Plangent's protocol, not a preference, so it comes from get_review
  * (CODE_FIXER_PROTOCOL) and the tool descriptions instead.
  */
-export const DEFAULT_CODE_FIXER_INSTRUCTION = `# Code fixer
-Make the smallest change that addresses the item. No unrelated refactoring, renames or reformatting.
-Do not run git commands that modify the repository (including commit, checkout, switch, stash, reset, rebase, push, or staging). The user makes commits through Plangent. Read commands such as status, diff, log, show, blame and grep follow the session permission policy.
-Write only inside the project folder. Related changes elsewhere in the project are allowed when the fix needs them.
-When a question implies a choice, discuss the options as a numbered list in your message text, with their trade-offs, and mark the one you recommend. The developer chooses or continues the discussion by writing a reply. You decide how many; do not pad the list.
-Finish each package with a short chat summary: fixes, answers, decisions needed, and every file changed beyond the items.`;
+
 
 /** How review items work; returned by get_review with the items, never editable. */
 export const CODE_FIXER_PROTOCOL = [
@@ -22,6 +19,7 @@ export const CODE_FIXER_PROTOCOL = [
   'kind=fix: make the correction and reply change (what you did, files).',
   'kind=question, or a developer message that discusses rather than asks for a change: do not change code. Reply answer; when there is an open choice, write a numbered list in the reply text and mark your recommendation there. Suggestions and clarifying questions are ordinary discussion text; do not request UI controls or a structured selection. The developer chooses or continues discussing in their own words.',
   'Change code for a question only when the developer asks for it in the thread, in their own words. Read their reply to understand which approach they want; mentioning an option or asking about it is discussion, not automatically a request to change code.',
+  'Choosing is asking: when the developer picks one of the options you offered or agrees with the approach you recommended («согласен с 1 вариантом», «давай так», «ок, делай»), that is the request to implement it. Make the change and reply change. Only if the chosen option changes nothing in the code, reply answer.',
   'When the developer rejects your options and describes their own approach, that approach is their decision: never offer it back as one of new options. If they ask to do it, implement it; otherwise reply answer that you will do it so, and add your concerns only if there are real ones (disagree if it is mistaken). Offer options again only for a new open question their approach leaves.',
   'Items in history are context only; do not reply to them.',
 ];
@@ -38,12 +36,6 @@ export function buildCodeFixerBriefing(projectId: string): string {
 }
 
 export function resolveCodeFixerInstruction(projectId: string): string {
-  const project = getProject(projectId);
-  const items = project
-    ? libraryItemsFor(project, 'code-fixer-instruction').filter(item => item.enabled)
-    : listLibraryItems({ type: 'code-fixer-instruction', projectId: '', enabledOnly: true })
-      .map(item => ({ ...item, origin: 'global' as const }));
-  const item = (['direct', 'group', 'global'] as const)
-    .map(origin => items.find(item => item.origin === origin)).find(Boolean);
+  const item = resolveLibraryItem('code-fixer-instruction', projectId);
   return item ? readItemContent(item) : DEFAULT_CODE_FIXER_INSTRUCTION;
 }

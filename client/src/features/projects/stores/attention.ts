@@ -1,7 +1,7 @@
 import { ref } from 'vue'
 import { defineStore } from 'pinia'
-import { onWorkEvent, onServerEvent } from '@core/api/events'
-import { workApi } from '@features/tasks'
+import { onServerEvent } from '@core/api/events'
+import { workApi, onWorkEvent } from '@features/tasks'
 
 /** How many works of each project wait for the developer; shown as a badge in the project tree, also for other projects. */
 export const useWorkAttentionStore = defineStore('work-attention', () => {

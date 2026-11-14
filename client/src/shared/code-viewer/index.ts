@@ -7,3 +7,5 @@ export { findPattern, findInLine, markHtml } from './find'
 export type { FindOptions, TextRange } from './find'
 export { parseUnifiedDiff, diffStats, changeBlocks, stripes, diffRows, fileRows } from './diff-model'
 export type { DiffHunk, DiffLine, DiffRow, ChangeBlock, StripeKind } from './diff-model'
+
+export { diffLines, diffTextHunks } from './text-diff'

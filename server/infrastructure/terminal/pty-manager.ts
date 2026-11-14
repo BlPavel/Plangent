@@ -94,9 +94,6 @@ export function getPtySession(id: string): PtySession | undefined {
   return sessions.get(id);
 }
 
-export function listPtySessions(): string[] {
-  return [...sessions.keys()];
-}
 
 export function attachSocket(sessionId: string, ws: WebSocket): boolean {
   const session = sessions.get(sessionId);

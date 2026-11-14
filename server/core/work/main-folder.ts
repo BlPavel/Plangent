@@ -1,5 +1,5 @@
 import { listTasks } from '../tasks';
-import { activeWorkspace } from '../workspaces/store';
+import { activeWorkspace } from '../workspaces';
 import type { Task } from '../../models';
 
 /** The open work that already runs in the project's main folder: only one work at a time may change it. */

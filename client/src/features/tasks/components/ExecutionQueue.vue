@@ -3,7 +3,7 @@
     <header class="queue-head">
       <div class="queue-heading">
         <span class="section-label">Очередь</span>
-        <span class="status-badge" :class="statusTone">{{ statusText }}</span>
+        <AppBadge dot  :tone="statusTone">{{ statusText }}</AppBadge>
         <span v-if="summary" class="queue-summary">{{ summary }}</span>
       </div>
       <div class="queue-controls">
@@ -71,14 +71,12 @@
             <span v-if="frozen && i === queue.queue.value?.stageIndex" class="stage-current">{{ status === 'paused' ? 'на паузе' : 'сейчас' }}</span>
             <span class="spacer" />
             <AppButton v-if="editable && isReviewStage(stage)" size="xs" variant="danger-ghost" title="Убрать финальное ревью из очереди" @click="queue.removeStage(stage.id)">Убрать ревью</AppButton>
-            <button
+            <AppButton
               v-if="editable && i < stages.length - 1"
-              type="button"
-              class="pause-toggle"
-              :class="{ on: stage.pauseAfter }"
+              variant="subtle" size="xs" :pressed="stage.pauseAfter"
               :title="stage.pauseAfter ? 'Очередь остановится после этого этапа — нажмите, чтобы убрать' : 'Остановить очередь после этого этапа, чтобы проверить результат'"
               @click="queue.updateStage(stage.id, { pauseAfter: !stage.pauseAfter })"
-            >⏸ пауза после</button>
+            >⏸ пауза после</AppButton>
             <span v-else-if="stage.pauseAfter && i < stages.length - 1" class="pause-toggle on static">⏸ пауза после</span>
             <AppMenu v-if="editable && !isReviewStage(stage)" :items="stageMenu(stage)" size="xs" title="Этап" />
           </div>
@@ -111,21 +109,18 @@
         @drop.prevent="drop({ index: stages.length })"
       >Отдельным этапом в конец</div>
       <!-- The closing review is optional and always last, so there is nothing to choose: one click adds it -->
-      <button v-if="editable && !hasReview && !dragId" type="button" class="review-slot" :disabled="!agents.length" :title="agents.length ? '' : 'Нет настроенных агентов'" @click="addReview">
-        <span class="review-plus">+</span>
-        <span class="review-slot-text">
-          <strong>Ревью в конце очереди</strong>
-          <span>Когда все шаги выполнятся, агент прочитает изменения задачи и оставит замечания черновиками в «Коде». Агента и модель можно выбрать после добавления.</span>
-        </span>
-      </button>
+      <div v-if="editable && !hasReview && !dragId" class="review-slot-text">
+        <AppButton variant="subtle" size="sm" :disabled="!agents.length" :title="agents.length ? '' : 'Нет настроенных агентов'" @click="addReview">+ Ревью в конце очереди</AppButton>
+        <span>Когда все шаги выполнятся, агент прочитает изменения задачи и оставит замечания черновиками в «Коде». Агента и модель можно выбрать после добавления.</span>
+      </div>
     </div>
 
     <!-- Earlier runs: out of the way, but their agents' chats stay one click away -->
     <div v-if="history.length" class="history">
-      <button type="button" class="history-toggle" @click="showHistory = !showHistory">
-        <svg :class="{ open: showHistory }" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
+      <AppButton variant="subtle" size="sm" :aria-expanded="showHistory" @click="showHistory = !showHistory">
+        <UIIconChevronRight :class="{ open: showHistory }" />
         Выполненные ранее · {{ history.length }} {{ runsWord(history.length) }}
-      </button>
+      </AppButton>
       <div v-if="showHistory" class="history-runs">
         <div v-for="run in history" :key="run.id" class="history-run">
           <div class="history-date">{{ formatDate(run.finishedAt) }}</div>
@@ -153,8 +148,10 @@
 </template>
 
 <script setup lang="ts">
+import AppBadge from '@shared/ui/AppBadge.vue'
+import { IconChevronRight as UIIconChevronRight } from '@shared/ui/icons'
 import { computed, inject, ref } from 'vue'
-import type { Agent, OrchestratorQueueSession, PlanStep, QueueStage } from '@core/models'
+import type { Agent, OrchestratorQueueSession, PlanStep, QueueStage } from '@contracts'
 import AppButton from '@shared/ui/AppButton.vue'
 import AppMenu, { type MenuItem } from '@shared/ui/AppMenu.vue'
 import { useAppStore } from '@core/stores/app'
@@ -262,52 +259,50 @@ function drop(to: { stageId: string } | { index: number }) {
 .queue { display: flex; flex-direction: column; gap: 10px; }
 .queue-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; min-height: var(--size-sm); }
 .queue-heading { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; flex-wrap: wrap; }
-.section-label { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
-.queue-summary { font-size: 12px; color: var(--text-muted); }
+.section-label { font-size: var(--fs-xs); font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.queue-summary { font-size: var(--fs-sm); color: var(--text-muted); }
 .queue-controls { display: flex; align-items: center; gap: 6px; }
 
-.banner { font-size: 12px; line-height: 1.45; padding: 8px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--bg2); color: var(--text-muted); }
+.banner { font-size: var(--fs-sm); line-height: 1.45; padding: 8px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--bg2); color: var(--text-muted); }
 .banner.warn { border-color: var(--warning); background: var(--warning-soft); color: var(--warning-text); }
 .banner.subtle { border-style: dashed; }
-.queue-hint { font-size: 11.5px; color: var(--text-faint); line-height: 1.45; margin-top: -2px; }
-.queue-empty { font-size: 12.5px; color: var(--text-muted); padding: 16px; border: 1px dashed var(--border-strong); border-radius: var(--radius); text-align: center; line-height: 1.5; }
+.queue-hint { font-size: var(--fs-sm); color: var(--text-faint); line-height: 1.45; margin-top: -2px; }
+.queue-empty { font-size: var(--fs-md); color: var(--text-muted); padding: 16px; border: 1px dashed var(--border-strong); border-radius: var(--radius); text-align: center; line-height: 1.5; }
 
 .stages { display: flex; flex-direction: column; gap: 8px; }
 .stages.dragging { gap: 4px; }
-.stage { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid var(--border); border-left: 3px solid var(--stage-color); border-radius: var(--radius); background: var(--bg); transition: border-color 0.12s, background 0.12s; }
+.stage { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid var(--border); border-left: 3px solid var(--stage-color); border-radius: var(--radius); background: var(--bg); transition: border-color var(--motion-fast), background var(--motion-fast); }
 .stage.current { border-color: var(--stage-color); box-shadow: 0 0 0 1px var(--stage-color); }
 .stage.finished { opacity: 0.75; }
 .stage.final { border-style: dashed; border-left-style: solid; }
-.review-slot { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px dashed var(--border-strong); border-radius: var(--radius); background: none; color: var(--text-muted); font-family: inherit; text-align: left; cursor: pointer; transition: border-color 0.12s, background 0.12s; }
+.review-slot { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px dashed var(--border-strong); border-radius: var(--radius); background: none; color: var(--text-muted); font-family: inherit; text-align: left; cursor: pointer; transition: border-color var(--motion-fast), background var(--motion-fast); }
 .review-slot:hover:not(:disabled) { border-color: var(--blue-hover); background: var(--blue-soft); color: var(--text); }
 .review-slot:disabled { cursor: default; opacity: 0.6; }
-.review-plus { font-size: 18px; line-height: 1; color: var(--blue-hover); }
-.review-slot-text { display: flex; flex-direction: column; gap: 2px; font-size: 12px; line-height: 1.45; }
-.review-slot-text strong { font-size: 12.5px; color: var(--text); }
+.review-plus { font-size: var(--fs-xl); line-height: 1; color: var(--blue-hover); }
+.review-slot-text { display: flex; flex-direction: column; gap: 2px; font-size: var(--fs-sm); line-height: 1.45; }
+.review-slot-text strong { font-size: var(--fs-md); color: var(--text); }
 .stage.over { border-color: var(--blue-hover); background: var(--blue-soft); }
 .stage-head { display: flex; align-items: center; gap: 8px; padding: 0 2px; min-height: var(--size-xs); }
-.stage-num { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; color: var(--stage-color); text-transform: uppercase; letter-spacing: 0.4px; }
-.stage-dot { width: 8px; height: 8px; border-radius: 2px; background: var(--stage-color); }
+.stage-num { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-xs); font-weight: 600; color: var(--stage-color); text-transform: uppercase; letter-spacing: 0.4px; }
+.stage-dot { width: 8px; height: 8px; border-radius: var(--radius-xs); background: var(--stage-color); }
 
 .history { display: flex; flex-direction: column; gap: 8px; padding-top: 4px; border-top: 1px solid var(--border); }
-.history-toggle { display: inline-flex; align-items: center; gap: 6px; align-self: flex-start; padding: 4px 2px; background: none; border: none; color: var(--text-muted); font-size: 12px; font-family: inherit; cursor: pointer; }
-.history-toggle:hover { color: var(--text); }
-.history-toggle svg { width: 14px; height: 14px; transition: transform 0.15s; }
-.history-toggle svg.open { transform: rotate(90deg); }
+.history > button svg { width: 14px; height: 14px; transition: transform var(--motion-modal); }
+.history > button svg.open { transform: rotate(90deg); }
 .history-runs { display: flex; flex-direction: column; gap: 12px; }
 .history-run { display: flex; flex-direction: column; gap: 4px; }
-.history-date { font-size: 11px; color: var(--text-faint); }
+.history-date { font-size: var(--fs-xs); color: var(--text-faint); }
 .history-session { opacity: 0.8; }
-.stage-parallel { font-size: 11px; color: var(--text-muted); }
-.stage-current { font-size: 11px; color: var(--blue-hover); font-weight: 600; }
+.stage-parallel { font-size: var(--fs-xs); color: var(--text-muted); }
+.stage-current { font-size: var(--fs-xs); color: var(--blue-hover); font-weight: 600; }
 .spacer { flex: 1; }
 .stage-sessions { display: flex; flex-direction: column; gap: 6px; }
 
-.pause-toggle { font-size: 11px; font-family: inherit; padding: 2px 8px; border-radius: var(--radius-pill); border: 1px dashed var(--border-strong); background: none; color: var(--text-faint); cursor: pointer; white-space: nowrap; }
+.pause-toggle { font-size: var(--fs-xs); font-family: inherit; padding: 2px 8px; border-radius: var(--radius-pill); border: 1px dashed var(--border-strong); background: none; color: var(--text-faint); cursor: pointer; white-space: nowrap; }
 .pause-toggle:hover { border-color: var(--warning); color: var(--warning-text); }
 .pause-toggle.on { border-style: solid; border-color: var(--warning); color: var(--warning-text); background: var(--warning-soft); }
 .pause-toggle.static { cursor: default; }
 
-.gap-drop { font-size: 11px; color: var(--text-faint); text-align: center; padding: 6px; border: 1px dashed var(--border-strong); border-radius: var(--radius-sm); }
+.gap-drop { font-size: var(--fs-xs); color: var(--text-faint); text-align: center; padding: 6px; border: 1px dashed var(--border-strong); border-radius: var(--radius-sm); }
 .gap-drop.over { border-color: var(--blue-hover); color: var(--blue-hover); background: var(--blue-soft); }
 </style>

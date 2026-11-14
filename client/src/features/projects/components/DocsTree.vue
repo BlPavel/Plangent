@@ -2,16 +2,16 @@
   <!-- Children of one document, loaded when shown; each row can open its own children the same way. -->
   <ul class="tree">
     <li v-if="busy" class="state">{{ SECTIONS.loading }}</li>
-    <li v-else-if="error" class="state error" role="alert">{{ error }} <button type="button" class="link" @click="load">{{ SECTIONS.retry }}</button></li>
+    <li v-else-if="error" class="state error" role="alert">{{ error }} <AppButton variant="link" size="xs" @click="load">{{ SECTIONS.retry }}</AppButton></li>
     <li v-else-if="!children.length" class="state">{{ SECTIONS.noChildren }}</li>
     <li v-for="child in children" :key="child.id">
       <div class="node" :class="{ off: excluded.includes(child.id) }">
-        <button
-          type="button" class="toggle" :disabled="excluded.includes(child.id) || chain.includes(child.id)"
+        <AppButton
+          variant="subtle" size="xs" icon :disabled="excluded.includes(child.id) || chain.includes(child.id)"
           :title="open.has(child.id) ? 'Свернуть' : 'Показать дочерние'" :aria-expanded="open.has(child.id)"
           @click="flip(child.id)"
-        >{{ open.has(child.id) && !excluded.includes(child.id) ? '▾' : '▸' }}</button>
-        <label><input type="checkbox" :checked="!excluded.includes(child.id)" @change="$emit('toggle', child)"> {{ child.title }}</label>
+        >{{ open.has(child.id) && !excluded.includes(child.id) ? '▾' : '▸' }}</AppButton>
+        <AppCheckbox :model-value="!excluded.includes(child.id)" @update:model-value="$emit('toggle', child)">{{ child.title }}</AppCheckbox>
         <span class="id">{{ child.id }}</span>
       </div>
       <DocsTree
@@ -24,9 +24,12 @@
 </template>
 
 <script setup lang="ts">
+import { AppButton, AppCheckbox } from '@shared/ui'
+import { projectsEndpoints } from '../api'
+
+
 import { onMounted, ref, watch } from 'vue'
-import { api } from '@core/api'
-import type { DocsNode } from '@core/models/integrations'
+import type { DocsNode } from '@contracts'
 import { errorText } from '@shared/utils/errorText'
 import { ERRORS, SECTIONS } from '../utils/docs-hints'
 
@@ -39,7 +42,7 @@ async function load() {
   const current = ++revision
   busy.value = true; error.value = ''
   try {
-    const result = await api.post<DocsNode[]>('/projects/draft/docs/children', { connection_id: props.connectionId, config: props.config, id: props.parentId })
+    const result = await projectsEndpoints.postProjectsByIdDocsChildren({ params: { id: "draft" }, body: { connection_id: props.connectionId, config: props.config, id: props.parentId } })
     if (current === revision) children.value = result
   } catch (e) { if (current === revision) error.value = errorText(e, ERRORS) }
   finally { if (current === revision) busy.value = false }
@@ -51,18 +54,11 @@ onMounted(load)
 </script>
 
 <style scoped>
-.tree { list-style: none; display: flex; flex-direction: column; gap: 2px; font-size: 12.5px; }
+.tree { list-style: none; display: flex; flex-direction: column; gap: 2px; font-size: var(--fs-md); }
 .tree .tree { margin: 2px 0 4px 11px; padding-left: 10px; border-left: 1px solid var(--border); }
 .node { display: flex; align-items: center; gap: 6px; min-height: 26px; padding: 0 4px; border-radius: var(--radius-sm); }
 .node:hover { background: var(--bg-hover); }
-.node.off label { color: var(--text-faint); text-decoration: line-through; }
-.node label { display: flex; align-items: center; gap: 6px; cursor: pointer; min-width: 0; overflow-wrap: anywhere; }
-.toggle { width: 18px; height: 18px; flex-shrink: 0; padding: 0; border: none; background: none; color: var(--text-muted); cursor: pointer; font-size: 11px; border-radius: 4px; }
-.toggle:not(:disabled):hover { background: var(--bg3); color: var(--text); }
-.toggle:disabled { opacity: 0.3; cursor: default; }
-.id { margin-left: auto; font-size: 11px; color: var(--text-faint); font-family: 'Cascadia Code', 'JetBrains Mono', monospace; }
+.id { margin-left: auto; font-size: var(--fs-xs); color: var(--text-faint); font-family: var(--font-mono); }
 .state { padding: 4px 8px; color: var(--text-muted); }
 .state.error { color: var(--danger-hover); }
-.link { padding: 0; border: none; background: none; color: var(--blue-hover); font: inherit; cursor: pointer; }
-.link:hover { text-decoration: underline; }
 </style>

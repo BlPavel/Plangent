@@ -1,5 +1,5 @@
 <template>
-  <div class="code-view" :class="{ 'diff-mode': effectiveMode === 'diff' }" :style="{ '--digits': gutter.digits, '--cols': gutter.columns }">
+  <div class="code-view" :class="{ 'diff-mode': effectiveMode === 'diff', 'fit-content': fitContent }" :style="{ '--digits': gutter.digits, '--cols': gutter.columns }">
     <div class="cv-header">
       <!-- eslint-disable-next-line vue/no-v-html -- bundled icon set, not user input -->
       <span class="cv-icon" v-html="iconSvg(fileIconName(file.path.split('/').pop() ?? ''))" />
@@ -7,38 +7,31 @@
       <template v-if="hasDiff">
         <span class="cv-stats" title="Добавлено / удалено строк"><span class="cv-plus">+{{ stats.added }}</span> <span class="cv-minus">−{{ stats.deleted }}</span></span>
         <span v-if="blockRows.length" class="cv-nav">
-          <button type="button" title="Предыдущее изменение" @click="step(-1)">↑</button>
+          <AppButton size="xs" variant="subtle" type="button" title="Предыдущее изменение" @click="step(-1)">↑</AppButton>
           <span class="cv-nav-count">{{ currentBlock >= 0 ? currentBlock + 1 : '–' }}/{{ blockRows.length }}</span>
-          <button type="button" title="Следующее изменение" @click="step(1)">↓</button>
+          <AppButton size="xs" variant="subtle" type="button" title="Следующее изменение" @click="step(1)">↓</AppButton>
         </span>
-        <label v-if="effectiveMode === 'diff' && ignoreWhitespace !== undefined" class="cv-check" title="Игнорировать пробелы и переводы строк">
-          <input v-model="ignoreWhitespace" type="checkbox" /> без пробелов
-        </label>
-        <button v-if="effectiveMode === 'diff' && hasFolds" type="button" class="cv-link" @click="expandAll = !expandAll">{{ expandAll ? 'Свернуть' : 'Развернуть всё' }}</button>
-        <div class="cv-toggle" role="group" aria-label="Режим просмотра">
-          <button type="button" :class="{ on: effectiveMode === 'diff' }" @click="mode = 'diff'">Diff</button>
-          <button type="button" :class="{ on: effectiveMode === 'file' }" @click="mode = 'file'">Файл</button>
-        </div>
+        <AppCheckbox v-if="effectiveMode === 'diff' && ignoreWhitespace !== undefined" :model-value="!!ignoreWhitespace" title="Игнорировать пробелы и переводы строк" @update:model-value="ignoreWhitespace = $event">без пробелов</AppCheckbox>
+        <AppButton size="xs" variant="subtle" v-if="effectiveMode === 'diff' && hasFolds" type="button" class="cv-link" @click="expandAll = !expandAll">{{ expandAll ? 'Свернуть' : 'Развернуть всё' }}</AppButton>
+        <AppSegmented v-model="mode" :options="[{value:'diff',label:'Diff'},{value:'file',label:'Файл'}]" label="Режим просмотра" />
       </template>
-      <div v-if="isMarkdown && effectiveMode === 'file'" class="cv-toggle" role="group" aria-label="Режим markdown">
-        <button type="button" :class="{ on: markdownMode === 'preview' }" @click="markdownMode = 'preview'">Превью</button>
-        <button type="button" :class="{ on: markdownMode === 'source' }" @click="markdownMode = 'source'">Исходник</button>
-      </div>
+      <AppSegmented v-if="isMarkdown && effectiveMode === 'file'" v-model="markdownMode" :options="[{value:'preview',label:'Превью'},{value:'source',label:'Исходник'}]" label="Режим markdown" />
       <slot name="header" :path="file.path" />
     </div>
 
     <div v-if="findOpen && canFind" class="cv-find" role="search">
-      <input
-        ref="findInput" v-model="findText" class="cv-find-input" :class="{ invalid: !!findError }" placeholder="Найти в файле" spellcheck="false"
+      <AppInput
+        size="sm"
+        ref="findInput" v-model="findText" class="cv-find-input" :invalid="!!findError" placeholder="Найти в файле" spellcheck="false"
         :title="findError" @keydown.enter.prevent="stepFind($event.shiftKey ? -1 : 1)" @keydown.esc.prevent="closeFind"
       />
-      <button type="button" class="cv-find-opt" :class="{ on: findCase }" title="Учитывать регистр" @click="findCase = !findCase">Aa</button>
-      <button type="button" class="cv-find-opt" :class="{ on: findWord }" title="Слово целиком" @click="findWord = !findWord">ab</button>
-      <button type="button" class="cv-find-opt" :class="{ on: findRegex }" title="Регулярное выражение" @click="findRegex = !findRegex">.*</button>
+      <AppButton size="xs" variant="subtle" type="button" class="cv-find-opt" :pressed="findCase" title="Учитывать регистр" @click="findCase = !findCase">Aa</AppButton>
+      <AppButton size="xs" variant="subtle" type="button" class="cv-find-opt" :pressed="findWord" title="Слово целиком" @click="findWord = !findWord">ab</AppButton>
+      <AppButton size="xs" variant="subtle" type="button" class="cv-find-opt" :pressed="findRegex" title="Регулярное выражение" @click="findRegex = !findRegex">.*</AppButton>
       <span class="cv-find-count">{{ !findText ? '' : findError ? 'ошибка' : hits.length ? `${activeHit + 1} из ${hits.length}` : 'нет совпадений' }}</span>
-      <button type="button" class="cv-find-opt" title="Предыдущее (Shift+Enter)" :disabled="!hits.length" @click="stepFind(-1)">↑</button>
-      <button type="button" class="cv-find-opt" title="Следующее (Enter)" :disabled="!hits.length" @click="stepFind(1)">↓</button>
-      <button type="button" class="cv-find-opt" title="Закрыть (Esc)" @click="closeFind">×</button>
+      <AppButton size="xs" variant="subtle" type="button" class="cv-find-opt" title="Предыдущее (Shift+Enter)" :disabled="!hits.length" @click="stepFind(-1)">↑</AppButton>
+      <AppButton size="xs" variant="subtle" type="button" class="cv-find-opt" title="Следующее (Enter)" :disabled="!hits.length" @click="stepFind(1)">↓</AppButton>
+      <AppButton size="xs" variant="subtle" type="button" class="cv-find-opt" title="Закрыть (Esc)" @click="closeFind"><IconClose /></AppButton>
     </div>
 
     <slot name="notes" :path="file.path" />
@@ -53,24 +46,25 @@
       <MessageMarkdown :key="file.path" :text="file.content ?? ''" />
     </div>
     <div v-else-if="effectiveMode === 'diff' && !rows.length" class="cv-note">Изменений нет</div>
-    <div v-else ref="scroller" class="cv-scroll" @scroll.passive="onScroll">
+    <div v-else ref="scroller" class="cv-scroll" :style="fitContent ? { height: totalHeight + scrollbarHeight + FIT_CONTENT_PADDING * 2 + 4 + 'px', paddingBlock: FIT_CONTENT_PADDING + 'px' } : undefined" @scroll.passive="onScroll">
       <div class="cv-body" :style="{ height: totalHeight + 'px' }">
         <div class="cv-window" :style="{ transform: `translateY(${windowTop}px)` }">
           <template v-for="index in visible" :key="index">
             <div v-if="rows[index].kind === 'fold'" class="cv-line cv-fold">
               <span class="cv-gutter" />
-              <button type="button" class="cv-fold-button" @click="expandFold(foldStart(rows[index]))">⋯ Показать {{ foldCount(rows[index]) }} {{ plural(foldCount(rows[index])) }}</button>
+              <AppButton size="xs" variant="subtle" type="button" class="cv-fold-button" @click="expandFold(foldStart(rows[index]))">⋯ Показать {{ foldCount(rows[index]) }} {{ plural(foldCount(rows[index])) }}</AppButton>
             </div>
             <div v-else class="cv-line" :class="lineClass(rows[index])" :data-line="lineOf(rows[index])" :data-side="sideOf(rows[index])">
               <span class="cv-gutter" :class="stripeClass(rows[index])" @mousedown.prevent="startSelect(rows[index], $event)" @mouseenter="extendSelect(rows[index])">
-                <button
+                <AppButton
+                  size="xs" variant="subtle"
                   v-if="markerFor(rows[index])"
                   type="button"
                   class="cv-marker"
                   :title="markerFor(rows[index])?.title ?? 'Замечания к строке'"
                   @mousedown.stop
                   @click.stop="emit('marker-click', lineOf(rows[index]), sideOf(rows[index]))"
-                >💬<sup v-if="(markerFor(rows[index])?.count ?? 0) > 1">{{ markerFor(rows[index])?.count }}</sup></button>
+                >💬<sup v-if="(markerFor(rows[index])?.count ?? 0) > 1">{{ markerFor(rows[index])?.count }}</sup></AppButton>
                 <span v-if="gutter.old" class="cv-number cv-old">{{ oldNumber(rows[index]) }}</span>
                 <span v-if="gutter.new" class="cv-number">{{ newNumber(rows[index]) }}</span>
               </span>
@@ -78,7 +72,7 @@
               <!-- eslint-disable-next-line vue/no-v-html -- highlight.js output is escaped -->
               <code class="cv-text hljs" v-html="htmlOf(rows[index], index) || ' '" />
             </div>
-            <div v-if="widgetSet.has(widgetKey(rows[index]))" :ref="el => watchWidget(el as HTMLElement | null, widgetKey(rows[index]))" class="cv-widget">
+            <div v-if="widgetRowSet.has(index)" :ref="el => watchWidget(el as HTMLElement | null, widgetKey(rows[index]))" class="cv-widget">
               <slot name="widget" :line="lineOf(rows[index])" :side="sideOf(rows[index])" :path="file.path" />
             </div>
           </template>
@@ -89,8 +83,13 @@
 </template>
 
 <script setup lang="ts">
+import AppButton from '@shared/ui/AppButton.vue'
+import AppInput from '@shared/ui/AppInput.vue'
+import AppCheckbox from '@shared/ui/AppCheckbox.vue'
+import AppSegmented from '@shared/ui/AppSegmented.vue'
+import { IconClose } from '@shared/ui/icons'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import MessageMarkdown from '@shared/ui/MessageMarkdown.vue'
+import { MessageMarkdown } from '@shared/markdown'
 import { changeBlocks, diffRows, diffStats, fileRows, stripes, type DiffHunk, type DiffRow } from './diff-model'
 import { fileIconName, iconSvg } from './file-icons'
 import { findInLine, findPattern, markHtml, type TextRange } from './find'
@@ -98,11 +97,14 @@ import { highlightLines } from './highlight'
 import type { CodeSide, LineMarker, LineSelection, ViewerFile } from './types'
 
 const LINE_HEIGHT = 20
+const FIT_CONTENT_PADDING = 2
 const OVERSCAN = 20
 const WIDGET_ESTIMATE = 96
 
 const props = withDefaults(defineProps<{
   file: ViewerFile
+  /** Size to content, including scrollbars, within the consumer's maximum height. */
+  fitContent?: boolean
   /** URL for image files. */
   imageSrc?: string
   /** Which version of the file is shown in "file" mode; reported back in `select`. */
@@ -137,6 +139,7 @@ const scroller = ref<HTMLElement>()
 const markdownMode = ref<'preview' | 'source'>('preview')
 const scrollTop = ref(0)
 const viewHeight = ref(600)
+const scrollbarHeight = ref(0)
 const widgetHeights = reactive(new Map<string, number>())
 const expanded = reactive(new Set<number>())
 const expandAll = ref(false)
@@ -213,7 +216,7 @@ const findText = ref('')
 const findCase = ref(false)
 const findWord = ref(false)
 const findRegex = ref(false)
-const findInput = ref<HTMLInputElement>()
+const findInput = ref<InstanceType<typeof AppInput>>()
 const activeHit = ref(0)
 const canFind = computed(() => props.file.kind === 'text' && !(isMarkdown.value && effectiveMode.value === 'file' && markdownMode.value === 'preview'))
 const finder = computed(() => findPattern({ query: findText.value, caseSensitive: findCase.value, wholeWord: findWord.value, regex: findRegex.value }))
@@ -267,10 +270,16 @@ watch(hits, list => { if (activeHit.value >= list.length) activeHit.value = 0 })
 const widgetSet = computed(() => new Set([...props.widgetLines.map(l => 'new:' + l), ...props.oldWidgetLines.map(l => 'old:' + l)]))
 /** Indexes of the rows that carry a widget underneath. */
 const widgetOrder = computed(() => {
-  const result: number[] = []
-  if (widgetSet.value.size) rows.value.forEach((row, index) => { if (row.kind !== 'fold' && widgetSet.value.has(widgetKey(row))) result.push(index) })
+  // One per line: a line number met twice (odd hunks) must not repeat its comments.
+  const result: number[] = [], seen = new Set<string>()
+  if (widgetSet.value.size) rows.value.forEach((row, index) => {
+    if (row.kind === 'fold') return
+    const key = widgetKey(row)
+    if (widgetSet.value.has(key) && !seen.has(key)) { seen.add(key); result.push(index) }
+  })
   return result
 })
+const widgetRowSet = computed(() => new Set(widgetOrder.value))
 const widgetHeightAt = (index: number) => widgetHeights.get(widgetKey(rows.value[index])) ?? WIDGET_ESTIMATE
 
 const totalHeight = computed(() => rows.value.length * LINE_HEIGHT + widgetOrder.value.reduce((sum, i) => sum + widgetHeightAt(i), 0))
@@ -304,6 +313,15 @@ function offsetOfIndex(index: number): number {
 
 function onScroll() { scrollTop.value = scroller.value?.scrollTop ?? 0 }
 
+function measureViewport() {
+  const el = scroller.value
+  if (!el) return
+  viewHeight.value = el.clientHeight
+  // The horizontal scrollbar occupies space outside clientHeight.
+  // Include it in the requested height so every content row stays visible.
+  scrollbarHeight.value = el.offsetHeight - el.clientHeight
+}
+
 let resizeScroller: ResizeObserver | undefined
 let resizeWidgets: ResizeObserver | undefined
 const watched = new Map<HTMLElement, string>()
@@ -314,14 +332,14 @@ onMounted(() => {
       if (key !== undefined) widgetHeights.set(key, Math.round(entry.target.getBoundingClientRect().height))
     }
   })
-  resizeScroller = new ResizeObserver(() => { viewHeight.value = scroller.value?.clientHeight ?? viewHeight.value })
+  resizeScroller = new ResizeObserver(measureViewport)
   if (scroller.value) resizeScroller.observe(scroller.value)
 })
 onBeforeUnmount(() => { resizeScroller?.disconnect(); resizeWidgets?.disconnect() })
 // The scroller is replaced when switching between preview and source.
 watch(scroller, (el, old) => {
   if (old) resizeScroller?.unobserve(old)
-  if (el) { resizeScroller?.observe(el); viewHeight.value = el.clientHeight; scrollTop.value = el.scrollTop }
+  if (el) { resizeScroller?.observe(el); measureViewport(); scrollTop.value = el.scrollTop }
 })
 
 function watchWidget(el: HTMLElement | null, key: string) {
@@ -371,6 +389,8 @@ function scrollToRow(index: number) {
 }
 
 async function scrollToLine(line: number, side: CodeSide = 'new') {
+  // Line notes live in the source; the rendered preview has no lines to attach them to.
+  if (isMarkdown.value && effectiveMode.value === 'file' && markdownMode.value === 'preview') { markdownMode.value = 'source'; await nextTick() }
   const find = () => rows.value.findIndex(row => row.kind !== 'fold' && lineOf(row) === line && (effectiveMode.value === 'file' || sideOf(row) === side))
   let index = find()
   if (index < 0) {
@@ -413,38 +433,35 @@ defineExpose({ scrollToLine, clearSelection, step, openFind })
 
 <style scoped>
 .code-view {
-  --hl-text: #e6edf3; --hl-keyword: #ff7b72; --hl-title: #d2a8ff; --hl-attr: #79c0ff; --hl-string: #a5d6ff;
-  --hl-comment: #8b949e; --hl-built-in: #ffa657; --hl-name: #7ee787; --hl-meta: #79c0ff; --hl-addition: #aff5b4; --hl-deletion: #ffdcd7;
+  --hl-text: var(--text); --hl-keyword: var(--syntax-keyword); --hl-title: var(--syntax-title); --hl-attr: var(--syntax-number); --hl-string: var(--syntax-string);
+  --hl-comment: var(--text-muted); --hl-built-in: var(--syntax-variable); --hl-name: var(--syntax-tag); --hl-meta: var(--syntax-number); --hl-addition: var(--syntax-addition); --hl-deletion: var(--syntax-deletion);
   /* Changed lines: a tinted line, a stronger tint under the numbers and a coloured edge, as in GitHub. */
-  --cv-add: #3fb950; --cv-add-line: rgba(46, 160, 67, 0.22); --cv-add-gutter: rgba(63, 185, 80, 0.38);
-  --cv-del: #f85149; --cv-del-line: rgba(248, 81, 73, 0.2); --cv-del-gutter: rgba(248, 81, 73, 0.38);
+  --cv-add: var(--syntax-added); --cv-add-line: var(--syntax-added-soft); --cv-add-gutter: var(--syntax-added-strong);
+  --cv-del: var(--danger-hover); --cv-del-line: var(--syntax-deleted-soft); --cv-del-gutter: var(--syntax-deleted-strong);
   /* Marker slot, then one column per number side; `ch` resolves in the monospace gutter. */
   --gutter: calc(18px + var(--cols, 1) * (var(--digits, 3) * 1ch + 8px) + 6px);
   display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%; background: var(--bg);
 }
 :global(:root[data-theme='light']) .code-view {
-  --hl-text: #24292f; --hl-keyword: #cf222e; --hl-title: #8250df; --hl-attr: #0550ae; --hl-string: #0a3069;
-  --hl-comment: #6e7781; --hl-built-in: #953800; --hl-name: #116329; --hl-meta: #0550ae; --hl-addition: #116329; --hl-deletion: #82071e;
-  --cv-add: #1a7f37; --cv-add-line: rgba(26, 127, 55, 0.13); --cv-add-gutter: rgba(26, 127, 55, 0.28);
-  --cv-del: #cf222e; --cv-del-line: rgba(207, 34, 46, 0.11); --cv-del-gutter: rgba(207, 34, 46, 0.25);
+  --hl-text: var(--syntax-light-text); --hl-keyword: var(--syntax-light-keyword); --hl-title: var(--syntax-light-title); --hl-attr: var(--syntax-light-number); --hl-string: var(--syntax-light-string);
+  --hl-comment: var(--syntax-light-comment); --hl-built-in: var(--syntax-light-variable); --hl-name: var(--syntax-light-tag); --hl-meta: var(--syntax-light-number); --hl-addition: var(--syntax-light-tag); --hl-deletion: var(--syntax-light-deletion);
+  --cv-add: var(--syntax-light-added); --cv-add-line: var(--syntax-light-added-soft); --cv-add-gutter: var(--syntax-light-added-strong);
+  --cv-del: var(--syntax-light-keyword); --cv-del-line: var(--syntax-light-deleted-soft); --cv-del-gutter: var(--syntax-light-deleted-strong);
 }
-.cv-header { display: flex; align-items: center; gap: 8px; flex-shrink: 0; min-height: 34px; padding: 4px 12px; border-bottom: 1px solid var(--border); background: var(--bg2); }
+.cv-header { display: flex; flex-wrap: nowrap; min-width: 0; align-items: center; gap: 8px; flex-shrink: 0; min-height: 34px; padding: 4px 12px; border-bottom: 1px solid var(--border); background: var(--bg2); }
 .cv-icon { display: inline-flex; flex-shrink: 0; }
 .cv-icon :deep(svg) { width: 16px; height: 16px; }
-.cv-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--text); }
-.cv-toggle { display: inline-flex; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); overflow: hidden; }
-.cv-toggle button { padding: 2px 10px; font-size: 12px; color: var(--text-muted); background: none; border: none; cursor: pointer; }
-.cv-toggle button:focus-visible, .cv-nav button:focus-visible, .cv-link:focus-visible, .cv-fold-button:focus-visible, .cv-find-opt:focus-visible, .cv-find-input:focus-visible { outline: 2px solid var(--blue); outline-offset: -1px; }
-.cv-toggle button:hover { color: var(--text); }
-.cv-toggle button.on { background: var(--bg3); color: var(--text); }
-.cv-note { flex: 1; display: flex; align-items: center; justify-content: center; padding: 24px; color: var(--text-muted); font-size: 13px; }
+.cv-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-md); color: var(--text); }
+.cv-note { flex: 1; display: flex; align-items: center; justify-content: center; padding: 24px; color: var(--text-muted); font-size: var(--fs-md); }
 .cv-image { overflow: auto; background: repeating-conic-gradient(var(--bg2) 0% 25%, var(--bg) 0% 50%) 0 / 16px 16px; }
 .cv-image img { max-width: 100%; max-height: 100%; object-fit: contain; }
 .cv-preview { flex: 1; min-height: 0; overflow: auto; padding: 16px 24px; }
-.cv-scroll { flex: 1; min-height: 0; overflow: auto; container-type: inline-size; font-family: 'Cascadia Code', 'JetBrains Mono', Consolas, monospace; font-size: 12.5px; }
+.cv-scroll { flex: 1; min-height: 0; overflow: auto; container-type: inline-size; font-family: var(--font-mono); font-size: var(--fs-md); }
+.code-view.fit-content { height: auto; }
+.code-view.fit-content .cv-scroll { flex: 0 1 auto; }
 .cv-body { position: relative; min-width: 100%; }
 .cv-window { position: absolute; top: 0; left: 0; min-width: 100%; width: max-content; }
-.cv-line { display: flex; height: 20px; line-height: 20px; }
+.cv-line { display: flex; height: 20px; line-height: var(--lh-code); }
 .cv-line.selected { background: var(--blue-soft); }
 .cv-line.added { background: var(--cv-add-line); }
 .cv-line.deleted { background: var(--cv-del-line); }
@@ -452,47 +469,37 @@ defineExpose({ scrollToLine, clearSelection, step, openFind })
 /* The gutter is sticky over scrolled code, so its tint is laid over an opaque background. */
 .cv-line.added .cv-gutter { background: linear-gradient(var(--cv-add-gutter), var(--cv-add-gutter)), var(--bg); box-shadow: inset 3px 0 0 var(--cv-add); color: var(--text); }
 .cv-line.deleted .cv-gutter { background: linear-gradient(var(--cv-del-gutter), var(--cv-del-gutter)), var(--bg); box-shadow: inset 3px 0 0 var(--cv-del); color: var(--text); }
-.cv-line.added .cv-sign { color: var(--cv-add); font-weight: 700; }
-.cv-line.deleted .cv-sign { color: var(--cv-del); font-weight: 700; }
+.cv-line.added .cv-sign { color: var(--cv-add); font-weight: var(--fw-bold); }
+.cv-line.deleted .cv-sign { color: var(--cv-del); font-weight: var(--fw-bold); }
 .cv-fold { background: var(--bg2); }
-.cv-fold-button { position: sticky; left: var(--gutter, 64px); flex: 1; padding: 0 8px; text-align: left; font-size: 12px; line-height: 20px; color: var(--text-muted); background: none; border: none; cursor: pointer; }
-.cv-fold-button:hover { color: var(--text); }
 .cv-sign { flex-shrink: 0; width: 14px; text-align: center; color: var(--text-muted); user-select: none; }
 .cv-old { color: var(--text-faint); }
-.cv-stats { font-size: 12px; white-space: nowrap; }
-.cv-plus { color: var(--diff-add, #3fb950); }
-.cv-minus { color: var(--diff-del, #f85149); }
-.cv-rename { display: inline-block; padding: 0 4px; border-radius: 3px; background: var(--bg3); color: var(--text-muted); font-size: 11px; }
-.cv-nav { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--text-muted); }
-.cv-nav button, .cv-link { padding: 0 6px; font-size: 12px; color: var(--text-muted); background: none; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); cursor: pointer; }
-.cv-nav button:hover, .cv-link:hover { color: var(--text); }
-.cv-check { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--text-muted); white-space: nowrap; cursor: pointer; }
-.stripe-added { box-shadow: inset 3px 0 0 var(--diff-add, #3fb950); }
-.stripe-modified { box-shadow: inset 3px 0 0 var(--diff-mod, #388bfd); }
+.cv-stats { font-size: var(--fs-sm); white-space: nowrap; }
+.cv-plus { color: var(--diff-add, var(--syntax-added)); }
+.cv-minus { color: var(--diff-del, var(--danger-hover)); }
+.cv-rename { display: inline-block; padding: 0 4px; border-radius: var(--radius-xs); background: var(--bg3); color: var(--text-muted); font-size: var(--fs-xs); }
+.cv-nav { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-sm); color: var(--text-muted); }
+.stripe-added { box-shadow: inset 3px 0 0 var(--diff-add, var(--syntax-added)); }
+.stripe-modified { box-shadow: inset 3px 0 0 var(--diff-mod, var(--blue-hover)); }
 .stripe-deleted { position: relative; }
-.stripe-deleted::before { content: ''; position: absolute; left: 0; top: 0; border-left: 6px solid var(--diff-del, #f85149); border-top: 4px solid transparent; border-bottom: 4px solid transparent; }
+.stripe-deleted::before { content: ''; position: absolute; left: 0; top: 0; border-left: 6px solid var(--diff-del, var(--danger-hover)); border-top: 4px solid transparent; border-bottom: 4px solid transparent; }
 .cv-find { display: flex; align-items: center; gap: 4px; flex-shrink: 0; padding: 4px 12px; border-bottom: 1px solid var(--border); background: var(--bg2); }
-.cv-find-input { flex: 1; min-width: 80px; max-width: 320px; padding: 2px 8px; font: inherit; font-size: 12px; color: var(--text); background: var(--bg); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); }
-.cv-find-input.invalid { border-color: var(--danger-hover); }
-.cv-find-opt { min-width: 22px; padding: 0 5px; font-size: 12px; color: var(--text-muted); background: none; border: 1px solid transparent; border-radius: var(--radius-sm); cursor: pointer; }
-.cv-find-opt:hover:not(:disabled) { color: var(--text); border-color: var(--border-strong); }
-.cv-find-opt.on { color: var(--text); background: var(--blue-soft); border-color: var(--blue); }
-.cv-find-opt:disabled { opacity: 0.4; cursor: default; }
-.cv-find-count { min-width: 70px; font-size: 12px; color: var(--text-muted); white-space: nowrap; }
-.cv-text :deep(mark.cv-hit) { color: inherit; background: rgba(255, 196, 0, 0.35); border-radius: 2px; }
-.cv-text :deep(mark.cv-hit-current) { background: rgba(255, 140, 0, 0.7); outline: 1px solid rgba(255, 140, 0, 0.9); }
+.cv-find-input { flex: 1; min-width: 0; }
+.cv-find-input { flex: 1; min-width: 0; }
+.cv-find-count { min-width: 70px; font-size: var(--fs-sm); color: var(--text-muted); white-space: nowrap; }
+.cv-text :deep(mark.cv-hit) { color: inherit; background: var(--highlight); border-radius: var(--radius-xs); }
+.cv-text :deep(mark.cv-hit-current) { background: var(--highlight-active); outline: 1px solid var(--highlight-outline); }
 .cv-line:hover .cv-number { color: var(--text); }
 .cv-gutter {
-  position: sticky; left: 0; z-index: 1; display: flex; align-items: center; justify-content: flex-end; gap: 2px;
+  position: sticky; left: 0; z-index: var(--z-content); display: flex; align-items: center; justify-content: flex-end; gap: 2px;
   box-sizing: border-box; flex-shrink: 0; width: var(--gutter); padding-right: 6px; background: var(--bg); color: var(--text-faint); cursor: pointer; user-select: none;
 }
 .cv-line.selected .cv-gutter { background: var(--bg2); }
 .cv-number { flex-shrink: 0; width: calc(var(--digits, 3) * 1ch); margin-left: 8px; text-align: right; }
-.cv-marker { padding: 0; font-size: 11px; line-height: 1; background: none; border: none; cursor: pointer; }
-.cv-marker sup { font-size: 9px; color: var(--text-muted); }
-.cv-text { flex: 1; padding-left: 8px; padding-right: 16px; white-space: pre; background: none; color: var(--hl-text); font-family: inherit; font-size: inherit; }
+.cv-marker sup { font-size: var(--fs-xs); color: var(--text-muted); }
+.cv-text { flex: 1; padding: 0 16px 0 8px; white-space: pre; background: none; color: var(--hl-text); font-family: inherit; font-size: inherit; }
 /* Comments under a line start at the left edge: they belong to the review, not to the code's indentation. */
-.cv-widget { position: sticky; left: 0; box-sizing: border-box; width: min(760px, 100cqw); padding: 4px 12px 4px 8px; font-family: var(--font, sans-serif); white-space: normal; }
+.cv-widget { position: sticky; left: 0; box-sizing: border-box; width: min(760px, 100cqw); padding: 4px 12px 4px 8px; font-family: var(--font-sans); white-space: normal; }
 .cv-text :deep(.hljs-keyword), .cv-text :deep(.hljs-doctag), .cv-text :deep(.hljs-template-tag), .cv-text :deep(.hljs-template-variable), .cv-text :deep(.hljs-type) { color: var(--hl-keyword); }
 .cv-text :deep(.hljs-title) { color: var(--hl-title); }
 .cv-text :deep(.hljs-attr), .cv-text :deep(.hljs-attribute), .cv-text :deep(.hljs-literal), .cv-text :deep(.hljs-number), .cv-text :deep(.hljs-operator),

@@ -24,7 +24,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { CodeView, parseUnifiedDiff, type CodeSide, type DiffHunk, type LineMarker, type LineSelection, type ViewerFile } from '@shared/code-viewer'
 import { codeApi } from '../api'
-import { useCodeStore } from '../stores/code'
+import { useCodeContext } from '../stores/context'
 
 const props = withDefaults(defineProps<{
   projectId: string
@@ -41,7 +41,7 @@ defineSlots<{
 }>()
 const mode = defineModel<'diff' | 'file'>('mode', { default: 'file' })
 
-const store = useCodeStore()
+const store = useCodeContext()
 const view = ref<InstanceType<typeof CodeView>>()
 const hunks = ref<DiffHunk[] | undefined>()
 const loadError = ref<string | null>(null)
@@ -100,7 +100,10 @@ async function loadDiff() {
 }
 // Switching files drops the old hunks at once so they never render against another file's content.
 watch(path, () => { hunks.value = undefined; loadError.value = null })
-watch([path, () => change.value?.status, () => change.value?.originalPath, () => store.file, () => store.diffEnds?.base, () => store.diffEnds?.end, ignoreWhitespace], () => { void loadDiff() }, { immediate: true })
+// The store keeps `file` while its content is unchanged, so a refresh alone does not refetch the
+// diff; a commit moves HEAD, and the line counts catch the rest (e.g. a file without content).
+const lineStat = computed(() => { const stat = path.value ? store.shownStats[path.value] : undefined; return stat ? `${stat.added}:${stat.deleted}` : '' })
+watch([path, () => change.value?.status, () => change.value?.originalPath, () => store.file, () => store.head, lineStat, () => store.diffEnds?.base, () => store.diffEnds?.end, ignoreWhitespace], () => { void loadDiff() }, { immediate: true })
 watch(() => store.error, error => { loadError.value = error })
 
 async function scrollToLine(line: number, side: CodeSide = 'new') {
@@ -117,7 +120,7 @@ defineExpose({
 <style scoped>
 .fv { height: 100%; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .fv > :deep(.code-view) { flex: 1; }
-.fv-empty { margin: auto; max-width: 360px; padding: 24px; text-align: center; font-size: 13px; color: var(--text-muted); }
-.fv-empty-title { margin-bottom: 6px; font-size: 15px; font-weight: 600; color: var(--text); }
-kbd { font-family: inherit; font-size: 11px; padding: 0 4px; border: 1px solid var(--border-strong); border-radius: 4px; background: var(--bg3); }
+.fv-empty { margin: auto; max-width: 360px; padding: 24px; text-align: center; font-size: var(--fs-md); color: var(--text-muted); }
+.fv-empty-title { margin-bottom: 6px; font-size: var(--fs-lg); font-weight: 600; color: var(--text); }
+kbd { font-family: inherit; font-size: var(--fs-xs); padding: 0 4px; border: 1px solid var(--border-strong); border-radius: var(--radius-4); background: var(--bg3); }
 </style>

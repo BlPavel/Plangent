@@ -1,4 +1,4 @@
-import type { Task, WorkGroup, WorkState } from '@core/models'
+import type { PreparationStage, StageSummary, Task, WorkGroup, WorkState } from '@contracts'
 
 export const workGroups: { id: WorkGroup; title: string }[] = [
   { id: 'attention', title: 'Нужно ваше действие' },
@@ -7,28 +7,31 @@ export const workGroups: { id: WorkGroup; title: string }[] = [
   { id: 'done', title: 'Готово' },
 ]
 
-export const workStages: { id: WorkState['stage']; label: string }[] = [
-  { id: 'plan', label: 'План' },
-  { id: 'execution', label: 'Выполнение' },
-  { id: 'check', label: 'Проверка' },
-  { id: 'finish', label: 'Завершение' },
-]
-
-/** Stages of a work as tabs of its page: an errand skips Анализ and План. */
+/** Stages of a work as tabs of its page: an errand skips the preparation (Анализ, Архитектура, QA, План). */
 export function workStagesOf(task: Pick<Task, 'kind'>): { tab: string; label: string }[] {
-  const tail = [{ tab: 'check', label: 'Проверка' }, { tab: 'finish', label: 'Завершение' }]
+  const tail = [{ tab: 'check', label: 'Проверка' }]
   return task.kind === 'errand'
     ? [{ tab: 'chat', label: 'Выполнение' }, ...tail]
-    : [{ tab: 'analysis', label: 'Анализ' }, { tab: 'plan', label: 'План' }, { tab: 'exec', label: 'Выполнение' }, ...tail]
+    : [{ tab: 'analysis', label: 'Анализ' }, { tab: 'architecture', label: 'Архитектура' }, { tab: 'qa', label: 'QA' }, { tab: 'plan', label: 'План' }, { tab: 'exec', label: 'Выполнение' }, ...tail]
 }
-/** Index of the stage the work is at (everything before it is done); past the end — the work is closed. */
-export function workStageIndex(task: Pick<Task, 'kind'>, state: WorkState | null, hasPlan = !!state?.counts.steps): number {
-  const stage = state?.stage ?? 'plan', offset = task.kind === 'errand' ? 0 : 2
+/**
+ * Position of the current work stage. During preparation it is the latest stage the developer worked on:
+ * a marked one (ready or skipped) leads to the next. Анализ, Архитектура and QA are optional, so the stages
+ * before it count as passed. Without the preparation summary (the work list) a plan means the План stage.
+ */
+export function workStageIndex(task: Pick<Task, 'kind'>, state: WorkState | null, hasPlan = !!state?.counts.steps, stages: StageSummary[] = []): number {
+  const stage = state?.stage ?? 'plan', offset = task.kind === 'errand' ? 0 : 4
   if (stage === 'done') return workStagesOf(task).length
   if (stage === 'execution') return offset
   if (stage === 'check') return offset + 1
-  if (stage === 'finish') return offset + 2
-  return hasPlan ? 1 : 0
+  if (!stages.length) return hasPlan ? 3 : 0
+  const order: PreparationStage[] = ['analysis', 'architecture', 'qa', 'plan']
+  const latest = order.findLastIndex(id => (id === 'plan' && hasPlan) || (stages.find(s => s.stage === id)?.status ?? 'not_started') !== 'not_started')
+  if (latest < 0) return 0
+  const marked = ['ready', 'skipped'].includes(stages.find(s => s.stage === order[latest])?.status ?? 'not_started')
+  // An earlier approval cannot advance an erased plan into execution.
+  if (order[latest] === 'plan' && !hasPlan) return latest
+  return marked ? latest + 1 : latest
 }
 
 /** Tone of the status icon in a list row; the text itself comes from the server. */
@@ -41,10 +44,9 @@ export function workTone(state: WorkState): 'danger' | 'warn' | 'progress' | 'do
 }
 
 /** Where the main button of a row leads inside the work page. */
-export function workTab(state: WorkState, kind: 'task' | 'errand'): 'chat' | 'plan' | 'exec' | 'check' | 'finish' {
+export function workTab(state: WorkState, kind: 'task' | 'errand'): 'chat' | 'plan' | 'exec' | 'check' {
   switch (state.action) {
     case 'check': return 'check'
-    case 'finish': return 'finish'
     case 'plan': return 'plan'
     case 'queue': return 'exec'
     default: return kind === 'errand' ? 'chat' : state.stage === 'check' ? 'check' : 'exec'

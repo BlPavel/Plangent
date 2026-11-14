@@ -11,6 +11,8 @@ export interface TaskSessionSnapshot {
   selectedAnalysisChat?: string | null
   planningOpen: boolean
   selectedPlanningChat?: string | null
+  /** Selected author chat of the architecture and QA documents. */
+  selectedMaterialChat?: Partial<Record<'architecture' | 'qa', string | null>>
 }
 
 export const useTaskSessionStore = defineStore('taskSession', () => {
@@ -26,6 +28,7 @@ export const useTaskSessionStore = defineStore('taskSession', () => {
         selectedAnalysisChat: s.selectedAnalysisChat ?? undefined,
         planningOpen: !!(s.planningOpen ?? s.planningActive),
         selectedPlanningChat: s.selectedPlanningChat ?? s.planningSessionId ?? undefined,
+        selectedMaterialChat: s.selectedMaterialChat,
       }]))
     } catch {
       return {}

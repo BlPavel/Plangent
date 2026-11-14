@@ -1,10 +1,12 @@
+
+import { tasksEndpoints } from '../api'
 import type { Router } from 'vue-router'
 import { announceChanges } from '@features/code'
-import { api } from '@core/api'
-import { onServerEvent, type WorkEvent } from '@core/api/events'
+import { onServerEvent } from '@core/api/events'
+import type { WorkEvent } from '@contracts'
 import { platform } from '@core/platform'
 import { useAppStore } from '@core/stores/app'
-import type { OrchestratorEvent, Task } from '@core/models'
+import type { OrchestratorEvent} from '@contracts'
 import { remarksLabel } from '../utils/queue-status'
 
 /** Route that opens a task (in its project) and, optionally, one of its agent chats. */
@@ -33,7 +35,7 @@ export function startQueueNotifications(router: Router) {
   onServerEvent<WorkEvent>(event => {
     if (!['work:ready_for_check', 'work:fixes_ready'].includes(event.type) || !event.taskId || !event.projectId) return
     const { taskId, projectId } = event
-    void api.get<Task>(`/projects/${projectId}/tasks/${taskId}`).then(task => {
+    void tasksEndpoints.getProjectsByProjectIdTasksByTaskId({ params: { projectId: projectId, taskId: taskId } }).then(task => {
       const fixes = event.type === 'work:fixes_ready'
       if (!fixes && task.kind !== 'errand') return
       const name = (task.kind === 'errand' ? '⚡ ' : '') + ([task.external_key, task.title].filter(Boolean).join(' ') || task.key)

@@ -41,7 +41,7 @@ watch(() => props.projectId, id => { void store.load(id); void store.loadChanged
 </script>
 
 <style scoped>
-.cb-icon { font-family: 'Cascadia Code', 'JetBrains Mono', monospace; font-size: 11px; }
-.tab-count { min-width: 18px; height: 18px; margin-left: 6px; padding: 0 5px; border-radius: var(--radius-pill); font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; background: var(--bg3); color: var(--text-muted); }
-.tab-count.warn { background: var(--warning); color: #0d1117; }
+.cb-icon { font-family: var(--font-mono); font-size: var(--fs-xs); }
+.tab-count { min-width: 18px; height: 18px; margin-left: 6px; padding: 0 5px; border-radius: var(--radius-pill); font-size: var(--fs-xs); font-weight: 700; display: inline-flex; align-items: center; justify-content: center; background: var(--bg3); color: var(--text-muted); }
+.tab-count.warn { background: var(--warning); color: var(--bg); }
 </style>

@@ -18,6 +18,6 @@ onMounted(() => { if (!agents.agents.length) void agents.load() })
 </script>
 
 <style scoped>
-.agent-note { font-size: 11.5px; color: var(--text-faint); overflow-wrap: anywhere; }
+.agent-note { font-size: var(--fs-sm); color: var(--text-faint); overflow-wrap: anywhere; }
 .agent-note.missing { color: var(--warning-text); }
 </style>

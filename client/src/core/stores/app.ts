@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, watch } from 'vue'
-import type { Project, Task } from '@core/models'
+import type { Project, Task } from '@contracts'
 
 export interface ToastAction { label: string; run: () => void }
 
@@ -21,6 +21,7 @@ export const useAppStore = defineStore('app', () => {
       ?? projects.find(p => p.kind === 'project') ?? projects[0] ?? null
   }
   const currentTask = ref<Task | null>(null)
+  const codeScreenCount = ref(0)
   const toasts = ref<Array<{ id: number; msg: string; type: string; action?: ToastAction }>>([])
   let toastId = 0
 
@@ -58,5 +59,5 @@ export const useAppStore = defineStore('app', () => {
     confirmState.value = null
   }
 
-  return { currentProject, restoreProject, currentTask, toasts, toast, dismissToast, confirmState, confirm, resolveConfirm }
+  return { currentProject, restoreProject, currentTask, codeScreenCount, toasts, toast, dismissToast, confirmState, confirm, resolveConfirm }
 })

@@ -4,58 +4,41 @@
       <h2>Настройки</h2>
     </div>
 
-    <div class="settings-tabs">
-      <button class="stab" :class="{ active: tab === 'agents' }" @click="tab = 'agents'">Агенты</button>
-      <button class="stab" :class="{ active: tab === 'connections' }" @click="tab = 'connections'">Подключения</button>
-      <button class="stab" :class="{ active: tab === 'skills' }" @click="tab = 'skills'">Скиллы</button>
-      <button class="stab" :class="{ active: tab === 'plan-template' }" @click="tab = 'plan-template'">Шаблон плана</button>
-      <button class="stab" :class="{ active: tab === 'instruction-guide' }" @click="tab = 'instruction-guide'">Руководство по инструкциям</button>
-      <button class="stab" :class="{ active: tab === 'code-fixer' }" @click="tab = 'code-fixer'">Агент доработки</button>
-      <button class="stab" :class="{ active: tab === 'review-skills' }" @click="tab = 'review-skills'">Ревью МР</button>
-      <button class="stab" :class="{ active: tab === 'plan-review' }" @click="tab = 'plan-review'">Ревью плана</button>
-      <button class="stab" :class="{ active: tab === 'commit-rules' }" @click="tab = 'commit-rules'">Коммиты</button>
-      <button class="stab" :class="{ active: tab === 'notes' }" @click="tab = 'notes'">Доработки</button>
-    </div>
+    <AppSettingsLayout>
+    <template #nav><AppNavTree :model-value="tab" :items="SETTINGS_NAV" label="Настройки" @update:model-value="tab = $event as Tab" /></template>
+    <template #header><AppPageHeader :parent="page.parent" :title="page.title" :description="description">
+      <template #actions><AppButton v-if="tab === 'agents'" variant="primary" size="sm" @click="openCreate()">+ Добавить агента</AppButton></template>
+    </AppPageHeader></template>
 
     <div v-if="tab === 'connections'" class="tab-body"><ConnectionsSettings :fix="typeof route.query.fix === 'string' ? route.query.fix : undefined" /></div>
     <!-- Agents -->
     <div v-show="tab === 'agents'" class="tab-body">
-      <div class="section-header">
-        <span class="section-title">Агенты</span>
-        <AppButton variant="primary" size="sm" @click="openCreate()">+ Добавить агента</AppButton>
-      </div>
-      <p class="hint">Агенты подключаются по ACP (Agent Client Protocol). Plangent сам отвечает на их запросы разрешений, поэтому режимы «без подтверждений» агента не нужны.</p>
-
       <div class="agent-list">
-        <div v-if="!agentsStore.agents.length" class="empty-state">
+        <AppEmptyState v-if="!agentsStore.agents.length" >
           Нет агентов. Добавьте первого.
-        </div>
-        <div v-for="a in agentsStore.agents" :key="a.id" class="agent-card">
-          <div class="agent-top">
-            <div>
-              <span class="agent-name">{{ a.name }}</span>
-              <code class="agent-cmd">{{ launchLine(a) }}</code>
-            </div>
-            <div class="actions">
-              <AppButton variant="ghost" size="sm" :disabled="checking.has(a.id)" title="Запустить агента и узнать, что он умеет" @click="check(a)">
-                {{ checking.has(a.id) ? 'Проверка…' : 'Проверить' }}
-              </AppButton>
-              <AppButton
-                v-if="canUpdate(a)"
-                variant="update"
-                size="sm"
-                :disabled="updatingAgentId === a.id"
-                title="Обновить CLI агента и ACP-адаптер до последней версии"
-                @click="updateAgent(a)"
-              >
-                {{ updatingAgentId === a.id ? 'Обновление…' : '⟳ Обновить' }}
-              </AppButton>
-              <AppButton variant="ghost" size="sm" @click="openEdit(a)">Изменить</AppButton>
-              <AppButton variant="danger-ghost" size="sm" @click="remove(a.id)">
-                <IconTrash /> Удалить
-              </AppButton>
-            </div>
-          </div>
+        </AppEmptyState>
+        <AppItemCard v-for="a in agentsStore.agents" :key="a.id">
+          <template #title>{{ a.name }}</template>
+          <template #subtitle><code class="agent-cmd">{{ launchLine(a) }}</code></template>
+          <template #actions>
+            <AppButton variant="ghost" size="sm" :disabled="checking.has(a.id)" title="Запустить агента и узнать, что он умеет" @click="check(a)">
+              {{ checking.has(a.id) ? 'Проверка…' : 'Проверить' }}
+            </AppButton>
+            <AppButton
+              v-if="canUpdate(a)"
+              variant="update"
+              size="sm"
+              :disabled="updatingAgentId === a.id"
+              title="Обновить CLI агента и ACP-адаптер до последней версии"
+              @click="updateAgent(a)"
+            >
+              {{ updatingAgentId === a.id ? 'Обновление…' : '⟳ Обновить' }}
+            </AppButton>
+            <AppButton variant="ghost" size="sm" @click="openEdit(a)">Изменить</AppButton>
+            <AppButton variant="danger-ghost" size="sm" @click="remove(a.id)">
+              <IconTrash /> Удалить
+            </AppButton>
+          </template>
           <div class="agent-meta">
             <template v-if="report(a.id)?.ok">
               <span v-if="report(a.id)!.title">{{ report(a.id)!.title }}</span>
@@ -71,58 +54,64 @@
             <span v-if="Object.keys(a.env).length">Env: {{ Object.keys(a.env).join(', ') }}</span>
             <span v-if="a.layout_profile?.main">Инструкции → {{ a.layout_profile.main.file }}</span>
           </div>
-        </div>
+        </AppItemCard>
       </div>
     </div>
 
     <!-- Skills (global) -->
     <div v-if="tab === 'skills'" class="tab-body">
-      <p class="hint">Глобальные скиллы разработчика применяются ко всем агентам во всех проектах. Инструкции для конкретного проекта задаются во вкладке «Инструкции» внутри проекта.</p>
-      <SkillsManager scope="global" :allowed-types="['skill']" />
+      <SkillsManager scope="global" :allowed-types="LIBRARY_SECTIONS.global.skills.types" />
     </div>
 
     <!-- Plan template (global) -->
     <div v-show="tab === 'plan-template'" class="tab-body plan-template-tab">
-      <p class="hint">Глобальный шаблон применяется ко всем проектам, если проект не переопределил его в своих инструкциях.</p>
       <PlanTemplateEditor scope="global" />
     </div>
 
     <!-- Instruction authoring guide (global) -->
     <div v-show="tab === 'instruction-guide'" class="tab-body">
-      <p class="hint">Глобальное руководство действует во всех проектах, если проект или группа не переопределили его во вкладке «Инструкции» → «Руководство для агента».</p>
       <InstructionGuideEditor scope="global" />
     </div>
 
     <!-- Code-fixer agent instruction (global) -->
     <div v-show="tab === 'code-fixer'" class="tab-body">
-      <p class="hint">Глобальная инструкция действует во всех проектах, если проект или группа не переопределили её во вкладке «Инструкции» → «Агент доработки».</p>
       <CodeFixerInstructionEditor scope="global" />
     </div>
 
-    <!-- Review skills (global) -->
-    <div v-if="tab === 'review-skills'" class="tab-body">
-      <p class="hint">Глобальные скиллы ревью МР доступны во всех проектах. Скиллы под конкретный проект пишутся во вкладке «Инструкции» → «Ревью МР» внутри проекта, в том числе вместе с агентом.</p>
-      <SkillsManager scope="global" :allowed-types="['review-skill']" />
+    <!-- Merge request review instruction (global) -->
+    <div v-show="tab === 'mr-review'" class="tab-body">
+      <CodeFixerInstructionEditor scope="global" :type="LIBRARY_SECTIONS.global['mr-review'].types[0]" />
     </div>
 
     <!-- Plan review instruction (global) -->
     <div v-show="tab === 'plan-review'" class="tab-body">
-      <p class="hint">Общие проверки плана: действуют во всех проектах всегда. Свои требования проекта или группы (например, архитектурные) пишутся скиллами во вкладке «Инструкции» → «Ревью плана» внутри проекта.</p>
-      <CodeFixerInstructionEditor scope="global" type="plan-review-instruction" />
+      <CodeFixerInstructionEditor scope="global" :type="LIBRARY_SECTIONS.global['plan-review'].types[0]" />
     </div>
 
+    <div v-if="tab === 'architecture-template'" class="tab-body"><PlanTemplateEditor scope="global" :type="LIBRARY_SECTIONS.global['architecture-template'].types[0]" /></div>
+    <div v-if="tab === 'architecture-review'" class="tab-body"><CodeFixerInstructionEditor scope="global" :type="LIBRARY_SECTIONS.global['architecture-review'].types[0]" /></div>
+    <div v-if="tab === 'qa-template'" class="tab-body"><PlanTemplateEditor scope="global" :type="LIBRARY_SECTIONS.global['qa-template'].types[0]" /></div>
+    <div v-if="tab === 'qa-review'" class="tab-body"><CodeFixerInstructionEditor scope="global" :type="LIBRARY_SECTIONS.global['qa-review'].types[0]" /></div>
+    <div v-if="tab === 'interview'" class="tab-body"><CodeFixerInstructionEditor scope="global" :type="LIBRARY_SECTIONS.global['interview'].types[0]" /></div>
     <!-- Commit message rules (global) -->
     <div v-show="tab === 'commit-rules'" class="tab-body">
-      <p class="hint">Глобальные правила действуют во всех проектах, если проект или группа не переопределили их во вкладке «Инструкции» → «Коммиты».</p>
-      <GlobalGitAgent />
-      <CodeFixerInstructionEditor scope="global" type="commit-rules" />
+      <CodeFixerInstructionEditor scope="global" :type="LIBRARY_SECTIONS.global['commit-rules'].types[0]" />
     </div>
+
+    <div v-if="tab === 'git-agents'" class="tab-body"><GlobalGitAgent section="git" /></div>
+    <div v-if="tab === 'review-agent'" class="tab-body"><GlobalGitAgent section="review" /></div>
+
+    <div v-if="tab === 'commands'" class="tab-body"><CommandSlots /></div>
 
     <!-- Personal improvement notes -->
     <div v-show="tab === 'notes'" class="tab-body">
       <ImprovementNotes />
     </div>
 
+    <template v-if="agentOpen && agentProject" #panel>
+      <LibrarianPanel :key="tab" library-scope="global" :section="tab" :project-id="agentProject.id" :default-agent-id="projectsStore.agentFor(agentProject)" :request="agentRequest" @close="agentOpen = false" />
+    </template>
+    </AppSettingsLayout>
     <!-- Agent create/edit modal -->
     <AppModal
       v-model="showAgentModal"
@@ -176,7 +165,7 @@
           <FormField v-model="agentForm.skills_dir" label="Папка скиллов в проекте" placeholder=".claude/skills" />
           <FormField v-model="agentForm.skills_global" label="Глобальная папка скиллов" placeholder="~/.claude/skills" />
         </div>
-        <label class="check"><input v-model="agentForm.commands_as_skills" type="checkbox" /> Команды класть как скиллы (агент не поддерживает отдельные команды)</label>
+        <AppCheckbox v-model="agentForm.commands_as_skills">Команды класть как скиллы (агент не поддерживает отдельные команды)</AppCheckbox>
         <div v-if="!agentForm.commands_as_skills" class="row">
           <FormField v-model="agentForm.commands_dir" label="Папка команд в проекте" placeholder=".claude/commands" />
           <FormField v-model="agentForm.commands_global" label="Глобальная папка команд" placeholder="~/.claude/commands" />
@@ -195,31 +184,71 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { LIBRARY_SECTIONS } from '../../../../../common/library-registry'
+import AppEmptyState from '@shared/ui/AppEmptyState.vue'
+import { agentsEndpoints } from '@features/agents'
+
+import { ref, computed, onMounted, provide, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAppStore } from '@core/stores/app'
 import { useAgentsStore } from '@features/agents'
 import { useChatStore, modelAndEffort } from '@features/agent-chat'
-import { api } from '@core/api'
-import type { Agent, AgentPreset, LayoutProfile } from '@core/models'
+import type { Agent, AgentPreset, LayoutProfile } from '@contracts'
 import AppModal from '@shared/ui/AppModal.vue'
 import FormField from '@shared/ui/FormField.vue'
 import AppSelect from '@shared/ui/AppSelect.vue'
 import AppButton from '@shared/ui/AppButton.vue'
+import { AppCheckbox, AppItemCard, AppNavTree, AppPageHeader, AppSettingsLayout, navTreePage } from '@shared/ui'
 import IconTrash from '@shared/ui/IconTrash.vue'
-import { CodeFixerInstructionEditor, InstructionGuideEditor, PlanTemplateEditor, SkillsManager } from '@features/library'
+import { CodeFixerInstructionEditor, InstructionGuideEditor, LibrarianPanel, PlanTemplateEditor, SkillsManager, libraryAgentKey, pageTitledKey } from '@features/library'
+import { useProjectsStore } from '@features/projects'
 import ConnectionsSettings from '../components/ConnectionsSettings.vue'
+import { SETTINGS_NAV, type SettingsTab } from '../utils/nav'
 import ImprovementNotes from '../components/ImprovementNotes.vue'
 import GlobalGitAgent from '../components/GlobalGitAgent.vue'
+import CommandSlots from '../components/CommandSlots.vue'
 
 const appStore = useAppStore()
+const projectsStore = useProjectsStore()
 const agentsStore = useAgentsStore()
 const chatStore = useChatStore()
 
-type Tab = 'agents' | 'skills' | 'plan-template' | 'instruction-guide' | 'code-fixer' | 'review-skills' | 'plan-review' | 'commit-rules' | 'notes' | 'connections'
+type Tab = SettingsTab
 // Other screens link straight to a tab, e.g. a docs source's «Изменить пароль» → ?tab=connections&fix=<id>.
 const route = useRoute()
+// «Изменить с агентом» in the instructions and skills: the librarian chat opens beside the page.
+// The agent needs a project to read code in, so it works in the open one (or the first one).
+const agentOpen = ref(false)
+const agentRequest = ref<{ text: string; at: number } | null>(null)
+const agentProject = computed(() => {
+  const current = appStore.currentProject
+  return current && current.kind !== 'source' ? current : projectsStore.workProjects[0] ?? null
+})
+provide(libraryAgentKey, { open: text => {
+  if (!agentProject.value) { appStore.toast('Для работы с агентом нужен проект: агент читает его код', 'error'); return }
+  agentRequest.value = { text, at: Date.now() }
+  agentOpen.value = true
+} })
+
+// Every text editor below sits under the page header, so they skip their own title.
+provide(pageTitledKey, true)
+
 const tab = ref<Tab>(route.query.tab === 'connections' ? 'connections' : 'agents')
+watch(tab, () => { agentRequest.value = null })
+const page = computed(() => navTreePage(SETTINGS_NAV, tab.value))
+// What the page is for, under its title — the same place a project's settings say it.
+const description = computed(() => ({
+  agents: 'Агенты подключаются по ACP (Agent Client Protocol). Plangent сам отвечает на их запросы разрешений, поэтому режимы «без подтверждений» агента не нужны.',
+  'git-agents': 'Действуют во всех проектах и группах, где агенты не выбраны в их настройках → «Git» → «Агенты».',
+  'review-agent': 'Действует во всех проектах и группах, где агент не выбран в их настройках → «Ревью» → «Агенты».',
+  skills: 'Глобальные скиллы применяются ко всем агентам во всех проектах. Скиллы проекта или группы задаются в их настройках → «Инструкции».',
+  'instruction-guide': 'Действует во всех проектах, если проект или группа не переопределили его в своих настройках → «Инструкции».',
+  'code-fixer': 'Действует во всех проектах, если проект или группа не переопределили её в своих настройках → «Инструкции».',
+  'commit-rules': 'Действуют во всех проектах, если проект или группа не переопределили их в своих настройках → «Git» → «Коммиты».',
+  'plan-template': 'Применяется ко всем проектам, если проект не переопределил шаблон в своих инструкциях.',
+  commands: 'Агенты запускают команды через Plangent. Здесь ограничивается, сколько тяжёлых команд (тесты, сборка, линтеры) выполняется одновременно на этом компьютере.',
+  'plan-review': 'Общие проверки плана действуют во всех проектах всегда. Свои требования проекта или группы пишутся скиллами в их настройках → «Ревью» → «План».',
+} as Partial<Record<Tab, string>>)[tab.value])
 watch(() => route.query.tab, t => { if (t === 'connections') tab.value = t })
 
 // ── Agents ────────────────────────────────────────────────────────────────────
@@ -348,7 +377,7 @@ async function saveAgent() {
 }
 
 async function remove(id: string) {
-  if (!(await appStore.confirm('Удалить агента?'))) return
+  if (!(await appStore.confirm('Удалить агента?', { confirmLabel: 'Удалить', danger: true }))) return
   try { await agentsStore.remove(id); appStore.toast('Удалён') }
   catch (e: unknown) { appStore.toast(String(e), 'error') }
 }
@@ -359,16 +388,13 @@ const updatingAgentId = ref<string | null>(null)
 const PINNED_PACKAGE = /^(?:@[\w.-]+\/)?[\w.-]+@\d+\.\d+\.\d+(?:-[\w.]+)?$/
 const canUpdate = (a: Agent) => !!a.update_command.trim() || a.acp_args.some(arg => PINNED_PACKAGE.test(arg))
 
-interface AgentUpdateResult {
-  cli: { ok: true; output: string } | { ok: false; error: string } | null
-  adapter: { ok: true; package: string; from: string; to: string } | { ok: false; package: string; error: string } | null
-}
+
 
 async function updateAgent(agent: Agent) {
   if (!canUpdate(agent)) return
   updatingAgentId.value = agent.id
   try {
-    const { cli, adapter } = await api.post<AgentUpdateResult>(`/agents/${agent.id}/update`)
+    const { cli, adapter } = await agentsEndpoints.postAgentsByIdUpdate({ params: { id: agent.id } })
     const adapterBumped = adapter?.ok && adapter.from !== adapter.to
     if (adapterBumped) {
       await agentsStore.load()
@@ -397,7 +423,7 @@ watch(() => agentsStore.agents.map(a => a.id), ids => {
 
 async function loadPresets() {
   loadingPresets.value = true
-  try { presets.value = await api.get<Record<string, AgentPreset>>('/agents/presets') }
+  try { presets.value = await agentsEndpoints.getAgentsPresets({ params: {  } }) }
   catch (e) { appStore.toast(String(e), 'error') }
   finally { loadingPresets.value = false }
 }
@@ -418,82 +444,37 @@ onMounted(() => {
 
 .settings-header {
   padding: calc(var(--titlebar-h) + var(--sp-4)) var(--sp-6) 0;
-  flex-shrink: 0;
-}
-.settings-header h2 { font-size: 20px; font-weight: 700; letter-spacing: -0.01em; margin-bottom: var(--sp-4); }
-
-.settings-tabs {
-  display: flex;
-  gap: 2px;
-  padding: 0 var(--sp-6);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
-
+.settings-header h2 { font-size: var(--fs-2xl); font-weight: 700; letter-spacing: -0.01em; margin-bottom: var(--sp-4); }
 .tab-body {
   flex: 1;
   overflow-y: auto;
-  padding: var(--sp-5) var(--sp-6);
+  padding: var(--sp-4) var(--sp-6) var(--sp-5);
   display: flex;
   flex-direction: column;
   gap: var(--sp-4);
 }
 
 .plan-template-tab { min-height: 0; overflow: hidden; }
-.plan-template-tab > .hint { flex-shrink: 0; }
-
-.stab {
-  background: none;
-  border: none;
-  border-bottom: 2px solid transparent;
-  color: var(--text-muted);
-  padding: 9px 14px;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 500;
-  transition: color 0.12s, border-color 0.12s;
-  margin-bottom: -1px;
-}
-.stab:hover { color: var(--text); }
-.stab.active { color: var(--text); border-bottom-color: var(--blue); }
-.stab:disabled { opacity: 0.4; cursor: default; }
-
-.section-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.section-title { font-weight: 600; font-size: 14px; }
 
 .agent-list { display: flex; flex-direction: column; gap: var(--sp-2); }
-.agent-card {
-  background: var(--bg2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 14px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-2);
-  transition: border-color 0.12s;
-}
-.agent-card:hover { border-color: var(--border-strong); }
-.agent-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-.agent-name { font-weight: 600; display: block; margin-bottom: 2px; }
-.agent-cmd { font-size: 12px; color: var(--text-muted); display: block; }
-.agent-meta { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--text-muted); }
+.agent-cmd { font-size: var(--fs-sm); color: var(--text-muted); }
+.agent-meta { display: flex; gap: 16px; flex-wrap: wrap; font-size: var(--fs-sm); color: var(--text-muted); }
 .agent-meta .bad { color: var(--danger-hover); }
 .actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 
-.hint { font-size: 12px; color: var(--text-muted); }
+.hint { font-size: var(--fs-sm); color: var(--text-muted); }
 
 .presets { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.presets-label { font-size: 12px; color: var(--text-muted); }
+.presets-label { font-size: var(--fs-sm); color: var(--text-muted); }
 
 .group { border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 14px 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-.group legend { font-size: 12px; font-weight: 600; color: var(--text-muted); padding: 0 6px; text-transform: uppercase; letter-spacing: 0.04em; }
+.group legend { font-size: var(--fs-sm); font-weight: 600; color: var(--text-muted); padding: 0 6px; text-transform: uppercase; letter-spacing: 0.04em; }
 .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.check { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-muted); }
+.check { display: flex; align-items: center; gap: 8px; font-size: var(--fs-md); color: var(--text-muted); }
 
 .select-field { display: flex; flex-direction: column; gap: 6px; }
-.select-field > label { font-size: 12px; font-weight: 500; color: var(--text-muted); }
+.select-field > label { font-size: var(--fs-sm); font-weight: 500; color: var(--text-muted); }
 </style>

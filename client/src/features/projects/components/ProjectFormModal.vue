@@ -41,7 +41,7 @@
         </div>
         <FormField v-model="form.group_id" label="Группа" type="select" :disabled="!!groupId" :hint="groupId ? 'Проект создаётся в этой группе' : ''">
           <option value="">— без группы —</option>
-          <option v-for="g in projectsStore.groups" :key="g.id" :value="g.id">🗂 {{ g.name }}</option>
+          <option v-for="g in projectsStore.groups" :key="g.id" :value="g.id">🗂️ {{ g.name }}</option>
         </FormField>
       </template>
       <div v-else class="projects-note">
@@ -53,18 +53,19 @@
 </template>
 
 <script setup lang="ts">
+import { projectsEndpoints } from '../api'
+
 import { computed, ref, watch, onScopeDispose } from 'vue'
 import { onServerEvent } from '@core/api/events'
-import { api } from '@core/api'
-import type { Project, ProjectKind } from '@core/models'
+import type { Project, ProjectKind } from '@contracts'
 import { useAppStore } from '@core/stores/app'
 import AppModal from '@shared/ui/AppModal.vue'
 import FormField from '@shared/ui/FormField.vue'
-import FolderPicker from '@shared/ui/FolderPicker.vue'
+import FolderPicker from './FolderPicker.vue'
 import AppButton from '@shared/ui/AppButton.vue'
 import { useProjectsStore } from '../stores/projects'
 import DocsSourceFields from './DocsSourceFields.vue'
-import type { DocsForm } from '@core/models/integrations'
+import type { DocsForm } from '@contracts'
 import { errorText, type ErrorDictionary } from '@shared/utils/errorText'
 import { ERRORS as DOCS_ERRORS, FORM as DOCS_FORM } from '../utils/docs-hints'
 
@@ -87,7 +88,7 @@ const unsubscribe = onServerEvent<{ type: string; operationId?: string; output?:
 onScopeDispose(unsubscribe)
 async function cancelClone() {
  if (!operationId.value) return
- try { await api.post('/projects/clone-cancel', { operationId: operationId.value }) } catch (error) { if (cloning.value && props.modelValue) appStore.toast(errorText(error), 'error') }
+ try { await projectsEndpoints.postProjectsCloneCancel({ params: {  }, body: { operationId: operationId.value } }) } catch (error) { if (cloning.value && props.modelValue) appStore.toast(errorText(error), 'error') }
 }
 const editing = computed(() => !!props.project)
 const title = computed(() => {
@@ -105,7 +106,7 @@ watch(() => form.value.repo_path, async folder => {
  if (!props.modelValue || props.kind !== 'project' || creationMode.value !== 'folder' || !folder) return
  const oldUrl = cloneUrl.value, oldHost = hostPath.value
  try {
-  const metadata = await api.post<{ clone_url: string; host_project_path: string }>('/projects/git-preview', { repo_path: folder })
+  const metadata = await projectsEndpoints.postProjectsGitPreview({ params: {  }, body: { repo_path: folder } })
   if (sequence !== previewSequence || !props.modelValue) return
   if (cloneUrl.value === oldUrl) cloneUrl.value = metadata.clone_url
   if (hostPath.value === oldHost) hostPath.value = metadata.host_project_path
@@ -180,13 +181,13 @@ async function save(useExisting: unknown = false) {
 </script>
 
 <style scoped>
-.clone-box { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; font-size: 12px; border: 1px solid var(--danger-soft); border-radius: var(--radius-sm); background: var(--danger-soft); color: var(--danger-hover); }
+.clone-box { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; font-size: var(--fs-sm); border: 1px solid var(--danger-soft); border-radius: var(--radius-sm); background: var(--danger-soft); color: var(--danger-hover); }
 .clone-box.running { border-color: var(--border); background: var(--bg3); color: var(--text-muted); }
 .clone-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .clone-spacer { flex: 1; }
-pre { max-height: 180px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11.5px; color: var(--text-muted); }
+pre { max-height: 180px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--fs-sm); color: var(--text-muted); }
 .form-field { display: flex; flex-direction: column; gap: 4px; }
-label { font-size: 12px; color: var(--text-muted); }
-.projects-note { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; background: var(--bg3); border: 1px dashed var(--border-strong); border-radius: var(--radius-sm); font-size: 12px; line-height: 1.45; color: var(--text-muted); }
-.projects-note b { color: var(--text); font-size: 12.5px; }
+label { font-size: var(--fs-sm); color: var(--text-muted); }
+.projects-note { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; background: var(--bg3); border: 1px dashed var(--border-strong); border-radius: var(--radius-sm); font-size: var(--fs-sm); line-height: 1.45; color: var(--text-muted); }
+.projects-note b { color: var(--text); font-size: var(--fs-md); }
 </style>

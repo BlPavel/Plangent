@@ -56,7 +56,7 @@
       </section>
       <section>
         <h3>Как пользоваться</h3>
-        <p class="text">
+        <p class="text plain">
           В чате или задаче напишите <code>@{{ source.key }}</code> или <code>@{{ source.key }}/путь/к/файлу</code>.
           Справочник подключается только по вашему явному @упоминанию. Агент получает имя, путь и описание — сами файлы читает, когда это нужно, и никогда не меняет.
         </p>
@@ -66,15 +66,16 @@
 </template>
 
 <script setup lang="ts">
+import { settingsEndpoints } from '@features/settings'
+
 import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { api } from '@core/api'
 import { useAppStore } from '@core/stores/app'
-import type { Project } from '@core/models'
-import type { Connection } from '@core/models/integrations'
+import type { Project } from '@contracts'
+import type { Connection } from '@contracts'
 import AppButton from '@shared/ui/AppButton.vue'
 import { errorText } from '@shared/utils/errorText'
-import { formatDateTime } from '@shared/utils/format'
+import { formatDateTime } from '@shared/utils/datetime'
 import { useProjectsStore } from '../stores/projects'
 import { ERRORS, NEEDS_UPDATE, SYNC, WARNINGS } from '../utils/docs-hints'
 
@@ -92,7 +93,7 @@ const confirmation = computed(() => !running.value && stats.value.code === 'conf
 const connection = ref<Connection | null>(null)
 watch(() => [props.source.connection_id, props.source.sync_status], async () => {
   const id = props.source.source_type === 'docs' ? props.source.connection_id : null
-  connection.value = id ? await api.get<Connection>('/integrations/connections/' + id).catch(() => null) : null
+  connection.value = id ? await settingsEndpoints.getIntegrationsConnectionsById({ params: { id: id } }).catch(() => null) : null
 }, { immediate: true })
 const needsPassword = computed(() => connection.value?.last_check_status === 'needs_update' || stats.value.code === 'needs_update' || stats.value.code === 'invalid_credentials')
 function fixPassword() { void router?.push({ path: '/settings', query: { tab: 'connections', ...(connection.value ? { fix: connection.value.id } : {}) } }) }
@@ -140,22 +141,23 @@ async function cancel() { busy.value = true; try { await projectsStore.cancelSyn
   border-bottom: 1px solid var(--border);
 }
 .source-title { min-width: 0; }
-.source-title h1 { font-size: 18px; font-weight: 700; margin-bottom: 2px; font-family: 'Cascadia Code', 'JetBrains Mono', monospace; }
-.source-icon { margin-right: 8px; font-family: initial; }
-.source-path { display: block; font-size: 12px; color: var(--text-muted); font-family: 'Cascadia Code', 'JetBrains Mono', monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.source-title h1 { font-size: var(--fs-xl); font-weight: 700; margin-bottom: 2px; font-family: var(--font-mono); }
+.source-icon { margin-right: 8px; font-family: var(--font-sans); }
+.source-path { display: block; font-size: var(--fs-sm); color: var(--text-muted); font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .source-actions { display: flex; gap: var(--sp-2); flex-shrink: 0; }
 .source-body { flex: 1; overflow-y: auto; padding: var(--sp-5) var(--sp-6); display: flex; flex-direction: column; gap: var(--sp-5); max-width: 720px; }
-h3 { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-faint); margin-bottom: 6px; }
-.text { font-size: 13px; line-height: 1.55; white-space: pre-wrap; }
-.muted { font-size: 13px; color: var(--text-muted); }
-code { padding: 1px 5px; background: var(--bg3); border-radius: 4px; font-size: 12px; }
+h3 { font-size: var(--fs-sm); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-faint); margin-bottom: 6px; }
+.text { font-size: var(--fs-md); line-height: 1.55; white-space: pre-wrap; }
+.text.plain { white-space: normal; }
+.muted { font-size: var(--fs-md); color: var(--text-muted); }
+code { padding: 1px 5px; background: var(--bg3); border-radius: var(--radius-4); font-size: var(--fs-sm); }
 
 /* Sync card: same visual language as the update popup (tone icon, title, sub line, thin bar). */
 .sync { display: flex; flex-direction: column; gap: 8px; }
 .sync h3 { margin-bottom: 0; }
-.notice { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 12px; border-radius: var(--radius-sm); font-size: 12.5px; line-height: 1.5; }
+.notice { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 12px; border-radius: var(--radius-sm); font-size: var(--fs-md); line-height: 1.5; }
 .notice span { flex: 1; min-width: 240px; }
-.notice.warn { background: var(--warning-soft); color: var(--warning-text); border: 1px solid rgba(210, 153, 34, 0.4); }
+.notice.warn { background: var(--warning-soft); color: var(--warning-text); border: 1px solid var(--warning); }
 .sync-card {
   --tone: var(--text-muted);
   --tone-soft: var(--bg3);
@@ -164,27 +166,27 @@ code { padding: 1px 5px; background: var(--bg3); border-radius: 4px; font-size: 
 }
 .sync-card.running { --tone: var(--blue-hover); --tone-soft: var(--blue-soft); }
 .sync-card.ok { --tone: var(--accent-hover); --tone-soft: var(--accent-soft); }
-.sync-card.warn { --tone: var(--warning-text); --tone-soft: var(--warning-soft); border-color: rgba(210, 153, 34, 0.4); }
-.sync-card.error { --tone: var(--danger-hover); --tone-soft: var(--danger-soft); border-color: rgba(248, 81, 73, 0.35); }
+.sync-card.warn { --tone: var(--warning-text); --tone-soft: var(--warning-soft); border-color: var(--warning); }
+.sync-card.error { --tone: var(--danger-hover); --tone-soft: var(--danger-soft); border-color: var(--danger); }
 .sync-head { display: flex; align-items: center; gap: 10px; }
 .sync-icon { flex-shrink: 0; width: 30px; height: 30px; border-radius: var(--radius-sm); background: var(--tone-soft); color: var(--tone); display: inline-flex; align-items: center; justify-content: center; }
 .sync-icon svg { width: 16px; height: 16px; }
 .sync-icon .spin { animation: spin 1.2s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .sync-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.sync-title { font-size: 13px; font-weight: 600; }
-.sync-sub { font-size: 12px; line-height: 1.45; color: var(--text-muted); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.sync-title { font-size: var(--fs-md); font-weight: 600; }
+.sync-sub { font-size: var(--fs-sm); line-height: 1.45; color: var(--text-muted); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .sync-progress { appearance: none; -webkit-appearance: none; width: 100%; height: 4px; border: none; border-radius: var(--radius-pill); background: var(--bg3); overflow: hidden; }
 .sync-progress::-webkit-progress-bar { background: var(--bg3); border-radius: var(--radius-pill); }
-.sync-progress::-webkit-progress-value { background: var(--tone); border-radius: var(--radius-pill); transition: width 0.3s ease; }
+.sync-progress::-webkit-progress-value { background: var(--tone); border-radius: var(--radius-pill); transition: width var(--motion-slow) ease; }
 .sync-progress::-moz-progress-bar { background: var(--tone); }
 /* Discovery has no total yet: a sliding segment instead of a fake percentage. */
 .sync-progress:indeterminate { background: linear-gradient(90deg, var(--bg3) 0%, var(--tone) 50%, var(--bg3) 100%) 0 0 / 40% 100% no-repeat, var(--bg3); animation: slide 1.4s ease-in-out infinite; }
 .sync-progress:indeterminate::-webkit-progress-bar { background: transparent; }
 @keyframes slide { from { background-position: -40% 0, 0 0; } to { background-position: 140% 0, 0 0; } }
 .sync-confirm { display: flex; gap: 8px; flex-wrap: wrap; }
-.sync-report { font-size: 12.5px; font-variant-numeric: tabular-nums; }
-.sync-details summary { font-size: 12px; color: var(--text-muted); cursor: pointer; }
-.sync-details ul { margin-top: 6px; padding-left: 18px; font-size: 12px; color: var(--text-muted); display: flex; flex-direction: column; gap: 2px; max-height: 200px; overflow: auto; }
+.sync-report { font-size: var(--fs-md); font-variant-numeric: tabular-nums; }
+.sync-details summary { font-size: var(--fs-sm); color: var(--text-muted); cursor: pointer; }
+.sync-details ul { margin-top: 6px; padding-left: 18px; font-size: var(--fs-sm); color: var(--text-muted); display: flex; flex-direction: column; gap: 2px; max-height: 200px; overflow: auto; }
 @media (prefers-reduced-motion: reduce) { .sync-icon .spin, .sync-progress:indeterminate { animation: none; } }
 </style>

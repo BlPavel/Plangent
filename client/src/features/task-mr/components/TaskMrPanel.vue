@@ -5,15 +5,15 @@
         <span class="tm-label">МР</span>
         <a v-if="safeUrl" class="tm-link" :href="safeUrl" target="_blank" rel="noopener noreferrer" title="Открыть на хостинге">!{{ mr.iid }} ↗</a>
         <span v-else class="tm-link">!{{ mr.iid }}</span>
-        <span class="status-badge" :class="badges[mr.state] ?? 'neutral'" role="status">{{ states[mr.state] || mr.state }}</span>
-        <button v-if="taskId" type="button" class="tm-action" :disabled="busy" title="Запросить состояние МР на хостинге" @click="refresh">Обновить статус</button>
+        <AppBadge dot  :tone="badges[mr.state] ?? 'neutral'" role="status">{{ states[mr.state] || mr.state }}</AppBadge>
+        <AppButton variant="link" size="sm" v-if="taskId" type="button"  :disabled="busy" title="Запросить состояние МР на хостинге" @click="refresh">Обновить статус</AppButton>
       </template>
       <span v-else-if="stacked" class="tm-muted">МР для этой ветки ещё нет.</span>
       <span v-else-if="taskId" class="tm-muted">МР ещё не создан</span>
       <span class="tm-spacer" />
-      <button v-if="!done && !draft" type="button" class="btn btn-ghost btn-sm" :disabled="busy" title="Превью МР: ветка будет отправлена в origin, если ещё не отправлена" @click="open">{{ busy && !mr ? 'Подготовка…' : 'Создать МР' }}</button>
+      <AppButton variant="ghost" size="sm" v-if="!done && !draft" type="button"  :disabled="busy" title="Превью МР: ветка будет отправлена в origin, если ещё не отправлена" @click="open">{{ busy && !mr ? 'Подготовка…' : 'Создать МР' }}</AppButton>
     </div>
-    <div v-if="error" role="alert" class="tm-error">{{ error }} <button type="button" class="tm-x" aria-label="Скрыть" @click="error = ''">✕</button></div>
+    <div v-if="error" role="alert" class="tm-error">{{ error }} <AppButton variant="subtle" size="xs" icon type="button"  aria-label="Скрыть" @click="error = ''">✕</AppButton></div>
 
     <form v-if="draft" class="tm-form" @submit.prevent="create" @keydown.esc.stop.prevent="cancel" @keydown.enter.ctrl.exact.prevent="create" @keydown.enter.meta.exact.prevent="create">
       <div class="tm-head">
@@ -22,36 +22,36 @@
       </div>
       <label class="tm-field"><span class="tm-name">Целевая ветка</span>
         <BranchSelect v-model="draft.target_branch" :options="targets.map(name => ({ value: name, label: 'origin/' + name }))" small :disabled="busy" placeholder="Выберите ветку" label="Целевая ветка" />
-        <button type="button" class="tm-action" :disabled="refreshing" @click="refreshTargets">{{ refreshing ? 'Обновление из origin…' : 'Обновить ветки из origin' }}</button>
+        <AppButton variant="link" size="sm" type="button"  :disabled="refreshing" @click="refreshTargets">{{ refreshing ? 'Обновление из origin…' : 'Обновить ветки из origin' }}</AppButton>
         <small v-if="branchesError" role="alert" class="tm-warn">{{ branchesError }}</small>
         <small>Целевая ветка находится в репозитории origin.</small>
         <small v-if="draft.target_branch === draft.source_branch" class="tm-warn">Целевая ветка совпадает с исходной.</small>
       </label>
       <label class="tm-field"><span class="tm-name">Заголовок</span>
-        <input v-model="draft.title" class="control control-sm" :disabled="busy" maxlength="1000" required />
+        <AppInput v-model="draft.title" block size="sm" :disabled="busy" maxlength="1000" required />
       </label>
       <label class="tm-field">
-        <span class="tm-name tm-row">Описание <span class="tm-spacer" /><button type="button" class="tm-action" :disabled="busy || refreshing || !draft.target_branch || draft.target_branch === draft.source_branch" @click="describe">✨ {{ generating ? 'Агент пишет…' : 'Предложить' }}</button></span>
-        <textarea v-model="draft.description" class="control" :disabled="busy" rows="8" maxlength="100000" :placeholder="generating ? 'Агент готовит черновик описания…' : ''" />
+        <span class="tm-name tm-row">Описание <span class="tm-spacer" /><AppButton variant="link" size="sm" type="button"  :disabled="busy || refreshing || !draft.target_branch || draft.target_branch === draft.source_branch" @click="describe">✨ {{ generating ? 'Агент пишет…' : 'Предложить' }}</AppButton></span>
+        <AppTextarea v-model="draft.description" block :disabled="busy" rows="8" maxlength="100000" :placeholder="generating ? 'Агент готовит черновик описания…' : ''" />
       </label>
       <div class="tm-field">
         <span class="tm-name">Ревьюеры</span>
         <div class="tm-tags">
-          <span v-for="value in reviewers" :key="value" class="tm-tag">{{ memberName(value) }}<button type="button" class="tm-x" :aria-label="'Убрать ' + memberName(value)" @click="reviewers = reviewers.filter(r => r !== value)">×</button></span>
+          <AppChip v-for="value in reviewers" :key="value" removable :remove-label="'Убрать ' + memberName(value)" @remove="reviewers = reviewers.filter(r => r !== value)">{{ memberName(value) }}</AppChip>
           <MemberPicker v-if="members.length" :members="freeMembers" @pick="reviewers = [...reviewers, $event]" />
-          <input v-else class="tm-tag-input" :placeholder="reviewers.length ? 'Добавить…' : 'логин или ID, Enter'" @keydown.enter.prevent="addTyped" @blur="addTyped" />
+          <AppInput v-else :placeholder="reviewers.length ? 'Добавить…' : 'логин или ID, Enter'" @keydown.enter.prevent="addTyped" @blur="addTyped" />
         </div>
         <small>{{ membersNote || 'По умолчанию — из настроек проекта.' }}</small>
       </div>
       <div class="tm-flags">
-        <label class="tm-check"><input v-model="draft.remove_source_branch" type="checkbox" :disabled="busy" /> Удалить исходную ветку после слияния</label>
-        <label class="tm-check"><input v-model="draft.squash" type="checkbox" :disabled="busy" /> Объединить коммиты при слиянии (squash)</label>
+        <AppCheckbox :model-value="!!draft.remove_source_branch" :disabled="busy" @update:model-value="draft.remove_source_branch = $event">Удалить исходную ветку после слияния</AppCheckbox>
+        <AppCheckbox :model-value="!!draft.squash" :disabled="busy" @update:model-value="draft.squash = $event">Объединить коммиты при слиянии (squash)</AppCheckbox>
       </div>
       <div class="tm-footer">
         <span class="tm-muted">Перед созданием ветка будет отправлена в origin, если её там нет. Ctrl+Enter — создать.</span>
         <div class="tm-actions">
-          <button type="button" class="btn btn-subtle btn-sm" :disabled="busy && !generating" @click="cancel">Отмена</button>
-          <button class="btn btn-blue btn-sm" :disabled="busy || !draft.title.trim() || !draft.target_branch.trim() || draft.target_branch === draft.source_branch">Создать МР</button>
+          <AppButton variant="subtle" size="sm" type="button"  :disabled="busy && !generating" @click="cancel">Отмена</AppButton>
+          <AppButton type="submit" variant="blue" size="sm"  :disabled="busy || !draft.title.trim() || !draft.target_branch.trim() || draft.target_branch === draft.source_branch">Создать МР</AppButton>
         </div>
       </div>
     </form>
@@ -59,10 +59,19 @@
 </template>
 
 <script setup lang="ts">
+import AppBadge from '@shared/ui/AppBadge.vue'
+import AppButton from '@shared/ui/AppButton.vue'
+import AppInput from '@shared/ui/AppInput.vue'
+import AppTextarea from '@shared/ui/AppTextarea.vue'
+import { AppCheckbox, AppChip } from '@shared/ui'
+import { tasksEndpoints } from '@features/tasks'
+import { projectsEndpoints } from '@features/projects'
+import { codeEndpoints } from '@features/code'
+
+import { useDraft } from '@core/composables/useDraft'
 import { computed, ref, watch, onScopeDispose } from 'vue'
-import { api } from '@core/api'
 import { useAppStore } from '@core/stores/app'
-import type { Task } from '@core/models'
+
 import MemberPicker from '@shared/ui/MemberPicker.vue'
 import BranchSelect from '@shared/ui/BranchSelect.vue'
 import { errorText } from '@shared/utils/errorText'
@@ -72,8 +81,8 @@ import type { MrPreview, TaskMr } from '../types'
 /** The branch's merge request: its status, or a form to create one. `stacked` — laid out for a narrow side column. */
 const props = defineProps<{ projectId: string; taskId?: string; stacked?: boolean }>()
 type Member = { value: string; login: string; name: string }
-const app = useAppStore(), busy = ref(false), generating = ref(false), error = ref(''), draft = ref<MrPreview | null>(null), mr = ref<TaskMr | null>(null), done = ref(false)
-const branches = ref<string[]>([]), reviewers = ref<string[]>([]), members = ref<Member[]>([]), membersNote = ref('')
+const app = useAppStore(), busy = ref(false), generating = ref(false), error = ref(''), draft = useDraft<MrPreview | null>(() => `task:${props.taskId ?? "project-" + props.projectId}:mr:preview`, () => null), mr = ref<TaskMr | null>(null), done = ref(false)
+const branches = ref<string[]>([]), reviewers = useDraft<string[]>(() => `task:${props.taskId ?? "project-" + props.projectId}:mr:reviewers`, () => []), members = ref<Member[]>([]), membersNote = ref('')
 const refreshing = ref(false), branchesError = ref('')
 const states: Record<string, string> = { opened: 'Открыт', merged: 'Влит', closed: 'Закрыт', locked: 'Заблокирован' }
 const badges: Record<string, string> = { opened: 'open', merged: 'done', closed: 'neutral', locked: 'progress' }
@@ -100,10 +109,11 @@ async function refresh() {
   finally { if (mine === generation) busy.value = false }
 }
 watch(() => [props.projectId, props.taskId], async () => {
-  const mine = ++generation; draft.value = null; mr.value = null; error.value = ''; busy.value = false; done.value = false; refreshing.value = false; branchesError.value = ''; branches.value = []
+  const mine = ++generation; mr.value = null; error.value = ''; busy.value = false; done.value = false; refreshing.value = false; branchesError.value = ''; branches.value = []
+  if (draft.value) { void refreshTargets(); void loadMembers() }
   if (!props.taskId) return
   try {
-    const task = await api.get<Task>('/projects/' + encodeURIComponent(props.projectId) + '/tasks/' + encodeURIComponent(props.taskId))
+    const task = await tasksEndpoints.getProjectsByProjectIdTasksByTaskId({ params: { projectId: props.projectId, taskId: props.taskId } })
     if (mine !== generation) return
     done.value = task.status === 'done'
     if (task.mr_link) { const link = JSON.parse(task.mr_link) as { iid: number; url: string; state: string }; mr.value = { iid: link.iid, web_url: link.url, state: link.state } }
@@ -113,20 +123,24 @@ watch(() => [props.projectId, props.taskId], async () => {
 
 async function open() {
   if (busy.value) return
-  const mine = ++generation, p = encodeURIComponent(props.projectId); busy.value = true; error.value = ''; refreshing.value = false; branchesError.value = ''
+  const mine = ++generation; busy.value = true; error.value = ''; refreshing.value = false; branchesError.value = ''
   try {
     const value = await taskMrApi.preview(props.projectId, props.taskId)
     if (mine !== generation) return
     draft.value = value
-    reviewers.value = [...value.reviewer_ids.map(String), ...(value.reviewer_logins ?? [])]
-    void api.get<Member[]>('/projects/' + p + '/host-members').then(people => {
+    reviewers.value = [...(value.reviewer_ids ?? []).map(String), ...(value.reviewer_logins ?? [])]
+    void loadMembers()
+  } catch (cause) { if (mine === generation) error.value = errorText(cause) }
+  finally { if (mine === generation) busy.value = false }
+  if (mine === generation && draft.value) void refreshTargets()
+}
+function loadMembers() {
+  const mine = generation, p = encodeURIComponent(props.projectId)
+  return projectsEndpoints.getProjectsByIdHostMembers({ params: { id: p } }).then(people => {
       if (mine === generation) { members.value = people; membersNote.value = '' }
     }, cause => {
       if (mine === generation) { members.value = []; membersNote.value = 'Список участников недоступен (' + errorText(cause) + ') — введите логин или ID.' }
     })
-  } catch (cause) { if (mine === generation) error.value = errorText(cause) }
-  finally { if (mine === generation) busy.value = false }
-  if (mine === generation && draft.value) void refreshTargets()
 }
 function setTargets(list: { name: string }[]) {
   branches.value = [...new Set(list.filter(b => b.name.startsWith('origin/') && b.name !== 'origin/HEAD').map(b => b.name.slice(7)))].filter(name => name !== draft.value?.source_branch)
@@ -137,13 +151,13 @@ async function refreshTargets() {
   const mine = generation, p = encodeURIComponent(props.projectId)
   refreshing.value = true; branchesError.value = ''
   try {
-    const list = await api.post<{ name: string }[]>('/projects/' + p + '/git/branches/refresh', {})
+    const list = await codeEndpoints.postProjectsByProjectIdGitBranchesRefresh({ params: { projectId: p } })
     if (mine === generation) setTargets(list)
   } catch (cause) {
     if (mine !== generation) return
     branchesError.value = 'Не удалось обновить ветки из origin: ' + errorText(cause)
     try {
-      const list = await api.get<{ name: string }[]>('/projects/' + p + '/git/branches')
+      const list = await codeEndpoints.getProjectsByProjectIdGitBranches({ params: { projectId: p } })
       if (mine === generation) setTargets(list)
     } catch { /* Keep the form available with the selected target and the fetch error. */ }
   } finally { if (mine === generation) refreshing.value = false }
@@ -182,31 +196,31 @@ async function cancel() {
 </script>
 
 <style scoped>
-.task-mr { flex-shrink: 0; display: flex; flex-direction: column; gap: 10px; padding: 8px 20px; border-bottom: 1px solid var(--border); font-size: 12.5px; }
+.task-mr { flex-shrink: 0; display: flex; flex-direction: column; gap: 10px; padding: 8px 20px; border-bottom: 1px solid var(--border); font-size: var(--fs-md); }
 .task-mr.stacked { padding: 14px; border-bottom: none; }
-.tm-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; }
-.tm-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); }
+.tm-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: var(--fs-sm); }
+.tm-label { font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); }
 .tm-link { font-weight: 600; color: var(--blue-hover); text-decoration: none; white-space: nowrap; }
 .tm-link:hover { text-decoration: underline; }
-.tm-muted { font-size: 11.5px; color: var(--text-faint); }
+.tm-muted { font-size: var(--fs-sm); color: var(--text-faint); }
 .tm-spacer { flex: 1; }
-.tm-action { padding: 0; font: inherit; font-size: 11.5px; font-weight: 400; color: var(--blue-hover); background: none; border: none; cursor: pointer; }
+.tm-action { padding: 0; font: inherit; font-size: var(--fs-sm); font-weight: 400; color: var(--blue-hover); background: none; border: none; cursor: pointer; }
 .tm-action:hover:not(:disabled) { text-decoration: underline; }
 .tm-action:disabled { color: var(--text-faint); cursor: default; }
-.tm-error { display: flex; align-items: flex-start; gap: 8px; justify-content: space-between; padding: 6px 10px; font-size: 12px; border-radius: var(--radius-sm); color: var(--danger-hover); background: var(--danger-soft); overflow-wrap: anywhere; }
+.tm-error { display: flex; align-items: flex-start; gap: 8px; justify-content: space-between; padding: 6px 10px; font-size: var(--fs-sm); border-radius: var(--radius-sm); color: var(--danger-hover); background: var(--danger-soft); overflow-wrap: anywhere; }
 .tm-x { padding: 0 3px; font: inherit; line-height: 1; color: inherit; background: none; border: none; cursor: pointer; }
 .tm-form { display: flex; flex-direction: column; gap: 16px; max-width: 760px; }
 .tm-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
-.tm-title { font-size: 13px; font-weight: 600; }
+.tm-title { font-size: var(--fs-md); font-weight: 600; }
 .tm-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.tm-name { font-size: 12.5px; font-weight: 500; color: var(--text); }
-.tm-field small { font-size: 11px; color: var(--text-faint); overflow-wrap: anywhere; }
+.tm-name { font-size: var(--fs-md); font-weight: 500; color: var(--text); }
+.tm-field small { font-size: var(--fs-xs); color: var(--text-faint); overflow-wrap: anywhere; }
 .tm-row { display: flex; align-items: center; gap: 8px; }
-.control { width: 100%; font-size: 13px; }
+.control { width: 100%; font-size: var(--fs-md); }
 textarea.control { height: auto; padding: 8px 10px; resize: vertical; line-height: 1.5; }
 .tm-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 4px 6px; background: var(--bg3); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); }
-.tm-tag { display: inline-flex; align-items: center; gap: 4px; padding: 1px 4px 1px 8px; font-size: 12px; background: var(--blue-soft); color: var(--blue-hover); border-radius: var(--radius-pill); }
-.tm-tag-input { flex: 1; min-width: 90px; padding: 2px 4px; font: inherit; font-size: 12px; color: var(--text); background: none; border: none; }
+.tm-tag { display: inline-flex; align-items: center; gap: 4px; padding: 1px 4px 1px 8px; font-size: var(--fs-sm); background: var(--blue-soft); color: var(--blue-hover); border-radius: var(--radius-pill); }
+.tm-tag-input { flex: 1; min-width: 90px; padding: 2px 4px; font: inherit; font-size: var(--fs-sm); color: var(--text); background: none; border: none; }
 .tm-tag-input:focus { outline: none; }
 .tm-flags { display: flex; flex-direction: column; gap: 8px; }
 .tm-check { display: inline-flex; align-items: center; gap: 8px; color: var(--text); cursor: pointer; }

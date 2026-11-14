@@ -2,12 +2,14 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import spawn from 'cross-spawn';
 import { killProcessTree } from '../../infrastructure/terminal/process-tree';
-import { getProject, effectiveGitSettings } from '../projects';
-import { validateGitSettings } from '../projects/git-settings';
-import { isInside } from '../shared/paths';
+import { getProject } from '../projects';
+import { effectiveGitSettings } from '../settings';
+import { validateGitSettings } from '../settings';
+import { isInside } from '../shared';
 import { getWorkspace, updateWorkspace } from './store';
-import { syncWorkspaceLibrary } from '../library/syncer';
-import { serializeGit } from '../code/git-write';
+import { workspaceEnv } from './ports';
+import { syncWorkspaceLibrary } from '../library';
+import { serializeGit } from '../../infrastructure/git/write';
 
 /** Common shell globs, also on Electron's Node versions without fs.glob. */
 function globRegex(pattern: string): RegExp {
@@ -88,6 +90,69 @@ export async function copyWorkspaceFiles(source: string, destination: string, pa
   }
 }
 
+// Package managers rewrite their state files in place and tools keep caches here: through a link the main folder would change.
+const UNSHARED_CACHES = new Set(['.cache', '.vite']);
+/** Native builds (node-gyp, electron-rebuild) overwrite these files in place, so each workspace gets its own copy. */
+function nativeBuild(relative: string): boolean {
+  const parts = relative.split(path.sep);
+  return relative.endsWith('.node') || parts.some((part, i) => part === 'build' && ['Release', 'Debug'].includes(parts[i + 1]));
+}
+
+/**
+ * Mirror dependency folders (node_modules) of the main folder with hard links: seconds and almost no disk space.
+ * The setup command then only installs what the branch adds. Across disks links are impossible and files are copied.
+ */
+export async function linkWorkspaceDirs(source: string, destination: string, dirs: string[], log: (text: string) => void, signal?: AbortSignal): Promise<void> {
+  validateGitSettings({ workspace_link_dirs: dirs });
+  let copyOnly = false;
+  for (const dir of dirs) {
+    const from = await safePath(source, dir), to = await safePath(destination, dir);
+    const stat = await fs.lstat(from).catch(() => null);
+    if (!stat?.isDirectory()) { log('Skipped ' + dir + ': no such folder in the main folder\n'); continue; }
+    let linked = 0, copied = 0;
+    const copy = async (file: string, target: string) => {
+      await fs.copyFile(file, target).catch((error: NodeJS.ErrnoException) => { if (error.code !== 'EEXIST') throw error; });
+      copied++;
+    };
+    const visit = async (relative: string, top: boolean): Promise<void> => {
+      signal?.throwIfAborted();
+      const folder = path.join(from, relative), target = path.join(to, relative);
+      await fs.mkdir(target, { recursive: true });
+      const entries = await fs.readdir(folder, { withFileTypes: true });
+      for (let i = 0; i < entries.length; i += 64) await Promise.all(entries.slice(i, i + 64).map(async entry => {
+        const child = path.join(relative, entry.name), file = path.join(folder, entry.name), into = path.join(target, entry.name);
+        if (entry.isSymbolicLink()) {
+          // npm workspaces are junctions with absolute targets: one into the main folder must point into the workspace.
+          const link = await fs.readlink(file);
+          const absolute = path.resolve(folder, link);
+          const next = path.isAbsolute(link) && isInside(source, absolute) ? path.join(destination, path.relative(source, absolute)) : link;
+          const isDirectory = await fs.stat(file).then(s => s.isDirectory(), () => false);
+          await fs.symlink(next, into, isDirectory ? 'junction' : 'file').catch((error: NodeJS.ErrnoException) => {
+            // Windows needs a privilege for file symlinks: the file itself will do.
+            if (error.code === 'EPERM' && !isDirectory) return copy(file, into);
+            if (error.code !== 'EEXIST') throw error;
+          });
+        } else if (entry.isDirectory()) {
+          if (!(top && UNSHARED_CACHES.has(entry.name))) await visit(child, false);
+        } else if (entry.isFile()) {
+          if (copyOnly || top || nativeBuild(child)) return copy(file, into);
+          try { await fs.link(file, into); linked++; }
+          catch (error) {
+            const code = (error as NodeJS.ErrnoException).code;
+            if (code === 'EEXIST') return;
+            if (!['EXDEV', 'EPERM', 'ENOTSUP', 'EMLINK'].includes(code ?? '')) throw error;
+            if (!copyOnly) log('Hard links are unavailable (' + code + ': the workspace is probably on another disk), copying instead\n');
+            copyOnly = true;
+            await copy(file, into);
+          }
+        }
+      }));
+    };
+    await visit('', true);
+    log('Linked ' + dir + ': ' + linked + ' files' + (copied ? ', copied ' + copied : '') + '\n');
+  }
+}
+
 export function runSetupCommand(command: string, cwd: string, env: NodeJS.ProcessEnv, log: (text: string) => void, timeoutMs: number, signal?: AbortSignal): Promise<void> {
   signal?.throwIfAborted();
   return new Promise((resolve, reject) => {
@@ -111,34 +176,47 @@ export function runSetupCommand(command: string, cwd: string, env: NodeJS.Proces
   });
 }
 
-export async function prepareWorkspace(id: string, options: { timeoutMs?: number; signal?: AbortSignal } = {}) {
+/** A fresh worktree is usable at once (chat, reading code); the slow setup waits until the work starts executing. */
+export function openWorkspace(id: string) {
+  const workspace = getWorkspace(id), project = getProject(workspace.project_id);
+  if (!project || workspace.status === 'removed') throw new Error('Workspace is unavailable');
+  syncWorkspaceLibrary(project, workspace.path);
+  return updateWorkspace(id, { status: 'ready', error: '', setup_log: '', setup_done: 0 });
+}
+
+/** Copies configured files, links dependency folders and runs the setup command. */
+/** `background`: the folder stays usable while it is prepared; a failure is only recorded in `error`. */
+export async function prepareWorkspace(id: string, options: { timeoutMs?: number; signal?: AbortSignal; background?: boolean } = {}) {
   const project = getProject(getWorkspace(id).project_id);
   if (!project || project.kind !== 'project') throw new Error('Workspace is unavailable');
   return serializeGit(project.repo_path, () => prepare(id, options));
 }
 
-async function prepare(id: string, options: { timeoutMs?: number; signal?: AbortSignal }) {
+async function prepare(id: string, options: { timeoutMs?: number; signal?: AbortSignal; background?: boolean }) {
   const workspace = getWorkspace(id), project = getProject(workspace.project_id);
   if (!project || workspace.status === 'removed') throw new Error('Workspace is unavailable');
   const settings = effectiveGitSettings(project.id).values;
-  let output = '';
+  let output = '', written: ReturnType<typeof setTimeout> | undefined;
+  // The log can reach 1 MB and every write is sent to all clients: write it at most a few times a second.
   const log = (text: string) => {
     output = (output + text).slice(-1024 * 1024);
-    updateWorkspace(id, { setup_log: output });
+    written ??= setTimeout(() => { written = undefined; try { updateWorkspace(id, { setup_log: output }); } catch { /* the workspace was removed meanwhile */ } }, 300);
   };
-  updateWorkspace(id, { status: 'preparing', error: '', setup_log: '' });
+  updateWorkspace(id, options.background ? { error: '', setup_log: '' } : { status: 'preparing', error: '', setup_log: '' });
   try {
     options.signal?.throwIfAborted();
     await copyWorkspaceFiles(project.repo_path, workspace.path, settings.workspace_copy_files, log);
-    syncWorkspaceLibrary(project, workspace.path);
+    await linkWorkspaceDirs(project.repo_path, workspace.path, settings.workspace_link_dirs, log, options.signal);
     if (settings.workspace_setup_command.trim()) {
       log('$ ' + settings.workspace_setup_command + '\n');
       await runSetupCommand(settings.workspace_setup_command, workspace.path,
-        { ...process.env, ...project.config.extra_env }, log, options.timeoutMs ?? 10 * 60_000, options.signal);
+        { ...process.env, ...project.config.extra_env, ...workspaceEnv(workspace) }, log, options.timeoutMs ?? 10 * 60_000, options.signal);
     }
     options.signal?.throwIfAborted();
-    return updateWorkspace(id, { status: 'ready' });
+    clearTimeout(written);
+    return updateWorkspace(id, { status: 'ready', setup_done: 1, setup_log: output });
   } catch (error) {
-    return updateWorkspace(id, { status: 'failed', error: String(error), setup_log: output });
+    clearTimeout(written);
+    return updateWorkspace(id, options.background ? { error: String(error), setup_log: output } : { status: 'failed', error: String(error), setup_log: output });
   }
 }

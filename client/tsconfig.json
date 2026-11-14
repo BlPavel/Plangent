@@ -6,14 +6,32 @@
     "strict": true,
     "jsx": "preserve",
     "jsxImportSource": "vue",
-    "lib": ["ESNext", "DOM"],
+    "lib": [
+      "ESNext",
+      "DOM"
+    ],
     "paths": {
-      "@core/*": ["./src/core/*"],
-      "@shared/*": ["./src/shared/*"],
-      "@features/*": ["./src/features/*"]
+      "@core/*": [
+        "./src/core/*"
+      ],
+      "@shared/*": [
+        "./src/shared/*"
+      ],
+      "@features/*": [
+        "./src/features/*"
+      ],
+      "@contracts": [
+        "../contracts/index.d.ts"
+      ],
+      "@contracts/*": [
+        "../contracts/*"
+      ]
     },
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["src/**/*", "vite.config.ts"]
+  "include": [
+    "src/**/*",
+    "vite.config.ts"
+  ]
 }

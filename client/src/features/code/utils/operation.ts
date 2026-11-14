@@ -3,6 +3,7 @@ import type { GitOperationState } from '../git-types'
 const short = (sha: string) => sha.slice(0, 7)
 /** «Rebase ветки feature/x на origin/develop · коммит 3 из 7» */
 export function operationTitle(o: GitOperationState): string {
+  if (o.kind === 'conflict') return 'Неразрешённые конфликты' + (o.branch ? ' · ' + o.branch : '')
   const branch = o.branch ? ' ветки ' + o.branch : ''
   if (o.kind === 'rebase') {
     const onto = o.onto ? ' на ' + (o.onto.name ?? short(o.onto.sha)) : ''

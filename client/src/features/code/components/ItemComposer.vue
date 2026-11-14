@@ -1,29 +1,26 @@
 <template>
-  <form class="ic" @submit.prevent="save" @keydown.esc.stop.prevent="emit('cancel')">
+  <form class="ic" @submit.prevent="save" @keydown.esc.stop.prevent="cancel()">
     <div class="ic-top">
-      <div class="ic-kind" role="group" aria-label="Тип пункта">
-        <button type="button" :class="{ on: kind === 'fix' }" @click="kind = 'fix'">Замечание</button>
-        <button type="button" :class="{ on: kind === 'question' }" @click="kind = 'question'">Вопрос</button>
-      </div>
+      <AppSegmented :model-value="kind" :options="[{ value: 'fix', label: 'Замечание' }, { value: 'question', label: 'Вопрос' }]" label="Тип пункта" @update:model-value="kind = $event as 'fix' | 'question'" />
       <span class="ic-where">{{ where }}</span>
     </div>
     <div class="ic-field">
       <SuggestMenu v-if="token" :anchor="area" @dismiss="token = null; clear()" title="Файлы и папки" :loading="loading" empty="Ничего не найдено" :items="suggestions" :active="active" @pick="insert" @hover="active = $event" />
-      <textarea
-        ref="area" v-model="text" class="ic-text" rows="3" :placeholder="placeholder" spellcheck="false"
+      <AppTextarea
+        ref="areaComponent" v-model="text" rows="3" block :placeholder="placeholder" spellcheck="false"
         @input="onInput" @keydown="onKey" @click="updateToken" @keyup="onKeyUp" @paste="onPaste"
       />
     </div>
     <div v-if="files.length" class="ic-files">
-      <span v-for="(file, index) in files" :key="file.path" class="ic-file" :title="file.path">📎 {{ file.name }}<button type="button" title="Убрать" @click="files.splice(index, 1)">×</button></span>
+      <AppChip v-for="(file, index) in files" :key="file.path" :title="file.path" removable remove-label="Убрать" @remove="files.splice(index, 1)">📎 {{ file.name }}</AppChip>
     </div>
     <div class="ic-actions">
-      <label class="btn btn-subtle btn-xs btn-icon" title="Приложить файл или скриншот (можно вставить Ctrl+V)">
-        <svg viewBox="0 0 16 16" fill="none"><path d="M13 7.5l-5.2 5.2a3.2 3.2 0 0 1-4.5-4.5l5.6-5.6a2.1 2.1 0 0 1 3 3L6.3 11.2a1 1 0 0 1-1.5-1.5L10 4.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" /></svg>
-        <input type="file" multiple hidden @change="picked" />
-      </label>
+      <AppButton variant="subtle" size="xs" icon title="Приложить файл или скриншот (можно вставить Ctrl+V)" aria-label="Приложить файл" @click="fileInput?.element?.click()">
+        <UIIconAttach />
+      </AppButton>
+      <AppInput ref="fileInput" type="file" multiple hidden @change="picked" />
       <span class="ic-hint">{{ uploading ? 'Прикрепляю…' : 'Markdown. @ — ссылка на файл или папку. Скриншот — Ctrl+V. Ctrl+Enter — сохранить' }}</span>
-      <AppButton type="button" size="xs" variant="ghost" @click="emit('cancel')">Отмена</AppButton>
+      <AppButton type="button" size="xs" variant="ghost" @click="cancel">Отмена</AppButton>
       <AppButton type="submit" size="xs" variant="blue" :disabled="(!text.trim() && !files.length) || busy || uploading">Сохранить</AppButton>
     </div>
     <div v-if="error || attachError" class="ic-error">{{ error || attachError }}</div>
@@ -31,14 +28,20 @@
 </template>
 
 <script setup lang="ts">
+import { IconAttach as UIIconAttach } from '@shared/ui/icons'
+import { projectsEndpoints } from '@features/projects'
+
+import { useDraft } from '@core/composables/useDraft'
+import { useDraftsStore } from '@core/stores/drafts'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import AppButton from '@shared/ui/AppButton.vue'
-import { api } from '@core/api'
+import { AppChip, AppInput, AppSegmented, AppTextarea } from '@shared/ui'
 import { SuggestMenu, useMentionFiles, type SuggestItem } from '@features/agent-chat'
 import { useCodeStore } from '../stores/code'
 import { extractRefs } from '../utils/refs'
 
 const props = defineProps<{
+  draftKey?: string
   where: string
   /** Whether the item belongs to the whole review rather than a file or line. */
   general?: boolean
@@ -51,15 +54,17 @@ const props = defineProps<{
 const emit = defineEmits<{ save: [value: { kind: 'fix' | 'question'; text: string; refs: string[] }]; cancel: [] }>()
 
 const store = useCodeStore()
-const area = ref<HTMLTextAreaElement>()
-const text = ref(props.initialText ?? '')
-const kind = ref<'fix' | 'question'>(props.initialKind ?? (text.value.trimStart().startsWith('?') ? 'question' : 'fix'))
+const areaComponent = ref<InstanceType<typeof AppTextarea>>()
+const area = computed(() => areaComponent.value?.element)
+const fileInput = ref<InstanceType<typeof AppInput>>()
+const text = useDraft(() => `code-review:${store.review?.id ?? store.projectId}:composer:${props.draftKey ?? props.where}:text`, () => props.initialText ?? '')
+const kind = useDraft(() => `code-review:${store.review?.id ?? store.projectId}:composer:${props.draftKey ?? props.where}:kind`, () => props.initialKind ?? (text.value.trimStart().startsWith('?') ? 'question' : 'fix'))
 const active = ref(0)
 const knownRefs = new Set(props.initialRefs ?? [])
 const { suggestions, loading, search, clear } = useMentionFiles(() => store.projectId)
 const token = ref<{ start: number; end: number; query: string } | null>(null)
 /** Files and screenshots: saved next to Plangent and named in the item, so the agent can open them. */
-const files = ref<{ name: string; path: string }[]>([])
+const files = useDraft<{ name: string; path: string }[]>(() => `code-review:${store.review?.id ?? store.projectId}:composer:${props.draftKey ?? props.where}:files`, () => [])
 const uploading = ref(false), attachError = ref('')
 async function attach(list: File[]) {
   if (!list.length) return
@@ -68,7 +73,7 @@ async function attach(list: File[]) {
     for (const file of list) {
       const data = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = reject; reader.readAsDataURL(file) })
       const name = file.name || 'скриншот.png'
-      const { path } = await api.post<{ path: string }>('/upload-temp', { data, name })
+      const { path } = await projectsEndpoints.postUploadTemp({ params: {  }, body: { data, name } })
       files.value.push({ name, path })
     }
   } catch (cause) { attachError.value = 'Не удалось приложить файл: ' + (cause instanceof Error ? cause.message : String(cause)) }
@@ -125,9 +130,13 @@ function onKey(event: KeyboardEvent) {
   else if ((event.key === 'Tab' || event.key === 'Enter') && !event.shiftKey) { event.preventDefault(); insert(suggestions.value[active.value], event.key === 'Tab') }
 }
 
+/** Forgets the draft (an edit starts from the item's own text next time), then closes. */
+function cancel() { useDraftsStore().clearPrefix(`code-review:${store.review?.id ?? store.projectId}:composer:${props.draftKey ?? props.where}:`); emit('cancel') }
 function save() {
   const attached = files.value.map(file => '📎 ' + file.name + ': ' + file.path).join('\n')
-  const value = [text.value.trim(), attached].filter(Boolean).join('\n\n')
+  // The leading «?» only chose the kind: the saved question keeps the kind, not the mark.
+  const body = kind.value === 'question' ? text.value.trimStart().replace(/^\?+\s*/, '') : text.value
+  const value = [body.trim(), attached].filter(Boolean).join('\n\n')
   if (!value || props.busy || uploading.value) return
   emit('save', { kind: kind.value, text: value, refs: extractRefs(value, new Set([...store.files, ...knownRefs]), paths.value.dirs) })
 }
@@ -138,15 +147,15 @@ onMounted(() => { area.value?.focus() })
 .ic { display: flex; flex-direction: column; gap: 6px; padding: 8px; background: var(--bg2); border: 1px solid var(--border-strong); border-radius: var(--radius); }
 .ic-top { display: flex; align-items: center; gap: 8px; }
 .ic-kind { display: inline-flex; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); overflow: hidden; }
-.ic-kind button { padding: 1px 10px; font: inherit; font-size: 12px; color: var(--text-muted); background: none; border: none; cursor: pointer; }
+.ic-kind button { padding: 1px 10px; font: inherit; font-size: var(--fs-sm); color: var(--text-muted); background: none; border: none; cursor: pointer; }
 .ic-kind button.on { background: var(--blue-soft); color: var(--text); }
-.ic-where { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--text-muted); }
+.ic-where { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-xs); color: var(--text-muted); }
 .ic-field { position: relative; }
-.ic-text { width: 100%; box-sizing: border-box; resize: vertical; padding: 6px 8px; font: inherit; font-size: 13px; color: var(--text); background: var(--bg); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); }
+.ic-text { width: 100%; box-sizing: border-box; resize: vertical; padding: 6px 8px; font: inherit; font-size: var(--fs-md); color: var(--text); background: var(--bg); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); }
 .ic-actions { display: flex; align-items: center; gap: 6px; }
-.ic-hint { flex: 1; font-size: 11px; color: var(--text-faint); }
-.ic-error { font-size: 12px; color: var(--danger-hover); }
+.ic-hint { flex: 1; font-size: var(--fs-xs); color: var(--text-faint); }
+.ic-error { font-size: var(--fs-sm); color: var(--danger-hover); }
 .ic-files { display: flex; flex-wrap: wrap; gap: 4px; }
-.ic-file { display: inline-flex; align-items: center; gap: 4px; max-width: 240px; padding: 1px 2px 1px 6px; font-size: 11.5px; background: var(--bg3); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ic-file { display: inline-flex; align-items: center; gap: 4px; max-width: 240px; padding: 1px 2px 1px 6px; font-size: var(--fs-sm); background: var(--bg3); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ic-file button { width: 16px; height: 16px; padding: 0; font: inherit; color: var(--text-muted); background: none; border: none; cursor: pointer; }
 </style>

@@ -1,200 +1,46 @@
 <template>
-  <div class="plan-template-editor">
-    <div class="editor-grid">
-      <section class="editor-section">
-        <div class="section-row">
-          <div>
-            <h3>Основное тело</h3>
-            <p>Этот текст агент получает первым в режиме планирования. Можно оставить пустым — тогда агент получит только Протокол Plangent.</p>
-          </div>
-          <div class="actions">
-            <button class="btn btn-primary btn-sm" :disabled="saving || !isDirty" @click="save">
-              {{ saving ? 'Сохранение...' : 'Сохранить' }}
-            </button>
-            <button class="btn btn-ghost btn-sm" :disabled="saving || !isDirty" @click="cancel">Отмена</button>
-          </div>
-        </div>
-        <textarea
-          v-model="content"
-          class="template-editor"
-          spellcheck="false"
-          :disabled="loading"
-        />
-      </section>
-
-      <section class="editor-section">
-        <div class="section-row">
-          <div>
-            <h3>Протокол Plangent</h3>
-            <p>Этот блок добавляется к prompt из кода и не сохраняется в пользовательский шаблон.</p>
-          </div>
-        </div>
-        <textarea class="template-editor protocol readonly" :value="defaults.lockedProtocol" spellcheck="false" readonly />
-      </section>
-    </div>
-  </div>
+  <InstructionTextEditor
+    :type="type" :scope="scope" :project-id="projectId" :title="cfg.title" :description="cfg.description"
+    :allow-empty="type === 'plan-template'" placeholder="Текст шаблона (Markdown)"
+    group-label="шаблон группы" saved-toast="Шаблон сохранён" reset-question="Вернуть предустановленный шаблон?"
+  >
+    <details v-if="protocol" class="protocol">
+      <summary>Протокол Plangent</summary>
+      <p>Plangent добавляет этот блок к инструкции автоматически. Он не сохраняется в пользовательский шаблон.</p>
+      <AppTextarea mono block rows="9" :model-value="protocol" spellcheck="false" readonly aria-label="Протокол Plangent" />
+    </details>
+  </InstructionTextEditor>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
-import { api } from '@core/api'
-import { useAppStore } from '@core/stores/app'
-import type { LibraryItem, LibraryScope } from '@core/models'
+import { LIBRARY_TYPES } from '../../../../../common/library-registry'
+import { computed, ref, watch } from 'vue'
+import type { LibraryScope } from '@contracts'
+import AppTextarea from '@shared/ui/AppTextarea.vue'
+import { libraryDefaults } from '../api'
+import InstructionTextEditor from './InstructionTextEditor.vue'
 
-const props = defineProps<{
+/** The plan template and the «как писать» texts of the materials: an instruction text plus the locked protocol Plangent appends. */
+const props = withDefaults(defineProps<{
   scope: LibraryScope
   projectId?: string
-}>()
+  type?: 'plan-template' | 'architecture-template' | 'qa-template'
+}>(), { type: 'plan-template' })
 
-const appStore = useAppStore()
+const CONFIG = {
+  'plan-template': { description: 'Как писать план. Если своё не задано, применяется встроенный текст; сохранённый пустой шаблон отключает его.' },
+  'architecture-template': { description: 'Как писать материал. Если своё не задано, применяется встроенный текст.' },
+  'qa-template': { description: 'Как писать материал. Если своё не задано, применяется встроенный текст.' },
+} as const
+const cfg = computed(() => ({ ...CONFIG[props.type], title: LIBRARY_TYPES[props.type].editorTitle }))
 
-const defaults = ref({ lockedProtocol: '' })
-const item = ref<LibraryItem | null>(null)
-const content = ref('')
-const savedContent = ref('')
-const loading = ref(false)
-const saving = ref(false)
-
-const isDirty = computed(() => content.value !== savedContent.value)
-
-onMounted(load)
-watch(() => [props.scope, props.projectId], load)
-
-async function load() {
-  loading.value = true
-  try {
-    defaults.value = await loadDefaults()
-    const params = new URLSearchParams({ type: 'plan-template', scope: props.scope })
-    if (props.scope === 'project' && props.projectId) params.set('projectId', props.projectId)
-    const items = await api.get<LibraryItem[]>(`/library?${params.toString()}`)
-    item.value = items[0] ?? null
-    if (item.value) {
-      const full = await api.get<LibraryItem>(`/library/${item.value.id}`)
-      content.value = full.content ?? ''
-      savedContent.value = content.value
-    } else {
-      content.value = ''
-      savedContent.value = content.value
-    }
-  } catch (e: unknown) {
-    appStore.toast(String(e), 'error')
-  } finally {
-    loading.value = false
-  }
-}
-
-function cancel() {
-  content.value = savedContent.value
-}
-
-async function save() {
-  saving.value = true
-  try {
-    if (item.value) {
-      item.value = await api.put<LibraryItem>(`/library/${item.value.id}`, {
-        content: content.value,
-        title: 'Шаблон плана',
-        slug: item.value.slug,
-        type: 'plan-template',
-        scope: props.scope,
-        project_id: props.scope === 'project' ? (props.projectId ?? null) : null,
-      })
-    } else {
-      item.value = await api.post<LibraryItem>('/library', {
-        type: 'plan-template',
-        slug: 'default_plan',
-        title: 'Шаблон плана',
-        description: '',
-        scope: props.scope,
-        project_id: props.scope === 'project' ? (props.projectId ?? null) : null,
-        content: content.value,
-      })
-    }
-    savedContent.value = content.value
-    appStore.toast('Шаблон сохранён', 'success')
-  } catch (e: unknown) {
-    appStore.toast(String(e), 'error')
-  } finally {
-    saving.value = false
-  }
-}
-
-async function loadDefaults(): Promise<{ lockedProtocol: string }> {
-  return api.get<{ lockedProtocol: string }>('/library/plan-template/defaults')
-}
+const protocol = ref('')
+watch(() => props.type, async type => { protocol.value = (await libraryDefaults(type)).lockedProtocol }, { immediate: true })
 </script>
 
 <style scoped>
-.plan-template-editor {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-}
-
-.editor-grid {
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: minmax(0, 2fr) minmax(0, 1fr);
-  gap: 18px;
-}
-
-.editor-section {
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.section-row {
-  flex-shrink: 0;
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-h3 {
-  margin: 0 0 3px;
-  font-size: 14px;
-}
-
-p {
-  margin: 0;
-  color: var(--text-muted);
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.actions {
-  display: flex;
-  gap: 8px;
-  flex-shrink: 0;
-}
-
-.template-editor {
-  width: 100%;
-  flex: 1;
-  min-height: 0;
-  background: var(--bg3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--text);
-  font-family: 'Cascadia Code', 'JetBrains Mono', monospace;
-  font-size: 12px;
-  line-height: 1.5;
-  padding: 12px;
-  resize: none;
-}
-
-.template-editor:focus {
-  outline: none;
-  border-color: var(--blue);
-}
-
-.template-editor.readonly {
-  color: var(--text-muted);
-}
+.protocol { flex-shrink: 0; }
+.protocol summary { cursor: pointer; font-size: var(--fs-sm); font-weight: 600; color: var(--text-muted); }
+.protocol summary:hover { color: var(--text); }
+.protocol p { margin: var(--sp-2) 0; color: var(--text-muted); font-size: var(--fs-sm); line-height: 1.45; }
 </style>
