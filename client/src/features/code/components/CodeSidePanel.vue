@@ -27,7 +27,7 @@
         <AppButton variant="link" size="xs" title="Открыть в полноценном режиме: с замечаниями и коммитами" @click="emit('open-in-code', { path: state.active, line: selection?.path === state.active ? selection.start : null, mode, base: code.base, round: baseArg })">Открыть в Коде ↗</AppButton>
       </header>
       <div class="csp-tabs">
-        <AppTabs :model-value="state.list" :items="listTabs" label="Код" bare @update:model-value="selectList($event as SideListTab)" />
+        <AppTabs shrink :model-value="state.list" :items="listTabs" label="Код" bare @update:model-value="selectList($event as SideListTab)" />
         <AppButton variant="subtle" size="xs" icon title="Скрыть (Ctrl+Shift+E)" aria-label="Скрыть код" @click="emit('close')">»</AppButton>
       </div>
       <p v-if="place.blocked" class="csp-blocked">{{ place.blocked }}</p>

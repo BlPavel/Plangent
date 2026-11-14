@@ -35,7 +35,7 @@
       />
       <aside v-show="!leftCollapsed" class="ct-left">
         <div class="ct-tabs">
-          <AppTabs :model-value="leftTab" :items="leftTabs.map(t => ({ value: t.id, label: t.label, count: t.count || undefined }))" label="Левая панель" @update:model-value="selectLeft($event as LeftTab)" />
+          <AppTabs shrink :model-value="leftTab" :items="leftTabs.map(t => ({ value: t.id, label: t.label, count: t.count || undefined }))" label="Левая панель" @update:model-value="selectLeft($event as LeftTab)" />
           <AppButton variant="subtle" size="xs" icon title="Свернуть панель (Ctrl+B)" aria-label="Свернуть левую панель" @click="leftCollapsed = true">«</AppButton>
         </div>
         <div v-show="leftTab === 'changes'" class="ct-pane">
@@ -103,7 +103,7 @@
       <PaneRail v-if="rightCollapsed" side="right" shortcut="Ctrl+Alt+B" :items="rightRail" @expand="rightCollapsed = false" @pick="showRight($event as RightTab)" />
       <aside v-show="!rightCollapsed" class="ct-right">
         <div class="ct-tabs">
-          <AppTabs :model-value="rightTab" :items="rightTabs.map(t => ({ value: t.id, label: t.label, count: t.count || undefined, title: t.hint }))" label="Правая панель" @update:model-value="rightTab = $event as RightTab" />
+          <AppTabs shrink :model-value="rightTab" :items="rightTabs.map(t => ({ value: t.id, label: t.label, count: t.count || undefined, title: t.hint }))" label="Правая панель" @update:model-value="rightTab = $event as RightTab" />
           <AppButton variant="subtle" size="xs" icon title="Свернуть панель (Ctrl+Alt+B)" aria-label="Свернуть правую панель" @click="rightCollapsed = true">»</AppButton>
         </div>
         <div v-if="rightTab === 'conflicts'" class="ct-scroll">
@@ -560,7 +560,7 @@ watch(() => props.projectId, id => { void begin(id) }, { immediate: true })
 .ct-resizer { position: relative; z-index: var(--z-local-raised); width: 0; cursor: col-resize; outline: none; }
 .ct-resizer::before { content: ''; position: absolute; top: 0; bottom: 0; left: -3px; width: 6px; opacity: 0.6; transition: background var(--motion-fast); }
 .ct-resizer:hover::before, .ct-resizer:focus-visible::before { background: var(--blue); }
-.ct-left { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--border); background: var(--bg); }
+.ct-left { display: flex; flex-direction: column; min-width: 0; min-height: 0; border-right: 1px solid var(--border); background: var(--bg); }
 .ct-tabs { display: flex; flex-shrink: 0; align-items: center; gap: 4px; padding-right: 4px; border-bottom: 1px solid var(--border); }
 /* The tabs take the row, the collapse button sits at its end on the tabs' centre line; the bar draws the line itself. */
 .ct-tabs > :first-child { flex: 1; min-width: 0; border-bottom: 0; }

@@ -448,7 +448,7 @@ defineExpose({ scrollToLine, clearSelection, step, openFind })
   --cv-add: var(--syntax-light-added); --cv-add-line: var(--syntax-light-added-soft); --cv-add-gutter: var(--syntax-light-added-strong);
   --cv-del: var(--syntax-light-keyword); --cv-del-line: var(--syntax-light-deleted-soft); --cv-del-gutter: var(--syntax-light-deleted-strong);
 }
-.cv-header { display: flex; align-items: center; gap: 8px; flex-shrink: 0; min-height: 34px; padding: 4px 12px; border-bottom: 1px solid var(--border); background: var(--bg2); }
+.cv-header { display: flex; flex-wrap: nowrap; min-width: 0; align-items: center; gap: 8px; flex-shrink: 0; min-height: 34px; padding: 4px 12px; border-bottom: 1px solid var(--border); background: var(--bg2); }
 .cv-icon { display: inline-flex; flex-shrink: 0; }
 .cv-icon :deep(svg) { width: 16px; height: 16px; }
 .cv-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-md); color: var(--text); }
