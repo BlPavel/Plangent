@@ -2,12 +2,12 @@
   <div class="sp">
     <div class="sp-form">
       <div class="sp-row">
-        <AppInput ref="input" v-model="query" placeholder="Поиск по проекту" spellcheck="false" @keydown.enter.prevent="runNow" @keydown.esc="query = ''" />
+        <AppInput ref="input" v-model="query" class="sp-query" size="sm" placeholder="Поиск по проекту" spellcheck="false" @keydown.enter.prevent="runNow" @keydown.esc="query = ''" />
         <AppButton variant="subtle" size="xs" :pressed="caseSensitive" title="Учитывать регистр" @click="caseSensitive = !caseSensitive">Aa</AppButton>
         <AppButton variant="subtle" size="xs" :pressed="wholeWord" title="Слово целиком" @click="wholeWord = !wholeWord">ab</AppButton>
         <AppButton variant="subtle" size="xs" :pressed="regex" title="Регулярное выражение" @click="regex = !regex">.*</AppButton>
       </div>
-      <AppInput v-model="mask" class="sp-input" placeholder="Маска файлов: *.ts, server/**" spellcheck="false" />
+      <AppInput v-model="mask" size="sm" block placeholder="Маска файлов: *.ts, server/**" spellcheck="false" />
     </div>
 
     <div class="sp-status">
@@ -182,9 +182,9 @@ defineExpose({ focus })
 
 <style scoped>
 .sp { display: flex; flex-direction: column; min-height: 0; height: 100%; }
-.sp-form { display: flex; flex-direction: column; gap: 4px; padding: 8px; border-bottom: 1px solid var(--border); }
+.sp-form { display: flex; flex-direction: column; flex-shrink: 0; gap: 4px; padding: 8px; border-bottom: 1px solid var(--border); }
 .sp-row { display: flex; align-items: center; gap: 2px; }
-.sp-input { flex: 1; }
+.sp-query { flex: 1; min-width: 0; }
 .sp-opt { min-width: 24px; padding: 1px 4px; font-size: var(--fs-sm); color: var(--text-muted); background: none; border: 1px solid transparent; border-radius: var(--radius-sm); cursor: pointer; }
 .sp-opt:hover { color: var(--text); border-color: var(--border-strong); }
 .sp-opt.on { color: var(--text); background: var(--blue-soft); border-color: var(--blue); }

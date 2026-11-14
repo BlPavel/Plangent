@@ -3,7 +3,7 @@
     <div class="qo-backdrop" @mousedown.self="emit('close')">
       <div class="qo" role="dialog" aria-label="Перейти к файлу">
         <AppInput
-          ref="input" v-model="query" block placeholder="Имя файла (нечёткий поиск)" spellcheck="false"
+          ref="input" v-model="query" class="qo-input" block placeholder="Имя файла (нечёткий поиск)" spellcheck="false"
           @keydown.down.prevent="move(1)" @keydown.up.prevent="move(-1)" @keydown.enter.prevent="pick(hits[active]?.path)" @keydown.esc.prevent="emit('close')"
         />
         <div ref="list" class="qo-list">
@@ -70,8 +70,8 @@ onMounted(() => input.value?.focus())
 <style scoped>
 .qo-backdrop { position: fixed; inset: 0; z-index: var(--z-menu); display: flex; justify-content: center; align-items: flex-start; padding-top: 12vh; background: var(--overlay-soft); }
 .qo { width: min(620px, 92vw); max-height: 60vh; display: flex; flex-direction: column; background: var(--bg2); border: 1px solid var(--border-strong); border-radius: var(--radius); box-shadow: var(--shadow-md); overflow: hidden; }
-.qo-input { padding: 10px 14px; font: inherit; font-size: var(--fs-base); color: var(--text); background: var(--bg2); border: none; border-bottom: 1px solid var(--border); outline: none; }
-.qo-list { overflow-y: auto; padding: 4px; }
+.qo-input { flex-shrink: 0; }
+.qo-list { flex: 1; min-height: 0; overflow-y: auto; padding: 4px; }
 .qo-empty { padding: 12px; font-size: var(--fs-md); color: var(--text-faint); }
 .qo-item { width: 100%; display: flex; align-items: center; gap: 8px; padding: 4px 8px; font: inherit; font-size: var(--fs-md); text-align: left; color: var(--text); background: none; border: none; border-radius: var(--radius-sm); cursor: pointer; }
 .qo-item.active { background: var(--blue-soft); }
