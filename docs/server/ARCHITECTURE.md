@@ -23,7 +23,9 @@ Infrastructure never imports core or API. No DI container is required.
 Core modules:
 
 - `shared/`: domain-independent helpers.
-- `files/`: safe paths, reads, trees, search and watchers.
+- `files/`: safe paths, reads, trees, search and watchers. `repository-state.ts` shares
+  `git ls-files`/`git status` snapshots of the Code screen's reads for roots under a recursive
+  watcher (any file event drops them); checks before Git writes call `infrastructure/git` directly.
 - `integrations/`: accounts, connections and authorization lifecycle.
 - `settings/`: application/git settings, agent choices and level resolution.
 - `projects/`: projects, groups, briefing, remote URLs and documentation `sources/`.

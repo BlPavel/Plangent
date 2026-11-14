@@ -34,10 +34,12 @@ export const useConflictsStore = defineStore('code-conflicts', () => {
   async function start(p: string, workspace?: string) {
     stop()
     projectId.value = p; workspaceId.value = workspace; state.value = null; error.value = ''
-    unsubscribe = onServerEvent<{ type: string; projectId?: string; session?: { id: string } }>(event => {
+    unsubscribe = onServerEvent<{ type: string; projectId?: string; workspaceId?: string; session?: { id: string } }>(event => {
       const mine = event.type === 'conflicts:changed' && event.projectId === projectId.value
       const agent = event.type === 'agent_session' && event.session?.id === state.value?.session?.id
-      if (mine || agent || event.type === 'code:changed' || event.type === 'events:connected') {
+      // Files of another project or of another folder of this one do not change these conflicts.
+      const files = event.type === 'code:changed' && event.projectId === projectId.value && (event.workspaceId ?? undefined) === workspaceId.value
+      if (mine || agent || files || event.type === 'events:connected') {
         clearTimeout(timer)
         timer = setTimeout(() => void refresh(), 200)
       }

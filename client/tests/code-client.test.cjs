@@ -733,3 +733,15 @@ test('review agent launch leaves the hidden sandbox mode to the server permissio
     assert.deepEqual(plain(changes[0].config), { effort: 'low' })
   }
 })
+test('streamed search matches arrive in batches and all of them are kept', async () => {
+  const h = harness()
+  await h.store.start('p')
+  h.codeApi.search = async function* () {
+    for (let line = 1; line <= 5; line++) yield { type: 'match', path: 'a.ts', line, text: 'x' }
+    yield { type: 'done', matches: 5, files: 1, truncated: false }
+  }
+  await h.store.search({ query: 'x' })
+  assert.equal(h.store.matches.map(m => m.line).join(','), '1,2,3,4,5')
+  assert.equal(h.store.searchSummary.matches, 5)
+  h.store.stop()
+})

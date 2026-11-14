@@ -100,7 +100,10 @@ async function loadDiff() {
 }
 // Switching files drops the old hunks at once so they never render against another file's content.
 watch(path, () => { hunks.value = undefined; loadError.value = null })
-watch([path, () => change.value?.status, () => change.value?.originalPath, () => store.file, () => store.diffEnds?.base, () => store.diffEnds?.end, ignoreWhitespace], () => { void loadDiff() }, { immediate: true })
+// The store keeps `file` while its content is unchanged, so a refresh alone does not refetch the
+// diff; a commit moves HEAD, and the line counts catch the rest (e.g. a file without content).
+const lineStat = computed(() => { const stat = path.value ? store.shownStats[path.value] : undefined; return stat ? `${stat.added}:${stat.deleted}` : '' })
+watch([path, () => change.value?.status, () => change.value?.originalPath, () => store.file, () => store.head, lineStat, () => store.diffEnds?.base, () => store.diffEnds?.end, ignoreWhitespace], () => { void loadDiff() }, { immediate: true })
 watch(() => store.error, error => { loadError.value = error })
 
 async function scrollToLine(line: number, side: CodeSide = 'new') {

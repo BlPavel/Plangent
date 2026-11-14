@@ -1,4 +1,4 @@
-import { computed, onScopeDispose, ref } from 'vue'
+import { computed, onScopeDispose, ref, shallowRef, type Ref } from 'vue'
 import { useDraftsStore } from '@core/stores/drafts'
 import { defineStore } from 'pinia'
 import { onServerEvent } from '@core/api/events'
@@ -10,6 +10,18 @@ import type { CodeFile, TreeEntry, RepositoryInfo, GitChange, LineStat, CurrentR
 export type CompareBase = 'head' | 'agent' | 'review' | 'remote'
 /** «Продолжить» on the commit banner is remembered per review until HEAD moves again. */
 const continued = new Map<string, string | null>()
+type Match = Extract<SearchEvent, { type: 'match' }>
+/** Batches streamed search matches so the list re-renders a few times a second, not per match. */
+const MATCH_FLUSH_MS = 50
+
+/**
+ * Watcher refreshes re-read everything; equal data keeps the current object, so the viewer does
+ * not re-highlight the open file and dependants do not reload for nothing.
+ */
+function assign<T>(target: Ref<T>, value: T) {
+  if (target.value === value || JSON.stringify(target.value) === JSON.stringify(value)) return
+  target.value = value
+}
 
 export const useCodeStore = (instance = 'main') => defineStore(instance === 'main' ? 'code' : 'code:' + instance, () => {
   const projectId = ref<string | null>(null)
@@ -18,8 +30,9 @@ export const useCodeStore = (instance = 'main') => defineStore(instance === 'mai
   const repository = ref<RepositoryInfo | null>(null)
   const changes = ref<GitChange[]>([])
   const stats = ref<Record<string, LineStat>>({})
-  const trees = ref<Record<string, TreeEntry[]>>({})
-  const files = ref<string[]>([])
+  // Large and replaced as a whole: no deep reactivity over every entry.
+  const trees = shallowRef<Record<string, TreeEntry[]>>({})
+  const files = shallowRef<string[]>([])
   const includeIgnored = ref(false)
   const selectedPath = ref<string | null>(null)
   const file = ref<CodeFile | null>(null)
@@ -35,7 +48,7 @@ export const useCodeStore = (instance = 'main') => defineStore(instance === 'mai
   const loading = ref(false)
   const error = ref<string | null>(null)
   const watchError = ref<string | null>(null)
-  const matches = ref<Extract<SearchEvent, { type: 'match' }>[]>([])
+  const matches = shallowRef<Match[]>([])
   const searchSummary = ref<Extract<SearchEvent, { type: 'done' }> | null>(null)
   const searching = ref(false)
   const searchError = ref<string | null>(null)
@@ -97,7 +110,9 @@ export const useCodeStore = (instance = 'main') => defineStore(instance === 'mai
       if (!controller.signal.aborted) throw cause
     } finally { if (requests.get(key) === controller) requests.delete(key) }
   }
-  const loadTree = (path = '') => read('tree:' + path, (p, signal) => codeApi.tree(p, path, includeIgnored.value, signal, workspaceId.value), value => { trees.value[path] = value })
+  const loadTree = (path = '') => read('tree:' + path, (p, signal) => codeApi.tree(p, path, includeIgnored.value, signal, workspaceId.value), value => {
+    if (JSON.stringify(trees.value[path]) !== JSON.stringify(value)) trees.value = { ...trees.value, [path]: value }
+  })
   /** The selected file is gone from disk (deleted by the developer or the agent): not an error. */
   let fileMissing = false
   const loadFile = (path: string) => read('file', async (p, signal) => {
@@ -108,7 +123,7 @@ export const useCodeStore = (instance = 'main') => defineStore(instance === 'mai
       if (/not found/i.test(String((cause as Error)?.message ?? cause))) { fileMissing = true; return null }
       throw cause
     }
-  }, value => { file.value = value })
+  }, value => { assign(file, value) })
   async function selectFile(path: string | null) {
     selectedPath.value = path; file.value = null
     requests.get('file')?.abort()
@@ -124,9 +139,9 @@ export const useCodeStore = (instance = 'main') => defineStore(instance === 'mai
   const loadBase = () => {
     const id = baseReviewId.value
     const kind = effectiveBase.value
-    if (kind === 'remote') return read('base', (p, signal) => codeReviewsApi.remoteComparison(p, remoteRef.value, signal, workspaceId.value), value => { baseData.value = value })
+    if (kind === 'remote') return read('base', (p, signal) => codeReviewsApi.remoteComparison(p, remoteRef.value, signal, workspaceId.value), value => { assign(baseData, value) })
     if (kind === 'head' || !id) { baseData.value = null; return Promise.resolve() }
-    return read('base', (p, signal) => codeReviewsApi.baseChanges(p, id, kind, kind === 'agent' ? baseRound.value ?? undefined : undefined, signal, workspaceId.value), value => { baseData.value = value })
+    return read('base', (p, signal) => codeReviewsApi.baseChanges(p, id, kind, kind === 'agent' ? baseRound.value ?? undefined : undefined, signal, workspaceId.value), value => { assign(baseData, value) })
   }
   async function setBase(value: CompareBase, round: string | null = null) {
     base.value = value; if (value === 'remote') remoteRef.value = round ?? remoteRef.value; baseRound.value = round; baseData.value = null
@@ -139,7 +154,7 @@ export const useCodeStore = (instance = 'main') => defineStore(instance === 'mai
   }
   const loadHistory = () => {
     historyLoaded = true
-    return read('history', (p, signal) => codeReviewsApi.history(p, signal, workspaceId.value), value => { history.value = value })
+    return read('history', (p, signal) => codeReviewsApi.history(p, signal, workspaceId.value), value => { assign(history, value) })
   }
   async function refresh() {
     if (!projectId.value) return
@@ -147,11 +162,11 @@ export const useCodeStore = (instance = 'main') => defineStore(instance === 'mai
     loading.value = true; error.value = null
     const paths = new Set(['', ...Object.keys(trees.value)])
     const jobs = [
-      read('repository', (p, s) => codeApi.repository(p, s, workspaceId.value), value => { repository.value = value }),
-      read('changes', (p, s) => codeApi.changes(p, s, workspaceId.value), value => { changes.value = value }),
-      read('stats', (p, s) => codeApi.stats(p, s, workspaceId.value), value => { stats.value = value }),
-      read('files', (p, s) => codeApi.files(p, includeIgnored.value, s, workspaceId.value), value => { files.value = value }),
-      read('current', (p, s) => codeReviewsApi.current(p, s, workspaceId.value), value => { current.value = value }),
+      read('repository', (p, s) => codeApi.repository(p, s, workspaceId.value), value => { assign(repository, value) }),
+      read('changes', (p, s) => codeApi.changes(p, s, workspaceId.value), value => { assign(changes, value) }),
+      read('stats', (p, s) => codeApi.stats(p, s, workspaceId.value), value => { assign(stats, value) }),
+      read('files', (p, s) => codeApi.files(p, includeIgnored.value, s, workspaceId.value), value => { assign(files, value) }),
+      read('current', (p, s) => codeReviewsApi.current(p, s, workspaceId.value), value => { assign(current, value) }),
       ...[...paths].map(loadTree),
     ]
     if (selectedPath.value !== null) {
@@ -160,7 +175,7 @@ export const useCodeStore = (instance = 'main') => defineStore(instance === 'mai
     }
     if (openedReviewId.value) {
       const id = openedReviewId.value
-      jobs.push(read('detail', (p, s) => codeReviewsApi.detail(p, id, s, workspaceId.value), value => { openedReview.value = value }))
+      jobs.push(read('detail', (p, s) => codeReviewsApi.detail(p, id, s, workspaceId.value), value => { assign(openedReview, value) }))
     }
     if (historyLoaded) jobs.push(loadHistory())
     const results = await Promise.allSettled(jobs)
@@ -227,16 +242,25 @@ export const useCodeStore = (instance = 'main') => defineStore(instance === 'mai
     if (!p) return
     const controller = new AbortController()
     requests.set('search', controller); searching.value = true
+    let pending: Match[] = []
+    let flushTimer: ReturnType<typeof setTimeout> | undefined
+    const current = () => !controller.signal.aborted && projectId.value === p
+    const flush = () => {
+      clearTimeout(flushTimer); flushTimer = undefined
+      if (pending.length && current()) matches.value = matches.value.concat(pending)
+      pending = []
+    }
     try {
       for await (const event of codeApi.search(p, options, controller.signal, workspaceId.value)) {
-        if (controller.signal.aborted || projectId.value !== p) return
-        if (event.type === 'match') matches.value.push(event)
-        else searchSummary.value = event
+        if (!current()) return
+        if (event.type === 'match') { pending.push(event); flushTimer ??= setTimeout(flush, MATCH_FLUSH_MS) }
+        else { flush(); searchSummary.value = event }
       }
       if (!controller.signal.aborted && !searchSummary.value) throw new Error('Search stream ended before completion')
     } catch (cause) {
       if (!controller.signal.aborted) searchError.value = cause instanceof Error ? cause.message : String(cause)
     } finally {
+      flush()
       if (requests.get('search') === controller) { requests.delete('search'); searching.value = false }
     }
   }

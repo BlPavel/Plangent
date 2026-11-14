@@ -37,17 +37,23 @@ export const useGitStore = (instance = 'main') => defineStore(instance === 'main
       repository.value = info; branches.value = refs; settings.value = prefs; coauthors.value = authors
     } catch (cause) { if (p === projectId.value && token === generation) error.value = String(cause) }
   }
+  /** Events of other projects (and file changes of another folder) do not reload this store; an event without a project still does. */
+  function concerns(event: { type: string; projectId?: string; workspaceId?: string; session?: { project_id?: string } }): boolean {
+    const project = event.type === 'agent_session' ? event.session?.project_id : event.projectId
+    if (project !== undefined && project !== projectId.value) return false
+    return event.type !== 'code:changed' || (event.workspaceId ?? undefined) === workspaceId.value
+  }
   /** The store follows one (project, workspace) pair, so «Проверка» of a work and «Код» of the project do not overwrite each other. */
   async function start(p: string, workspace?: string) {
     stop()
     projectId.value = p; workspaceId.value = workspace; repository.value = null; branches.value = []; settings.value = null
     coauthors.value = []; error.value = ''; output.value = ''; operationId.value = ''; lastAction.value = ''
     unsubscribe = onServerEvent<{
-      type: string; projectId?: string; project_id?: string; operationId?: string; output?: string
+      type: string; projectId?: string; project_id?: string; workspaceId?: string; operationId?: string; output?: string; session?: { project_id?: string }
     }>(event => {
       if (event.type === 'git:progress' && event.project_id === projectId.value && event.operationId === operationId.value)
         output.value = (output.value + (event.output ?? '')).slice(-1000000)
-      if (event.type === 'events:connected' || ['code:changed', 'finish:changed', 'agent_session', 'queue_updated'].includes(event.type)) {
+      if (event.type === 'events:connected' || (['code:changed', 'finish:changed', 'agent_session', 'queue_updated'].includes(event.type) && concerns(event))) {
         clearTimeout(timer)
         timer = setTimeout(() => void refresh(), 200)
       }

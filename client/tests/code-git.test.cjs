@@ -412,3 +412,16 @@ test('tree paths, file tabs and search hits produce references with their owning
     assert.equal(file.startLine, undefined); assert.equal(file.path, 'src/a.ts')
   } finally { search.close() }
 })
+
+test('file tree renders only the rows in view and shares icons through one sprite', async () => {
+  const load = require('./client-test-loader.cjs').loader
+  const modules = load({}, { ResizeObserver: class { observe() {} disconnect() {} } })
+  const entries = Array.from({ length: 2000 }, (_, i) => ({ name: 'f' + i + '.ts', path: 'f' + i + '.ts', directory: false, changes: 0 }))
+  const tree = mount(modules('client/src/shared/code-viewer/FileTree.vue').default, { trees: { '': entries }, marks: { 'f1.ts': 2 } })
+  try {
+    const rows = tree.root.querySelectorAll('[role=treeitem]')
+    assert.ok(rows.length > 0 && rows.length < 100, `rendered ${rows.length} of 2000 rows`)
+    assert.ok(tree.root.querySelector('.tree-icon use'), 'rows reference the sprite')
+    assert.equal(document.querySelectorAll('[id="cv-icon-file-type-typescript-official"]').length, 1)
+  } finally { tree.close() }
+})

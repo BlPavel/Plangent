@@ -129,6 +129,20 @@ test('watcher debounces, shares root, handles HEAD and releases last subscriptio
   assert.equal(secondCount, 2);
 });
 
+test('watched roots reuse Git snapshots until a file event; unwatched roots read Git every time', async t => {
+  const root = await fixture(t);
+  await fs.writeFile(path.join(root, 'direct.txt'), 'new');
+  assert.ok((await fileTree(root)).some(e => e.path === 'direct.txt'));
+  const stop = subscribeCode(root, 'p', () => {});
+  t.after(stop);
+  assert.ok(!(await fileTree(root)).some(e => e.path === 'fresh.txt'));
+  await fs.writeFile(path.join(root, 'fresh.txt'), 'new');
+  await new Promise(resolve => setTimeout(resolve, 300));
+  const tree = await fileTree(root);
+  assert.equal(tree.find(e => e.path === 'fresh.txt')?.status, '?');
+  assert.ok((await changeStats(root))['fresh.txt']);
+});
+
 test('change stats count tracked edits, renames and untracked files', async t => {
   const root = await fixture(t);
   await fs.writeFile(path.join(root, 'src', 'test.ts'), 'one\ntwo\nthree\n');

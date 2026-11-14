@@ -3,7 +3,8 @@ import type { CodeFile, TreeEntry } from '@contracts';
 export type { CodeFile, TreeEntry } from '@contracts';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { changedFiles, listFiles } from '../../infrastructure/git/read';
+import type { GitChange } from '@contracts';
+import { viewedChanges, visibleDirectories, visibleFiles } from './repository-state';
 
 export const MAX_FILE_SIZE = 1024 * 1024;
 
@@ -28,9 +29,16 @@ export async function readBytes(root: string, file: string): Promise<{ size: num
     const stat = await handle.stat();
     if (!stat.isFile()) throw new DomainError('Not a regular file');
     if (stat.size > MAX_FILE_SIZE) return { size: stat.size };
-    const buffer = Buffer.alloc(MAX_FILE_SIZE + 1);
+    // Sized by stat (one spare byte detects growth); a file that grew gets the full bound.
+    let buffer = Buffer.allocUnsafe(stat.size + 1);
     let length = 0;
-    while (length < buffer.length) {
+    while (true) {
+      if (length === buffer.length) {
+        if (buffer.length > MAX_FILE_SIZE) break;
+        const larger = Buffer.allocUnsafe(MAX_FILE_SIZE + 1);
+        buffer.copy(larger, 0, 0, length);
+        buffer = larger;
+      }
       const { bytesRead } = await handle.read(buffer, length, buffer.length - length, null);
       if (!bytesRead) break;
       length += bytesRead;
@@ -60,15 +68,21 @@ export async function readCodeFile(root: string, file: string): Promise<CodeFile
 /** Only the requested directory is returned; children are loaded on expansion. */
 export async function fileTree(root: string, directory = '', includeIgnored = false): Promise<TreeEntry[]> {
   const full = codePath(root, directory, true);
-  const [entries, visible, changes] = await Promise.all([
-    fs.readdir(full, { withFileTypes: true }), listFiles(root), changedFiles(root),
+  const [entries, visible, visibleDirs, changes] = await Promise.all([
+    fs.readdir(full, { withFileTypes: true }), visibleFiles(root), visibleDirectories(root), viewedChanges(root),
   ]);
   const visiblePaths = new Set(visible);
-  const visibleDirs = new Set<string>();
-  for (const file of visible) {
-    for (let i = file.indexOf('/'); i >= 0; i = file.indexOf('/', i + 1)) visibleDirs.add(file.slice(0, i));
-  }
   const dir = path.relative(codePath(root, '', true), full).replace(/\\/g, '/');
+  // Changes of this level by entry name: a file's own status, a folder's count of changed files inside.
+  const prefix = dir ? dir + '/' : '';
+  const affected = new Map<string, GitChange[]>();
+  for (const change of changes) {
+    if (!change.path.startsWith(prefix)) continue;
+    const slash = change.path.indexOf('/', prefix.length);
+    const name = change.path.slice(prefix.length, slash < 0 ? undefined : slash);
+    const list = affected.get(name);
+    if (list) list.push(change); else affected.set(name, [change]);
+  }
   const result: TreeEntry[] = [];
   for (const entry of entries) {
     if (entry.name.toLowerCase() === '.git') continue;
@@ -79,9 +93,10 @@ export async function fileTree(root: string, directory = '', includeIgnored = fa
     if (!directory && !entry.isFile()) continue;
     const ignored = !(directory ? visibleDirs : visiblePaths).has(rel);
     if (ignored && !includeIgnored) continue;
-    const affected = changes.filter(c => c.path === rel || (directory && c.path.startsWith(rel + '/')));
+    const group = affected.get(entry.name) ?? [];
+    const own = directory ? group : group.filter(c => c.path === rel);
     result.push({ name: entry.name, path: rel, directory, ignored,
-      changes: affected.length, status: directory ? undefined : affected[0]?.status });
+      changes: own.length, status: directory ? undefined : own[0]?.status });
   }
   return result.sort((a, b) => Number(b.directory) - Number(a.directory) || a.name.localeCompare(b.name));
 }

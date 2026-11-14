@@ -33,7 +33,7 @@
               <!-- eslint-disable-next-line vue/no-v-html -- bundled icon set, not user input -->
               <span class="sp-icon" v-html="iconSvg(fileIconName(rows[index].path.split('/').pop() ?? ''))" />
               <!-- eslint-disable-next-line vue/no-v-html -- escaped text with <mark> only -->
-              <span class="sp-file-name" v-html="rows[index].html" />
+              <span class="sp-file-name" v-html="marked(rows[index].name)" />
               <span class="sp-file-dir">{{ dirOf(rows[index].path) }}</span>
             </AppButton>
             <AppButton v-else-if="rows[index].kind === 'file'" draggable="true" @dragstart="dragMention($event, rows[index].path)" variant="subtle" size="xs" block :title="rows[index].path" @click="toggle(rows[index].path)">
@@ -47,7 +47,7 @@
             <AppButton v-else draggable="true" @dragstart="dragMention($event, rows[index].path, false, rows[index].line)" variant="subtle" size="xs" block @click="emit('open', rows[index].path, rows[index].line)">
               <span class="sp-line">{{ rows[index].line }}</span>
               <!-- eslint-disable-next-line vue/no-v-html -- escaped text with <mark> only -->
-              <span class="sp-text" v-html="rows[index].html" />
+              <span class="sp-text" v-html="marked(rows[index].text)" />
             </AppButton>
           </template>
         </div>
@@ -85,9 +85,9 @@ const height = ref(400)
 
 type Row =
   | { kind: 'heading'; key: string; label: string }
-  | { kind: 'path'; key: string; path: string; html: string }
+  | { kind: 'path'; key: string; path: string; name: string }
   | { kind: 'file'; key: string; path: string; count: number }
-  | { kind: 'match'; key: string; path: string; line: number; html: string }
+  | { kind: 'match'; key: string; path: string; line: number; text: string }
 
 const escapeHtml = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 const dirOf = (path: string) => (path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '')
@@ -97,26 +97,33 @@ const plural = (n: number, one: string, few: string, many: string) =>
 const summary = computed(() => store.searchSummary)
 const error = computed(() => store.searchError ?? (query.value.trim() ? findPattern({ query: query.value, regex: regex.value }).error : undefined))
 
+/** The query the results belong to: set by the debounced run, not by every keystroke. */
+const applied = ref<{ query: string; caseSensitive: boolean; wholeWord: boolean; regex: boolean } | null>(null)
+const pattern = computed(() => (applied.value ? findPattern(applied.value).pattern : null))
+/** Escaped text with the matches marked; called for the rows on screen only. */
+const marked = (text: string) => {
+  const escaped = escapeHtml(text)
+  return pattern.value ? markHtml(escaped, findInLine(text, pattern.value)) : escaped
+}
+
 /** Files whose path matches the query (the text search below only looks inside files); name hits first. */
 const pathHits = computed(() => {
-  const pattern = query.value.trim() ? findPattern({ query: query.value.trim(), caseSensitive: caseSensitive.value, wholeWord: wholeWord.value, regex: regex.value }).pattern : null
-  if (!pattern) return []
-  const name = (path: string) => path.slice(path.lastIndexOf('/') + 1)
-  const hits = store.files.filter(path => findInLine(path, pattern).length > 0)
-  const byName = (path: string) => (findInLine(name(path), pattern).length ? 0 : 1)
-  return hits.sort((a, b) => byName(a) - byName(b) || a.length - b.length || a.localeCompare(b)).slice(0, MAX_PATHS)
+  const current = applied.value?.query.trim() ? findPattern({ ...applied.value, query: applied.value.query.trim() }).pattern : null
+  if (!current) return []
+  const hits: { path: string; byName: number }[] = []
+  for (const path of store.files) {
+    if (!findInLine(path, current).length) continue
+    hits.push({ path, byName: findInLine(path.slice(path.lastIndexOf('/') + 1), current).length ? 0 : 1 })
+  }
+  return hits.sort((a, b) => a.byName - b.byName || a.path.length - b.path.length || a.path.localeCompare(b.path)).slice(0, MAX_PATHS).map(hit => hit.path)
 })
 
 /** File-name hits, then one file row followed by its matching lines, in the order the server streamed them. */
 const rows = computed<Row[]>(() => {
-  const pattern = findPattern({ query: query.value, caseSensitive: caseSensitive.value, wholeWord: wholeWord.value, regex: regex.value }).pattern
   const result: Row[] = []
-  if (pathHits.value.length && pattern) {
+  if (pathHits.value.length) {
     result.push({ kind: 'heading', key: 'h:paths', label: 'Файлы по имени' })
-    for (const path of pathHits.value) {
-      const name = path.slice(path.lastIndexOf('/') + 1)
-      result.push({ kind: 'path', key: 'p:' + path, path, html: markHtml(escapeHtml(name), findInLine(name, pattern)) })
-    }
+    for (const path of pathHits.value) result.push({ kind: 'path', key: 'p:' + path, path, name: path.slice(path.lastIndexOf('/') + 1) })
     if (store.matches.length) result.push({ kind: 'heading', key: 'h:text', label: 'В тексте' })
   }
   const groups = new Map<string, typeof store.matches>()
@@ -129,9 +136,7 @@ const rows = computed<Row[]>(() => {
     result.push({ kind: 'file', key: 'f:' + path, path, count: matches.length })
     if (collapsed.has(path)) continue
     for (const match of matches) {
-      const text = match.text.trimStart().slice(0, MAX_TEXT)
-      const ranges = pattern ? findInLine(text, pattern) : []
-      result.push({ kind: 'match', key: `m:${path}:${match.line}:${result.length}`, path, line: match.line, html: markHtml(escapeHtml(text), ranges) })
+      result.push({ kind: 'match', key: `m:${path}:${match.line}:${result.length}`, path, line: match.line, text: match.text.trimStart().slice(0, MAX_TEXT) })
     }
   }
   return result
@@ -160,7 +165,8 @@ function run() {
   collapsed.clear()
   if (scroller.value) scroller.value.scrollTop = 0
   scrollTop.value = 0
-  if (!query.value.trim() || findPattern({ query: query.value, regex: regex.value }).error) { store.clearSearch(); return }
+  if (!query.value.trim() || findPattern({ query: query.value, regex: regex.value }).error) { applied.value = null; store.clearSearch(); return }
+  applied.value = { query: query.value, caseSensitive: caseSensitive.value, wholeWord: wholeWord.value, regex: regex.value }
   void store.search({ query: query.value, caseSensitive: caseSensitive.value, wholeWord: wholeWord.value, regex: regex.value, mask: mask.value.trim() || undefined })
 }
 function runNow() { run() }

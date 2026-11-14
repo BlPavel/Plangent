@@ -1,9 +1,9 @@
-import { trackedStats, changedFiles, type LineStat } from '../../../infrastructure/git/read';
-import { readBytes, isBinary } from '../../files';
+import { trackedStats, type LineStat } from '../../../infrastructure/git/read';
+import { readBytes, isBinary, viewedChanges } from '../../files';
 
 /** Per-file `+/−` of everything that differs from HEAD; untracked text files count as fully added. */
 export async function changeStats(root: string): Promise<Record<string, LineStat>> {
-  const [stats, changes] = await Promise.all([trackedStats(root), changedFiles(root)]);
+  const [stats, changes] = await Promise.all([trackedStats(root), viewedChanges(root)]);
   await Promise.all(changes.filter(change => change.status === '?').map(async change => {
     try {
       const { bytes } = await readBytes(root, change.path);

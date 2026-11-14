@@ -2,11 +2,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { gitSync } from '../../infrastructure/git/process';
 import { invalidateFileCache } from './mentions';
+import { invalidateRepositoryState, watchRepositoryState } from './repository-state';
 
 import type { CodeChangeEvent } from '@contracts';
 export type { CodeChangeEvent } from '@contracts';
 interface Subscription { workspaceId?: string; projectId: string; notify: (event: CodeChangeEvent) => void }
-interface Entry { watchers: fs.FSWatcher[]; subscriptions: Set<Subscription>; timer?: NodeJS.Timeout }
+interface Entry { watchers: fs.FSWatcher[]; subscriptions: Set<Subscription>; timer?: NodeJS.Timeout; release?: () => void }
 const entries = new Map<string, Entry>();
 const excluded = new Set(['node_modules', 'dist', 'build', 'out', 'coverage', '.next', '.nuxt', '.venv', 'venv', '__pycache__', 'target']);
 
@@ -33,13 +34,18 @@ export function subscribeCode(root: string, projectId: string, notify: Subscript
     };
     const add = (directory: string, recursive: boolean, filter: (file: string) => boolean) => {
       const watcher = fs.watch(directory, { recursive }, (_event, file) => {
+        // Cached Git snapshots go stale with any event, even ones that do not notify the screen.
+        invalidateRepositoryState(root);
         if (!file || filter(file.toString())) changed();
       });
-      watcher.on('error', changed);
+      watcher.on('error', () => { invalidateRepositoryState(root); changed(); });
       current.watchers.push(watcher);
     };
     try {
-      if (process.platform === 'win32' || process.platform === 'darwin') add(root, true, relevantChange);
+      if (process.platform === 'win32' || process.platform === 'darwin') {
+        add(root, true, relevantChange);
+        current.release = watchRepositoryState(root);
+      }
       // Worktrees store HEAD/index outside the project. Watching the containing directory survives atomic replacement.
       const top = gitSync(root, ['rev-parse', '--show-toplevel']).trim();
       if (fs.realpathSync(top) !== root) throw new Error('Project is not a repository root');
@@ -63,6 +69,7 @@ export function subscribeCode(root: string, projectId: string, notify: Subscript
     if (entry!.subscriptions.size) return;
     if (entry!.timer) clearTimeout(entry!.timer);
     for (const watcher of entry!.watchers) watcher.close();
+    entry!.release?.();
     entries.delete(root);
   };
 }

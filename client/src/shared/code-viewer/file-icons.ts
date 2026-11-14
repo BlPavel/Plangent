@@ -47,8 +47,39 @@ export function folderIconName(name: string, open: boolean): string {
   return open ? base + '-opened' : base
 }
 
-/** Inline SVG markup for an icon name; the set is bundled (not user input), so it is safe for v-html. */
+const SVG = 'http://www.w3.org/2000/svg'
+const SPRITE_ID = 'cv-icon-sprite'
+const symbolId = (icon: string) => 'cv-icon-' + icon
+
+/**
+ * Puts the icon into one hidden sprite as a <symbol>, once. Rows then reference it with <use>
+ * instead of repeating paths that run to kilobytes. Gradient ids get the icon's prefix, since
+ * the symbols share one document.
+ */
+function registerIcon(icon: string): boolean {
+  if (typeof document === 'undefined' || !document.body) return false
+  const id = symbolId(icon)
+  if (document.getElementById(id)) return true
+  let sprite: Element | null = document.getElementById(SPRITE_ID)
+  if (!sprite) {
+    sprite = document.createElementNS(SVG, 'svg')
+    sprite.id = SPRITE_ID
+    sprite.setAttribute('aria-hidden', 'true')
+    // Not display:none: gradients inside a hidden sprite would not paint.
+    sprite.setAttribute('style', 'position:absolute;width:0;height:0;overflow:hidden')
+    document.body.prepend(sprite)
+  }
+  const symbol = document.createElementNS(SVG, 'symbol')
+  symbol.id = id
+  symbol.setAttribute('viewBox', `0 0 ${ICON_SET.size} ${ICON_SET.size}`)
+  symbol.innerHTML = ICON_SET.icons[icon].replace(/(id="|href="#|url\(#)(?=[^"#)])/g, `$1${id}-`)
+  sprite.appendChild(symbol)
+  return true
+}
+
+/** SVG markup for an icon name; the set is bundled (not user input), so it is safe for v-html. */
 export function iconSvg(icon: string): string {
-  const entry = ICON_SET.icons[icon] ?? ICON_SET.icons['default-file']
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${ICON_SET.size} ${ICON_SET.size}" width="1em" height="1em">${entry}</svg>`
+  const name = ICON_SET.icons[icon] ? icon : 'default-file'
+  const body = registerIcon(name) ? `<use href="#${symbolId(name)}"/>` : ICON_SET.icons[name]
+  return `<svg xmlns="${SVG}" viewBox="0 0 ${ICON_SET.size} ${ICON_SET.size}" width="1em" height="1em">${body}</svg>`
 }

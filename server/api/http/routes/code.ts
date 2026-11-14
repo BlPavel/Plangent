@@ -7,8 +7,9 @@ import path from 'node:path';
 import { getProject } from '../../../core/projects';
 import { codePath, fileTree, imageTypes, readBytes, readCodeFile } from '../../../core/files/files';
 import { DomainError } from '../../../models/domain-error';
-import { changedFiles, diffFile, listFiles, oldFile, repositoryInfo } from '../../../core/git/repo';;
+import { diffFile, listFiles, oldFile, repositoryInfo } from '../../../core/git/repo';;
 import { searchCode, searchPattern, type SearchOptions } from '../../../core/files/search';
+import { viewedChanges, visibleFiles } from '../../../core/files';
 import { localOrigin } from '../local-origin';
 
 export const codeRouter = Router({ mergeParams: true });
@@ -32,9 +33,9 @@ const flag = (req: Request, key: string) => {
 };
 
 codeRouterRoutes.json('GET /api/projects/:projectId/code/repository', async (req, res) => { try { return res.json(await repositoryInfo(root(req))); } catch (routeError) { return handleRouteError(routeError, res); } });
-codeRouterRoutes.json('GET /api/projects/:projectId/code/changes', async (req, res) => { try { return res.json(await changedFiles(root(req))); } catch (routeError) { return handleRouteError(routeError, res); } });
+codeRouterRoutes.json('GET /api/projects/:projectId/code/changes', async (req, res) => { try { return res.json(await viewedChanges(root(req))); } catch (routeError) { return handleRouteError(routeError, res); } });
 codeRouterRoutes.json('GET /api/projects/:projectId/code/stats', async (req, res) => { try { return res.json(await changeStats(root(req))); } catch (routeError) { return handleRouteError(routeError, res); } });
-codeRouterRoutes.json('GET /api/projects/:projectId/code/files', async (req, res) => { try { return res.json(await listFiles(root(req), flag(req, 'includeIgnored'))); } catch (routeError) { return handleRouteError(routeError, res); } });
+codeRouterRoutes.json('GET /api/projects/:projectId/code/files', async (req, res) => { try { return res.json(flag(req, 'includeIgnored') ? await listFiles(root(req), true) : await visibleFiles(root(req))); } catch (routeError) { return handleRouteError(routeError, res); } });
 codeRouterRoutes.json('GET /api/projects/:projectId/code/tree', async (req, res) => { try { return res.json(await fileTree(root(req), value(req, 'path'), flag(req, 'includeIgnored'))); } catch (routeError) { return handleRouteError(routeError, res); } });
 codeRouterRoutes.json('GET /api/projects/:projectId/code/file', async (req, res) => { try { return res.json(await readCodeFile(root(req), value(req, 'path'))); } catch (routeError) { return handleRouteError(routeError, res); } });
 codeRouterRoutes.file('GET /api/projects/:projectId/code/image', async (req, res) => { try { 
