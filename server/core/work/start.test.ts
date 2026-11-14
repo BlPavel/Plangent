@@ -1,11 +1,11 @@
 // @ts-nocheck -- This VM fixture deliberately supplies partial JavaScript module mocks.
 import { test } from 'node:test'
 import { createRequire } from 'node:module'
-const require = createRequire(__filename)
-const assert = require('node:assert/strict')
-const fs = require('node:fs')
-const vm = require('node:vm')
-const ts = require('typescript')
+const nodeRequire = createRequire(__filename)
+const assert = nodeRequire('node:assert/strict')
+const fs = nodeRequire('node:fs')
+const vm = nodeRequire('node:vm')
+const ts = nodeRequire('typescript')
 
 function fixture({ current = 'main', occupied = false, workspace = null, baseCommit = null } = {}) {
   const calls = []
@@ -23,7 +23,7 @@ function fixture({ current = 'main', occupied = false, workspace = null, baseCom
   }
   const exports = {}
   const code = ts.transpileModule(fs.readFileSync('server/core/work/start.ts', 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText
-  vm.runInNewContext(code, { exports, require: name => mocks[name] ?? require(name) })
+  vm.runInNewContext(code, { exports, require: name => mocks[name] ?? nodeRequire(name) })
   return { start: input => exports.prepareWork('task', input), calls, task }
 }
 

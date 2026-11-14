@@ -7,7 +7,7 @@ import { createRequire } from 'node:module';
 import ts from 'typescript';
 import type { PlanSaved } from './plan-events';
 
-const require = createRequire(__filename);
+const nodeRequire = createRequire(__filename);
 
 // Keep the real save/read policy with an isolated repository; no application database or Git.
 function fixture() {
@@ -30,7 +30,7 @@ function fixture() {
   const load = (name: string) => {
     if (name === '../../infrastructure/db/repositories/preparation/plans') return queries;
     if (name === './plan-events') return { emitPlanSaved: (event: PlanSaved) => events.push(event) };
-    return require(name);
+    return nodeRequire(name);
   };
   vm.runInThisContext('(function(require, module, exports) {' + source + '\n})')(load, module, module.exports);
   return { ...module.exports, events };
