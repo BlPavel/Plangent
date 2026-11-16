@@ -1,5 +1,5 @@
 <template>
-  <AppPopover :model-value="true" :anchor="anchor" :inline="!anchor" :position-override="anchor ? position : undefined" role="listbox" :label="title" @update:model-value="$emit('dismiss')">
+  <AppPopover :model-value="true" :anchor="anchor" :inline="!anchor" keep-on-tab :position-override="anchor ? position : undefined" role="listbox" :label="title" @update:model-value="$emit('dismiss')">
     <div ref="menu" class="suggest" :class="{ 'suggest-floating': anchor }" @mousedown.prevent>
       <div class="suggest-head">
         <span>{{ title }}</span>

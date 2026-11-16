@@ -4,9 +4,8 @@
       <p class="hint">Что поправить в Plangent в будущем — по пунктам, в свободной форме. Сохраняется автоматически.</p>
       <span class="status" :class="status">{{ statusLabel }}</span>
     </div>
-    <AppTextarea block mono
+    <AppTextarea block mono fill
       v-model="content"
-      class="notes-editor"
       spellcheck="false"
       :disabled="loading"
       placeholder="- Что поменять и почему&#10;- …"
@@ -84,6 +83,4 @@ onBeforeUnmount(() => {
 .hint { font-size: var(--fs-sm); color: var(--text-muted); margin: 0; }
 .status { font-size: var(--fs-sm); color: var(--text-muted); flex-shrink: 0; }
 .status.error { color: var(--danger-hover); }
-
-.editor-flex { flex: 1; }
 </style>

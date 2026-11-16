@@ -10,6 +10,8 @@ export interface PopoverOptions {
     minWidth?: number;
     maxWidth?: number;
     matchAnchor?: boolean;
+    /** Tab does not close the panel: focus stays in the anchor, which handles Tab itself (a suggestion list). */
+    keepOnTab?: boolean;
 }
 export function usePopover(open: Ref<boolean>, anchor: Ref<HTMLElement | null | undefined>, panel: Ref<HTMLElement | undefined>, options: () => PopoverOptions, close: () => void) {
     const style = ref<CSSProperties>({});
@@ -61,7 +63,7 @@ export function usePopover(open: Ref<boolean>, anchor: Ref<HTMLElement | null | 
         close();
         (anchor.value?.querySelector<HTMLElement>('button,input') ?? anchor.value)?.focus();
     }
-    else if (event.key === 'Tab')
+    else if (event.key === 'Tab' && !options().keepOnTab)
         close(); }
     function listen(on: boolean) {
         const method = on ? 'addEventListener' : 'removeEventListener';
