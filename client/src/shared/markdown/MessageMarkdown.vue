@@ -59,7 +59,10 @@ function openDocument(event: MouseEvent) {
 }
 .md :deep(pre code) { padding: 0; border: none; background: none; font-size: var(--fs-md); }
 .md :deep(table) { border-collapse: collapse; display: block; overflow-x: auto; font-size: var(--fs-md); }
-.md :deep(th), .md :deep(td) { padding: 6px 10px; border: 1px solid var(--border); text-align: left; }
+/* `anywhere` on .md would shrink columns to one letter; words break only in code (paths), where nothing else fits. */
+.md :deep(th), .md :deep(td) { padding: 6px 10px; border: 1px solid var(--border); text-align: left; vertical-align: top; overflow-wrap: break-word; }
+.md :deep(td code) { overflow-wrap: anywhere; }
+.md :deep(th:first-child), .md :deep(td:first-child) { min-width: 140px; }
 .md :deep(th) { background: var(--bg2); font-weight: var(--fw-semibold); }
 
 /* Mermaid: a diagram replaces its source; a broken one keeps the source with the message.

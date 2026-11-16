@@ -108,8 +108,10 @@ export async function restart(projectId: string, id: string) {
 export async function checkFixes(projectId: string, id: string) {
   const r = row(projectId, id);
   if (!r.published_head) throw new DomainError('Вы ещё не публиковали замечаний', 409);
-  const text = 'Проверь, исправлены ли мои опубликованные замечания (мои треды в threads и отправленные remarks) в коммитах после ' + r.published_head.slice(0, 12) +
-    ': по каждому — исправлено / частично / нет, коротко почему. Отдельно отметь новые проблемы в этих коммитах, если они есть.';
+  const text = 'Проверь исправления по моим замечаниям. Возьми ВСЕ треды из свежего get_review_brief (threads), включая появившиеся после первого ревью и уже отвеченные или закрытые, и все отправленные remarks. ' +
+    'Для каждого учти и изменения кода в коммитах после ' + r.published_head.slice(0, 12) + ' (git diff ' + r.published_head.slice(0, 12) + '..HEAD), и переписку в треде: ответ автора может объяснять, почему код не менялся, а мой комментарий может уточнять или снимать замечание. ' +
+    'Ответь одной таблицей Markdown из трёх колонок «Замечание» (не больше 8 слов), «Статус» (одно слово: Исправлено / Частично / Не исправлено / Объяснено / Снято) и «Что сейчас» (одно-два коротких предложения и `файл:строка`). ' +
+    'Не пропускай ни одного треда. Если в новых коммитах есть настоящие проблемы, которых нет среди замечаний, добавь их черновиками через add_review_remark и перечисли под таблицей.';
   const added = await questions.add(projectId, id, { text });
   const question = added.questions.at(-1)!;
   return questions.send(projectId, id, { question_ids: [question.id] });
