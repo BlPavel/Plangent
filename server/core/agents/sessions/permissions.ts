@@ -9,7 +9,7 @@ let hasCommandTool: (session: AgentSession) => boolean = () => false;
 /** Whether the session can run shell commands through Plangent's `run_command`; its own shell is then refused. */
 export function configureCommandTool(available: (session: AgentSession) => boolean): void { hasCommandTool = available; }
 export const commandToolAvailable = (session: AgentSession) => hasCommandTool(session);
-export const COMMAND_REDIRECT_REASON = 'Shell commands run through the Plangent run_command tool (heavy: true for tests, builds, linters and type checks). Use it instead of your own shell.';
+export const COMMAND_REDIRECT_REASON = 'Shell commands run through the Plangent run_command tool (heavy: true for tests, builds, linters and type checks). Use it instead of your own shell. Plain file reads, listings and searches (cat, Get-Content, ls, rg) may use your own shell.';
 import { isInside } from '../../shared';
 
 export const dangerousCommands = ['git push --force', 'git reset --hard', 'rm -rf', 'git clean -fd'];
@@ -53,6 +53,26 @@ export function shellGitDecision(tool: RequestPermissionRequest['toolCall']): 'a
   return found ? 'allow' : undefined;
 }
 
+const readUtilities = /^(?:cat|type|head|tail|ls|dir|tree|pwd|wc|rg|grep|findstr|get-content|gc|get-childitem|gci|select-string|sls|get-item|test-path|get-location)$/i;
+const shellWrapper = /^(?:"[^"]*[\\/])?(?:powershell|pwsh)(?:\.exe)?"?(?:\s+-\w+(?:\s+(?:Bypass|Unrestricted|RemoteSigned|Default))?)*\s+-c(?:ommand)?\s+([\s\S]+)$/i;
+/**
+ * One plain file-reading, listing or searching command (optionally wrapped in `powershell -Command`).
+ * Agents without a native read tool read files through their shell; this is not command execution
+ * for run_command's purposes. Operators, redirection, expansion and options that run or follow
+ * anything are not plain.
+ */
+export function isPlainReadCommand(command: unknown): boolean {
+  const joined = Array.isArray(command) && command.every(part => typeof part === 'string') ? command.join(' ') : command;
+  if (typeof joined !== 'string') return false;
+  let text = joined.trim();
+  const wrapped = shellWrapper.exec(text)?.[1].trim();
+  if (wrapped !== undefined) text = /^"[^"]*"$|^'[^']*'$/.test(wrapped) ? wrapped.slice(1, -1) : wrapped;
+  if (!/^[\w .,:@=+*?[\]\\/'"-]+$/.test(text)) return false;
+  const tokens = (text.match(/"[^"\n]*"|'[^'\n]*'|\S+/g) ?? []).map(t => t.replace(/^["']|["']$/g, ''));
+  if (!tokens.length || !readUtilities.test(tokens[0])) return false;
+  return !tokens.slice(1).some(t => /^--pre(?:-glob)?(?:=|$)|^--follow$|^-f$|^-wait$/i.test(t));
+}
+
 /** Files a tool call would touch, as the agent reported them (locations and diffs). */
 function touchedPaths(tool: RequestPermissionRequest['toolCall']): string[] {
   const fromContent = (tool.content ?? []).flatMap(c => (c.type === 'diff' ? [c.path] : []));
@@ -94,6 +114,7 @@ export function permissionDecision(policy: PermissionPolicy, request: RequestPer
   const command = raw && typeof raw === 'object' && Object.keys(raw).every(key => key === 'command') ? raw.command : undefined;
   if (gitDecision === 'allow' && tool.kind === 'execute' && typeof command === 'string'
       && /^git(?:[ \t]+[A-Za-z0-9_./:@=+\-]+)*[ \t]*$/.test(command)) return 'allow';
+  if (tool.kind === 'execute' && raw && typeof raw === 'object' && isPlainReadCommand(raw.command)) return 'allow';
   if (redirectCommands && tool.kind === 'execute') return 'deny';
   // The conflict resolver reads, runs read-only git and edits only the conflicted files; it never asks the developer.
   if (role === 'conflict-resolver') {

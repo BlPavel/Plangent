@@ -18,8 +18,11 @@ turn's Git permission and an ordinary project.
 
 Agents run shell commands through the Plangent MCP tool `run_command`
 (`sessions/shell-commands.ts`), not their own shell. Once a session has the
-tool, `permissionDecision` refuses the agent's native `execute` calls (a single
-read-only `git` command excepted) with a pointer to the tool. The tool applies
+tool, `permissionDecision` refuses the agent's native `execute` calls with a pointer
+to the tool, except a single read-only `git` command and one plain file read, listing
+or search (`isPlainReadCommand`: `cat`, `Get-Content`, `ls`, `rg` and similar, without
+operators, redirection, expansion or options that run or follow anything). Agents
+without a native read tool read files that way, in any policy. The tool applies
 the session policy like a native command: dangerous commands and every policy
 except `allow-all` ask the developer, read-only refuses. The folder must lie
 inside the session's folders. The agent marks a command `heavy` (default) or

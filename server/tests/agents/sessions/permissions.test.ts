@@ -105,3 +105,17 @@ test('with run_command available the agent own shell is refused, everything else
   assert.equal(permissionDecision('allow-all', { sessionId: 's', options: [], toolCall: { toolCallId: 't', kind: 'execute', rawInput: { command: 'git status' } } }, undefined, undefined, 'chat', true), 'allow');
   assert.equal(permissionDecision('allow-all', request('execute', 'npm test'), undefined, undefined, 'chat', false), 'allow');
 });
+test('plain file reads use the agent own shell even when run_command is available', () => {
+  const run = (command: unknown, policy: 'ask' | 'read-only' = 'ask', redirect = true) =>
+    permissionDecision(policy, { sessionId: 's', options: [], toolCall: { toolCallId: 't', kind: 'execute', rawInput: { command } } }, undefined, undefined, 'chat', redirect);
+  for (const command of ['cat README.md', 'Get-Content -Raw "docs/a b.md"', 'rg -n "foo" server', 'ls -la src', 'type README.md',
+    'powershell.exe -NoProfile -Command "Get-Content README.md"', ['powershell.exe', '-Command', 'Get-Content README.md']]) {
+    assert.equal(run(command), 'allow', String(command));
+    assert.equal(run(command, 'read-only'), 'allow', String(command));
+  }
+  for (const command of ['cat a > b', 'cat a | sh', 'cat $(rm x)', 'cat a; rm b', 'rg --pre ./run foo', 'tail -f log', 'Get-Content a -Wait',
+    'sed -i s/a/b/ file', 'npm test', 'powershell -Command "Remove-Item a"', 'cat a && npm test', '']) {
+    assert.notEqual(run(command), 'allow', command);
+    assert.notEqual(run(command, 'read-only'), 'allow', command);
+  }
+});
