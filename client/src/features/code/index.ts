@@ -23,3 +23,6 @@ export { threadState } from './utils/thread'
 export type { ThreadState } from './utils/thread'
 
 export { codeEndpoints } from './api'
+
+// TEMPORARY: design mockup route, removed after approval.
+export const codeMockupRoutes = [{ path: '/dev/review-mockup', component: () => import('./views/ReviewListMockup.vue') }]

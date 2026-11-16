@@ -1,13 +1,18 @@
 <template>
   <div class="et" :class="{ resolved: thread.resolved }">
     <div class="et-head">
-      <AppBadge  title="Комментарий из GitLab, не тред с агентом">GitLab</AppBadge>
-      <span class="et-state" :class="state.tone">{{ state.label }}</span>
-      <span class="et-spacer" />
-      <AppButton variant="link" size="xs" v-if="canDiscuss" type="button"  title="Создать пункт ревью с этим комментарием и разобрать его с агентом" @click="emit('discuss', thread)">Разобрать с агентом</AppButton>
-      <AppButton variant="link" size="xs" type="button"  :disabled="resolving" :title="thread.resolved ? 'Снова открыть обсуждение в GitLab' : 'Пометить обсуждение решённым в GitLab'" @click="toggleResolved">{{ thread.resolved ? 'Открыть снова' : 'Решено' }}</AppButton>
-      <AppButton variant="link" size="xs" v-if="!replying" type="button"  @click="replying = true">Ответить</AppButton>
+      <div class="et-toggle" :class="{ folded: !open }" role="button" tabindex="0" :aria-expanded="open" :title="open ? 'Свернуть' : 'Развернуть'" @click="open = !open" @keydown.enter.self.prevent="open = !open" @keydown.space.self.prevent="open = !open">
+        <AppBadge title="Комментарий из GitLab, не тред с агентом">GitLab</AppBadge>
+        <span class="et-state" :class="state.tone">{{ state.label }}</span>
+        <span v-if="!open" class="et-summary">{{ summary }}</span>
+      </div>
+      <template v-if="open">
+        <AppButton variant="link" size="xs" v-if="canDiscuss" type="button"  title="Создать пункт ревью с этим комментарием и разобрать его с агентом" @click="emit('discuss', thread)">Разобрать с агентом</AppButton>
+        <AppButton variant="link" size="xs" type="button"  :disabled="resolving" :title="thread.resolved ? 'Снова открыть обсуждение в GitLab' : 'Пометить обсуждение решённым в GitLab'" @click="toggleResolved">{{ thread.resolved ? 'Открыть снова' : 'Решено' }}</AppButton>
+        <AppButton variant="link" size="xs" v-if="!replying" type="button"  @click="replying = true">Ответить</AppButton>
+      </template>
     </div>
+    <template v-if="open">
     <AppButton v-if="showLocation && thread.path" class="et-place" variant="link" size="xs" block start multiline type="button" :title="thread.path" @click="emit('goto')"><span class="et-path">{{ thread.path }}<template v-if="thread.line">:{{ thread.line }}</template></span></AppButton>
     <div v-for="note in thread.notes" :key="note.id" class="et-note">
       <div class="et-note-head">
@@ -39,6 +44,7 @@
       </div>
       <div v-if="error" class="et-error">{{ error }}</div>
     </form>
+    </template>
   </div>
 </template>
 
@@ -56,6 +62,13 @@ const props = defineProps<{ thread: ExternalThread; showLocation?: boolean; canD
 const emit = defineEmits<{ goto: []; discuss: [thread: ExternalThread] }>()
 const store: ExternalThreadActions = props.actions ?? useExternalThreadsStore()
 const app = useAppStore()
+/** Expanded by default; folding leaves one line (state and the start of the comment), like a review item. */
+const open = ref(true)
+const summary = computed(() => {
+  const note = props.thread.notes[0]
+  const place = props.showLocation && props.thread.path ? props.thread.path.slice(props.thread.path.lastIndexOf('/') + 1) + (props.thread.line ? ':' + props.thread.line : '') + ' · ' : ''
+  return note ? place + note.author + ': ' + note.body.replace(/\s+/g, ' ').trim() : place
+})
 const replying = ref(false), text = useDraft(() => `external-thread:${props.thread.id}:reply:text`, () => ''), busy = ref(false), error = ref(''), resolving = ref(false)
 
 /** Where the discussion stands: closed, waiting for the developer's answer or answered and waiting for the colleague. */
@@ -102,7 +115,10 @@ async function send() {
 .et.resolved { opacity: 0.7; border-left-color: var(--border-strong); }
 .et-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .et-badge { padding: 0 6px; font-size: var(--fs-xs); font-weight: 600; border-radius: var(--radius-pill); background: var(--bg3); color: var(--text-muted); }
-.et-spacer { flex: 1; }
+.et-toggle { display: flex; align-items: center; gap: 6px; flex: 1 1 auto; cursor: pointer; outline: none; }
+.et-toggle:focus-visible { outline: var(--focus-outline); outline-offset: 2px; }
+.et-toggle.folded { flex-basis: 0; min-width: 0; }
+.et-summary { flex: 1 1 0; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; line-height: var(--lh-normal); color: var(--text); }
 .et-after { margin-top: 6px; }
 .et-state { font-size: var(--fs-xs); color: var(--text-muted); }
 .et-state.wait { color: var(--warning-text); font-weight: 600; }

@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { agentRoutes } from '@features/agents'
+import { codeMockupRoutes } from '@features/code'
 import { libraryRoutes } from '@features/library'
 import { projectRoutes } from '@features/projects'
 import { settingsRoutes } from '@features/settings'
@@ -13,5 +14,6 @@ export default createRouter({
     ...settingsRoutes,
     ...agentRoutes,
     ...libraryRoutes,
+    ...codeMockupRoutes,
   ],
 })

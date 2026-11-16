@@ -196,7 +196,7 @@ async function submitFollowUp() {
 .work-owner { width: 190px; }
 .work-search { margin-left: auto; flex: 0 0 220px; }
 .work-groups { display: flex; flex-direction: column; flex: 1; overflow: auto; padding: 0 var(--page-inset, 16px) 16px; }
-.work-empty { display: flex; flex: 1; min-height: 0; }
+.work-empty { display: grid; flex: 1; min-height: 0; }
 .work-error { color: var(--danger-hover); }
 .work-group h3 { margin: 14px 0 6px; font-size: var(--fs-sm); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
 .work-group h3.attention { color: var(--warning-text); }
