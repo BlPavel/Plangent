@@ -49,6 +49,8 @@ export interface FinishRun {
     pushed: boolean;
     mr_url: string | null;
     mr_draft: FinishMrDraft | null;
+    /** Files a git hook changed right after a commit; set until the user adopts the changes or cancels. */
+    hook_changes: string[];
     created_at: string;
     updated_at: string;
 }
@@ -125,6 +127,8 @@ export type FinishGETIdContextResponse = {
 export type FinishPUTIdCommitsBody = {
     commits: C.FinishCommit[];
     overrideForbidden?: boolean;
+    /** Commit without running the repository's git hooks. Only the user may ask for it, never the agent. */
+    skipHooks?: boolean;
 };
 export type FinishPUTIdMergeRequestBody = C.FinishMrDraft;
 export type FinishPOSTIdReviseBody = {
@@ -132,6 +136,10 @@ export type FinishPOSTIdReviseBody = {
 };
 export type FinishPOSTIdRollbackBody = {
     confirmed: boolean;
+};
+export type FinishPOSTIdCancelBody = {
+    /** Also remove the commits this finish created (the files stay in the working folder). */
+    reset?: boolean;
 };
 export interface FinishEndpoints {
     "GET /api/projects/:projectId/finish": Endpoint<"GET /api/projects/:projectId/finish", never, null | C.FinishRun, {
@@ -162,6 +170,12 @@ export interface FinishEndpoints {
         "workspace"?: string;
     }, "json", never>;
     "POST /api/projects/:projectId/finish/:id/rollback": Endpoint<"POST /api/projects/:projectId/finish/:id/rollback", FinishPOSTIdRollbackBody, C.FinishRun, {
+        "workspace"?: string;
+    }, "json", never>;
+    "POST /api/projects/:projectId/finish/:id/cancel": Endpoint<"POST /api/projects/:projectId/finish/:id/cancel", FinishPOSTIdCancelBody, C.FinishRun, {
+        "workspace"?: string;
+    }, "json", never>;
+    "POST /api/projects/:projectId/finish/:id/adopt-hook-changes": Endpoint<"POST /api/projects/:projectId/finish/:id/adopt-hook-changes", never, C.FinishRun, {
         "workspace"?: string;
     }, "json", never>;
     "POST /api/projects/:projectId/finish/:id/cancel-operation": Endpoint<"POST /api/projects/:projectId/finish/:id/cancel-operation", never, void, {

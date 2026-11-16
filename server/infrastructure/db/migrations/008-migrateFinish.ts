@@ -52,8 +52,23 @@ export function migrateFinish(db: Database.Database): void {
   db.exec("DROP INDEX IF EXISTS finish_one_active; CREATE UNIQUE INDEX finish_one_active ON finish_runs(project_id, coalesce(workspace_id, '')) WHERE status NOT IN ('complete','cancelled')");
   // The MR title and description the user confirms together with the commits.
   if (!(db.prepare('PRAGMA table_info(finish_runs)').all() as { name: string }[]).some(column => column.name === 'mr_draft')) db.exec('ALTER TABLE finish_runs ADD COLUMN mr_draft TEXT');
+  // Files a git hook changed after a commit: the user decides whether they belong to the commits.
+  if (!(db.prepare('PRAGMA table_info(finish_runs)').all() as { name: string }[]).some(column => column.name === 'hook_changes'))
+    db.exec("ALTER TABLE finish_runs ADD COLUMN hook_changes TEXT NOT NULL DEFAULT '[]'");
   db.exec(`
     UPDATE finish_runs SET status='error', error='Приложение перезапущено. Проверьте коммиты и продолжите завершение.' WHERE status='running';
   `);
+  cancelOrphanFinishes(db);
+}
+/**
+ * A finish whose task or working folder is gone can never be continued, yet it would still count as the project's active finish
+ * (a deleted task leaves task_id empty, a removed working folder is no longer listed as active).
+ */
+export function cancelOrphanFinishes(db: Database.Database): number {
+  // On a new database the workspaces table is created after this migration, and then there is nothing to cancel.
+  const folders = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='workspaces'").get()
+    ? " OR (workspace_id IS NOT NULL AND workspace_id NOT IN (SELECT id FROM workspaces WHERE status<>'removed'))" : '';
+  return db.prepare(`UPDATE finish_runs SET status='cancelled', error='Задача или рабочее место удалены: завершение отменено.', updated_at=datetime('now')
+    WHERE status NOT IN ('complete','cancelled') AND ((task_id IS NULL AND json_extract(options,'$.task_id') IS NOT NULL)${folders})`).run().changes;
 }
 

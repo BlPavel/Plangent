@@ -94,6 +94,13 @@ test('with run_command available the agent own shell is refused, everything else
     assert.equal(permissionDecision(policy, request('execute', 'npm test'), undefined, undefined, 'chat', true), 'deny', policy);
     assert.equal(permissionDecision(policy, request('execute', 'rm -rf build'), undefined, undefined, 'chat', true), 'deny', policy);
     assert.equal(permissionDecision(policy, request('read', 'Read file'), undefined, undefined, 'chat', true), policy === 'ask' ? 'ask' : 'allow', policy);
+    for (const role of ['chat', 'errand', 'executor']) {
+      const edit: RequestPermissionRequest = { sessionId: 's', options: [], toolCall: { toolCallId: 'edit', kind: 'edit',
+        locations: [{ path: 'src/file.ts' }], content: [{ type: 'diff', path: 'src/file.ts', oldText: 'before', newText: 'after' }] } };
+      const scope = { writable: [path.resolve('repo')] };
+      assert.equal(permissionDecision(policy, edit, undefined, scope, role, true), policy === 'ask' ? 'ask' : 'allow', role + ': ' + policy);
+      assert.equal(permissionDecision('read-only', edit, undefined, scope, role, true), 'deny', role);
+    }
   }
   assert.equal(permissionDecision('allow-all', { sessionId: 's', options: [], toolCall: { toolCallId: 't', kind: 'execute', rawInput: { command: 'git status' } } }, undefined, undefined, 'chat', true), 'allow');
   assert.equal(permissionDecision('allow-all', request('execute', 'npm test'), undefined, undefined, 'chat', false), 'allow');

@@ -20,7 +20,7 @@ export function workEntry(taskId: string) {
   // The errand's chat waits for the developer's first message (history is read only for such a fresh chat).
   const awaitingBrief = sessions.some(s => s.role === 'errand' && s.metadata.awaiting_brief && !history(s.id).some(e => e.type === 'user'));
   const queue = getQueue(task.id, task.project_id);
-  // Проверка opens once the agent has done the work: an errand's turn ended, a plan's queue was launched at least once
+  // Проверка opens once the agent has done the work: an errand was explicitly completed, a plan's queue was launched at least once
   // (the state keeps it closed while a queue runs) or the work was checked already.
   const workDone = task.kind === 'errand'
     ? sessions.some(s => s.role === 'errand' && (s.metadata.work_done || s.metadata.auto_review_turn || s.status === 'complete'))

@@ -28,8 +28,10 @@ pick, else the review agent chosen when the work was created (`tasks.review_agen
 session's metadata; also used by the automatic review), else the project's review agent from the settings. The task brief always carries
 `developer_requests`: the developer's own messages to the errand/task/executor chats, the statement the reviewer
 checks against. A range with no changes does not start.
-An errand with `auto_review` gets one automatic review, after the agent's first finished turn: that turn sets
-`work_done` in the errand session's metadata, later turns are follow-ups and launch nothing. A task with a plan gets
+An errand is completed explicitly through `complete_step`; ordinary replies, discussions, clarification
+questions and progress reports leave it in progress. After that tool's turn finishes without cancellation or
+error, the errand sets `work_done` in its session's metadata and, with `auto_review`, starts one automatic review.
+Later turns are follow-ups and launch nothing. A task with a plan gets
 the same review (`core/work/plan-tasks.ts`) after its queue first finishes without failures; it runs only while the
 task has no review yet. The queue itself carries no automatic review stage. Both kinds choose their branch at
 creation (`POST /api/projects/:projectId/errands`, `.../plan-tasks`) through `core/work/place.ts`. An errand chooses

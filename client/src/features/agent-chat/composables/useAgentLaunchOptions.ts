@@ -5,8 +5,8 @@ import { useChatStore } from '../stores/sessions'
 
 /**
  * The agent's own models, modes and reasoning levels for a session about to start, and the developer's picks.
- * Until something is picked, a select shows what Plangent applies on start: mode «default», the model and
- * reasoning depth from the agent's settings, else the agent's own default.
+ * The mode stays automatic until explicitly picked; the server resolves it from the session's permissions.
+ * Model and reasoning depth come from the agent's settings, else the agent's own default.
  */
 export function useAgentLaunchOptions(agentId: Ref<string>, preset?: () => { agentId?: string | null; model?: string; effort?: string }) {
   const store = useChatStore(), agents = useAgentsStore()
@@ -19,7 +19,7 @@ export function useAgentLaunchOptions(agentId: Ref<string>, preset?: () => { age
   function choice(select: AgentSelect) {
     if (choices.value[select.configId]) return choices.value[select.configId]
     const offered = (v: string | undefined) => !!v && select.options.some(o => o.value === v)
-    if (select.kind === 'mode') return ['default', 'read-only'].find(offered) ?? select.current
+    if (select.kind === 'mode') return ''
     // A preset (the review agent of the settings) speaks only for its own agent.
     const wanted = preset?.()
     const own = wanted && wanted.agentId === agentId.value ? wanted : null
@@ -30,10 +30,16 @@ export function useAgentLaunchOptions(agentId: Ref<string>, preset?: () => { age
     if (select.category === 'thought_level' && offered(agent?.reasoning_effort)) return agent!.reasoning_effort
     return select.current
   }
-  const resolvedSelects = computed(() => selects.value.map(s => ({ ...s, current: choice(s) })))
+  const resolvedSelects = computed(() => selects.value.map(s => ({
+    ...s, current: choice(s),
+    ...(s.kind === 'mode' ? { options: [
+      { value: '', label: 'Автоматически', description: 'Режим определяется выбранными разрешениями сессии' },
+      ...s.options,
+    ] } : {}),
+  })))
   watch(agentId, id => { choices.value = {}; if (id && !store.agentOptions[id]) void store.fetchAgentOptions(id) }, { immediate: true })
 
-  /** What the session starts with: model and mode always (the server would otherwise apply its defaults), config only when chosen. */
+  /** An empty mode leaves selection to the server; only an explicit pick becomes a mode preference. */
   function launch() {
     const modelSelect = selects.value.find(s => s.kind === 'model'), modeSelect = selects.value.find(s => s.kind === 'mode')
     return {

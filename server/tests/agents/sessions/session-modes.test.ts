@@ -39,6 +39,7 @@ test('ACP applies the execution mode on start, after discussion and after restor
   process.env.PLANGENT_DATA_DIR = temp;
   const { getDb } = await import('../../../infrastructure/db/schema');
   const sessions = await import('../../../core-services').then(() => import('../../../core/agents/sessions/sessions'));
+  const { createAgentSession } = await import('../../../core/agents');
   const host = await import('../../../core-services').then(() => import('../../../core/agents/sessions/acp-host'));
   const { createAgent } = await import('../../../core-services').then(() => import('../../../core/agents/catalog'));
   const { createProject } = await import('../../../core-services').then(() => import('../../../core/projects'));
@@ -71,6 +72,18 @@ test('ACP applies the execution mode on start, after discussion and after restor
       await host.closeSession(fixer.id);
       await host.startSession(fixer.id);
       assert.equal(fixerMode(), 'workspace-write', 'restoring an old session also repairs the mode');
+      for (const role of ['chat', 'errand'] as const) {
+        const chat = createAgentSession({ project_id: project.id, agent_id: agent.id, role, policy: 'allow-all', mode: '' });
+        assert.equal(chat.metadata.preferredMode, undefined, 'automatic mode is not an explicit preference');
+        const chatMode = () => (sessions.getSession(chat.id).metadata.configOptions as { currentValue: string }[])[0].currentValue;
+        await host.startSession(chat.id);
+        assert.equal(chatMode(), 'workspace-write', role + ' automatically permits native file edits');
+        await host.setMode(chat.id, 'read-only');
+        await host.closeSession(chat.id);
+        await host.startSession(chat.id);
+        assert.equal(chatMode(), 'read-only', role + ' keeps an explicit read-only choice after restart');
+        await host.closeSession(chat.id);
+      }
       const discussion = sessions.createSession({ project_id: project.id, agent_id: agent.id, role: 'executor', policy: 'read-only', metadata: { preferredMode: 'discuss' } });
       await host.startSession(discussion.id);
       await host.enableExecution(discussion.id, 'allow-all');

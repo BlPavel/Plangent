@@ -42,7 +42,7 @@ export const useFinishStore = defineStore('finish', () => {
   } finally { if (mine === version) busy.value = false }
  }
  const start = (options: FinishOptions) => mutate((p, w) => finishApi.start(p, options, w))
- const save = (commits: FinishCommit[]) => { const id = run.value!.id; return mutate((p, w) => finishApi.commits(p, id, commits, w)) }
+ const save = (commits: FinishCommit[], skipHooks = false) => { const id = run.value!.id; return mutate((p, w) => finishApi.commits(p, id, commits, w, skipHooks)) }
  const saveMr = (draft: MrDraft) => { const id = run.value!.id; return mutate((p, w) => finishApi.mergeRequest(p, id, draft, w)) }
  const action = (name: string, data: object = {}) => { const id = run.value!.id; return mutate((p, w) => finishApi.action(p, id, name, data, w)) }
  return { projectId, scope, run, runs, busy, error, load, start, save, saveMr, action }

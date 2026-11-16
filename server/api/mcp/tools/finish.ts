@@ -3,7 +3,7 @@ import type { AgentSession } from '../../../core/agents';
 import { defineTools, type ToolEvent } from './types';
 const definitions = {
 get_finish_context: { description: 'Read changed files, diffs, commit rules, task context, options and user revision note. Call first.', fields: {} },
-set_commits: { description: 'Submit the full commit list. Include each changed file exactly once. Plangent creates commits. Correct errors and retry.', fields: {
+set_commits: { description: 'Submit the full commit list. Include each changed file exactly once. Plangent creates commits. Correct errors and retry. If git or a repository hook rejects a commit, the error carries the hook output: when the reason is the title or description, fix it and call again (a few attempts only); when it is anything else, stop and tell the developer.', fields: {
     commits: { type: 'array', minItems: 1, items: { type: 'object', additionalProperties: false, required: ['files','title'], properties: {
       files: { type: 'array', minItems: 1, items: { type: 'string' } }, title: { type: 'string' }, body: { type: 'string' },
     } } },

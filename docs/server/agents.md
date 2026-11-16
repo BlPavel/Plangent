@@ -29,8 +29,17 @@ in memory). The limit is the app setting `command_slots`; empty means a quarter
 of the cores, at least two. Output is cleaned and shortened
 (`output-trim.ts` keeps the start and the end); the full log stays in a
 temporary file for `command_output`. Queue timeout, run timeout and
-cancellation are separate result statuses, not exit codes. ACP `terminal` is
-not used: the Claude and Codex adapters never call it.
+cancellation are separate result statuses, not exit codes. File reads and edits use the
+agent's native file tools under the session's file permissions; command redirection does
+not require a read-only sandbox and does not put file operations in the command queue.
+ACP `terminal` is not used: the Claude and Codex adapters never call it.
+
+New-session pickers leave the mode automatic unless the developer explicitly selects one.
+An empty mode is not a saved preference: the server selects a compatible mode from the
+session's policy (workspace writes for allow-edits/allow-all when available). The mode
+reported by an options probe must not become an implicit read-only preference. Explicit
+read-only/discussion choices remain effective for ordinary chats and errands. Existing
+sessions keep their saved choices; change their mode explicitly when needed.
 
 An errand's chat can change its agent (`POST /api/agent-sessions/:id/agent`,
 `switchAgent`): between turns only. The old process stops, `acp_session_id` and

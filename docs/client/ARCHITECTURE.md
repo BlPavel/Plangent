@@ -19,6 +19,11 @@ Client code never imports `server/`.
 Features may import it directly for library types, sections and labels. It has
 no application dependencies; `contracts/` remains declarations only.
 
+New-session mode selection in `features/agent-chat` starts at <Автоматически>.
+Only an explicit mode pick is sent as a preference; an empty mode lets the server
+resolve it from session permissions. Keep the options probe's current mode separate
+from the developer's choice. Model and reasoning presets still apply normally.
+
 Put routed screens in `views/`, embedded components in `components/`, domain
 stores in the feature's `stores/`. Global application state belongs in `core/stores`.
 The router is assembled in `app/router.ts` from feature route arrays.

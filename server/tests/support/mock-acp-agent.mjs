@@ -64,6 +64,10 @@ agent({ name: 'mock' })
         body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: { summary: 'Done' } } }) });
       const result = await response.json();
       if (!response.ok || result.error || result.result?.isError) throw new Error(JSON.stringify(result));
+      if (text.includes('fail after complete_step tool')) throw new Error('Failure after completion');
+      if (text.includes('hold after complete_step tool')) {
+        while (!cancelled) await new Promise(resolve => setTimeout(resolve, 20));
+      }
     }
     return { stopReason: cancelled ? 'cancelled' : 'end_turn' };
   })

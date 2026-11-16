@@ -9,7 +9,7 @@ import { isInside } from '../shared';
 import { getWorkspace, updateWorkspace } from './store';
 import { workspaceEnv } from './ports';
 import { syncWorkspaceLibrary } from '../library';
-import { serializeGit } from '../../infrastructure/git/write';
+import { serializeGit, runGit } from '../../infrastructure/git/write';
 
 /** Common shell globs, also on Electron's Node versions without fs.glob. */
 function globRegex(pattern: string): RegExp {
@@ -87,6 +87,26 @@ export async function copyWorkspaceFiles(source: string, destination: string, pa
       }
     }
     await visit(parts.slice(0, firstWildcard).join('/'));
+  }
+}
+
+/**
+ * Hooks kept inside the project (`core.hooksPath = .husky`) may need files that git ignores and a tool generates (husky's `_` folder).
+ * A new worktree only gets the tracked ones, so its commits fail in the hook. Whatever the tool is, the ignored files of the hooks
+ * folder are copied from the main folder; the tracked hook scripts stay as the branch has them.
+ */
+export async function copyHookSupportFiles(source: string, destination: string, log: (text: string) => void): Promise<void> {
+  const configured = (await runGit(source, ['config', '--get', 'core.hooksPath']).catch(() => '')).trim();
+  if (!configured || path.isAbsolute(configured)) return;
+  const directory = path.relative(source, path.resolve(source, configured)).replace(/\\/g, '/');
+  if (!directory || directory.startsWith('..')) return;
+  const ignored = (await runGit(source, ['ls-files', '--others', '--ignored', '--exclude-standard', '-z', '--', directory])).split('\0').filter(Boolean);
+  for (const relative of ignored) {
+    const from = await safePath(source, relative), to = await safePath(destination, relative);
+    if (!(await fs.lstat(from)).isFile()) continue;
+    await fs.mkdir(path.dirname(to), { recursive: true });
+    await fs.copyFile(from, to);
+    log('Copied ' + relative + ' (git hooks)\n');
   }
 }
 
@@ -206,6 +226,7 @@ async function prepare(id: string, options: { timeoutMs?: number; signal?: Abort
   try {
     options.signal?.throwIfAborted();
     await copyWorkspaceFiles(project.repo_path, workspace.path, settings.workspace_copy_files, log);
+    await copyHookSupportFiles(project.repo_path, workspace.path, log).catch(error => log('Git hooks files were not copied: ' + String(error) + '\n'));
     await linkWorkspaceDirs(project.repo_path, workspace.path, settings.workspace_link_dirs, log, options.signal);
     if (settings.workspace_setup_command.trim()) {
       log('$ ' + settings.workspace_setup_command + '\n');

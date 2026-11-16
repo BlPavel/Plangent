@@ -7,7 +7,7 @@ import path from 'node:path';
 import { codePath } from '../../../infrastructure/files/code-path';
 
 /** The only application commit path, also reused by finish. Settings are resolved inside the queue. */
-export async function commit(root: string, input: CommitMessageInput, getSettings: () => GitSettings, options: GitOperationOptions = {}, overrideForbidden = false, paths?: string[]) {
+export async function commit(root: string, input: CommitMessageInput, getSettings: () => GitSettings, options: GitOperationOptions = {}, overrideForbidden = false, paths?: string[], skipHooks = false) {
   return serializeGit(root, async () => {
     await check(root, options, true);
     await assertNoGitOperation(root);
@@ -23,7 +23,8 @@ export async function commit(root: string, input: CommitMessageInput, getSetting
     if (paths !== undefined && (!Array.isArray(paths) || !paths.length || paths.length > 10000 || paths.some(file => typeof file !== 'string'))) throw new DomainError('Choose files');
     const selected = paths?.map(file => path.relative(root, codePath(root, file)).replace(/\\/g, '/'));
     if (selected) await stage(root, selected, options);
-    return run(root, ['commit', '--cleanup=verbatim', '--file=-', ...(selected ? ['--only', '--', ...selected.map(file => `:(literal)${file}`)] : [])], options, message + '\n');
+    // Hooks are the team's own checks: they are skipped only when the developer explicitly asked for it after a failure.
+    return run(root, ['commit', '--cleanup=verbatim', '--file=-', ...(skipHooks ? ['--no-verify'] : []), ...(selected ? ['--only', '--', ...selected.map(file => `:(literal)${file}`)] : [])], options, message + '\n');
   });
 }
 

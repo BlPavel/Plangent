@@ -34,22 +34,25 @@ test('execution roots, errands, task chats and independent review rounds', async
   const { getOrchestrator } = await import('../../core-services').then(() => import('../../core/execution/orchestrator'));
   const { orchestratorRouter } = await import('../../core-services').then(() => import('../../api/http/routes/orchestrator'));
   const { workRouter } = await import('../../core-services').then(() => import('../../api/http/routes/work'));
-  const { sessionMcpConfig, allowed } = await import('../../core-services').then(() => import('../../api/mcp/server'));
+  const { sessionMcpConfig, allowed, mcpRouter } = await import('../../core-services').then(() => import('../../api/mcp/server'));
   sessions.initSessions(); queues.initQueues();
   host.configureSessionHost({ mcp: sessionMcpConfig, terminate: killProcessTree });
   const agent = createAgent({ name: 'Workflow fixture', command: process.execPath, acp_command: process.execPath,
     acp_args: [path.resolve('server/tests/support/mock-acp-agent.mjs'), '--inspect-workspace', '--hold-task-review'] });
+  const completionAgent = createAgent({ name: 'Completion fixture', command: process.execPath, acp_command: process.execPath,
+    acp_args: [path.resolve('server/tests/support/mock-acp-agent.mjs'), '--hold-task-review'] });
   const repo = path.join(temporary, 'repo'); fs.mkdirSync(repo);
   git(repo, 'init', '-b', 'main'); git(repo, 'config', 'user.name', 'Test'); git(repo, 'config', 'user.email', 'test@example.invalid');
   fs.writeFileSync(path.join(repo, 'code.txt'), 'base\n'); git(repo, 'add', '.'); git(repo, 'commit', '-m', 'Fixture');
   const remote = path.join(temporary, 'remote.git');
   git(repo, 'init', '--bare', remote); git(repo, 'remote', 'add', 'origin', remote); git(repo, 'push', '-u', 'origin', 'main');
   const project = projects.createProject({ name: 'Execution', repo_path: repo, default_agent_id: agent.id, git_settings: { base_branch: 'main' } });
-  const app = express(); app.use(express.json());
+  const app = express(); app.use(express.json()); app.use('/mcp', mcpRouter);
   app.use('/projects/:projectId', workRouter);
   app.use('/projects/:projectId/tasks/:taskId', orchestratorRouter);
   const server = app.listen(0, '127.0.0.1'); await once(server, 'listening');
   const base = 'http://127.0.0.1:' + (server.address() as { port: number }).port;
+  const previousUrl = process.env.PLANGENT_URL; process.env.PLANGENT_URL = base;
   const post = (url: string, body: object = {}) => fetch(base + url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const until = async (check: () => boolean) => {
     const deadline = Date.now() + 15000;
@@ -95,7 +98,7 @@ test('execution roots, errands, task chats and independent review rounds', async
     await t.test('errand runs in workspace, keeps the developer\'s title and chat stays the same', async () => {
       const workspace = workspaces.activeWorkspace(errand.task.id)!;
       assert.equal(workspace.status, 'ready'); assert.ok(allowed(errand.session).includes('complete_step'));
-      await until(() => ['ready', 'complete'].includes(sessions.getSession(errand.session.id).status));
+      await until(() => sessions.history(errand.session.id).some(e => e.type === 'turn_end'));
       const report = sessions.history(errand.session.id).filter(e => e.type === 'assistant').map(e => e.payload.text).join('');
       assert.equal(JSON.parse(report).cwd, workspace.path);
       assert.equal(tasks.getTask(errand.task.id)?.title, 'Correct card spacing');
@@ -179,11 +182,11 @@ test('execution roots, errands, task chats and independent review rounds', async
       assert.equal(payload.task.kind, 'errand'); assert.equal(payload.task.status, 'in_progress');
       assert.equal(payload.session, undefined);
       const chat = () => sessions.listSessions(project.id).find(s => s.task_id === payload.task.id && s.role === 'errand');
-      await until(() => chat()?.status === 'complete');
+      await until(() => !!chat() && sessions.history(chat()!.id).some(e => e.type === 'turn_end'));
       assert.equal(workspaces.activeWorkspace(payload.task.id)!.status, 'ready');
       const { workEntry } = await import('../../core/work');
-      await until(() => chat()?.metadata.work_done === true);
-      assert.equal(workEntry(payload.task.id).state.canCheck, true);
+      assert.equal(chat()?.metadata.work_done, undefined);
+      assert.equal(workEntry(payload.task.id).state.canCheck, false);
     });
     await t.test('an errand from a number and description waits for the request in its chat', async () => {
       const errand = await createErrand(project.id, { title: 'Profile layout', external_key: 'PROJ-7', agent_id: agent.id, policy: 'ask', branch_name: 'fix/profile-layout' });
@@ -228,21 +231,73 @@ test('execution roots, errands, task chats and independent review rounds', async
       await taskReview.submitTaskReview(reviewers()[0], 'Plan review complete');
       await host.closeSession(reviewers()[0].id);
     });
-    await t.test('automatic errand review runs once after a normal turn', async () => {
-      const errand = await createErrand(project.id, { text: 'Review this automatically', agent_id: agent.id, auto_review: true });
+    await t.test('errand discussions do not complete work; explicit completion starts one automatic review', async () => {
+      const errand = await createErrand(project.id, { text: 'Let us discuss the change', agent_id: completionAgent.id,
+        auto_review: true, review_agent: { agent_id: agent.id } });
+      const id = errand.session.id;
       const reviewers = () => sessions.listSessions(project.id).filter(s => s.task_id === errand.task.id && s.role === 'task-reviewer');
+      const { workEntry } = await import('../../core/work');
+      await until(() => sessions.getSession(id).status === 'ready' && sessions.history(id).some(e => e.type === 'turn_end'));
+      fs.writeFileSync(path.join(workspaces.activeWorkspace(errand.task.id)!.path, 'code.txt'), 'changed before completion\n');
+      for (const text of ['Which approach should we use?', 'Here is the progress so far']) {
+        await host.sendPrompt(id, [{ type: 'text', text }]);
+        await until(() => sessions.getSession(id).status === 'ready' && sessions.history(id).some(e => e.type === 'turn_end'));
+        assert.equal(sessions.getSession(id).metadata.work_done, undefined);
+        assert.equal(workEntry(errand.task.id).state.canCheck, false);
+        assert.equal(reviewers().length, 0);
+      }
+      await host.sendPrompt(id, [{ type: 'text', text: 'Use the complete_step tool now' }]);
       await until(() => reviewers().length === 1 && sessions.getSession(reviewers()[0].id).status === 'thinking');
-      assert.equal(sessions.getSession(errand.session.id).status, 'complete');
-      host.sessionSignals.emit('turn_end', errand.session.id);
-      assert.equal(reviewers().length, 1);
+      assert.equal(sessions.getSession(id).status, 'complete');
+      assert.equal(sessions.getSession(id).reason, 'Done');
+      assert.equal(sessions.getSession(id).metadata.work_done, true);
+      assert.equal(workEntry(errand.task.id).state.canCheck, true);
+      const events = sessions.history(id);
+      assert.ok(events.find(e => e.type === 'complete_step')!.seq < events.filter(e => e.type === 'turn_end').at(-1)!.seq);
       await taskReview.submitTaskReview(reviewers()[0], 'Automatic review complete');
       await host.closeSession(reviewers()[0].id);
+      for (const text of ['Another discussion', 'Use the complete_step tool again']) {
+        const turns = sessions.history(id).filter(e => e.type === 'turn_end').length;
+        await host.sendPrompt(id, [{ type: 'text', text }]);
+        await until(() => sessions.history(id).filter(e => e.type === 'turn_end').length > turns);
+        host.sessionSignals.emit('turn_end', id);
+        assert.equal(reviewers().length, 1);
+      }
     });
+    await t.test('explicit completion without automatic review still marks the work ready for checking', async () => {
+      const errand = await createErrand(project.id, { text: 'Use the complete_step tool', agent_id: completionAgent.id, auto_review: false });
+      await until(() => sessions.getSession(errand.session.id).metadata.work_done === true);
+      const { workEntry } = await import('../../core/work');
+      assert.equal(workEntry(errand.task.id).state.canCheck, true);
+      assert.equal(sessions.listSessions(project.id).filter(s => s.task_id === errand.task.id && s.role === 'task-reviewer').length, 0);
+    });
+    for (const outcome of ['cancelled', 'error'] as const) {
+      await t.test((outcome === 'error' ? 'An error' : 'A cancelled') + ' completion turn does not start review or mark work done', async () => {
+        const errand = await createErrand(project.id, { text: 'Let us discuss first', agent_id: completionAgent.id,
+          auto_review: true, review_agent: { agent_id: agent.id } });
+        const id = errand.session.id;
+        await until(() => sessions.getSession(id).status === 'ready' && sessions.history(id).some(e => e.type === 'turn_end'));
+        fs.writeFileSync(path.join(workspaces.activeWorkspace(errand.task.id)!.path, 'code.txt'), 'unfinished\n');
+        await host.sendPrompt(id, [{ type: 'text', text: (outcome === 'cancelled' ? 'hold' : 'fail') + ' after complete_step tool' }]);
+        if (outcome === 'cancelled') {
+          await until(() => sessions.getSession(id).status === 'complete');
+          assert.equal(sessions.getSession(id).metadata.work_done, undefined, 'completion waits for the turn to finish');
+          assert.equal(sessions.listSessions(project.id).filter(s => s.task_id === errand.task.id && s.role === 'task-reviewer').length, 0);
+          await host.cancelSession(id);
+          await until(() => sessions.history(id).filter(e => e.type === 'turn_end').at(-1)?.payload.stopReason === 'cancelled');
+        } else await until(() => sessions.getSession(id).status === 'error');
+        assert.equal(sessions.getSession(id).metadata.work_done, undefined);
+        assert.equal(sessions.listSessions(project.id).filter(s => s.task_id === errand.task.id && s.role === 'task-reviewer').length, 0);
+        await host.sendPrompt(id, [{ type: 'text', text: 'Let us clarify the unfinished work' }]);
+        await until(() => sessions.getSession(id).status === 'ready' && sessions.history(id).some(e => e.type === 'turn_end'));
+        assert.equal(sessions.getSession(id).metadata.work_done, undefined, 'a later discussion cannot complete the interrupted work');
+      });
+    }
     await t.test('group errands and tasks use group folder without workspaces', async () => {
       const group = projects.createProject({ name: 'Group', kind: 'group', default_agent_id: agent.id });
       const errand = await createErrand(group.id, { text: 'Group work', agent_id: agent.id });
       assert.equal(workspaces.activeWorkspace(errand.task.id), null);
-      await until(() => ['ready', 'complete'].includes(sessions.getSession(errand.session.id).status));
+      await until(() => sessions.history(errand.session.id).some(e => e.type === 'turn_end'));
       assert.equal(await workspaces.rootForSession(errand.session), group.repo_path);
       const reviewer = await taskReview.launchIndependentReview(errand.task.id);
       const finding = await taskReview.addTaskRemark(reviewer, { scope: 'general', kind: 'fix', text: 'Review group work' });
@@ -252,7 +307,7 @@ test('execution roots, errands, task chats and independent review rounds', async
       assert.equal(check.status, 200);
       const sent = await post('/projects/' + group.id + '/tasks/' + errand.task.id + '/check/send', { item_ids: [finding.item.id] });
       assert.equal(sent.status, 200);
-      await until(() => sessions.getSession(errand.session.id).status === 'complete');
+      await until(() => sessions.getSession(errand.session.id).status === 'ready');
       assert.equal((await reviews(undefined, errand.task.id).getAgentReview(sessions.getSession(errand.session.id))).assigned[0].id, finding.item.id);
       const task = tasks.createTask({ project_id: group.id });
       await prepareWork(task.id);
@@ -266,6 +321,7 @@ test('execution roots, errands, task chats and independent review rounds', async
     await until(() => !sessions.listSessions().some(s => s.title === 'Название поручения' && ['starting', 'thinking'].includes(s.status)));
     await host.shutdownSessions();
     server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve()));
+    if (previousUrl === undefined) delete process.env.PLANGENT_URL; else process.env.PLANGENT_URL = previousUrl;
     getDb().close();
   }
 });

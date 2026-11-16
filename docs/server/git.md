@@ -24,6 +24,27 @@ back to copying) and runs the setup command. Each active workspace of a project
 gets a `port_slot`; `workspaceEnv` shifts `workspace_ports` by slot × 10 for its
 terminals, setup command and agents.
 
+Finishing (`finish/`) treats a failed step as a state the developer can leave, never a dead end:
+
+- Git or a repository hook rejecting an agent's commit returns the hook output to the agent
+  (`MAX_HOOK_ATTEMPTS` tries, then it must stop). The run stays `running` between tries; after the last one it is
+  parked at `confirmation` with status `error`, the proposal kept (commits made so far with their SHA, the rest
+  without) so the developer can edit titles and save, ask the agent again (no note needed after a failure),
+  or commit without hooks (`skipHooks` on `PUT .../commits`: the developer only, an agent's call ignores it).
+- A hook that rewrites working files after a commit stops the run with `hook_changes`; `adopt-hook-changes`
+  takes the commits back, adds the rewritten files to the list and the developer saves again.
+- `cancel` closes a run without touching Git (it works whatever state the folder is in; `reset` also takes back
+  the commits). `rollback` and `cancel` only need HEAD and the branch to be the run's, not the files: moving
+  HEAD never changes files. Reassembling commits still requires the reviewed files.
+- A refused request (stale state, validation) never overwrites the stored cause of a failure.
+- A committer turn that ends in `commits` without a result marks the run `error`.
+- A run whose task or working folder is gone (`task_id` empty while `options.task_id` is set, or a removed
+  workspace) is not active: it blocks nothing, the next start and the next application start cancel it.
+  Deleting a task first detaches its working folders from finish runs (`tasks` repository).
+- New working folders receive the git-ignored files of the project's hooks folder (`core.hooksPath` inside the
+  project, e.g. husky's `_`) from the main folder (`copyHookSupportFiles`), whatever tool generated them;
+  tracked hook scripts stay as the branch has them.
+
 Agents never run writing Git commands in a shell. Plangent checks roles,
 project scope and workflow state. Chat `git_action` requires the turn's Git
 permission; private MR reviews and source projects cannot use it.

@@ -34,7 +34,7 @@ finishRouterRoutes.json('GET /api/projects/:projectId/finish/task/:taskId', asyn
 finishRouterRoutes.json('GET /api/projects/:projectId/finish/:id', async (req, res) => { try { return res.json(owned(req.params.projectId, req.params.id)); } catch (routeError) { return handleRouteError(routeError, res); } });
 finishRouterRoutes.json('GET /api/projects/:projectId/finish/:id/context', async (req, res) => { try {  owned(req.params.projectId, req.params.id); res.json(await finishes().context(req.params.id));  } catch (routeError) { return handleRouteError(routeError, res); } });
 finishRouterRoutes.json('PUT /api/projects/:projectId/finish/:id/commits', async (req, res) => { try { 
-  owned(req.params.projectId, req.params.id); res.json(await finishes().setCommits(req.params.id, req.body?.commits, false, req.body?.overrideForbidden === true));
+  owned(req.params.projectId, req.params.id); res.json(await finishes().setCommits(req.params.id, req.body?.commits, false, req.body?.overrideForbidden === true, req.body?.skipHooks === true));
  } catch (routeError) { return handleRouteError(routeError, res); } });
 finishRouterRoutes.json('PUT /api/projects/:projectId/finish/:id/merge-request', async (req, res) => { try { 
   owned(req.params.projectId, req.params.id); res.json(await finishes().setMergeRequest(req.params.id, req.body?.title, req.body?.description));
@@ -42,6 +42,8 @@ finishRouterRoutes.json('PUT /api/projects/:projectId/finish/:id/merge-request',
 finishRouterRoutes.json('POST /api/projects/:projectId/finish/:id/revise', async (req, res) => { try {  owned(req.params.projectId, req.params.id); res.json(await finishes().revise(req.params.id, req.body?.note ?? ''));  } catch (routeError) { return handleRouteError(routeError, res); } });
 finishRouterRoutes.json('POST /api/projects/:projectId/finish/:id/accept', async (req, res) => { try {  owned(req.params.projectId, req.params.id); res.json(await finishes().accept(req.params.id));  } catch (routeError) { return handleRouteError(routeError, res); } });
 finishRouterRoutes.json('POST /api/projects/:projectId/finish/:id/rollback', async (req, res) => { try {  owned(req.params.projectId, req.params.id); if (req.body?.confirmed !== true) throw new DomainError('Подтвердите откат коммитов'); res.json(await finishes().rollback(req.params.id));  } catch (routeError) { return handleRouteError(routeError, res); } });
+finishRouterRoutes.json('POST /api/projects/:projectId/finish/:id/cancel', async (req, res) => { try {  owned(req.params.projectId, req.params.id); res.json(await finishes().cancel(req.params.id, req.body?.reset === true));  } catch (routeError) { return handleRouteError(routeError, res); } });
+finishRouterRoutes.json('POST /api/projects/:projectId/finish/:id/adopt-hook-changes', async (req, res) => { try {  owned(req.params.projectId, req.params.id); res.json(await finishes().adoptHookChanges(req.params.id));  } catch (routeError) { return handleRouteError(routeError, res); } });
 finishRouterRoutes.empty('POST /api/projects/:projectId/finish/:id/cancel-operation', async (req, res) => { try {  owned(req.params.projectId, req.params.id); finishes().cancelOperation(req.params.id); res.status(204).end();  } catch (routeError) { return handleRouteError(routeError, res); } });
 
 function handleRouteError(error: unknown, res: ErrorResponse) {

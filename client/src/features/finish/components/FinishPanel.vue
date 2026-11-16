@@ -125,18 +125,24 @@
         <small>Создастся после push: {{ store.run.options.targetBranch }} ← {{ store.run.branch }}. Ревьюеров, исполнителей и остальное подставят настройки проекта.</small>
       </div>
       <div v-if="editable" class="fp-actions">
-        <AppButton variant="ghost" size="sm" type="button"  :disabled="store.busy || !dirty && !mrDirty" @click="save">Сохранить</AppButton>
+        <AppButton variant="ghost" size="sm" type="button"  :disabled="store.busy || !dirty && !mrDirty && !unsaved" :title="unsaved ? 'Создать коммиты заново' : undefined" @click="save">Сохранить</AppButton>
+        <AppButton v-if="skippable" variant="ghost" size="sm" type="button" :disabled="store.busy" title="Создать коммиты, не запуская хуки репозитория" @click="saveWithoutHooks">Закоммитить без хуков</AppButton>
         <span class="fp-spacer" />
         <AppButton variant="blue" size="sm" type="button"  :disabled="store.busy || !!mrProblem" :title="mrProblem" @click="accept">Принять{{ store.run.scenario === 'commits' ? '' : store.run.scenario === 'full' ? ', push и МР' : ' и push' }}</AppButton>
       </div>
+      <div v-if="store.run.hook_changes?.length" class="fp-hook">
+        <p>Хук репозитория изменил файлы после коммита. Если включить их в коммиты, коммиты пересоздадутся с результатом хука.</p>
+        <AppButton variant="blue" size="sm" type="button" :disabled="store.busy" @click="adoptHookChanges">Включить изменения хука в коммиты</AppButton>
+      </div>
       <div v-if="editable || store.run.status === 'error' && store.run.stage === 'commits'" class="fp-note">
-        <AppTextarea v-model="note" block rows="2" :placeholder="editable ? (store.run.scenario === 'full' ? 'Попросить агента переделать коммиты или МР' : 'Попросить агента переделать коммиты') : 'Замечание агенту для повторной попытки'" @keydown.enter.ctrl.exact.prevent="askAgent" @keydown.meta.enter.exact.prevent="askAgent" />
-        <AppButton variant="ghost" size="sm" type="button"  :disabled="store.busy || !note.trim()" title="Ctrl+Enter" @click="askAgent">{{ editable ? 'Попросить агента' : 'Повторить' }}</AppButton>
+        <AppTextarea v-model="note" block rows="2" :placeholder="retrying ? 'Замечание агенту для повторной попытки' : (store.run.scenario === 'full' ? 'Попросить агента переделать коммиты или МР' : 'Попросить агента переделать коммиты')" @keydown.enter.ctrl.exact.prevent="askAgent" @keydown.meta.enter.exact.prevent="askAgent" />
+        <AppButton variant="ghost" size="sm" type="button"  :disabled="store.busy || !retrying && !note.trim()" :title="retrying ? 'Ctrl+Enter. Замечание необязательно: без него агент просто повторит попытку' : 'Ctrl+Enter'" @click="askAgent">{{ retrying ? 'Повторить' : 'Попросить агента' }}</AppButton>
       </div>
       <div v-if="store.run.status === 'error' || store.run.stage !== 'mr'" class="fp-actions">
         <AppButton variant="ghost" size="sm" v-if="store.run.status === 'error' && store.run.stage === 'push'" type="button"  :disabled="store.busy" @click="accept">Повторить push</AppButton>
         <AppButton variant="ghost" size="sm" v-if="store.run.status === 'error' && store.run.stage === 'mr'" type="button"  :disabled="store.busy" @click="accept">Повторить создание МР</AppButton>
         <span class="fp-spacer" />
+        <AppButton variant="ghost" size="sm" v-if="canCancel" type="button" :disabled="store.busy" title="Закрыть завершение, ничего не меняя в git; изменения останутся в рабочей папке" @click="cancelRun">Отменить завершение</AppButton>
         <AppButton variant="danger-ghost" size="sm" v-if="store.run.stage !== 'mr'" type="button"  :disabled="store.busy || store.run.stage === 'push' && store.run.status === 'running'" title="Удалить коммиты этого завершения; изменения останутся в рабочей папке" @click="rollback">Откатить коммиты</AppButton>
       </div>
       <details v-if="store.run.output" class="fp-log"><summary>Журнал git</summary><pre>{{ store.run.output }}</pre></details>
@@ -239,6 +245,13 @@ const selectedBase = computed(() => {
   return (index > 0 ? store.run?.commits[index - 1]?.sha : store.run?.base_head) ?? 'HEAD'
 })
 const editable = computed(() => store.run?.stage === 'confirmation' && ['waiting', 'error'].includes(store.run.status))
+/** Commits that were proposed but not created (git rejected one): saving recreates them. */
+const unsaved = computed(() => !!store.run?.commits.some(commit => !commit.sha))
+/** After a failure the agent can simply try again, a note only asks it for changes. */
+const retrying = computed(() => store.run?.status === 'error')
+/** Skipping the hooks is offered only for a commit that failed, never when a hook changed files (they did run). */
+const skippable = computed(() => store.run?.status === 'error' && store.run.stage === 'confirmation' && !store.run.hook_changes?.length)
+const canCancel = computed(() => !!store.run && !(['push', 'mr'].includes(store.run.stage) && store.run.status === 'running'))
 const clean = (list: FinishCommit[]) => JSON.stringify(list.map(({ files, title, body }) => ({ files, title, body })))
 const dirty = computed(() => clean(draft.value) !== clean(store.run?.commits ?? []))
 // The MR text of a full cycle is confirmed and edited together with the commits.
@@ -322,15 +335,30 @@ function merge(index: number) { const c = draft.value[index]; draft.value[index 
 function split(index: number) { const c = draft.value[index]; draft.value.splice(index, 1, ...c.files.map(path => ({ title: c.title, body: c.body, files: [path] }))) }
 async function save() {
   try {
-    if (dirty.value) { await store.save(draft.value.map(({ files, title, body }) => ({ files, title, body }))); draft.value = copy(store.run?.commits ?? []) }
+    if (dirty.value || unsaved.value) { await store.save(draft.value.map(({ files, title, body }) => ({ files, title, body }))); draft.value = copy(store.run?.commits ?? []) }
     if (mrDirty.value) await store.saveMr({ title: mrDraft.value.title.trim(), description: mrDraft.value.description })
   } catch { /* store error */ }
 }
+async function saveWithoutHooks() {
+  if (!await app.confirm('Создать коммиты, не запуская хуки репозитория? Проверки команды (формат сообщения, линтеры) будут пропущены.', { confirmLabel: 'Закоммитить без хуков', danger: true })) return
+  try {
+    await store.save(draft.value.map(({ files, title, body }) => ({ files, title, body })), true)
+    draft.value = copy(store.run?.commits ?? [])
+    if (mrDirty.value) await store.saveMr({ title: mrDraft.value.title.trim(), description: mrDraft.value.description })
+  } catch { /* store error */ }
+}
+const adoptHookChanges = () => act('adopt-hook-changes')
+async function cancelRun() {
+  const made = store.run?.commits.some(commit => commit.sha)
+  const text = made ? 'Отменить завершение? Созданные коммиты останутся в ветке (чтобы убрать их, нажмите «Откатить коммиты»), изменения файлов не пропадут.'
+    : 'Отменить завершение? Git не изменится, изменения останутся в рабочей папке.'
+  if (await app.confirm(text, { confirmLabel: 'Отменить завершение', danger: true })) await act('cancel')
+}
 async function act(name: string, data: object = {}) { try { await store.action(name, data); if (name === 'revise') note.value = '' } catch { /* store error */ } }
-function askAgent() { if (!store.busy && note.value.trim()) void act('revise', { note: note.value }) }
+function askAgent() { if (!store.busy && (retrying.value || note.value.trim())) void act('revise', { note: note.value }) }
 async function accept() {
   if (store.run?.scenario !== 'commits' && !await app.confirm('Принять коммиты, отправить их в origin' + (store.run?.scenario === 'full' ? ' и создать МР?' : '?') + (published.value ? '' : ' Ветка будет опубликована.'), { confirmLabel: store.run?.scenario === 'full' ? 'Принять, push и МР' : 'Принять и push' })) return
-  if (dirty.value || mrDirty.value || store.run?.status === 'error' && store.run.stage === 'confirmation') { await save(); if (store.error) return }
+  if (dirty.value || mrDirty.value || unsaved.value || store.run?.status === 'error' && store.run.stage === 'confirmation') { await save(); if (store.error) return }
   await act('accept')
 }
 async function rollback() { if (await app.confirm('Откатить коммиты этого завершения? Изменения файлов останутся в рабочей папке.', { confirmLabel: 'Откатить коммиты', danger: true })) await act('rollback', { confirmed: true }) }
@@ -388,6 +416,8 @@ textarea.control { height: auto; padding: 6px 10px; resize: vertical; line-heigh
 .fp-mr-draft { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg2); }
 .fp-mr-draft small { font-size: var(--fs-xs); color: var(--text-faint); }
 .fp-note { display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
+.fp-hook { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg2); }
+.fp-hook p { margin: 0; font-size: var(--fs-sm); color: var(--text-muted); }
 .fp-log summary { cursor: pointer; color: var(--text-muted); }
 .fp-log pre { margin-top: 6px; padding: 6px 8px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 200px; overflow: auto; font-size: var(--fs-sm); background: var(--bg2); border-radius: var(--radius-sm); }
 

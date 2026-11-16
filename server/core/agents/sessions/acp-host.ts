@@ -489,7 +489,7 @@ export async function sendPrompt(id: string, content: ACP.ContentBlock[], gitFor
     ? 'Do not run git commands that modify the repository. For Git actions requested by the developer, use the Plangent git_action tool. Do not add agent attribution to commit messages or pull requests.'
     : 'Do not commit or run git commands that modify the repository. The user makes commits through Plangent. Do not add agent attribution to commit messages or pull requests.';
   const commandBriefing = commandToolAvailable(session)
-    ? 'Run shell commands (installing dependencies, tests, builds, linters, type checks) with the Plangent run_command tool, not your own shell: your shell is refused. Use heavy: true for long commands.' : '';
+    ? 'Run shell commands (installing dependencies, tests, builds, linters, type checks) with the Plangent run_command tool, not your own shell: your shell is refused. Use heavy: true for long commands. Read and edit files with your normal file tools, subject to this session’s permissions; file operations do not need run_command.' : '';
   const briefing = [gitBriefing, commandBriefing, workspace, roleBriefing || (typeof session.metadata.briefing === 'string' ? session.metadata.briefing : '')].filter(Boolean).join('\n\n');
   const withBriefing = briefing && (!session.metadata.briefed || session.metadata.needsContext || hasGitTools && session.metadata.gitToolsBriefingVersion !== 1
     || session.metadata.workspaceBriefingVersion !== WORKSPACE_BRIEFING_VERSION);
