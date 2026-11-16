@@ -179,7 +179,11 @@ async function restart() {
     screen.detail = await branchReviewApi.restart(props.scope, props.detail.review.id)
     screen.thread = null
     screen.remarks = (await branchReviewApi.remarks(props.scope, props.detail.review.id)).remarks
-  } catch (cause) { error.value = errorText(cause) } finally { restarting.value = false }
+  } catch (cause) {
+    // A failed git command carries its own output: the reason is there, not in the general message.
+    const output = typeof (cause as { output?: unknown }).output === 'string' ? (cause as { output: string }).output.trim().split('\n').slice(-3).join('\n') : ''
+    error.value = errorText(cause) + (output ? '\n' + output : '')
+  } finally { restarting.value = false }
 }
 </script>
 <style scoped>

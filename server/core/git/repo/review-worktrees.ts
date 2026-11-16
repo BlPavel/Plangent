@@ -16,13 +16,30 @@ export async function ensureReviewWorktree(root: string, reviewId: string, head:
   }
   return location;
 }
-export async function removeReviewWorktrees(root: string, reviewId: string): Promise<void> {
-  for (const worktree of activeReviewWorktrees(reviewId)) {
-    restoreReviewLibrary(worktree.path);
-    // Git removes only registered worktrees; never delete a computed path ourselves.
-    await runGit(root, ['worktree', 'remove', worktree.path]);
-    deactivateReviewWorktree(reviewId, worktree.head);
+const reviewsRoot = () => path.join(os.tmpdir(), 'plangent-reviews');
+/** The worktree is a disposable checkout: local changes (the installed instructions, files the agent left) must not block removing it. */
+async function removeWorktree(root: string, location: string): Promise<void> {
+  try {
+    await runGit(root, ['worktree', 'remove', '--force', '--force', location]);
+  } catch (error) {
+    // A process still holds the folder (Windows) or it is half gone: delete it ourselves, but only inside our own folder.
+    const inside = path.relative(reviewsRoot(), location);
+    if (!inside || inside.startsWith('..') || path.isAbsolute(inside)) throw error;
+    await fs.rm(location, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    await runGit(root, ['worktree', 'prune']);
   }
+}
+/** One worktree failing does not stop the others; the first failure is thrown afterwards. */
+export async function removeReviewWorktrees(root: string, reviewId: string): Promise<void> {
+  let failure: unknown;
+  for (const worktree of activeReviewWorktrees(reviewId)) {
+    try {
+      restoreReviewLibrary(worktree.path);
+      await removeWorktree(root, worktree.path);
+      deactivateReviewWorktree(reviewId, worktree.head);
+    } catch (error) { failure ??= error; }
+  }
+  if (failure) throw failure;
 }
 export function reviewWorkspace(sessionId: string): string {
   const location = findReviewWorkspace(sessionId);
