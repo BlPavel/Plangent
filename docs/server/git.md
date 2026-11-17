@@ -13,7 +13,12 @@ reads/writes repositories, manages worktrees and serializes operations.
 Routes and MCP tools call core workflows. Preserve repository locks, progress,
 cancellation and workspace ownership checks. Provider REST calls belong in
 `infrastructure/code-hosts/`, using `infrastructure/http-client/`.
-`core/workspaces/` owns task working folders. Creating a workspace only adds the worktree
+`core/workspaces/` owns task working folders. A workspace lives in `DATA_DIR/workspaces/<project>/<task>`;
+a repository on another disk keeps them next to itself (`<repo>/../.plangent-workspaces/<project>/<task>`)
+so dependency folders can be hard-linked. Removal first closes the workspace's terminals (`closeTerminals`, injected
+from `index.ts`: a shell keeps its folder open on Windows), then deletes the emptied folders. A removal that failed
+half-way leaves a folder git no longer knows: it is not treated as a worktree (no Git command runs there, it would find
+an enclosing repository), its leftovers are deleted and the next attempt completes. Creating a workspace only adds the worktree
 (status `ready`, `setup_done = 0`) so chat and reading start at once; the slow setup waits until
 work really starts: `ensureWorkspaceSetup` runs in the background at queue start, when an errand is
 created and when a previously prepared workspace is reopened or recreated. The folder stays `ready`
@@ -23,6 +28,12 @@ builds, package-manager state and caches are copied or skipped, other disks fall
 back to copying) and runs the setup command. Each active workspace of a project
 gets a `port_slot`; `workspaceEnv` shifts `workspace_ports` by slot × 10 for its
 terminals, setup command and agents.
+
+Workspace creation records preparation before fetching, including Git's diagnostic output on failure.
+Errands keep their agent choices and requested place in the session until preparation succeeds;
+`POST .../tasks/:taskId/retry-preparation` retries the same errand after network/VPN access is restored.
+It also recovers older stranded errands without a session using the project's defaults.
+The chat shows the preparation error and retry action instead of waiting indefinitely.
 
 Closing a work (`core/work/actions.ts`) removes its workspace and always keeps the branch with
 every commit, pushed or not. Only uncommitted files (changed tracked files and new files git

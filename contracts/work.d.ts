@@ -210,6 +210,7 @@ export type WorkPOSTTasksTaskIdErrandResponse = {
 };
 export type WorkPOSTTasksTaskIdErrandBody = C.ErrandInput;
 export interface WorkEndpoints {
+    "POST /api/projects/:projectId/tasks/:taskId/retry-preparation": Endpoint<"POST /api/projects/:projectId/tasks/:taskId/retry-preparation", never, C.Task, Record<string, never>, "json", never>;
     "POST /api/projects/:projectId/tasks/:taskId/switch-branch": Endpoint<"POST /api/projects/:projectId/tasks/:taskId/switch-branch", { branch: string; create?: boolean; base?: string }, { task: C.Task; workspace: C.Workspace }, Record<string, never>, "json", never>;
     "GET /api/projects/:projectId/workspaces": Endpoint<"GET /api/projects/:projectId/workspaces", never, (C.Workspace)[], Record<string, never>, "json", never>;
     "GET /api/projects/:projectId/workspaces/viewing": Endpoint<"GET /api/projects/:projectId/workspaces/viewing", never, null | C.Workspace, Record<string, never>, "json", never>;

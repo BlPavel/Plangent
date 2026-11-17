@@ -79,7 +79,7 @@ test('workspace lifecycle, preparation, roots, permissions and library', async t
     await t.test('create a new branch, reuse a free branch, reserve branches and recreate', async () => {
       const { repo, project, task } = fixture();
       assert.equal(workspaces.rootForTask(task.id), repo);
-      assert.throws(() => workspaces.workspaceFolder(project.id, '../escape'));
+      assert.throws(() => workspaces.workspaceFolder(project, '../escape'));
       const created = await workspaces.createWorkspace(task.id, { branch: 'feature/new', base: 'main' });
       assert.equal(created.status, 'ready');
       assert.equal(git(created.path, 'branch', '--show-current'), 'feature/new');
@@ -116,6 +116,42 @@ test('workspace lifecycle, preparation, roots, permissions and library', async t
       await workspaces.removeWorkspace(recreated.id, { discard: true });
       assert.equal(workspaces.activeWorkspace(task.id), null);
       assert.equal(git(repo, 'branch', '--list', 'feature/dirty'), '');
+    });
+    await t.test('a half-removed folder no longer blocks removal and recreation', async () => {
+      const { task, repo } = fixture();
+      const created = await workspaces.createWorkspace(task.id, { branch: 'feature/half', base: 'main' });
+      // What a removal interrupted by a locked file leaves: git dropped the worktree, some files stayed.
+      fs.rmSync(path.join(repo, '.git', 'worktrees', path.basename(created.path)), { recursive: true, force: true });
+      fs.rmSync(path.join(created.path, '.git'));
+      fs.writeFileSync(path.join(created.path, 'left.txt'), 'leftover');
+      fs.writeFileSync(path.join(repo, 'main-change.txt'), 'not the workspace');
+      assert.deepEqual((await workspaces.removalBlockers(created.id)).files, []);
+      const recreated = await workspaces.recreateWorkspace(created.id);
+      assert.ok(!fs.existsSync(path.join(recreated.path, 'left.txt')));
+      assert.equal(git(recreated.path, 'branch', '--show-current'), 'feature/half');
+      fs.rmSync(path.join(recreated.path, '.git'));
+      await workspaces.removeWorkspace(recreated.id, { keepBranch: true });
+      assert.ok(!fs.existsSync(recreated.path));
+      assert.equal(workspaces.activeWorkspace(task.id), null);
+    });
+    await t.test('fetch failures remain visible before a folder exists and can be retried', async () => {
+      for (const existing of [false, true]) {
+        const { repo, task } = fixture();
+        const branch = existing ? 'feature/existing' : 'feature/new';
+        if (existing) git(repo, 'branch', branch);
+        const remote = git(repo, 'remote', 'get-url', 'origin');
+        git(repo, 'remote', 'set-url', 'origin', path.join(path.dirname(repo), 'missing-origin.git'));
+        await assert.rejects(workspaces.createWorkspace(task.id, { branch, base: 'main' }), /Git operation failed/);
+        const failed = workspaces.activeWorkspace(task.id)!;
+        assert.equal(failed.status, 'failed');
+        assert.match(failed.error, /missing-origin\.git/);
+        assert.equal(fs.existsSync(failed.path), false);
+        assert.throws(() => workspaces.assertTaskWorkspaceReady(task.id), /missing-origin\.git/);
+        git(repo, 'remote', 'set-url', 'origin', remote);
+        const retried = await workspaces.recreateWorkspace(failed.id);
+        assert.equal(retried.status, 'ready');
+        assert.equal(retried.branch, branch);
+      }
     });
     await t.test('new work starts from fetched origin base and preserves main-folder edits', async () => {
       const { repo, task } = fixture();

@@ -4,11 +4,12 @@ import { getProject } from '../projects';
 import { getTask } from '../tasks';
 import type { Workspace } from '../../models';
 import { DomainError } from '../../models/domain-error';
-import { runGit, serializeGit, fetchRepository, type GitOperationOptions } from '../../infrastructure/git/write';
+import { runGit, serializeGit, fetchRepository, GitOperationError, type GitOperationOptions } from '../../infrastructure/git/write';
 import { localBranchHead } from '../../infrastructure/git/read';
 import { activeWorkspace, getWorkspace, insertWorkspace, listWorkspaces, updateWorkspace, workspaceFolder } from './store';
 import { openWorkspace, prepareWorkspace } from './prepare';
 import { allocatePortSlot } from './ports';
+import { moduleDependencies } from './dependencies';
 export * from './roots';
 export * from './store';
 export { prepareWorkspace } from './prepare';
@@ -33,26 +34,28 @@ export async function createWorkspace(taskId: string, input: { branch: string; b
     if (owner) throw new DomainError('Ветка уже в работе у ' + (getTask(owner.task_id)?.key ?? owner.task_id), 409);
     const occupied = await runGit(root, ['worktree', 'list', '--porcelain'], options);
     if (occupied.split('\n').includes('branch refs/heads/' + input.branch)) throw new DomainError('Ветка уже используется в другом рабочем месте', 409);
-    const destination = workspaceFolder(project.id, task.key);
+    const destination = workspaceFolder(project, task.key);
     if (await fs.lstat(destination).then(() => true, () => false)) throw new DomainError('Workspace folder already exists', 409);
-    await fetchRepository(root, options);
-    const existing = await localBranchHead(root, input.branch);
-    // A branch that exists only in origin (pushed from elsewhere) is checked out as its local tracking copy.
-    const remoteOnly = !existing && await runGit(root, ['show-ref', '--verify', '--quiet', 'refs/remotes/origin/' + input.branch], options).then(() => true, () => false);
-    const remoteBase = 'refs/remotes/origin/' + input.base.replace(/^origin\//, '');
-    const hasRemoteBase = await runGit(root, ['show-ref', '--verify', '--quiet', remoteBase], options).then(() => true, () => false);
-    const base = hasRemoteBase ? remoteBase : 'refs/heads/' + input.base.replace(/^origin\//, '');
-    await fs.mkdir(path.dirname(destination), { recursive: true });
     const port_slot = await allocatePortSlot(project.id, input.portSlot);
     const workspace = insertWorkspace({ project_id: project.id, task_id: taskId, branch: input.branch, base_branch: input.base, path: destination, port_slot });
     try {
+      // Record preparation before the network request so a failed fetch remains visible and retryable.
+      await fetchRepository(root, options);
+      const existing = await localBranchHead(root, input.branch);
+      // A branch that exists only in origin (pushed from elsewhere) is checked out as its local tracking copy.
+      const remoteOnly = !existing && await runGit(root, ['show-ref', '--verify', '--quiet', 'refs/remotes/origin/' + input.branch], options).then(() => true, () => false);
+      const remoteBase = 'refs/remotes/origin/' + input.base.replace(/^origin\//, '');
+      const hasRemoteBase = await runGit(root, ['show-ref', '--verify', '--quiet', remoteBase], options).then(() => true, () => false);
+      const base = hasRemoteBase ? remoteBase : 'refs/heads/' + input.base.replace(/^origin\//, '');
+      await fs.mkdir(path.dirname(destination), { recursive: true });
       await runGit(root, existing ? ['worktree', 'add', '--', destination, input.branch]
         : remoteOnly ? ['worktree', 'add', '--track', '-b', input.branch, '--', destination, 'origin/' + input.branch]
         : ['worktree', 'add', '-b', input.branch, '--', destination, base], options);
       options.signal?.throwIfAborted();
       return openWorkspace(workspace.id);
     } catch (error) {
-      updateWorkspace(workspace.id, { status: 'failed', error: String(error) });
+      const detail = error instanceof GitOperationError ? error.output.trim() : '';
+      updateWorkspace(workspace.id, { status: 'failed', error: String(error) + (detail ? '\n' + detail : '') });
       throw error;
     }
   });
@@ -80,11 +83,27 @@ export interface WorkspaceRemovalBlockers { files: string[]; commits: string[] }
 export class WorkspaceRemovalError extends DomainError {
   constructor(public blockers: WorkspaceRemovalBlockers) { super('Рабочее место содержит изменения или непереданные коммиты', 409); }
 }
+/**
+ * A removal that failed half-way (a process held the folder) leaves files without their worktree: git already dropped its record.
+ * Git commands must not run there, they would find the enclosing repository instead.
+ */
+async function isWorktree(folder: string): Promise<boolean> {
+  const link = await fs.readFile(path.join(folder, '.git'), 'utf8').catch(() => '');
+  const gitDir = /^gitdir:\s*(.+)$/m.exec(link)?.[1]?.trim();
+  return !!gitDir && await fs.stat(path.resolve(folder, gitDir)).then(() => true, () => false);
+}
+async function removeLeftovers(folder: string): Promise<void> {
+  try {
+    await fs.rm(folder, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  } catch (error) {
+    throw new DomainError('Не удалось удалить папку рабочего места: её держит другая программа (терминал, редактор, запущенный сервер). '
+      + 'Закройте её и повторите.\n' + folder + '\n' + String(error), 409);
+  }
+}
 /** Uncommitted work is changed tracked files and new files git would commit; git-ignored ones (copied `.env`, dependencies, builds) go with the folder. */
 export async function removalBlockers(id: string): Promise<WorkspaceRemovalBlockers> {
   const workspace = getWorkspace(id), { project } = context(workspace.task_id);
-  const present = await fs.lstat(workspace.path).then(() => true, () => false);
-  const files = present ? (await runGit(workspace.path, ['status', '--porcelain', '-z', '--untracked-files=all'])).split('\0').filter(Boolean) : [];
+  const files = await isWorktree(workspace.path) ? (await runGit(workspace.path, ['status', '--porcelain', '-z', '--untracked-files=all'])).split('\0').filter(Boolean) : [];
   const remotes = (await runGit(project.repo_path, ['for-each-ref', '--format=%(refname)', 'refs/remotes/'])).trim().split('\n').filter(Boolean);
   const base = 'refs/heads/' + workspace.base_branch.replace(/^origin\//, '');
   const exists = await localBranchHead(project.repo_path, workspace.branch);
@@ -97,14 +116,24 @@ export async function removeWorkspace(id: string, input: { discard?: boolean; ke
   return serializeGit(project.repo_path, async () => {
     if (getWorkspace(id).status === 'removed') return getWorkspace(id);
     // Never pass arbitrary persisted paths to worktree remove.
-    if (path.resolve(workspace.path) !== workspaceFolder(project.id, task.key)) throw new DomainError('Invalid workspace path');
+    if (path.resolve(workspace.path) !== workspaceFolder(project, task.key)) throw new DomainError('Invalid workspace path');
     const blockers = await removalBlockers(id);
     // A kept branch keeps its unpushed commits: only uncommitted files would be lost.
     if (!input.discard && (blockers.files.length || !input.keepBranch && blockers.commits.length)) throw new WorkspaceRemovalError(blockers);
-    if (await fs.lstat(workspace.path).then(() => true, () => false)) {
-      await runGit(project.repo_path, ['worktree', 'remove', ...(input.discard ? ['--force'] : []), '--', workspace.path], options);
+    await moduleDependencies.closeTerminals?.(id);
+    if (await isWorktree(workspace.path)) {
+      try {
+        await runGit(project.repo_path, ['worktree', 'remove', ...(input.discard ? ['--force'] : []), '--', workspace.path], options);
+      } catch (error) {
+        // Git refused before deleting anything: the folder is intact. Otherwise it dropped the worktree and left what it could not delete.
+        if (await isWorktree(workspace.path)) throw error;
+      }
     }
+    // The path is the workspace folder itself (checked above), so only it is deleted.
+    await removeLeftovers(workspace.path);
     await runGit(project.repo_path, ['worktree', 'prune'], options);
+    // Workspaces next to the repository must not leave empty folders behind; rmdir keeps non-empty ones.
+    for (const folder of [path.dirname(workspace.path), path.dirname(path.dirname(workspace.path))]) await fs.rmdir(folder).catch(() => {});
     if (input.discard && !input.keepBranch && await localBranchHead(project.repo_path, workspace.branch)) {
       await runGit(project.repo_path, ['branch', '-D', '--', workspace.branch], options);
     }

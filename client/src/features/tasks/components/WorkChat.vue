@@ -3,18 +3,17 @@
     <div v-if="chatOptions.length > 1" class="chat-pick">
       <AppSelect v-model="selected" :options="chatOptions" size="sm" prefix="Чат" />
     </div>
-    <div v-if="error" class="chat-note error" role="alert">{{ error }}</div>
+    <div v-if="error && !showPreparation" class="chat-note error" role="alert">{{ error }}</div>
     <!-- A new errand keeps its preparation card until the agent can take the request: the chat opens ready to write. -->
-    <WorkPreparing v-if="connecting && !introPassed" :workspace="workspace" :placed="!!task.base_commit" agent-connecting />
+    <WorkPreparing v-if="showPreparation" :workspace="workspace" :placed="!!task.base_commit" :error="preparationError" :retrying="retrying" :retryable="canRetry" :agent-connecting="connecting" @retry="retryPreparation" />
     <ChatView v-else-if="shown" :key="shown" :session-id="shown" :workspace-id="workspace?.id ?? null" :no-composer="closed" :start="awaitingBrief" />
-    <WorkPreparing v-else-if="task.kind === 'errand' && !closed" :workspace="workspace" :placed="!!task.base_commit" />
     <AppButton variant="ghost" size="sm" v-else-if="!loading && !closed" class="chat-open" @click="open">Открыть чат задачи</AppButton>
     <span v-else-if="loading" class="chat-note">Подготовка чата…</span>
   </div>
 </template>
 <script setup lang="ts">
 import AppButton from '@shared/ui/AppButton.vue'
-import { tasksEndpoints } from '../api'
+import { tasksEndpoints, workApi } from '../api'
 
 import { computed, ref, watch } from 'vue'
 import { ChatView, useChatStore} from '@features/agent-chat'
@@ -47,6 +46,19 @@ const awaitingBrief = computed(() => {
   return session?.role === 'errand' && !!session.metadata.awaiting_brief && !(chats.snapshots[session.id]?.events ?? []).some(e => e.type === 'user')
 })
 const primaryRole = computed(() => props.task.kind === 'errand' ? 'errand' : 'task-chat')
+const preparationSession = computed(() => mine.value.find(s => s.role === 'errand'))
+const preparationPending = computed(() => !closed.value && props.task.kind === 'errand' && (!!preparationSession.value?.metadata.preparation_pending || !preparationSession.value && props.workspace?.status === 'failed'))
+const showPreparation = computed(() => preparationPending.value || connecting.value && !introPassed.value || !shown.value && props.task.kind === 'errand' && !closed.value)
+const preparationError = computed(() => props.workspace?.error || (preparationPending.value ? preparationSession.value?.reason : '') || error.value)
+const retrying = ref(false)
+const canRetry = computed(() => !closed.value && props.task.kind === 'errand' && (preparationPending.value && (props.workspace?.status === 'failed' || preparationSession.value?.status === 'error') || !shown.value && !props.task.base_commit && !props.workspace))
+async function retryPreparation() {
+  if (retrying.value) return
+  retrying.value = true; error.value = ''
+  try { await workApi.retryPreparation({ params: { projectId: props.task.project_id, taskId: props.task.id } }) }
+  catch (cause) { error.value = cause instanceof Error ? cause.message : String(cause) }
+  finally { retrying.value = false }
+}
 watch(() => mine.value.find(s => s.role === primaryRole.value)?.id, id => {
   if (id) { primary.value = id; error.value = '' }
 })

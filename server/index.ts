@@ -8,7 +8,8 @@ import { initQueues } from './core/execution/queue';
 import { configureSessionHost, shutdownSessions } from './core/agents/sessions/acp-host';
 import { sessionMcpConfig } from './api/mcp/server';
 import { killProcessTree } from './infrastructure/terminal/process-tree';
-import { shutdownTerminals } from './api/http/routes/terminals';
+import { closeWorkspaceTerminals, shutdownTerminals } from './api/http/routes/terminals';
+import { configureWorkspacesDependencies } from './core/workspaces';
 import { createApp } from './api/http/server';
 import { DATA_DIR, getDb } from './infrastructure/db/schema';
 import { configureSecretVault, DevFileVault, SecretVault } from './infrastructure/secrets';
@@ -37,6 +38,7 @@ export async function startServer(port = DEFAULT_PORT, vault?: SecretVault): Pro
   await recoverWorkspaces();
   initWorkEvents();
   configureSessionHost({ mcp: sessionMcpConfig, terminate: killProcessTree });
+  configureWorkspacesDependencies({ closeTerminals: closeWorkspaceTerminals });
   migratePlanReviewInstructionLevels();
 
   try {

@@ -1,16 +1,28 @@
 import * as records from '../../infrastructure/db/repositories/workspaces/store';
 import { randomUUID } from 'node:crypto';
+import fs from 'node:fs';
 import path from 'node:path';
 import { DATA_DIR } from '../../infrastructure/paths';
 import type { Workspace } from '../../models';
 import { DomainError } from '../../models/domain-error';
 import { broadcast } from '../shared';
 
-export function workspaceFolder(projectId: string, taskKey: string): string {
-  for (const part of [projectId, taskKey]) {
+function sameVolume(a: string, b: string): boolean {
+  if (process.platform === 'win32') return path.parse(path.resolve(a)).root.toLowerCase() === path.parse(path.resolve(b)).root.toLowerCase();
+  try { return fs.statSync(a).dev === fs.statSync(b).dev; } catch { return true; }
+}
+/**
+ * Dependency folders are hard-linked from the main folder, and hard links cannot cross disks:
+ * a repository on another disk than the application data keeps its workspaces next to itself.
+ */
+function workspacesRoot(repoPath: string): string {
+  return sameVolume(repoPath, DATA_DIR) ? path.resolve(DATA_DIR, 'workspaces') : path.resolve(repoPath, '..', '.plangent-workspaces');
+}
+export function workspaceFolder(project: { id: string; repo_path: string }, taskKey: string): string {
+  for (const part of [project.id, taskKey]) {
     if (!part || part === '.' || part === '..' || /[/\\:\x00-\x1f]/.test(part)) throw new DomainError('Invalid workspace path');
   }
-  return path.resolve(DATA_DIR, 'workspaces', projectId, taskKey);
+  return path.join(workspacesRoot(project.repo_path), project.id, taskKey);
 }
 export function getWorkspace(id: string): Workspace {
   const row = records.getWorkspaceWorkspaces(id) as Workspace | undefined;

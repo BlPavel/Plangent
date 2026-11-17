@@ -15,6 +15,7 @@ export function rootForTask(taskId: string): string {
   return project.kind === 'project' ? activeWorkspace(taskId)?.path ?? project.repo_path : project.repo_path;
 }
 export async function rootForSession(session: AgentSession): Promise<string> {
+  if (session.metadata.preparation_pending) throw new DomainError('Подготовка поручения не завершена. Повторите подготовку.', 409);
   if (session.metadata.mr_private) return (await Promise.resolve(moduleDependencies.review).then(module => module.branch)).reviewWorkspace(session.id);
   const project = getProject(session.project_id);
   if (!project) throw new DomainError('Project not found', 404);

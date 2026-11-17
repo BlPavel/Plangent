@@ -23,6 +23,7 @@ const compiled = (async () => {
   const bundle = await build({
     stdin: { contents: `
       export { default as WorkStages } from './client/src/features/tasks/components/WorkStages.vue'
+      export { default as WorkPreparing } from './client/src/features/tasks/components/WorkPreparing.vue'
       export { default as ExecutionBranch } from './client/src/features/tasks/components/ExecutionBranch.vue'
       export { default as ChangeWorkBranch } from './client/src/features/tasks/components/ChangeWorkBranch.vue'
       export { default as StepPicker } from './client/src/features/tasks/components/StepPicker.vue'
@@ -61,6 +62,23 @@ const compiled = (async () => {
   return mod.exports
 })()
 const flush = async () => { await new Promise(resolve => setImmediate(resolve)); await nextTick() }
+
+test('failed work preparation shows the cause and a retry action', async () => {
+  const { WorkPreparing } = await compiled
+  let retries = 0
+  const props = reactive({ error: 'Could not resolve host: corporate-git', retryable: true, retrying: false, onRetry: () => { retries++ } })
+  const view = mount(WorkPreparing, props)
+  try {
+    assert.match(document.body.textContent, /Could not resolve host: corporate-git/)
+    assert.match(document.body.textContent, /VPN/)
+    const retry = [...document.querySelectorAll('button')].find(button => button.textContent.includes('Повторить подготовку'))
+    assert.ok(retry)
+    retry.click(); await flush()
+    assert.equal(retries, 1)
+    props.retrying = true; await flush()
+    assert.equal(retry.disabled, true)
+  } finally { view.unmount() }
+})
 test('markdown document links open valid targets and use safe configurable labels', async () => {
   const { MessageMarkdown, DocumentLinksKey } = await compiled
   const opened = []

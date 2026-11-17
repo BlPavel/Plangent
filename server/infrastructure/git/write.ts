@@ -34,6 +34,8 @@ export function redactGitOutput(text: string): string {
 const run = runGit;
 /** Commands that run the repository's hooks. `--literal-pathspecs` is exported to hooks as GIT_LITERAL_PATHSPECS and breaks their own globs (`git add ./apps/**\/*.scss`). */
 const HOOK_COMMANDS = new Set(['commit', 'push', 'switch', 'checkout', 'merge', 'pull', 'rebase', 'clone']);
+/** Only these talk to the remote: elsewhere "Permission denied" is a locked file, not a login. */
+const NETWORK_COMMANDS = new Set(['fetch', 'pull', 'push', 'clone', 'ls-remote']);
 function runGitRaw(root: string, args: string[], options: GitOperationOptions = {}, input?: string): Promise<string> {
   options.signal?.throwIfAborted();
   return new Promise((resolve, reject) => {
@@ -48,7 +50,7 @@ function runGitRaw(root: string, args: string[], options: GitOperationOptions = 
       if (killError) return reject(killError);
       if (cancelled || timedOut) return reject(new GitOperationError(timedOut ? 'Git operation timed out' : 'Git operation cancelled', output, timedOut ? 'timeout' : 'cancelled'));
       if (error) {
-        const auth = /authentication failed|could not read Username|permission denied|access denied|HTTP Basic: Access denied|terminal prompts disabled/i.test(output);
+        const auth = NETWORK_COMMANDS.has(args[0]) && /authentication failed|could not read Username|permission denied|access denied|HTTP Basic: Access denied|terminal prompts disabled/i.test(output);
         const divergence = args[0] === 'pull' && /diverg|fast-forward|not possible to fast-forward/i.test(output);
         return reject(new GitOperationError(auth ? 'Ошибка авторизации. Для SSO используйте PAT вместо пароля или SSH.' : divergence ? 'Ветки разошлись. Откройте внешний Git-клиент.' : 'Git operation failed', output, auth ? 'authentication' : divergence ? 'diverged' : 'git_failed'));
       }

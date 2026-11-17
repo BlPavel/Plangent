@@ -23,7 +23,7 @@ test('execution roots, errands, task chats and independent review rounds', async
   const { killProcessTree } = await import('../../infrastructure/terminal/process-tree');
   const workspaces = await import('../../core-services').then(() => import('../../core/workspaces/index'));
   const { prepareWork } = await import('../../core-services').then(() => import('../../core/work/start'));
-  const { createErrand } = await import('../../core-services').then(() => import('../../core/work/errands'));
+  const { createErrand, retryErrandPreparation } = await import('../../core-services').then(() => import('../../core/work/errands'));
   const { taskChat } = await import('../../core-services').then(() => import('../../core/work/task-chat'));
   const { taskContextFor } = await import('../../core/work/task-context');
   const taskReview = await import('../../core-services').then(() => import('../../core/review/code/task-review'));
@@ -60,6 +60,42 @@ test('execution roots, errands, task chats and independent review rounds', async
   };
   const queueTask = tasks.createTask({ project_id: project.id, title: 'Execute a task' });
   try {
+    await t.test('an acknowledged errand survives fetch failure and retries with its original agent', async () => {
+      git(repo, 'remote', 'set-url', 'origin', path.join(temporary, 'missing-origin.git'));
+      let taskId = '';
+      try {
+        await assert.rejects(createErrand(project.id, { title: 'Retry me', text: 'Inspect the workspace', agent_id: agent.id,
+          policy: 'ask', branch_name: 'feature/retry' }, task => { taskId = task.id; }), /Git operation failed/);
+        const failed = workspaces.activeWorkspace(taskId)!;
+        assert.equal(failed.status, 'failed');
+        const session = sessions.listSessions(project.id).find(s => s.task_id === taskId)!;
+        assert.equal(session.status, 'error');
+        assert.equal(session.metadata.preparation_pending, true);
+        assert.match(session.reason, /missing-origin/);
+        assert.equal(sessions.history(session.id).some(e => e.type === 'user'), false);
+        // Repeated failures preserve the task and the session and never fall back to the main folder.
+        await assert.rejects(retryErrandPreparation(taskId), /Git operation failed/);
+        git(repo, 'remote', 'set-url', 'origin', remote);
+        assert.equal((await post('/projects/not-this-project/tasks/' + taskId + '/retry-preparation')).status, 404);
+        const retried = await post('/projects/' + project.id + '/tasks/' + taskId + '/retry-preparation');
+        assert.equal(retried.status, 200);
+        assert.equal((await retried.json() as { id: string }).id, taskId);
+        assert.equal(workspaces.activeWorkspace(taskId)?.status, 'ready');
+        assert.ok(tasks.getTask(taskId)?.base_commit);
+        assert.equal(sessions.getSession(session.id).metadata.preparation_pending, false);
+        assert.equal(sessions.getSession(session.id).policy, 'ask');
+        await until(() => sessions.history(session.id).some(e => e.type === 'user'));
+        await assert.rejects(retryErrandPreparation(taskId), /already prepared/);
+      } finally { git(repo, 'remote', 'set-url', 'origin', remote); }
+    });
+    await t.test('legacy stranded errands can be prepared without creating another task', async () => {
+      const task = tasks.createTask({ project_id: project.id, kind: 'errand', title: 'Legacy stranded' });
+      tasks.updateTask(task.id, { status: 'in_progress' });
+      await retryErrandPreparation(task.id);
+      assert.equal(workspaces.activeWorkspace(task.id)?.status, 'ready');
+      assert.ok(tasks.getTask(task.id)?.base_commit);
+      assert.ok(sessions.listSessions(project.id).find(s => s.task_id === task.id && s.role === 'errand'));
+    });
     await t.test('queue prepares workspace before execution, reruns reuse it', async () => {
       createPlan({ task_id: queueTask.id, content: '- [ ] (p1) Implement' });
       queues.saveQueue(queues.replaceStages(queues.getQueue(queueTask.id, project.id), [{ sessions: [{ points: ['p1'], agentId: agent.id }] }]));

@@ -96,6 +96,10 @@ terminalsRouterRoutes.json('POST /api/terminals/:id/:action', async (req, res) =
 });
 terminalsRouterRoutes.empty('DELETE /api/terminals/:id', async (req, res) => { await killPtySession(req.params.id); terminals.delete(req.params.id); res.status(204).end(); });
 export async function shutdownTerminals() { await Promise.all([...terminals.keys()].map(killPtySession)); }
+/** A removed workspace takes its terminals: their shells keep the folder open. */
+export async function closeWorkspaceTerminals(workspaceId: string) {
+  await Promise.all([...terminals.values()].filter(t => t.workspaceId === workspaceId).map(async t => { await killPtySession(t.id); terminals.delete(t.id); }));
+}
 
 export async function viewingTerminalWarnings(projectId: string, workspaceId: string | null) {
   return (await runningTerminals(projectId)).filter(t => t.workspaceId !== workspaceId);

@@ -4,7 +4,8 @@
       <div class="prep-body">
         <span class="prep-glyph" :class="{ failed }" aria-hidden="true">{{ failed ? '!' : '⚡' }}</span>
         <h3 class="prep-title">{{ failed ? 'Не удалось подготовить рабочее место' : 'Готовим поручение' }}</h3>
-        <p v-if="failed" class="prep-error">{{ workspace?.error || 'Причина не указана' }}</p>
+        <p v-if="failed" class="prep-error">{{ error || workspace?.error || 'Причина не указана' }}</p>
+        <p v-if="failed && retryable" class="prep-text">Проверьте доступ к Git-серверу и подключение VPN, если оно нужно, затем повторите подготовку.</p>
         <p v-else class="prep-text">Чат откроется сам, когда агент будет готов принять задачу. Пока можно обдумать, что ему написать.</p>
         <ol class="prep-steps" aria-label="Подготовка">
           <li v-for="step in steps" :key="step.title" :class="step.state">
@@ -17,6 +18,7 @@
         </ol>
         <!-- The setup command's latest output: the developer sees that it is moving, not hung. -->
         <code v-if="logLine && !failed" class="prep-log" :title="logLine">{{ logLine }}</code>
+        <AppButton v-if="retryable" :disabled="retrying" @click="$emit('retry')">{{ retrying ? 'Повторяем подготовку…' : 'Повторить подготовку' }}</AppButton>
       </div>
     </AppCard>
   </div>
@@ -24,7 +26,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { Workspace } from '@contracts'
-import { AppCard } from '@shared/ui'
+import { AppButton, AppCard } from '@shared/ui'
 import StageMark from '@shared/ui/StageMark.vue'
 
 type StepState = 'done' | 'active' | 'pending' | 'failed'
@@ -32,8 +34,9 @@ type StepState = 'done' | 'active' | 'pending' | 'failed'
  * What an errand shows between «Поручить» and the moment its agent can take the request:
  * the branch and folder, the project's setup command (when there is one), the agent's connection.
  */
-const props = defineProps<{ workspace?: Workspace | null; agentConnecting?: boolean; /** The server has pinned where the work goes (its base commit): without a folder it is the main one. */ placed?: boolean }>()
-const failed = computed(() => props.workspace?.status === 'failed')
+const props = defineProps<{ workspace?: Workspace | null; agentConnecting?: boolean; error?: string; retrying?: boolean; retryable?: boolean; /** The server has pinned where the work goes (its base commit): without a folder it is the main one. */ placed?: boolean }>()
+defineEmits<{ retry: [] }>()
+const failed = computed(() => props.workspace?.status === 'failed' || !!props.error)
 const preparing = computed(() => props.workspace?.status === 'preparing')
 const log = computed(() => props.workspace?.setup_log ?? '')
 /** The setup command is logged as «$ command» before it runs (server/core/workspaces/prepare.ts). */

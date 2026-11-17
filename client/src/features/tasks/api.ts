@@ -10,6 +10,7 @@ export type ErrandInput = Endpoints['POST /api/projects/:projectId/errands']['bo
 /** A new task with a plan: its branch and automatic review are chosen at creation, as an errand's. */
 export type PlanTaskInput = Endpoints['POST /api/projects/:projectId/plan-tasks']['body']
 export const workApi = {
+  retryPreparation: endpoint('POST /api/projects/:projectId/tasks/:taskId/retry-preparation'),
   changeBranch: endpoint('POST /api/projects/:projectId/tasks/:taskId/switch-branch'),
   list: (p: string) => api.get<Endpoints['GET /api/projects/:projectId/work']['response']>(root(p) + '/work'),
   attention: () => api.get<Endpoints['GET /api/work/attention']['response']>('/work/attention'),
