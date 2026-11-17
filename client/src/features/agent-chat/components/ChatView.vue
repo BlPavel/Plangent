@@ -5,17 +5,14 @@
         <strong :title="snap.session.title">{{ snap.session.title }}</strong>
         <span v-if="agentName" class="chat-agent">{{ agentName }}</span>
       </div>
-      <AppBadge dot  :tone="statusTone(snap.session.status)">{{ statusLabel(snap.session.status) }}</AppBadge>
+      <AppBadge dot :tone="statusTone(snap.session.status)">{{ statusLabel(snap.session.status) }}</AppBadge>
       <AppButton v-if="canMakeErrand && hasConversation" size="sm" variant="subtle" title="Передать разговор агенту отдельной работой в своей ветке" @click="makeErrand">⚡ Сделать поручением</AppButton>
       <slot name="actions" />
     </header>
 
-    <div v-if="snap.session.status === 'error'" class="banner banner-error">
-      <div class="banner-text">{{ snap.session.reason || 'Агент завершился с ошибкой' }}
-        <span class="banner-hint">Если нужен вход, выполните команду входа CLI во вкладке «Терминал».</span>
-      </div>
-      <AppButton size="sm" @click="action('retry')">Повторить</AppButton>
-      <AppButton size="sm" @click="newContext">Новый чат с контекстом</AppButton>
+    <div v-if="snap.session.status === 'error'" class="chat-error" role="alert">
+      <span class="chat-error-text">{{ error || snap.session.reason || 'Агент завершился с ошибкой' }}</span>
+      <AppButton size="xs" variant="ghost" :disabled="retrying" @click="retry">Повторить</AppButton>
     </div>
     <div v-else-if="snap.session.status === 'waiting' && snap.session.reason && !snap.permissions.length" class="banner banner-wait">
       <div class="banner-text">{{ snap.session.reason }}</div>
@@ -149,11 +146,11 @@
           @policy="policyChanged"
           @change="changeOption"
         />
-        <div v-if="error" class="dock-error">{{ error }} <AppButton variant="subtle" size="xs" icon aria-label="Закрыть" @click="error = ''"><UIIconClose /></AppButton></div>
+        <div v-if="error && snap.session.status !== 'error'" class="dock-error" role="alert">{{ error }} <AppButton variant="subtle" size="xs" icon aria-label="Закрыть" @click="error = ''"><UIIconClose /></AppButton></div>
       </div>
     </div>
   </section>
-  <AppEmptyState v-else >{{ error || 'Загрузка чата…' }}</AppEmptyState>
+  <AppEmptyState v-else>{{ error || 'Загрузка чата…' }}</AppEmptyState>
 </template>
 
 <script setup lang="ts">
@@ -190,6 +187,7 @@ const snap = computed(() => store.snapshots[props.sessionId])
 const canMakeErrand = computed(() => props.canErrand && projects.byId(snap.value?.session.project_id)?.kind === 'project')
 const canUseGit = computed(() => !!snap.value && ['chat', 'task-chat', 'errand'].includes(snap.value.session.role) && !snap.value.session.metadata.branch_review && !snap.value.session.metadata.mr_private && projects.byId(snap.value.session.project_id)?.kind === 'project')
 const error = ref('')
+const retrying = ref(false)
 const feed = ref<HTMLElement>(), inner = ref<HTMLElement>(), composer = ref<InstanceType<typeof ChatComposer>>()
 const pending = ref<{ id: number; text: string }[]>([])
 let follow = true
@@ -343,6 +341,12 @@ async function action(name: string, body: import('@contracts').AgentSessionsPOST
   try { error.value = ''; await agentChatEndpoints.postAgentSessionsByIdByAction({ params: { id: props.sessionId, action: name }, body: body }); await store.load(props.sessionId) }
   catch (e) { error.value = String(e) }
 }
+async function retry() {
+  if (retrying.value) return
+  retrying.value = true
+  try { await action('retry') }
+  finally { retrying.value = false }
+}
 async function send(content: ContentBlock[]) {
   const gitAllowed = canUseGit.value && gitForTurn.value
   gitForTurn.value = false
@@ -365,10 +369,6 @@ function changeOption(select: AgentSelect, value: string) {
 function queueText(content: string) { try { const value = JSON.parse(content); return (Array.isArray(value) ? value : value.content).map((c: { text?: string }) => c.text ?? '[вложение]').join(' ') } catch { return content } }
 async function removeQueue(id: string) { await agentChatEndpoints.deleteAgentSessionsByIdQueueByPromptId({ params: { id: props.sessionId, promptId: id } }); await store.load(props.sessionId) }
 async function editQueue(item: { id: string; content: string }) { void composer.value?.setText(queueText(item.content)); await removeQueue(item.id) }
-async function newContext() {
-  try { const session = await agentChatEndpoints.postAgentSessionsByIdByAction({ params: { id: props.sessionId, action: "context" } }); if ('id' in session) emit('session', session.id) }
-  catch (e) { error.value = String(e) }
-}
 </script>
 
 <style scoped>
@@ -381,8 +381,9 @@ async function newContext() {
 
 .banner { display: flex; align-items: center; gap: var(--sp-2); padding: 10px var(--sp-4); font-size: var(--fs-md); border-bottom: 1px solid var(--border); flex-shrink: 0; }
 .banner-text { flex: 1; min-width: 0; overflow-wrap: anywhere; max-height: 90px; overflow-y: auto; }
-.banner-hint { display: block; font-size: var(--fs-sm); color: var(--text-muted); margin-top: 2px; }
-.banner-error { background: var(--danger-soft); color: var(--danger-hover); }
+.chat-error { display: flex; align-items: center; gap: var(--sp-2); margin: var(--sp-2) var(--sp-5); padding: var(--sp-1) var(--sp-2); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: var(--fs-sm); color: var(--danger-hover); flex-shrink: 0; }
+.chat-error-text { flex: 1; min-width: 0; max-height: 3lh; overflow-y: auto; overflow-wrap: anywhere; }
+.chat-error > :last-child { flex-shrink: 0; }
 .banner-wait { background: var(--warning-soft); color: var(--warning-text); }
 
 .feed { flex: 1; min-height: 0; overflow-y: auto; }

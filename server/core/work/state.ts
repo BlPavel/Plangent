@@ -10,7 +10,7 @@ export interface WorkInput {
   finish?: { status: FinishStatus; error?: string } | null;
   /** An errand whose chat is open but the developer has not written the request yet. */
   awaitingBrief?: boolean;
-  /** The agent has finished its work at least once: an errand's first turn, a plan's queue. */
+  /** The agent has finished its work at least once: an explicitly completed errand, a plan's queue. */
   workDone?: boolean;
 }
 /** Presentation policy only; no storage, network or clock access. */
@@ -61,8 +61,11 @@ export function computeWorkState(input: WorkInput): WorkState {
   if (task.kind === 'task' && base.counts.steps > base.counts.completed
     && ((queue && queue.status !== 'idle') || sessions.some(s => ['executor', 'task-chat'].includes(s.role))))
     return result('execution', 'waiting', 'attention', '❗', `Выполнено ${base.counts.completed} из ${base.counts.steps} шагов`, 'queue', 'Продолжить');
-  if (task.kind === 'errand' || queue?.status === 'finished' || sessions.some(s => ['executor', 'task-chat', 'errand'].includes(s.role) && ['ready', 'complete'].includes(s.status)))
+  const readyForCheck = task.kind === 'errand' ? !!input.workDone
+    : queue?.status === 'finished' || sessions.some(s => ['executor', 'task-chat'].includes(s.role) && ['ready', 'complete'].includes(s.status));
+  if (readyForCheck)
     return result('check', 'ready', 'attention', '✓', 'Готово к проверке', 'check', 'Проверить');
+  if (task.kind === 'errand') return result('execution', 'waiting', 'attention', '❗', 'Ожидает продолжения обсуждения или работы', 'chat', 'Продолжить');
   if (preparationWaiting) return result('plan', 'waiting', 'attention', '❗', 'Нужен ваш ответ при подготовке', 'plan', 'Открыть подготовку');
   if (preparationActive.length) return result('plan', 'running', 'working', '◌', 'Агент готовит задачу', 'plan', 'Открыть подготовку');
   if (preparation.some(s => s.status === 'error')) return result('plan', 'failed', 'attention', '❗', 'Подготовка прервана', 'plan', 'Открыть подготовку');

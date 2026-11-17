@@ -24,7 +24,7 @@ export async function createPlanTask(projectId: string, input: PlanTaskInput, cr
   return getTask(task.id)!;
 }
 
-// The automatic review of a plan runs once, after its queue first finishes without failures, as an errand's after its first turn.
+// The automatic review of a plan runs once, after its queue first finishes without failures, as an errand's after explicit completion.
 onBroadcast(event => {
   if (event.type !== 'queue_finished' || event.failed || typeof event.taskId !== 'string') return;
   const task = getTask(event.taskId);

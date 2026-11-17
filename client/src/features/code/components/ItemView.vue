@@ -11,9 +11,11 @@
     @permission="(permission, option) => agent.answerPermission(permission, option)"
   >
     <!-- A draft the review agent wrote: accept it (it goes out with «Отправить» to be fixed) or talk it over first, like a question. -->
-    <template v-if="item.author === 'agent' && state === 'draft' && !item.outdated && !readOnly" #extra>
+    <template v-if="item.author === 'agent' && state === 'draft' && !item.outdated && !readOnly" #extra-end>
       <AppButton v-if="!accepted" class="it-act" size="xs" variant="primary" type="button" :disabled="busy" title="Согласны: пункт уйдёт агенту на исправление вместе с остальными по «Отправить»" @click="setAccepted(item, true)">Принять</AppButton>
       <AppButton v-else class="it-act" size="xs" variant="ghost" type="button" :disabled="busy" title="Вернуть пункт на ваше решение: он не уйдёт с «Отправить»" @click="setAccepted(item, false)">Отменить принятие</AppButton>
+    </template>
+    <template v-if="item.author === 'agent' && state === 'draft' && !item.outdated && !readOnly" #extra>
       <AppButton v-if="!accepted && !discussing" class="it-act" size="xs" variant="ghost" type="button" :disabled="busy" title="Сначала обсудить: напишите агенту, сообщение встанет в очередь и уйдёт по «Отправить», агент ответит в карточке" @click="discussing = true">Обсудить</AppButton>
     </template>
   </ItemCard>

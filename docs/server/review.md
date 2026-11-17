@@ -29,7 +29,9 @@ session's metadata; also used by the automatic review), else the project's revie
 `developer_requests`: the developer's own messages to the errand/task/executor chats, the statement the reviewer
 checks against. A range with no changes does not start.
 An errand is completed explicitly through `complete_step`; ordinary replies, discussions, clarification
-questions and progress reports leave it in progress. After that tool's turn finishes without cancellation or
+questions and progress reports leave it in progress, with the chat as its primary action and no ready-for-check notification.
+The errand's stage moves to verification only after explicit completion; a ready chat alone does not open it.
+After that tool's turn finishes without cancellation or
 error, the errand sets `work_done` in its session's metadata and, with `auto_review`, starts one automatic review.
 Later turns are follow-ups and launch nothing. A task with a plan gets
 the same review (`core/work/plan-tasks.ts`) after its queue first finishes without failures; it runs only while the

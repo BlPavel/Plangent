@@ -28,6 +28,7 @@ test('work lifecycle, default viewing, recovery and notifications', async t => {
   const { initWorkEvents } = await import('../../core-services').then(() => import('../../core/work/events'));
   const { onBroadcast } = await import('../../core-services').then(() => import('../../core/shared/events'));
   const { sessionSignals } = await import('../../core-services').then(() => import('../../core/agents/sessions/acp-host'));
+  const { completeAgentWork, getSession } = await import('../../core-services').then(() => import('../../core/agents'));
   const { recoverWorkspaces } = await import('../../core-services').then(() => import('../../core/workspaces/recovery'));
   const { setViewing, viewing } = await import('../../core-services').then(() => import('../../core/workspaces/viewing'));
   const { codeRouter } = await import('../../core-services').then(() => import('../../api/http/routes/code'));
@@ -125,13 +126,27 @@ test('work lifecycle, default viewing, recovery and notifications', async t => {
       assert.match(getWorkspace(preparing.id).error, /прервана/);
     });
     await t.test('turns and queue completion notify once, fixes are identified separately', async () => {
-      const errand = createTask({ project_id: project.id, kind: 'errand' });
+      const errand = createTask({ project_id: project.id, kind: 'errand', auto_review: false });
       const session = createSession({ project_id: project.id, task_id: errand.id, agent_id: agent.id, role: 'errand', policy: 'ask' });
       updateSession(session.id, { status: 'ready' }); addEvent(session.id, 'user', { text: 'Do it' });
       addEvent(session.id, 'turn_end', { stopReason: 'end_turn' });
       sessionSignals.emit('turn_end', session.id); sessionSignals.emit('turn_end', session.id);
+      assert.equal(events.filter(e => e.type === 'work:ready_for_check' && e.taskId === errand.id).length, 0);
+      assert.equal(getSession(session.id).metadata.work_done, undefined);
+      const discussing = workEntry(errand.id).state;
+      assert.deepEqual([discussing.stage, discussing.action, discussing.canCheck], ['execution', 'chat', false]);
+      completeAgentWork(session.id, 'Implemented requested behavior');
+      addEvent(session.id, 'turn_end', { stopReason: 'end_turn' });
+      sessionSignals.emit('turn_end', session.id); sessionSignals.emit('turn_end', session.id);
+      assert.equal(getSession(session.id).metadata.work_done, true);
+      const completed = workEntry(errand.id).state;
+      assert.deepEqual([completed.stage, completed.action, completed.canCheck], ['check', 'check', true]);
       const ready = events.filter(e => e.type === 'work:ready_for_check' && e.taskId === errand.id);
       assert.equal(ready.length, 1); assert.equal(ready[0].taskKey, errand.key); assert.equal(ready[0].projectId, project.id);
+      updateSession(session.id, { status: 'ready' });
+      addEvent(session.id, 'turn_end', { stopReason: 'end_turn' }); sessionSignals.emit('turn_end', session.id);
+      assert.equal(events.filter(e => e.type === 'work:ready_for_check' && e.taskId === errand.id).length, 1);
+      assert.equal(workEntry(errand.id).state.canCheck, true);
       updateSession(session.id, { status: 'ready', metadata: { work_fix_pending: true } });
       addEvent(session.id, 'turn_end', { stopReason: 'end_turn' }); sessionSignals.emit('turn_end', session.id);
       assert.equal(events.filter(e => e.type === 'work:fixes_ready' && e.taskId === errand.id).length, 1);

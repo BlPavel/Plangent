@@ -61,12 +61,13 @@
         <div v-if="canGoto || item.outdated || mode !== 'none' || canReopen || (!readOnly && !item.closed) || $slots.extra" class="it-actions">
           <AppButton v-if="canGoto" class="it-act it-goto" size="xs" variant="ghost" type="button" @click="emit('goto')"><UIIconCode />К коду</AppButton>
           <AppButton v-if="item.outdated && !readOnly" class="it-act" size="xs" variant="ghost" type="button" @click="act('general')">Сделать общим</AppButton>
+          <AppButton v-if="mode === 'draft' && decision && !item.outdated" class="it-act" size="xs" variant="ghost" type="button" @click="act('edit')">Править</AppButton>
           <slot name="extra" />
           <AppButton v-if="canReopen" class="it-act" size="xs" variant="blue" type="button" :disabled="actionBusy" title="Вернуть карточку к вашему решению" @click="reopenThread">Вернуть в доработку</AppButton>
           <AppButton v-if="!readOnly && !item.closed && state !== 'draft'" class="it-act" size="xs" variant="danger-ghost" type="button" :disabled="actionBusy" title="Закрыть обсуждение этого пункта" @click="closeThread">Закрыть</AppButton>
           <template v-if="mode === 'draft'">
             <AppButton class="it-act" size="xs" variant="danger-ghost" type="button" @click="act('remove')">Удалить</AppButton>
-            <AppButton v-if="!item.outdated" class="it-act" size="xs" variant="ghost" type="button" @click="act('edit')">Править</AppButton>
+            <AppButton v-if="!item.outdated && !decision" class="it-act" size="xs" variant="ghost" type="button" @click="act('edit')">Править</AppButton>
           </template>
           <template v-else-if="mode === 'queued'">
             <AppButton class="it-act" size="xs" variant="ghost" type="button" :disabled="actionBusy" title="Убрать написанное из очереди: текст вернётся в поле ответа" @click="cancelQueued">Отменить</AppButton>
@@ -79,6 +80,7 @@
           <template v-else-if="mode === 'idle'">
             <AppButton v-if="item.kind === 'question' && !noImplement" class="it-act" size="xs" variant="primary" type="button" :disabled="actionBusy" title="Попросить агента внести в код то, о чём договорились (уйдёт со следующей отправкой)" @click="requestChange">Исправить</AppButton>
           </template>
+          <slot name="extra-end" />
         </div>
         <div v-if="error" class="it-note" role="alert">{{ error }}</div>
       </form>
