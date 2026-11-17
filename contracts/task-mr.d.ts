@@ -36,6 +36,7 @@ export type TaskMrPOSTPreviewBody = {
     "target_branch"?: undefined | string;
 };
 export type TaskMrPOSTDescribeResponse = {
+    "title"?: string;
     "description": string;
 };
 export type TaskMrPOSTDescribeBody = {

@@ -20,7 +20,7 @@ read-only execution, branch review and full finish workflows. `git_action`
 requires an ordinary project and excludes private MR review. Domain services
 also validate resource ownership and workflow state.
 
-The librarian edits single-text instructions (guide, code-fixer, commit rules, templates, review and
+The librarian edits single-text instructions (guide, code-fixer, commit rules, MR rules, templates, review and
 interview instructions) like list items: `get_instruction_text` reads the text in force, then
 `propose_library_change` updates or creates it. Their slug is fixed, there is one per level, and review
 and interview instructions are global only (`core/library/instruction-texts.ts`).

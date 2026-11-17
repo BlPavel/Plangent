@@ -10,6 +10,7 @@ export const LIBRARY_TYPES = {
   skill: item('скилл', 'Скилл', 'Скиллы'), command: item('команда', 'Команда', 'Команды'), main: item('main', 'Главный файл', 'Главный файл', true),
   'instruction-guide': text('руководство по инструкциям', levels, 'Руководство по инструкциям'),
   'code-fixer-instruction': text('Агент доработки'), 'commit-rules': text('правила коммитов', levels, 'Правила коммитов'),
+  'mr-rules': text('правила МР', levels, 'Правила МР'),
   'plan-template': text('шаблон плана', levels, 'Шаблон плана'),
   'plan-review-instruction': text('ревью плана', levels, 'Ревью плана'), 'mr-review-instruction': text('ревью МР', levels, 'Ревью МР'),
   'interview-instruction': text('Уточняющее интервью', global),
@@ -39,6 +40,7 @@ export const LIBRARY_SECTIONS = {
   global: {
     skills: section('Скиллы', ['skill']), 'instruction-guide': section('Руководство по инструкциям', ['instruction-guide']),
     'code-fixer': section('Агент доработки', ['code-fixer-instruction']), 'commit-rules': section('Коммиты', ['commit-rules']),
+    'mr-rules': section('МР', ['mr-rules']),
     'plan-template': section('Шаблон плана', ['plan-template']), 'architecture-template': section('Как писать', ['architecture-template']),
     'qa-template': section('Как писать', ['qa-template']), 'plan-review': section('Ревью плана', ['plan-review-instruction']),
     'mr-review': section('Ревью МР', ['mr-review-instruction']), 'architecture-review': section('Ревью', ['architecture-review-instruction']),
@@ -47,7 +49,7 @@ export const LIBRARY_SECTIONS = {
   project: {
     items: section('Элементы', ['skill', 'command', 'main']),
     guide: section('Руководство для агента', ['instruction-guide']), fixer: section('Агент доработки', ['code-fixer-instruction']),
-    commits: section('Коммиты', ['commit-rules']),
+    commits: section('Коммиты', ['commit-rules']), mr: section('Merge request', ['mr-rules']),
     'plan-template': section('Шаблон плана', ['plan-template']), 'architecture-template': section('Как писать', ['architecture-template']),
     'qa-template': section('Как писать', ['qa-template']),
     'mr-review': section('Ревью МР', ['mr-review-instruction']), 'plan-review': section('Ревью плана', ['plan-review-instruction']),

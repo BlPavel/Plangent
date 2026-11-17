@@ -10,7 +10,7 @@ import { groupMembers, listProjects } from '../projects';
 import type { listWorkspaces } from '../workspaces';
 import { readItemContent, readOverrideContent, buildSkillFileContent } from './library-manager';
 
-const NON_SYNC_TYPES = new Set<LibraryItem['type']>(['plan-template', 'instruction-guide', 'code-fixer-instruction', 'commit-rules', 'review-skill', 'plan-review-skill', 'plan-review-instruction', 'mr-review-instruction',
+const NON_SYNC_TYPES = new Set<LibraryItem['type']>(['plan-template', 'instruction-guide', 'code-fixer-instruction', 'commit-rules', 'mr-rules', 'review-skill', 'plan-review-skill', 'plan-review-instruction', 'mr-review-instruction',
   'architecture-template', 'architecture-review-instruction', 'architecture-review-skill', 'qa-template', 'qa-review-instruction', 'qa-review-skill', 'interview-instruction']);
 
 const PLANGENT_MARKER_START = (slug: string) => `<!-- plangent:${slug}:start -->`;

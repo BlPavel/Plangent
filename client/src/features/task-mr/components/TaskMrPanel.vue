@@ -167,7 +167,10 @@ async function describe() {
   const mine = generation, value = { ...draft.value }; busy.value = true; generating.value = true; error.value = ''
   try {
     const result = await taskMrApi.describe(props.projectId, value)
-    if (mine === generation && draft.value?.head === value.head && draft.value.target_branch === value.target_branch) draft.value.description = result.description
+    if (mine === generation && draft.value?.head === value.head && draft.value.target_branch === value.target_branch) {
+      if (result.title) draft.value.title = result.title
+      draft.value.description = result.description
+    }
   } catch (cause) { if (mine === generation) error.value = 'Агент не подготовил описание: ' + errorText(cause) + '. Текст можно написать вручную.' }
   finally { if (mine === generation) { busy.value = false; generating.value = false } }
 }

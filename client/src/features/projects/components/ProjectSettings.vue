@@ -15,7 +15,11 @@
       <ProjectGeneralSettings v-else-if="page === 'hosting'" :project="project" section="hosting" />
       <ProjectGitPanel v-else-if="page === 'git-agents'" :project-id="project.id" section="agent" />
       <ProjectGitPanel v-else-if="page === 'review-agent'" :project-id="project.id" section="review-agent" />
-      <ProjectGitPanel v-else-if="page === 'workspace-files' || page === 'workspace-setup' || page === 'branches' || page === 'mr'" :key="page" :project-id="project.id" :section="page" />
+      <ProjectGitPanel v-else-if="page === 'workspace-files' || page === 'workspace-setup' || page === 'branches'" :key="page" :project-id="project.id" :section="page" />
+      <template v-else-if="page === 'mr'">
+        <ProjectGitPanel :project-id="project.id" section="mr" />
+        <CodeFixerInstructionEditor scope="project" :type="LIBRARY_SECTIONS.project.mr.types[0]" :project-id="project.id" />
+      </template>
       <SkillsManager v-else-if="page === 'items'" class="skills" scope="project" :project-id="project.id" />
       <PlanTemplateEditor v-else-if="templateType" :key="page" scope="project" :type="templateType" :project-id="project.id" />
       <CodeFixerInstructionEditor v-else-if="reviewType" :key="page" scope="project" :type="reviewType" :project-id="project.id" />

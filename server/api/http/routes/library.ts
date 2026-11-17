@@ -9,6 +9,7 @@ import { getProject } from '../../../core/projects';
 import { readItemContent, readOverrideContent } from '../../../core/library/library-manager';
 import { DEFAULT_CODE_FIXER_INSTRUCTION } from '../../../core/library/code-fixer-instruction';
 import { DEFAULT_COMMIT_RULES } from '../../../core/library/commit-rules';
+import { DEFAULT_MR_RULES } from '../../../core/library/mr-rules';
 import { DEFAULT_PLAN_REVIEW_INSTRUCTION } from '../../../core/library/plan-review-instruction';
 import { DEFAULT_MR_REVIEW_INSTRUCTION } from '../../../core/library/mr-review-instruction';
 import { instructionTextState } from '../../../core/library/instruction-texts';
@@ -54,6 +55,10 @@ libraryRouterRoutes.json('GET /api/library/code-fixer-instruction/defaults', (_r
 
 libraryRouterRoutes.json('GET /api/library/commit-rules/defaults', (_req, res) => {
   res.json({ content: DEFAULT_COMMIT_RULES });
+});
+
+libraryRouterRoutes.json('GET /api/library/mr-rules/defaults', (_req, res) => {
+  res.json({ content: DEFAULT_MR_RULES });
 });
 
 libraryRouterRoutes.json('GET /api/library/mr-review-instruction/defaults', (_req, res) => {

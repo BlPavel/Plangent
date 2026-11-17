@@ -26,6 +26,7 @@ export { buildCodeFixerBriefing } from './code-fixer-instruction';
 export { interviewFocus, interviewGuide, interviewRound, interviewPending, interviewBlocksTool, type InterviewRound } from './interview-instruction';
 export { resolvePlanTemplate } from './plan-template';
 export { resolveCommitRules } from './commit-rules';
+export { resolveMrRules } from './mr-rules';
 export { resolveMaterialTemplate } from './section-settings';
 export { PLAN_PROTOCOL_LOCKED } from './plan-template';
 export { REVIEW_SKILL_AUTHORING } from './review-skill';

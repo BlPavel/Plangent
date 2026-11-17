@@ -6,6 +6,29 @@ export const DEFAULT_COMMIT_RULES = [
   'Description (only when requested): 1-3 short lines or bullets on what changed and why.',
 ].join('\n');
 
+export const DEFAULT_MR_RULES = `# Merge request title and description
+
+## Title
+- If the task or errand states a branch name (for example "fix/WMT-3131"), start the title with it, then a short summary of the change: "fix/WMT-3131 Add contact list".
+- Take the branch name and the summary from the task or errand. If the work did not come from a task or errand, write the title yourself: short, specific, in the imperative mood, no trailing period.
+- Never invent a task key or a branch name that the task does not contain.
+
+## Body
+- The body is optional. Write it only for a large change or for tangled logic that a reviewer cannot grasp from the title and the diff. For a small or obvious change leave the body empty.
+- Keep it short: at most 4 bullets, one line each. Say what was added, done, fixed or changed. Do not list files, commits or implementation steps, and do not retell the diff.
+- Add a final line starting with "Special attention:" only if a reviewer really must look at something: a risky place, a migration, a breaking change, a non-obvious decision. Name the exact place, for example a module, a store or a file. If there is nothing like that, omit the line.
+- Write in the language of the task; if there is no task, in the language of the developer's request.
+
+## Example
+Title: fix/WMT-3131 Добавление списка контактов
+
+Body:
+Добавлено:
+- отображение списка контактов
+- возможность создания личных контактов
+
+Особое внимание обратить на стейт contacts/contacts-store`;
+
 export const DEFAULT_CODE_FIXER_INSTRUCTION = `# Code fixer
 Make the smallest change that addresses the item. No unrelated refactoring, renames or reformatting.
 Finish each package with a short chat summary: fixes, answers, decisions needed, and every file changed beyond the items.`;

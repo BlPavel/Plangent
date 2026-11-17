@@ -12,7 +12,7 @@ import type { LibraryScope } from '@contracts'
 import InstructionTextEditor from './InstructionTextEditor.vue'
 
 /** One editor for every rule text with project / group / global levels and a built-in default. */
-const props = withDefaults(defineProps<{ scope: LibraryScope; projectId?: string; type?: 'code-fixer-instruction' | 'commit-rules' | 'plan-review-instruction' | 'mr-review-instruction' | 'architecture-review-instruction' | 'qa-review-instruction' | 'interview-instruction' }>(), { type: 'code-fixer-instruction' })
+const props = withDefaults(defineProps<{ scope: LibraryScope; projectId?: string; type?: 'code-fixer-instruction' | 'commit-rules' | 'mr-rules' | 'plan-review-instruction' | 'mr-review-instruction' | 'architecture-review-instruction' | 'qa-review-instruction' | 'interview-instruction' }>(), { type: 'code-fixer-instruction' })
 const COMMON = 'Общая инструкция для всех проектов. Если своя не задана, применяется встроенная.'
 const LEVELS = 'Действует ближайший уровень: проект, группа, глобальный; если нигде не задано — предустановленный текст.'
 const CONFIG = {
@@ -27,6 +27,9 @@ const CONFIG = {
   },
   'mr-review-instruction': {
     description: 'Общие проверки при ревью merge request: что искать, на что не обращать внимания. Как оформлять обзор и замечания, агент получает от Plangent — здесь это описывать не нужно. Для ревью ветки и для ревью задачи. Действует ближайший уровень: проект, группа, глобальный; если нигде не задано — предустановленный текст.',
+  },
+  'mr-rules': {
+    description: 'Как агент пишет заголовок и описание МР: формат заголовка, нужно ли тело, что в нём указывать. Действует ближайший уровень: проект, группа, глобальный; если нигде не задано — предустановленный текст.',
   },
   'commit-rules': {
     description: 'Как агент пишет сообщения коммитов: язык, длина, стиль, формат заголовка. Действует ближайший уровень: проект, группа, глобальный; если нигде не задано — предустановленный текст.',

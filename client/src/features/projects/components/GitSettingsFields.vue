@@ -89,7 +89,6 @@ const sections: Record<Section, Field[]> = {
  ],
  mr: [
   { key: 'finish_scenario', label: 'Сценарий завершения работы' },
-  { key: 'mr_description_prompt', label: 'Как описывать МР', placeholder: 'Коротко: что и зачем изменено. Без списка файлов. Упомяни миграции и breaking changes.', hint: 'Инструкция для агента, который пишет описание. Пусто — агент решает сам.' },
   { key: 'mr_remove_branch', label: 'Удалять исходную ветку после слияния', kind: 'boolean' },
   { key: 'mr_squash', label: 'Объединять коммиты при слиянии (squash)', kind: 'boolean' },
   { key: 'mr_assignees', label: 'Исполнители по умолчанию', kind: 'tags', hint: 'Назначаются на МР при создании (Assignees).' },

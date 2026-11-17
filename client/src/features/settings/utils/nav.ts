@@ -6,7 +6,7 @@ export type SettingsTab = keyof typeof LIBRARY_SECTIONS.global | 'agents' | 'con
 export const SETTINGS_NAV: NavTreeItem[] = [
   { id: 'agents', label: 'Агенты', page: 'agents' },
   { id: 'connections', label: 'Подключения', page: 'connections' },
-  { id: 'git', label: 'Git', children: [{ page: 'git-agents', label: 'Агенты' }, { page: 'commit-rules', label: LIBRARY_SECTIONS.global['commit-rules'].title }] },
+  { id: 'git', label: 'Git', children: [{ page: 'git-agents', label: 'Агенты' }, { page: 'mr-rules', label: LIBRARY_SECTIONS.global['mr-rules'].title }, { page: 'commit-rules', label: LIBRARY_SECTIONS.global['commit-rules'].title }] },
   {
     id: 'instructions', label: 'Инструкции',
     children: [

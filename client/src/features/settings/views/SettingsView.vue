@@ -98,6 +98,10 @@
       <CodeFixerInstructionEditor scope="global" :type="LIBRARY_SECTIONS.global['commit-rules'].types[0]" />
     </div>
 
+    <div v-show="tab === 'mr-rules'" class="tab-body">
+      <CodeFixerInstructionEditor scope="global" :type="LIBRARY_SECTIONS.global['mr-rules'].types[0]" />
+    </div>
+
     <div v-if="tab === 'git-agents'" class="tab-body"><GlobalGitAgent section="git" /></div>
     <div v-if="tab === 'review-agent'" class="tab-body"><GlobalGitAgent section="review" /></div>
 
@@ -241,6 +245,7 @@ const description = computed(() => ({
   agents: 'Агенты подключаются по ACP (Agent Client Protocol). Plangent сам отвечает на их запросы разрешений, поэтому режимы «без подтверждений» агента не нужны.',
   'git-agents': 'Действуют во всех проектах и группах, где агенты не выбраны в их настройках → «Git» → «Агенты».',
   'review-agent': 'Действует во всех проектах и группах, где агент не выбран в их настройках → «Ревью» → «Агенты».',
+  'mr-rules': 'Действуют во всех проектах, если проект или группа не переопределили их в своих настройках → «Git» → «Merge request».',
   skills: 'Глобальные скиллы применяются ко всем агентам во всех проектах. Скиллы проекта или группы задаются в их настройках → «Инструкции».',
   'instruction-guide': 'Действует во всех проектах, если проект или группа не переопределили его в своих настройках → «Инструкции».',
   'code-fixer': 'Действует во всех проектах, если проект или группа не переопределили её в своих настройках → «Инструкции».',

@@ -5,7 +5,6 @@ export { default as ProjectFormModal } from './components/ProjectFormModal.vue'
 export { default as AvailabilityField, type Availability } from './components/AvailabilityField.vue'
 export { default as ProjectGitPanel } from './components/ProjectGitPanel.vue'
 export { default as GitAgentFields } from './components/GitAgentFields.vue'
-
 export { useReviewAgentChoice, type ReviewAgentChoice } from './composables/useReviewAgentChoice'
 
 export { projectsEndpoints } from './api'

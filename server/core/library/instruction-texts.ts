@@ -4,7 +4,7 @@ import { availableLibraryItems, closestLibraryItem, resolveLibraryItem } from '.
 import { getProject } from '../projects';
 import type { InstructionTextState, InstructionTextSource, LibraryItem } from '../../../contracts';
 import { isTextInstructionType } from '../../../common/library-registry';
-import { DEFAULT_CODE_FIXER_INSTRUCTION, DEFAULT_COMMIT_RULES, DEFAULT_INSTRUCTION_GUIDE, DEFAULT_INTERVIEW_INSTRUCTION, DEFAULT_MR_REVIEW_INSTRUCTION, DEFAULT_PLAN_REVIEW_INSTRUCTION, DEFAULT_PLAN_TEMPLATE } from './builtins';
+import { DEFAULT_CODE_FIXER_INSTRUCTION, DEFAULT_COMMIT_RULES, DEFAULT_INSTRUCTION_GUIDE, DEFAULT_INTERVIEW_INSTRUCTION, DEFAULT_MR_REVIEW_INSTRUCTION, DEFAULT_MR_RULES, DEFAULT_PLAN_REVIEW_INSTRUCTION, DEFAULT_PLAN_TEMPLATE } from './builtins';
 
 export { TEXT_INSTRUCTION_TYPES, isTextInstructionType, isGlobalOnlyType } from '../../../common/library-registry';
 import { isGlobalOnlyType } from '../../../common/library-registry';
@@ -20,6 +20,7 @@ export function defaultInstructionText(type: TextInstructionType): string {
     case 'instruction-guide': return DEFAULT_INSTRUCTION_GUIDE;
     case 'code-fixer-instruction': return DEFAULT_CODE_FIXER_INSTRUCTION;
     case 'commit-rules': return DEFAULT_COMMIT_RULES;
+    case 'mr-rules': return DEFAULT_MR_RULES;
     case 'plan-review-instruction': return DEFAULT_PLAN_REVIEW_INSTRUCTION;
     case 'mr-review-instruction': return DEFAULT_MR_REVIEW_INSTRUCTION;
     case 'interview-instruction': return DEFAULT_INTERVIEW_INSTRUCTION;
