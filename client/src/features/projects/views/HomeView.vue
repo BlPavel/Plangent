@@ -78,6 +78,7 @@ import { ref, computed, watch, onMounted, onErrorCaptured } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '@core/stores/app'
 import { useProjectsStore } from '../stores/projects'
+import { useWorkAttentionStore } from '../stores/attention'
 import { useAgentsStore } from '@features/agents'
 import type { Task } from '@contracts'
 import DeleteGroupModal from '../components/DeleteGroupModal.vue'
@@ -96,6 +97,7 @@ const router = useRouter()
 const route = useRoute()
 const appStore = useAppStore()
 const projectsStore = useProjectsStore()
+const workAttention = useWorkAttentionStore()
 const agentsStore = useAgentsStore()
 
 const currentProject = computed(() => appStore.currentProject)
@@ -131,7 +133,7 @@ type TabItem = { id: HomeTab; label: string; count?: number; countTitle?: string
 const tabs = computed<TabItem[]>(() => isGroup.value
   ? [{ id: 'projects', label: `Проекты · ${members.value.length}` }, { id: 'agents', label: 'Чат' }]
   : [
-      { id: 'tasks', label: 'Задачи' },
+      { id: 'tasks', label: 'Задачи', count: currentProject.value ? workAttention.countFor(currentProject.value.id) : 0, countTitle: 'Работы, которым нужно ваше действие' },
       { id: 'agents', label: 'Чат' },
       { id: 'code', label: 'Код', count: codeAttentionCount.value, countTitle: 'Пункты, по которым нужно ваше решение' },
       { id: 'review', label: 'Ревью' },
@@ -139,7 +141,7 @@ const tabs = computed<TabItem[]>(() => isGroup.value
 
 // «Код» opened from a task (query set by the task's button or a notification) shows the way back to it.
 const codeAttentionStore = useCodeAttentionStore()
-const codeAttentionCount = computed(() => (currentProject.value ? codeAttentionStore.countFor(codeAttentionStore.forProject(currentProject.value.id)) : 0))
+const codeAttentionCount = computed(() => (currentProject.value ? codeAttentionStore.countFor(codeAttentionStore.forCode(currentProject.value.id)) : 0))
 const codeTaskId = ref<string | null>(null)
 const codeTask = computed(() => {
   const task = tasks.value.find(t => t.id === codeTaskId.value)
@@ -172,6 +174,7 @@ const showProjectModal = ref(false)
 const ownerName = (projectId: string) => projectsStore.byId(projectId)?.name ?? '—'
 
 onMounted(() => agentsStore.load())
+onMounted(() => void workAttention.load())
 const stopWorkEvents = onServerEvent(event => { if (event.type === 'task_updated') void loadTasks() })
 onUnmounted(stopWorkEvents)
 

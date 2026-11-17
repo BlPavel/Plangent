@@ -239,7 +239,7 @@ test('WebSocket reconnect resubscribes; reference counts preserve remaining view
 test('attention refreshes on review events and removes projects no longer tracked', async () => {
   setActivePinia(createPinia())
   let handler
-  let data = [{ project_id: 'p', review_id: 'r', origin: 'task', origin_id: 'task', count: 1, items: [] }]
+  let data = [{ project_id: 'p', review_id: 'r', origin: 'task', origin_id: 'task', count: 1, items: [{ origin: 'task', origin_id: 'task' }] }]
   const store = moduleAt('client/src/features/code/stores/attention.ts', {
     '@core/api/events': { onServerEvent: h => { handler = h; return () => {} } },
     '../api': { codeReviewsApi: { attention: async () => data } },
@@ -254,6 +254,47 @@ test('attention refreshes on review events and removes projects no longer tracke
   assert.equal(store.count, 0)
   store.start([])
   store.stop()
+})
+
+test('attention follows each remark origin even when Code and tasks share a review', async () => {
+  setActivePinia(createPinia())
+  const code = { id: 'code', origin: 'project', origin_id: 'p' }
+  const task = { id: 'task', origin: 'task', origin_id: 't' }
+  const otherTask = { id: 'other', origin: 'task', origin_id: 'other' }
+  const data = [
+    { project_id: 'p', review_id: 'r', origin: 'project', origin_id: 'p', count: 3, items: [code, task, otherTask] },
+    { project_id: 'p', review_id: 'r2', origin: 'task', origin_id: 't', count: 1, items: [task] },
+    { project_id: 'other', review_id: 'r3', origin: 'project', origin_id: 'other', count: 1, items: [code] },
+  ]
+  const store = moduleAt('client/src/features/code/stores/attention.ts', {
+    '@core/api/events': { onServerEvent: () => () => {} },
+    '../api': { codeReviewsApi: { attention: async () => data } },
+  }).useCodeAttentionStore()
+  await store.load('p')
+  assert.equal(store.countFor(store.forCode('p')), 1)
+  assert.deepEqual(plain(store.forCode('p')[0].items), [code])
+  assert.equal(store.countFor(store.forTask('t')), 2)
+  assert.equal(store.countFor(store.forTask('other')), 1)
+  assert.equal(store.countFor(store.forTask('missing')), 0)
+  store.stop()
+})
+
+test('project tabs show work attention in Tasks and only Code remarks in Code', () => {
+  const { ref } = require('vue')
+  const source = fs.readFileSync('client/src/features/projects/views/HomeView.vue', 'utf8')
+  const declaration = source.match(/const tabs = computed<TabItem\[\]>\([\s\S]*?\n    \]\)/)[0]
+  const currentProject = ref({ id: 'p' }), isGroup = ref(false)
+  const { tabs } = moduleAt('client/src/features/projects/views/HomeView.vue', {}, {
+    currentProject, isGroup, members: ref([]),
+    workAttention: { countFor: id => id === 'p' ? 2 : 0 },
+    codeAttentionCount: ref(1),
+  }, "import { computed } from 'vue';\n" + declaration + '\nexports.tabs = tabs;')
+  assert.equal(tabs.value.find(tab => tab.id === 'tasks').count, 2)
+  assert.equal(tabs.value.find(tab => tab.id === 'code').count, 1)
+  currentProject.value = { id: 'other' }
+  assert.equal(tabs.value.find(tab => tab.id === 'tasks').count, 0)
+  isGroup.value = true
+  assert.equal(tabs.value.some(tab => tab.id === 'tasks' || tab.id === 'code'), false)
 })
 
 
@@ -554,7 +595,7 @@ test('project sidebar adds Code decisions and permission requests to its existin
   const source = fs.readFileSync('client/src/app/App.vue', 'utf8').match(/const projectAttention = \(projectId: string\) => \[[\s\S]*?\n\]/)[0]
   const result = moduleAt('client/src/app/App.vue', {}, {
     blockedQueues: { forProject: () => [{ taskKey: 'TASK-1', reason: 'Existing question' }] },
-    codeAttention: { forProject: () => [{ items: [{ file: 'code.ts', text: 'Explain this' }, { file: null, text: 'Choose an approach' }] }] },
+    codeAttention: { forCode: () => [{ items: [{ file: 'code.ts', text: 'Explain this' }, { file: null, text: 'Choose an approach' }] }] },
     chatStore: { sessions: [{ role: 'code-fixer', project_id: 'p', status: 'waiting', reason: 'Permission required' },
       { role: 'code-fixer', project_id: 'other', status: 'waiting' }, { role: 'chat', project_id: 'p', status: 'waiting' }] },
   }, source + '\nexports.projectAttention = projectAttention;').projectAttention('p')

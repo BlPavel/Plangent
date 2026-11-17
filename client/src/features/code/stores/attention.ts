@@ -65,8 +65,15 @@ export const useCodeAttentionStore = defineStore('codeAttention', () => {
   }
   onScopeDispose(stop)
   const forProject = (p: string) => items.value.filter(i => i.project_id === p)
-  const forTask = (taskId: string) => items.value.filter(i => i.origin === 'task' && i.origin_id === taskId)
+  // A branch review can contain remarks from both Code and tasks. The remark owns its origin.
+  const matchingItems = (list: ReviewAttention[], matches: (item: ReviewAttention['items'][number]) => boolean) =>
+    list.flatMap(review => {
+      const items = review.items.filter(matches)
+      return items.length ? [{ ...review, items, count: items.length }] : []
+    })
+  const forCode = (projectId: string) => matchingItems(forProject(projectId), item => item.origin === 'project')
+  const forTask = (taskId: string) => matchingItems(items.value, item => item.origin === 'task' && item.origin_id === taskId)
   const countFor = (list: ReviewAttention[]) => list.reduce((sum, i) => sum + i.count, 0)
   const count = computed(() => countFor(items.value))
-  return { items, errors, changed, count, countFor, forProject, forTask, load, loadChanged, scheduleChanged, start, stop }
+  return { items, errors, changed, count, countFor, forProject, forCode, forTask, load, loadChanged, scheduleChanged, start, stop }
 })
