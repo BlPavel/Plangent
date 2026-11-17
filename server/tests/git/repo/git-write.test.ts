@@ -5,7 +5,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { stage, unstage, commit, createBranch, switchBranch, pull, pullRebase, push, fetchRepository, resetForReassembly, serializeGit, GitOperationError, stashChanges } from '../../../core/git/repo/git-write';
+import { stage, unstage, commit, createBranch, switchBranch, pull, pullRebase, push, fetchRepository, resetForReassembly, serializeGit, GitOperationError, stashChanges, manageTag } from '../../../core/git/repo/git-write';
 import { changedFiles, repositoryInfo, trackingInfo, branches, gitOperation, conflictedFiles } from '../../../infrastructure/git/read';
 import { defaultGitSettings } from '../../../core/settings/git-settings';
 const git = (root: string, ...args: string[]) => execFileSync('git', args, { cwd: root, encoding: 'utf8', windowsHide: true, stdio: ['ignore','pipe','pipe'] }).trim();
@@ -55,6 +55,18 @@ test('stash conflicts enter the existing conflict workflow', async t => {
   assert.deepEqual((await conflictedFiles(root)).map(item => item.path), ['file.txt']);
   await fs.writeFile(file, 'resolved\n'); await stage(root, ['file.txt']);
   assert.equal(await gitOperation(root), null);
+});
+test('tags: lightweight, annotated, publish, local delete and name validation', async t => {
+  const root = await fixture(t); await fs.writeFile(path.join(root, 'a'), '1'); await stage(root, ['a']); await commit(root, { title: 'initial' }, () => defaultGitSettings);
+  const remote = path.join(root, 'remote.git'); git(root, 'init', '--bare', remote); git(root, 'remote', 'add', 'origin', remote);
+  await manageTag(root, 'create', 'v1');
+  await manageTag(root, 'create', 'v2', { message: 'Release 2' });
+  assert.equal(git(root, 'cat-file', '-t', 'v1'), 'commit'); assert.equal(git(root, 'cat-file', '-t', 'v2'), 'tag');
+  await assert.rejects(manageTag(root, 'create', 'v1'), GitOperationError);
+  await assert.rejects(manageTag(root, 'create', '--bad'), /Invalid tag name/);
+  await assert.rejects(manageTag(root, 'create', 'bad name'), /Invalid tag name/);
+  await manageTag(root, 'push', 'v2'); assert.equal(git(root, '--git-dir', remote, 'tag', '-l'), 'v2');
+  await manageTag(root, 'delete', 'v1'); assert.equal(git(root, 'tag', '-l', 'v1'), '');
 });
 test('origin branch, upstream push, ff-only divergence, restricted reset and output', async t => {
   const root = await fixture(t); await fs.writeFile(path.join(root, 'a'), '1'); await stage(root, ['a']); await commit(root, { title: 'initial' }, () => defaultGitSettings);

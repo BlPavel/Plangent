@@ -186,6 +186,23 @@ export async function stashChanges(root: string, action: 'push' | 'pop' | 'apply
     return run(root, ['stash', action, ...(reference ? [reference] : [])], options);
   });
 }
+/** Creates (lightweight, or annotated when a message is given), deletes locally or publishes a tag. Never moves or force-pushes an existing tag. */
+export async function manageTag(root: string, action: 'create' | 'delete' | 'push', name: string, extra: { ref?: string; message?: string } = {}, options: GitOperationOptions = {}) {
+  return serializeGit(root, async () => {
+    await check(root, options, true);
+    await assertNoGitOperation(root);
+    if (!['create', 'delete', 'push'].includes(action)) throw new DomainError('Invalid tag action');
+    if (typeof name !== 'string' || name.startsWith('-') || (await run(root, ['check-ref-format', 'refs/tags/' + name], options).then(() => false, () => true))) throw new DomainError('Invalid tag name');
+    if (action === 'create') {
+      if (extra.ref !== undefined && (typeof extra.ref !== 'string' || !extra.ref.trim() || extra.ref.startsWith('-'))) throw new DomainError('Invalid tag target');
+      const target = extra.ref?.trim() || 'HEAD';
+      const message = extra.message?.trim();
+      return run(root, message ? ['tag', '-a', '-m', message, '--', name, target] : ['tag', '--', name, target], options);
+    }
+    if (action === 'delete') return run(root, ['tag', '-d', '--', name], options);
+    return run(root, ['push', '--progress', 'origin', 'refs/tags/' + name], options);
+  });
+}
 export async function integrateBranch(root: string, action: 'merge' | 'rebase', branch: string, options: GitOperationOptions = {}) {
   return serializeGit(root, async () => {
     await check(root, options, true);
