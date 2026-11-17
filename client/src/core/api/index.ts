@@ -1,16 +1,42 @@
 import type { ApiError } from '@contracts'
 
 const BASE = '/api'
+/** How long a read waits for a server that is (re)starting: `tsx watch` restarts it on every source change. */
+const UNREACHABLE_WAIT_MS = 30000
+const UNREACHABLE = 'Сервер недоступен. Повторите, когда он запустится'
+
+/** No server behind the address: a network failure, or the dev proxy's bodiless 5xx (the server's own errors are JSON or HTML). */
+async function unreachable(result: Response) {
+  return [502, 503, 504].includes(result.status)
+    || result.status >= 500 && !result.headers.get('content-type')?.includes('json') && !(await result.clone().text().catch(() => '')).trim()
+}
+function pause(ms: number, signal?: AbortSignal) {
+  return new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) return reject(signal.reason)
+    const timer = setTimeout(() => { signal?.removeEventListener('abort', abort); resolve() }, ms)
+    const abort = () => { clearTimeout(timer); reject(signal!.reason) }
+    signal?.addEventListener('abort', abort, { once: true })
+  })
+}
 
 async function response(method: string, path: string, body?: unknown, signal?: AbortSignal, keepalive?: boolean): Promise<Response> {
   const opts: RequestInit = { method, headers: { 'Content-Type': 'application/json' }, signal, keepalive }
   if (body !== undefined) opts.body = JSON.stringify(body)
-  const result = await fetch(BASE + path, opts)
-  if (!result.ok) {
-    const data: ApiError | null = await result.json().catch(() => null)
-    throw Object.assign(new Error(data?.error || result.statusText), data, { status: result.status })
+  // Reads wait for a restarting server; changes are never repeated (the first one may have arrived), they fail with a clear reason.
+  const started = Date.now()
+  for (let attempt = 0; ; attempt++) {
+    let result: Response | undefined
+    try { result = await fetch(BASE + path, opts) }
+    catch (cause) { if (signal?.aborted) throw signal.reason ?? cause }
+    const down = !result || await unreachable(result)
+    if (down && method === 'GET' && Date.now() - started < UNREACHABLE_WAIT_MS) { await pause(Math.min(250 * 2 ** attempt, 2000), signal); continue }
+    if (!result || down) throw Object.assign(new Error(UNREACHABLE), { status: result?.status ?? 0, unreachable: true })
+    if (!result.ok) {
+      const data: ApiError | null = await result.json().catch(() => null)
+      throw Object.assign(new Error(data?.error || result.statusText), data, { status: result.status })
+    }
+    return result
   }
-  return result
 }
 
 async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal, keepalive?: boolean): Promise<T> {

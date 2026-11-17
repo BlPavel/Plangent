@@ -23,8 +23,9 @@ export default defineConfig({
     port: Number(process.env.VITE_PORT ?? 5173),
     strictPort: true,
     proxy: {
-      '/api': { target: `http://localhost:${process.env.PORT ?? 3001}`, changeOrigin: true },
-      '/ws': { target: `ws://localhost:${process.env.PORT ?? 3001}`, ws: true },
+      // The server listens on 127.0.0.1 only: `localhost` would also try ::1 first.
+      '/api': { target: `http://127.0.0.1:${process.env.PORT ?? 3001}`, changeOrigin: true },
+      '/ws': { target: `ws://127.0.0.1:${process.env.PORT ?? 3001}`, ws: true },
     },
   },
 })

@@ -1,6 +1,6 @@
 <template>
-  <div ref="viewRoot" class="task-view" :class="{ deleting }">
-    <div v-if="deleting" class="deleting-note" role="status"><i class="deleting-spin" />Удаляется…</div>
+  <div ref="viewRoot" class="task-view" :class="{ deleting: deleting || closing }">
+    <div v-if="deleting || closing" class="deleting-note" role="status"><i class="deleting-spin" />{{ deleting ? 'Удаляется…' : 'Закрывается…' }}</div>
     <WorkHeader v-if="task" :task="task" :branch="workspace?.branch ?? task.branch_name" :main-folder="inMainFolder" :menu="menuItems" @back="goBack" />
     <WorkStages v-if="task" :task="task" :state="entry?.state ?? null" :has-plan="hasPlan" :active="activeTab ?? ''" :tabs="tabs" :stages="task.kind === 'errand' ? [] : stages" :exec-done="execDone" :locked="!!analysisLockedReason" :drafting="drafting" @select="activeTab = $event as Tab" @complete="completeStage" @skip="skipStage" />
 
@@ -153,7 +153,7 @@ import WorkHeader from '../components/WorkHeader.vue'
 import WorkStages from '../components/WorkStages.vue'
 import { useWorkStore } from '../stores/work'
 import { workStageIndex, workStagesOf } from '../utils/work-state'
-import { isRemoving, useWorkActions } from '../composables/useWorkActions'
+import { isClosing, isRemoving, useWorkActions } from '../composables/useWorkActions'
 import { workApi, workspacesApi, preparationApi } from '../api'
 import ExecutionWorkspace from '../components/ExecutionWorkspace.vue'
 import ExecutionQueue from '../components/ExecutionQueue.vue'
@@ -489,10 +489,20 @@ async function closeWork() {
   if (closed) { appStore.toast('Работа закрыта. Открыть снова можно из списка «Готово»', 'success'); await onClosed(closed) }
 }
 async function onClosed(closed: Task) {
+  closingHere.value = false
   task.value = closed; appStore.currentTask = closed
   await work.load(pid.value ? [pid.value] : [])
   goBack()
 }
+// The server closes the work right after its Завершение went through: the page shows it closing, then returns to the list.
+const closing = computed(() => !!task.value && isClosing(task.value.id))
+const closingHere = ref(false)
+watch(closing, value => { if (value) closingHere.value = true })
+watch(() => task.value?.closed_at, (closedAt, before) => {
+  if (!closedAt || before || !closingHere.value || !task.value) return
+  appStore.toast('Работа закрыта. Открыть снова можно из списка «Готово»', 'success')
+  void onClosed(task.value)
+})
 
 /** The queue starts at once: the branch is the one chosen above the queue, the review follows the task or the project's settings. */
 async function startQueue() {

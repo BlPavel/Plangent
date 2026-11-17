@@ -203,6 +203,34 @@ test('contract transport encodes params, preserves workspace and cancellation, a
     await assert.rejects(endpoint('GET /api/settings/:key')({ params: { key: 'x' } }), error => error.status === 409 && error.confirmation_required && error.references[0].text === 'step')
   } finally { global.fetch = original }
 })
+test('reads wait for a restarting server, changes fail at once with a clear reason, cancellation stops the wait', async () => {
+  const { endpoint } = await compiled
+  const original = global.fetch
+  let calls = 0
+  // Down (network failure), then the dev proxy's bodiless 500, then up.
+  global.fetch = async () => {
+    calls++
+    if (calls === 1) throw new TypeError('Failed to fetch')
+    if (calls === 2) return new Response('', { status: 500, headers: { 'content-type': 'text/plain' } })
+    return new Response(JSON.stringify({ value: 'ok' }))
+  }
+  try {
+    assert.deepEqual(await endpoint('GET /api/settings/:key')({ params: { key: 'x' } }), { value: 'ok' })
+    assert.equal(calls, 3)
+    calls = 0
+    global.fetch = async () => { calls++; throw new TypeError('Failed to fetch') }
+    await assert.rejects(endpoint('PUT /api/settings/:key')({ params: { key: 'x' }, body: { value: 'y' } }), error => error.unreachable === true && /Сервер недоступен/.test(error.message))
+    assert.equal(calls, 1, 'a change is never repeated')
+    // The server's own errors are reported as they are, without waiting.
+    global.fetch = async () => new Response(JSON.stringify({ error: 'Broken' }), { status: 500, headers: { 'content-type': 'application/json' } })
+    await assert.rejects(endpoint('GET /api/settings/:key')({ params: { key: 'x' } }), error => error.status === 500 && error.message === 'Broken')
+    const controller = new AbortController()
+    global.fetch = async () => { throw new TypeError('Failed to fetch') }
+    const waiting = endpoint('GET /api/settings/:key')({ params: { key: 'x' }, signal: controller.signal })
+    controller.abort()
+    await assert.rejects(waiting, error => error.name === 'AbortError')
+  } finally { global.fetch = original }
+})
 test('code subscriptions replay after reconnect and unsubscribe only after the last viewer', async () => {
   const { subscribeCodeProject, onServerEvent } = await compiled
   const originalSocket = global.WebSocket, originalLocation = global.location, sockets = []

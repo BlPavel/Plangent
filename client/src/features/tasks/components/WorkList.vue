@@ -38,6 +38,7 @@
             <template #subtitle>
               <div class="work-meta">
                 <span v-if="isRemoving(e.task.id)" class="work-state" role="status"><i class="work-spin" />Удаляется…</span>
+                <span v-else-if="isClosing(e.task.id) && !e.task.closed_at" class="work-state" role="status"><i class="work-spin" />Закрывается…</span>
                 <span v-else class="work-state" :class="{ live: e.state.agentWorking, 'is-attention': e.state.group === 'attention', 'is-failed': workTone(e.state) === 'danger' }">{{ e.state.text }}</span>
                 <span v-if="branchOf(e)" class="work-branch" :title="'Ветка: ' + branchOf(e)">⎇ {{ branchOf(e) }}</span>
                 <span v-if="inMainFolder(e)" class="work-main-folder" title="Работа идёт в основной папке проекта">основная папка</span>
@@ -95,7 +96,7 @@ import AppMenu, { type MenuItem } from '@shared/ui/AppMenu.vue'
 import FormField from '@shared/ui/FormField.vue'
 import NewWork from './NewWork.vue'
 import { useWorkStore } from '../stores/work'
-import { isRemoving, useWorkActions } from '../composables/useWorkActions'
+import { isClosing, isRemoving, useWorkActions } from '../composables/useWorkActions'
 import { workGroups, workStageIndex, workStagesOf, workTab, workTone } from '../utils/work-state'
 
 const props = defineProps<{ project: Project; members: Project[]; agents: Agent[]; defaultAgentId?: string | null; ownerName: (projectId: string) => string }>()
@@ -137,7 +138,7 @@ function bars(e: WorkEntry) {
   const current = stageIndex(e), tone = e.state.group === 'attention' ? 'attention' : 'current'
   return workStagesOf(e.task).map((_, i) => i < current ? 'passed' : i === current ? tone : '')
 }
-function open(e: WorkEntry) { if (isRemoving(e.task.id)) return; emit('open', e.task, preparing(e) ? currentStage(e)!.tab : workTab(e.state, e.task.kind)) }
+function open(e: WorkEntry) { if (isRemoving(e.task.id) || isClosing(e.task.id) && !e.task.closed_at) return; emit('open', e.task, preparing(e) ? currentStage(e)!.tab : workTab(e.state, e.task.kind)) }
 function onCreated(task: Task, tab: string) {
   void work.load(); emit('changed')
   emit('open', task, tab)

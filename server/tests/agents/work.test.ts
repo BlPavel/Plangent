@@ -51,5 +51,24 @@ test('agent API centralizes selection, preferences, turn listeners and tool fail
     assert.deepEqual(JSON.parse(completion.content[0].text), { ok: true });
     assert.equal(api.getSession(session.id).status, 'complete');
     await assert.rejects(callTool(session.id, 'report_progress', { note: 'late' }), /no active turn/);
+    const finishedAt = api.getSession(session.id).metadata.workFinishedAt;
+    api.updateSession(session.id, { status: 'thinking', reason: 'Follow-up discussion' });
+    const completionCount = api.history(session.id).filter(e => e.type === 'complete_step').length;
+    const repeated = await callTool(session.id, 'complete_step', { summary: 'done again' });
+    assert.equal(JSON.parse(repeated.content[0].text).already_completed, true);
+    assert.equal(api.getSession(session.id).status, 'thinking');
+    assert.equal(api.getSession(session.id).reason, 'Follow-up discussion');
+    assert.equal(api.getSession(session.id).metadata.workFinishedAt, finishedAt);
+    assert.equal(api.history(session.id).filter(e => e.type === 'complete_step').length, completionCount);
+    for (const metadata of [{ work_done: true }, { auto_review_turn: 1 }]) {
+      const errand = api.createAgentSession({ project_id: project.id, agent_id: agents[0].id, role: 'errand', policy: 'allow-all', metadata });
+      api.updateSession(errand.id, { status: 'thinking' });
+      const result = await callTool(errand.id, 'complete_step', { summary: 'follow-up edits' });
+      assert.equal(JSON.parse(result.content[0].text).already_completed, true);
+      assert.equal(api.getSession(errand.id).status, 'thinking');
+      assert.equal(api.history(errand.id).filter(e => e.type === 'complete_step').length, 0);
+      const progress = await callTool(errand.id, 'report_progress', { note: 'Continuing follow-up work' });
+      assert.deepEqual(JSON.parse(progress.content[0].text), { ok: true });
+    }
   } finally { getDb().close(); fs.rmSync(temp, { recursive: true, force: true }); }
 });

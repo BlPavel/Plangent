@@ -15,6 +15,7 @@ import { optional, prepareWorkPlace, readReviewAgent, readWorkPlace } from './pl
 const BRIEFING = 'You are the agent for a standalone errand; there is no step plan.\n'
   + '- Call complete_step with a report only after the requested work is finished; this marks the errand done and may start automatic review. Discussion, clarification questions and progress reports do not complete the errand. Follow-up requests and review remarks arrive in this chat.\n'
   + '- If a message announces a review round, call get_review and reply through reply_review_item.\n'
+  + '- Complete the errand only once. After completion, handle follow-up requests and review remarks normally, including file edits, but never call complete_step again; finish with an ordinary reply.\n'
   + '- If the work needs a plan, suggest once before editing that the developer use the “⋯” menu and “Добавить план”. Do not suggest it again if they decline or you have started editing.\n'
   + '- Respond in the developer’s language, Russian by default.';
 export async function createErrand(projectId: string, input: ErrandInput, created?: (task: import('../../models').Task) => void) {

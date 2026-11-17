@@ -59,6 +59,11 @@ message starts a new conversation when session loading is unavailable.
 `completeAgentWork` and `markAgentWorkFinished` record completed work for this
 policy. Idle-policy and session tests run through `npm test`.
 
+`complete_step` records completion once. Repeated calls after completed work have no
+side effects and emit no completion card. Follow-up turns receive a reminder to
+continue reading, editing and discussing without calling it again. Errands commit
+completion after a successful turn; cancelled or failed completion turns may be retried.
+
 Code fixer sessions with allow-edits or allow-all use an execution mode with workspace writes.
 Their review picker leaves mode selection to the server. Ignore a saved read-only, plan or
 discuss preference for these sessions: older clients inherited it from the option probe.

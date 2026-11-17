@@ -32,6 +32,8 @@ import type { Agent } from '../../../models';
 
 interface LiveSession {
   connection: AdapterConnection;
+  /** The adapter's latest stderr: a failed turn's real cause is often only there. */
+  stderr: string;
   process: ReturnType<typeof startAdapter>;
   busy: boolean;
   stopping: boolean;
@@ -307,11 +309,11 @@ async function boot(id: string): Promise<LiveSession> {
   // honor the project's .npmrc (e.g. a corporate registry) when it resolves the adapter itself.
   const child = startAdapter(command, args, env);
   const connection = await connectAdapter(child, { update: event => update(id, event), permission: request => requestDeveloperPermission(id, request) });
-  const state: LiveSession = { connection, process: child, busy: false, stopping: false, loading: !!session.acp_session_id,
+  const state: LiveSession = { connection, stderr: '', process: child, busy: false, stopping: false, loading: !!session.acp_session_id,
     cancelled: false, gitForTurn: false, turnId: '', turnAbort: null, idleSince: Date.now(), text: '', textType: '', permissions: new Map() };
   live.set(id, state);
   let stderr = '';
-  child.stderr!.on('data', chunk => { stderr = (stderr + chunk.toString()).slice(-8000); });
+  child.stderr!.on('data', chunk => { stderr = (stderr + chunk.toString()).slice(-8000); state.stderr = stderr; });
   const failed = (reason: string) => {
     if (state.stopping) return;
     state.stopping = true;
@@ -339,7 +341,7 @@ async function boot(id: string): Promise<LiveSession> {
       try {
         response = await connection.loadSession({ sessionId: session.acp_session_id, ...where });
       } catch (error) {
-        if ((error as { code?: number }).code !== -32002 && !/resource not found/i.test(String(error))) throw error;
+        if (!conversationLost(error)) throw error;
         // The agent never persisted this conversation (no finished turn before a restart). Start fresh
         // and hand it the chat transcript with the next prompt instead of failing forever.
         response = await connection.newSession(where);
@@ -392,9 +394,12 @@ async function boot(id: string): Promise<LiveSession> {
     // A dying adapter first surfaces as "ACP connection closed"; give it a moment to exit so the
     // reason carries its stderr (npm registry errors, crashes) instead.
     await Promise.race([exited, new Promise(resolve => setTimeout(resolve, 1000))]);
-    failed(stderr.trim() ? `${String(error)}\n${stderr.trim()}` : String(error));
+    const reason = agentFailure(error, stderr);
+    console.error(`[agent ${id}] start failed:`, reason);
+    failed(reason);
     await terminate(child.pid);
-    throw error;
+    // The caller (and the developer's request) sees the cause too, not only «Internal error».
+    throw Object.assign(new Error(reason), { code: (error as { code?: unknown })?.code, cause: error });
   } finally { clearTimeout(timeout); }
 }
 export async function setModel(id: string, model: string): Promise<void> {
@@ -494,8 +499,12 @@ export async function sendPrompt(id: string, content: ACP.ContentBlock[], gitFor
   const withBriefing = briefing && (!session.metadata.briefed || session.metadata.needsContext || hasGitTools && session.metadata.gitToolsBriefingVersion !== 1
     || session.metadata.workspaceBriefingVersion !== WORKSPACE_BRIEFING_VERSION);
   const sectionBriefing = session.role === 'librarian' ? librarianSectionBriefing(session.metadata) : '';
+  const completedWorkBriefing = (session.role === 'errand' && (session.metadata.work_done || session.metadata.auto_review_turn)
+    || session.role === 'executor' && session.metadata.step_completed)
+    ? 'The assigned work has already been completed. You may read and edit files, answer questions and address follow-up requests or review remarks. Do not call complete_step again; finish with an ordinary reply.' : '';
   const prompt: ACP.ContentBlock[] = [
     ...(withBriefing ? [{ type: 'text' as const, text: briefing }] : []),
+    ...(completedWorkBriefing ? [{ type: 'text' as const, text: completedWorkBriefing }] : []),
     ...(sectionBriefing ? [{ type: 'text' as const, text: sectionBriefing }] : []),
     ...(references ? [{ type: 'text' as const, text: references }] : []),
     ...(session.metadata.needsContext ? [{ type: 'text' as const, text: `Previous conversation context (may be truncated):\n${transcript(id)}\n\nNew message:` }] : []),
@@ -513,7 +522,10 @@ export async function sendPrompt(id: string, content: ACP.ContentBlock[], gitFor
       reason: latest.role === 'executor' ? (latest.policy === 'read-only' ? 'Обсуждение завершено' : 'Агент остановился без отчёта') : '' });
     sessionSignals.emit('turn_end', id);
   }).catch(error => {
-    if (!state.stopping) { flush(id, state); updateSession(id, { status: 'error', reason: String(error) }); sessionSignals.emit('error-state', id, String(error)); }
+    if (state.stopping) return;
+    const reason = agentFailure(error, state.stderr);
+    console.error(`[agent ${id}] turn failed:`, reason);
+    flush(id, state); updateSession(id, { status: 'error', reason }); sessionSignals.emit('error-state', id, reason);
   }).finally(() => {
     state.busy = false;
     state.gitForTurn = false;
@@ -534,6 +546,22 @@ export async function sendPrompt(id: string, content: ACP.ContentBlock[], gitFor
       void sendPrompt(id, Array.isArray(queued) ? queued : queued.content, !Array.isArray(queued) && queued.gitForTurn === true).catch(error => updateSession(id, { status: 'error', reason: String(error) }));
     }
   });
+}
+/**
+ * The agent cannot load a conversation it never saved: ACP's «resource not found», or Codex's «no rollout found» (a thread is
+ * written only after its first turn, so a server restart before it leaves an id with nothing behind) inside an «Internal error».
+ */
+export function conversationLost(error: unknown): boolean {
+  if ((error as { code?: number })?.code === -32002) return true;
+  const data = error && typeof error === 'object' ? (error as { data?: unknown }).data : undefined;
+  return /resource not found|no rollout found/i.test(String(error) + ' ' + (typeof data === 'string' ? data : JSON.stringify(data ?? '')));
+}
+/** A failed start or turn the developer can act on: a JSON-RPC «Internal error» carries its cause in `data`, the adapter may say more on stderr. */
+function agentFailure(error: unknown, stderr: string): string {
+  const data = error && typeof error === 'object' ? (error as { data?: unknown }).data : undefined;
+  const detail = data === undefined || data === null ? '' : typeof data === 'string' ? data : JSON.stringify(data);
+  const tail = stderr.trim().split('\n').slice(-20).join('\n');
+  return [String(error), detail, tail].filter(Boolean).join('\n');
 }
 export async function cancelSession(id: string): Promise<void> {
   const state = live.get(id);

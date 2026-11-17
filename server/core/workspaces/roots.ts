@@ -1,5 +1,6 @@
 import { moduleDependencies } from './dependencies';
 import path from 'node:path';
+import fs from 'node:fs/promises';
 import { getProject } from '../projects';
 import { getTask } from '../tasks';
 import { writableRoots } from '../projects';
@@ -44,7 +45,10 @@ export async function writableRootsForSession(session: AgentSession): Promise<st
   if (project.kind === 'group') return writableRoots(project);
   if (session.role === 'code-fixer' || session.role === 'conflict-resolver') return [root];
   const task = session.task_id ? getTask(session.task_id) : null;
-  return task && activeWorkspace(task.id) ? [root, path.join(project.repo_path, '.plangent', task.key)] : [root];
+  if (!task || !activeWorkspace(task.id)) return [root];
+  // The task's files in the main folder exist only for a task with a plan; an errand has none, and an agent refuses a missing folder.
+  const files = path.join(project.repo_path, '.plangent', task.key);
+  return await fs.stat(files).then(stat => stat.isDirectory(), () => false) ? [root, files] : [root];
 }
 
 /** Resolve an explicitly selected worktree; never fall back on an invalid selection. */

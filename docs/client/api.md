@@ -23,7 +23,10 @@ view state locally. See [contracts](../CONTRACTS.md) when adding a server endpoi
 `core/api` provides HTTP, errors, streams, cancellation and workspace scoping;
 `core/api/events` provides socket transport. Domain subscriptions belong in the
 owning feature's `events.ts` and must unsubscribe when their consumer stops.
-Preserve AbortSignal and structured errors when wrapping requests. Low-level
+Preserve AbortSignal and structured errors when wrapping requests.
+While the server does not answer at all (a network failure or the dev proxy's bodiless 5xx, e.g. during a
+`tsx watch` restart), GET requests retry with backoff for up to 30 s; other methods are never repeated and fail
+at once with `unreachable: true` and «Сервер недоступен». The socket reconnects and announces `events:connected`. Low-level
 `api`, `workspaceApi` and endpoint bindings are used only in feature `api.ts`
 (their implementation is internal to core transport).
 

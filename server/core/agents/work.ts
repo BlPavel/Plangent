@@ -48,10 +48,16 @@ export function waitForAgentTurn(id: string, timeoutMs = 120_000) {
   return { result, dispose: () => dispose() };
 }
 
-export function completeAgentWork(id: string, summary: string): void {
+export function completeAgentWork(id: string, summary: string): boolean {
+  const session = getSession(id);
+  if (session.status === 'complete' || session.metadata.step_completed
+    || session.role === 'errand' && (session.metadata.work_done || session.metadata.auto_review_turn)) return false;
+  // Errands commit completion only after a successful turn; interrupted completion can be retried.
+  if (session.role === 'executor') updateSession(id, { metadata: { ...session.metadata, step_completed: true } });
   updateSession(id, { status: 'complete', reason: summary });
   markAgentWorkFinished(id);
   sessionSignals.emit('complete', id, summary);
+  return true;
 }
 /** The owner has saved the result; let the agent finish its current turn before reclaiming its process. */
 export function markAgentWorkFinished(id: string): void {

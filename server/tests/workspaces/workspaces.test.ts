@@ -165,6 +165,9 @@ test('workspace lifecycle, preparation, roots, permissions and library', async t
       const { listAgents } = await import('../../core-services').then(() => import('../../core/agents/catalog'));
       const session = createSession({ project_id: project.id, task_id: task.id, agent_id: listAgents()[0].id, role: 'executor', policy: 'allow-edits' });
       assert.equal(await workspaces.rootForSession(session), created.path);
+      // An errand has no task files: a missing folder is not offered to the agent (it would refuse to start).
+      assert.deepEqual(await workspaces.writableRootsForSession(session), [created.path]);
+      fs.mkdirSync(path.join(repo, '.plangent', task.key), { recursive: true });
       const roots = await workspaces.writableRootsForSession(session);
       assert.deepEqual(roots, [created.path, path.join(repo, '.plangent', task.key)]);
       const decision = (file: string) => permissionDecision('allow-edits', { sessionId: session.id, options: [], toolCall: { toolCallId: 'test', title: 'edit', kind: 'edit', locations: [{ path: file }] } }, [], { writable: roots, restrictWrites: true });

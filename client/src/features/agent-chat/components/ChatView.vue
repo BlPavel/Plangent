@@ -381,7 +381,8 @@ async function editQueue(item: { id: string; content: string }) { void composer.
 
 .banner { display: flex; align-items: center; gap: var(--sp-2); padding: 10px var(--sp-4); font-size: var(--fs-md); border-bottom: 1px solid var(--border); flex-shrink: 0; }
 .banner-text { flex: 1; min-width: 0; overflow-wrap: anywhere; max-height: 90px; overflow-y: auto; }
-.chat-error { display: flex; align-items: center; gap: var(--sp-2); margin: var(--sp-2) var(--sp-5); padding: var(--sp-1) var(--sp-2); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: var(--fs-sm); color: var(--danger-hover); flex-shrink: 0; }
+/* As wide as the feed and the composer (820px column), not the whole panel. */
+.chat-error { display: flex; align-items: center; gap: var(--sp-2); width: calc(100% - 2 * var(--sp-5)); max-width: calc(820px - 2 * var(--sp-5)); margin: var(--sp-2) auto; padding: var(--sp-1) var(--sp-2); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: var(--fs-sm); color: var(--danger-hover); flex-shrink: 0; }
 .chat-error-text { flex: 1; min-width: 0; max-height: 3lh; overflow-y: auto; overflow-wrap: anywhere; }
 .chat-error > :last-child { flex-shrink: 0; }
 .banner-wait { background: var(--warning-soft); color: var(--warning-text); }

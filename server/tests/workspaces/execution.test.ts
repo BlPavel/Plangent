@@ -264,6 +264,7 @@ test('execution roots, errands, task chats and independent review rounds', async
         host.sessionSignals.emit('turn_end', id);
         assert.equal(reviewers().length, 1);
         assert.equal(workEntry(errand.task.id).state.stage, 'check');
+        assert.equal(sessions.history(id).filter(e => e.type === 'complete_step').length, 1, 'follow-ups never create another completion card');
       }
     });
     await t.test('explicit completion without automatic review still marks the work ready for checking', async () => {

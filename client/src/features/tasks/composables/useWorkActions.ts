@@ -7,6 +7,12 @@ import { workApi } from '../api'
 /** Works being deleted: the request takes a while, and the list and the page both show it. A deleted one stays marked until it is gone from the list. */
 const removing = ref<string[]>([])
 export const isRemoving = (id: string) => removing.value.includes(id)
+/** Works being closed: by «Закрыть работу», or by the server right after their Завершение went through. Marked until the work is closed or closing fails. */
+const closing = ref<string[]>([])
+export const isClosing = (id: string) => closing.value.includes(id)
+export function setClosing(id: string, on: boolean) {
+  if (on !== isClosing(id)) closing.value = on ? [...closing.value, id] : closing.value.filter(other => other !== id)
+}
 
 interface Blockers { files?: string[]; commits?: string[] }
 const blockersOf = (cause: unknown) => (cause as { blockers?: Blockers }).blockers
@@ -46,7 +52,11 @@ export function useWorkActions() {
       + (commits ? `\n\n${commits} ${plural(commits, 'коммит есть', 'коммита есть', 'коммитов есть')} только локально, в origin не отправлены. Они останутся в ветке.` : '')
     if (!await app.confirm(message, files ? { title: 'Закрыть задачу', confirmLabel: 'Закрыть и потерять изменения', danger: true } : { title: 'Закрыть задачу', confirmLabel: 'Закрыть' })) return
     // The folder may have changed since the question: losing what appeared later still asks again.
-    return guarded(discard => workApi.close(t.project_id, t.id, files > 0 || discard), 'Пока вы подтверждали, в папке работы появились новые изменения. Они пропадут при закрытии.')
+    // A closed work stays marked: the page leaves it and the list drops the mark once it shows the work closed.
+    setClosing(t.id, true)
+    const closed = await guarded(discard => workApi.close(t.project_id, t.id, files > 0 || discard), 'Пока вы подтверждали, в папке работы появились новые изменения. Они пропадут при закрытии.')
+    if (!closed) setClosing(t.id, false)
+    return closed
   }
   const reopen = (t: Task) => attempt(() => workApi.reopen(t.project_id, t.id))
   const addPlan = (t: Task) => attempt(() => workApi.addPlan(t.project_id, t.id))
