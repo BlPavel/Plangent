@@ -20,6 +20,7 @@ import type { FinishCommit, FinishMrDraft, FinishOptions, FinishRun } from '../.
 import { getFinish, activeFinish, insertFinish, updateFinish, taskFinishState, cancelOrphanFinishes } from './store';
 import { transition } from './state';
 import { broadcast } from '../../shared';
+import { moduleDependencies } from '../dependencies';
 import fs from 'node:fs/promises';
 export { getFinish, activeFinish, taskFinishState };
 /** The agent gets this many chances to fix a commit that git (or a hook) rejected, then the developer decides. */
@@ -115,6 +116,15 @@ export function createFinishService(dependencies: {
     if (await snapshot(root) !== run.snapshot_tree) throw new DomainError('Рабочие файлы изменились вне завершения. Откройте внешний клиент', 409);
     if (checkPublished) await ownedHead(run, root, true);
     return expected;
+  }
+  /**
+   * A task's finish that went through closes its work, as «Закрыть работу» does: the folder goes, the branch keeps the commits.
+   * It runs after the repository lock is released; a work that cannot be closed stays open and says why.
+   */
+  function closeFinishedWork(run: FinishRun) {
+    const work = moduleDependencies.work;
+    if (run.status !== 'complete' || !run.task_id || !work || getTask(run.task_id)?.closed_at) return;
+    void work.closeWork(run.task_id).catch(error => notify(run, 'Ошибка закрытия работы','Завершение выполнено, но закрыть работу не удалось: ' + failure(error)));
   }
   async function closeCommitter(run: FinishRun) {
     if (!run.session_id) return;
@@ -313,6 +323,11 @@ export function createFinishService(dependencies: {
     });
   }
   async function finishCommits(id: string) {
+    const run = await commitsFinished(id);
+    closeFinishedWork(run);
+    return run;
+  }
+  async function commitsFinished(id: string) {
     return locked(id, async (run, root) => {
       if (!run.commits.length || run.commits.some(c => !c.sha)) throw new DomainError('Сначала создайте все коммиты');
       if (run.scenario === 'full' && !run.mr_draft) throw new DomainError('Сначала вызовите set_merge_request: напишите заголовок и описание МР');
@@ -342,6 +357,11 @@ export function createFinishService(dependencies: {
     });
   }
   async function accept(id: string) {
+    const run = await accepted(id);
+    closeFinishedWork(run);
+    return run;
+  }
+  async function accepted(id: string) {
     return locked(id, async (run, root) => {
       if (run.stage === 'confirmation' && run.commits.some(c => !c.sha)) throw new DomainError('Сначала сохраните коммиты: часть из них ещё не создана', 409);
       if (run.status === 'error' && run.stage === 'mr') {

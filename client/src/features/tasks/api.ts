@@ -13,6 +13,7 @@ export const workApi = {
   changeBranch: endpoint('POST /api/projects/:projectId/tasks/:taskId/switch-branch'),
   list: (p: string) => api.get<Endpoints['GET /api/projects/:projectId/work']['response']>(root(p) + '/work'),
   attention: () => api.get<Endpoints['GET /api/work/attention']['response']>('/work/attention'),
+  closeCheck: endpoint('GET /api/projects/:projectId/tasks/:taskId/close-check'),
   close: (p: string, t: string, discard = false) => api.post<Endpoints['POST /api/projects/:projectId/tasks/:taskId/close']['response']>(task(p, t) + '/close', { discard }),
   reopen: (p: string, t: string) => api.post<Endpoints['POST /api/projects/:projectId/tasks/:taskId/reopen']['response']>(task(p, t) + '/reopen', {}),
   cancel: (p: string, t: string, mode: 'keep' | 'discard') => api.post<Endpoints['POST /api/projects/:projectId/tasks/:taskId/cancel']['response']>(task(p, t) + '/cancel', { mode }),

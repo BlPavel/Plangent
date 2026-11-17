@@ -15,7 +15,12 @@
     <div v-if="activeTab === 'chat' && task" class="tab-body"><WorkChat :key="task.id" :task="task" :workspace="workspace" :default-agent-id="defaultAgentId" /></div>
     <div v-if="activeTab === 'check' && task" class="tab-body">
       <!-- Проверка is the «Код» screen of the work's folder: files, diff, remarks with the agent, commits, МР. -->
-      <p v-if="workspace && workspace.status !== 'ready'" class="exec-no-plan">{{ workspace.status === 'failed' ? 'Рабочее место недоступно: ' + workspace.error : 'Готовлю рабочее место…' }}</p>
+      <!-- A closed work has no folder of its own any more: the main folder's changes are not its own. -->
+      <AppEmptyState v-if="isOrdinary && workClosed && !workspace" title="Работа закрыта">
+        {{ task.branch_name ? `Весь закоммиченный код остался в ветке «${task.branch_name}». Её можно открыть в основной папке.` : 'Закоммиченный код остался в ветке.' }}
+        <template #actions><AppButton size="sm" @click="reopenTask">Открыть снова</AppButton></template>
+      </AppEmptyState>
+      <p v-else-if="workspace && workspace.status !== 'ready'" class="exec-no-plan">{{ workspace.status === 'failed' ? 'Рабочее место недоступно: ' + workspace.error : 'Готовлю рабочее место…' }}</p>
       <CodeTab
         v-else-if="isOrdinary" :key="task.id + (workspace?.id ?? '')" :project-id="task.project_id" :workspace-id="workspace?.id ?? null"
         :task="{ id: task.id, key: task.key, kind: task.kind }" :default-agent-id="executorAgentId" :finish-blocked="workClosed ? 'Работа закрыта' : ''" work :agent-review="agentReview" @close-work="closeWork"
@@ -154,6 +159,8 @@ import ExecutionWorkspace from '../components/ExecutionWorkspace.vue'
 import ExecutionQueue from '../components/ExecutionQueue.vue'
 import StepDetailPanel from '../components/StepDetailPanel.vue'
 import AppModal from '@shared/ui/AppModal.vue'
+import AppButton from '@shared/ui/AppButton.vue'
+import AppEmptyState from '@shared/ui/AppEmptyState.vue'
 import { type MenuItem } from '@shared/ui/AppMenu.vue'
 import FormField from '@shared/ui/FormField.vue'
 import { CodeTab, gitApi } from '@features/code'
@@ -477,7 +484,7 @@ async function addPlanToErrand() {
 }
 async function closeWork() {
   if (!task.value) return
-  // No question for a clean work: closing is undone from «Готово»; losing changes asks once (actions.close).
+  // One question (actions.close): a plain confirmation, or a warning when uncommitted changes would be lost.
   const closed = await actions.close(task.value)
   if (closed) { appStore.toast('Работа закрыта. Открыть снова можно из списка «Готово»', 'success'); await onClosed(closed) }
 }

@@ -30,7 +30,7 @@ export function initWorkEvents() {
     if (!end || end.payload.stopReason === 'cancelled' || session.metadata.work_notified_turn === end.seq) return;
     const fixes = session.metadata.work_fix_pending === true;
     // An ordinary errand reply is a discussion, not a completed piece of work.
-    if (session.role === 'errand' && !fixes && session.status !== 'complete') return;
+    if (session.role === 'errand' && !fixes && (session.status !== 'complete' || session.metadata.work_notified_turn !== undefined)) return;
     updateSession(id, { metadata: { ...session.metadata, work_notified_turn: end.seq, work_fix_pending: false } });
     if (session.role === 'task-chat' && !fixes) return;
     broadcast({ type: fixes ? 'work:fixes_ready' : 'work:ready_for_check', projectId: task.project_id, taskId: task.id, taskKey: task.key });

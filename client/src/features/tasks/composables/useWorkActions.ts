@@ -10,6 +10,8 @@ export const isRemoving = (id: string) => removing.value.includes(id)
 
 interface Blockers { files?: string[]; commits?: string[] }
 const blockersOf = (cause: unknown) => (cause as { blockers?: Blockers }).blockers
+const plural = (n: number, one: string, few: string, many: string) =>
+  n % 10 === 1 && n % 100 !== 11 ? one : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? few : many
 const text = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause)).replace(/^Error:\s*/, '')
 
 /** Actions on a work item shared by the list rows and the work page: an unsaved workspace is never dropped silently. */
@@ -31,20 +33,20 @@ export function useWorkActions() {
   async function attempt<T>(action: () => Promise<T>): Promise<T | undefined> {
     try { return await action() } catch (cause) { app.toast(text(cause), 'error') }
   }
-  /** Closing keeps the branch: only what is not committed is lost; unpushed commits stay in the branch. */
+  /** Closing keeps the branch with every commit, pushed or not; only uncommitted files are lost. One question either way. */
   async function close(t: Task) {
-    try { return await workApi.close(t.project_id, t.id, false) }
-    catch (cause) {
-      const blockers = blockersOf(cause)
-      const files = blockers?.files?.length ?? 0, commits = blockers?.commits?.length ?? 0
-      if (!files && !commits) { app.toast(text(cause), 'error'); return }
-      const branch = t.branch_name ? ` «${t.branch_name}»` : ''
-      const message = files
-        ? `В папке работы есть изменения, которые не закоммичены (${files} ${files % 10 === 1 && files % 100 !== 11 ? 'файл' : files % 10 >= 2 && files % 10 <= 4 && (files % 100 < 12 || files % 100 > 14) ? 'файла' : 'файлов'}). При закрытии они пропадут безвозвратно.\n\nКоммиты останутся в ветке${branch}. Чтобы сохранить изменения, отмените и сделайте коммит во вкладке «Завершение».`
-        : `Коммиты есть только локально, в origin они не отправлены. Они не пропадут: останутся в ветке${branch}.`
-      if (!await app.confirm(message, files ? { confirmLabel: 'Закрыть и потерять изменения', danger: true } : { confirmLabel: 'Закрыть работу' })) return
-      try { return await workApi.close(t.project_id, t.id, true) } catch (again) { app.toast(text(again), 'error') }
-    }
+    const check = await attempt(() => workApi.closeCheck({ params: { projectId: t.project_id, taskId: t.id } }))
+    if (!check) return
+    const files = check.files.length, commits = check.commits.length
+    const branch = t.branch_name ? ` «${t.branch_name}»` : ''
+    const message = (files
+      ? `В папке работы есть изменения, которые не закоммичены (${files} ${plural(files, 'файл', 'файла', 'файлов')}). При закрытии они пропадут безвозвратно.\n\n`
+        + `Закоммиченное останется в ветке${branch}. Чтобы сохранить изменения, отмените и сделайте коммит во вкладке «Проверка».`
+      : `Закрыть «${t.kind === 'errand' ? t.title || 'поручение' : t.key}»? Рабочее место уберётся, весь закоммиченный код останется в ветке${branch}.`)
+      + (commits ? `\n\n${commits} ${plural(commits, 'коммит есть', 'коммита есть', 'коммитов есть')} только локально, в origin не отправлены. Они останутся в ветке.` : '')
+    if (!await app.confirm(message, files ? { title: 'Закрыть задачу', confirmLabel: 'Закрыть и потерять изменения', danger: true } : { title: 'Закрыть задачу', confirmLabel: 'Закрыть' })) return
+    // The folder may have changed since the question: losing what appeared later still asks again.
+    return guarded(discard => workApi.close(t.project_id, t.id, files > 0 || discard), 'Пока вы подтверждали, в папке работы появились новые изменения. Они пропадут при закрытии.')
   }
   const reopen = (t: Task) => attempt(() => workApi.reopen(t.project_id, t.id))
   const addPlan = (t: Task) => attempt(() => workApi.addPlan(t.project_id, t.id))

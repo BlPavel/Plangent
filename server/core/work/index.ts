@@ -37,3 +37,4 @@ export function workAttention() {
 }
 
 export { withWorkStart } from './start';
+export { closeWork } from './actions';

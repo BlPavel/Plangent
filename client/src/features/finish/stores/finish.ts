@@ -8,7 +8,8 @@ const over = (run: FinishRun | null | undefined) => !run || ['complete', 'cancel
 export const useFinishStore = defineStore('finish', () => {
  const projectId = ref(''), scope = ref(''), runs = ref<Record<string, FinishRun | null>>({}), busy = ref(false), error = ref('')
  const run = computed(() => runs.value[scope.value] ?? null)
- let version = 0
+ // version: which load a result belongs to; mutation: which request owns `busy` (a reload must not leave it stuck).
+ let version = 0, mutation = 0
  const stop = onServerEvent<{ type: string; projectId?: string; run?: FinishRun }>(event => {
   if (event.type === 'finish:changed' && event.projectId === projectId.value && event.run) {
    const key = event.run.workspace_id ?? '', current = runs.value[key]
@@ -30,6 +31,7 @@ export const useFinishStore = defineStore('finish', () => {
  async function mutate(action: (p: string, workspaceId?: string) => Promise<FinishRun | null>) {
   const p = projectId.value, mine = version, key = scope.value, workspaceId = key || undefined
   if (!p || busy.value) return
+  const token = ++mutation
   busy.value = true; error.value = ''
   try { const value = await action(p, workspaceId); if (mine === version) runs.value = { ...runs.value, [key]: value }; return value }
   catch (cause) {
@@ -39,7 +41,7 @@ export const useFinishStore = defineStore('finish', () => {
     if (current) { const recovered = await finishApi.get(p, current.id, workspaceId).catch(() => null); if (mine === version && recovered) runs.value = { ...runs.value, [key]: recovered } }
    }
    throw cause
-  } finally { if (mine === version) busy.value = false }
+  } finally { if (token === mutation) busy.value = false }
  }
  const start = (options: FinishOptions) => mutate((p, w) => finishApi.start(p, options, w))
  const save = (commits: FinishCommit[], skipHooks = false) => { const id = run.value!.id; return mutate((p, w) => finishApi.commits(p, id, commits, w, skipHooks)) }

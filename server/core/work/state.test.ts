@@ -54,6 +54,24 @@ test('work state: stage, group and primary action across lifecycle and precedenc
 });
 
 
+test('completed work stays in checking throughout follow-up chats and review fixes', () => {
+  for (const role of ['errand', 'task-chat'] as const) {
+    for (const status of ['starting', 'thinking', 'waiting', 'error', 'ready', 'complete'] as const) {
+      const input: WorkInput = { task: { ...task, kind: role === 'errand' ? 'errand' : 'task' },
+        workDone: true, plan: role === 'task-chat' ? '- [x] Implement' : undefined,
+        sessions: [{ role, status }], remarks: 1 };
+      const state = computeWorkState(input);
+      assert.equal(state.stage, 'check', role + ': ' + status);
+      assert.equal(state.canCheck, true);
+      assert.equal(state.agentWorking, ['starting', 'thinking'].includes(status));
+      if (role === 'task-chat') {
+        assert.equal(computeWorkState({ ...input, plan: '- [ ] Implement', remarks: 0 }).stage, 'execution');
+        assert.equal(computeWorkState({ ...input, queue: { ...queue, status: 'running' } }).stage, 'execution');
+      }
+    }
+  }
+});
+
 test('preparation agents keep their work, questions and errors in preparation', () => {
   for (const role of ['analyst', 'material-author', 'planner', 'plan-reviewer'] as const) {
     for (const status of ['starting', 'thinking', 'waiting', 'error', 'ready', 'complete'] as const) {

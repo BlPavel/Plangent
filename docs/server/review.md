@@ -33,7 +33,11 @@ questions and progress reports leave it in progress, with the chat as its primar
 The errand's stage moves to verification only after explicit completion; a ready chat alone does not open it.
 After that tool's turn finishes without cancellation or
 error, the errand sets `work_done` in its session's metadata and, with `auto_review`, starts one automatic review.
-Later turns are follow-ups and launch nothing. A task with a plan gets
+Later turns are follow-ups and launch nothing. A completed errand stays in verification during
+follow-up chat turns, including questions, permissions, errors and review fixes; agent activity
+does not restart its execution stage or repeat its ready-for-check notification. Completed
+plans also keep verification during follow-ups; open steps and a new running queue retain execution.
+A task with a plan gets
 the same review (`core/work/plan-tasks.ts`) after its queue first finishes without failures; it runs only while the
 task has no review yet. The queue itself carries no automatic review stage. Both kinds choose their branch at
 creation (`POST /api/projects/:projectId/errands`, `.../plan-tasks`) through `core/work/place.ts`. An errand chooses

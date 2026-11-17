@@ -102,6 +102,9 @@ test('workspace lifecycle, preparation, roots, permissions and library', async t
       const created = await workspaces.createWorkspace(task.id, { branch: 'feature/dirty', base: 'main' });
       fs.writeFileSync(path.join(created.path, 'tracked.txt'), 'change');
       fs.writeFileSync(path.join(created.path, 'new.txt'), 'new');
+      // Git-ignored files (a copied .env, dependencies) go with the folder and are not reported.
+      fs.appendFileSync(path.join(repo, '.git', 'info', 'exclude'), '\n*.log\n');
+      fs.writeFileSync(path.join(created.path, 'local.log'), 'ignored');
       await assert.rejects(workspaces.removeWorkspace(created.id), (error: unknown) => error instanceof workspaces.WorkspaceRemovalError && error.blockers.files.length === 2);
       git(created.path, 'add', '.');
       git(created.path, 'commit', '-m', 'Unpushed fixture');

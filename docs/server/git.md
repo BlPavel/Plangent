@@ -24,6 +24,11 @@ back to copying) and runs the setup command. Each active workspace of a project
 gets a `port_slot`; `workspaceEnv` shifts `workspace_ports` by slot × 10 for its
 terminals, setup command and agents.
 
+Closing a work (`core/work/actions.ts`) removes its workspace and always keeps the branch with
+every commit, pushed or not. Only uncommitted files (changed tracked files and new files git
+would commit) need an explicit `discard`; git-ignored files go with the folder unreported.
+`GET .../tasks/:taskId/close-check` lists both for the developer's single confirmation.
+
 Finishing (`finish/`) treats a failed step as a state the developer can leave, never a dead end:
 
 - Git or a repository hook rejecting an agent's commit returns the hook output to the agent
@@ -36,6 +41,8 @@ Finishing (`finish/`) treats a failed step as a state the developer can leave, n
 - `cancel` closes a run without touching Git (it works whatever state the folder is in; `reset` also takes back
   the commits). `rollback` and `cancel` only need HEAD and the branch to be the run's, not the files: moving
   HEAD never changes files. Reassembling commits still requires the reviewed files.
+- A task's run that completes closes its work after the repository lock is released, as the manual close does
+  (`work.closeWork`, injected from the composition root). If closing fails, the work stays open with a notification.
 - A refused request (stale state, validation) never overwrites the stored cause of a failure.
 - A committer turn that ends in `commits` without a result marks the run `error`.
 - A run whose task or working folder is gone (`task_id` empty while `options.task_id` is set, or a removed

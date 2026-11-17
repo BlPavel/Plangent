@@ -25,6 +25,9 @@ export function computeWorkState(input: WorkInput): WorkState {
   const active = sessions.filter(s => s.status === 'thinking' || s.status === 'starting');
   const waiting = sessions.filter(s => s.status === 'waiting').length;
   const steps = (input.plan ?? '').split('\n').filter(line => /^\s*- \[[ x]\]/i.test(line));
+  // Follow-up chat turns do not restart completed execution; open plan steps and a new queue still do.
+  const followUpStage = input.workDone && queue?.status !== 'running'
+    && (task.kind === 'errand' || (steps.length > 0 && steps.every(line => /\[x\]/i.test(line)))) ? 'check' : 'execution';
   const base = {
     hasBranch: workspace?.status === 'ready',
     agentWorking: active.length + preparationActive.length > 0 || queue?.status === 'running',
@@ -46,15 +49,15 @@ export function computeWorkState(input: WorkInput): WorkState {
   if (task.kind === 'errand' && !sessions.length) return result('execution', 'preparing', 'preparation', '◌', 'Запуск поручения', 'chat', 'Открыть');
   if (input.awaitingBrief) return result('execution', 'waiting', 'attention', '❗', 'Напишите агенту, что сделать', 'chat', 'Написать агенту');
   const queueWaiting = queue?.stages.flatMap(s => s.sessions).some(s => ['waiting_for_developer', 'ready_for_execution'].includes(s.status));
-  if (waiting || queueWaiting || queue?.status === 'paused') return result('execution', 'waiting', 'attention', '❗', 'Нужно ваше действие', waiting ? 'chat' : 'queue', waiting ? 'Ответить агенту' : 'Продолжить');
+  if (waiting || queueWaiting || queue?.status === 'paused') return result(followUpStage, 'waiting', 'attention', '❗', 'Нужно ваше действие', waiting ? 'chat' : 'queue', waiting ? 'Ответить агенту' : 'Продолжить');
   if (finish && !['complete', 'cancelled'].includes(finish.status)) return result('check',
     finish.status === 'running' ? 'finishing' : finish.status === 'error' ? 'failed' : 'waiting',
     finish.status === 'running' ? 'working' : 'attention', '⇪', finish.error || 'Завершение работы', 'check', 'Проверка');
   if (active.some(s => s.role === 'task-reviewer') || queue?.stages.flatMap(s => s.sessions).some(s => s.kind === 'review' && ['running', 'reviewing'].includes(s.status)))
     return result('check', 'reviewing', 'working', '🤖', 'Идёт ревью', 'check', 'Проверка');
-  if (active.length || queue?.status === 'running') return result('execution', 'running', 'working', '◌',
-    active.some(s => s.role === 'task-chat') ? 'Агент исправляет замечания' : 'Агент работает', 'chat', 'Выполнение');
-  if (queue?.status === 'failed' || sessions.some(s => s.status === 'error')) return result('execution', 'failed', 'attention', '❗', queue?.reason || 'Работа прервана', 'chat', 'Открыть');
+  if (active.length || queue?.status === 'running') return result(followUpStage, 'running', 'working', '◌',
+    active.some(s => s.role === 'task-chat') ? 'Агент исправляет замечания' : followUpStage === 'check' ? 'Агент отвечает' : 'Агент работает', 'chat', followUpStage === 'check' ? 'Открыть чат' : 'Выполнение');
+  if (queue?.status === 'failed' || sessions.some(s => s.status === 'error')) return result(followUpStage, 'failed', 'attention', '❗', queue?.reason || 'Работа прервана', 'chat', 'Открыть');
   if (input.remarks) return result('check', 'fixes', 'attention', '✎', 'Есть замечания ревью', 'check', 'Проверить замечания');
   if (finish?.status === 'complete') return result('check', 'ready', 'attention', '⇪', 'Можно закрыть работу', 'check', 'Закрыть работу');
   // A plan with open steps stays in Выполнение however many queues have run; Проверка is only reachable (canCheck).

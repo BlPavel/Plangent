@@ -259,9 +259,11 @@ test('execution roots, errands, task chats and independent review rounds', async
       for (const text of ['Another discussion', 'Use the complete_step tool again']) {
         const turns = sessions.history(id).filter(e => e.type === 'turn_end').length;
         await host.sendPrompt(id, [{ type: 'text', text }]);
+        assert.equal(workEntry(errand.task.id).state.stage, 'check', 'follow-up activity keeps execution completed');
         await until(() => sessions.history(id).filter(e => e.type === 'turn_end').length > turns);
         host.sessionSignals.emit('turn_end', id);
         assert.equal(reviewers().length, 1);
+        assert.equal(workEntry(errand.task.id).state.stage, 'check');
       }
     });
     await t.test('explicit completion without automatic review still marks the work ready for checking', async () => {

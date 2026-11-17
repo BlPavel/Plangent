@@ -28,6 +28,13 @@ function assertIdle(id: string) {
   if (isFrozen(getQueue(id, task.project_id)) || listSessions(task.project_id).some(s => s.task_id === id && ['thinking', 'starting', 'waiting'].includes(s.status))
     || workspace && activeFinish(task.project_id, workspace.id)) throw new DomainError('Сначала остановите работу агента или Завершение', 409);
 }
+/** What closing would lose (uncommitted files) and what stays only in the local branch (unpushed commits): the developer confirms with this. */
+export async function closeCheck(id: string) {
+  taskContext(id);
+  const workspace = activeWorkspace(id);
+  return workspace ? removalBlockers(workspace.id) : { files: [], commits: [] };
+}
+/** Closing keeps the branch with all its commits, pushed or not; only uncommitted files need `discard`. */
 export async function closeWork(id: string, input: { discard?: boolean } = {}) {
   return withWorkStart(id, async () => {
     const task = taskContext(id);
@@ -35,7 +42,7 @@ export async function closeWork(id: string, input: { discard?: boolean } = {}) {
     const workspace = activeWorkspace(id);
     if (workspace) {
       const blockers = await removalBlockers(workspace.id);
-      if (!input.discard && (blockers.files.length || blockers.commits.length)) throw new WorkspaceRemovalError(blockers);
+      if (!input.discard && blockers.files.length) throw new WorkspaceRemovalError(blockers);
       await removeWorkspace(workspace.id, { discard: input.discard, keepBranch: true });
     }
     updateTask(id, { status: 'done', closed_at: task.closed_at ?? new Date().toISOString(), close_reason: 'done' });

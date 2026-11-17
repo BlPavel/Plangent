@@ -80,10 +80,11 @@ export interface WorkspaceRemovalBlockers { files: string[]; commits: string[] }
 export class WorkspaceRemovalError extends DomainError {
   constructor(public blockers: WorkspaceRemovalBlockers) { super('Рабочее место содержит изменения или непереданные коммиты', 409); }
 }
+/** Uncommitted work is changed tracked files and new files git would commit; git-ignored ones (copied `.env`, dependencies, builds) go with the folder. */
 export async function removalBlockers(id: string): Promise<WorkspaceRemovalBlockers> {
   const workspace = getWorkspace(id), { project } = context(workspace.task_id);
   const present = await fs.lstat(workspace.path).then(() => true, () => false);
-  const files = present ? (await runGit(workspace.path, ['status', '--porcelain', '-z', '--untracked-files=all', '--ignored=matching'])).split('\0').filter(Boolean) : [];
+  const files = present ? (await runGit(workspace.path, ['status', '--porcelain', '-z', '--untracked-files=all'])).split('\0').filter(Boolean) : [];
   const remotes = (await runGit(project.repo_path, ['for-each-ref', '--format=%(refname)', 'refs/remotes/'])).trim().split('\n').filter(Boolean);
   const base = 'refs/heads/' + workspace.base_branch.replace(/^origin\//, '');
   const exists = await localBranchHead(project.repo_path, workspace.branch);
@@ -98,7 +99,8 @@ export async function removeWorkspace(id: string, input: { discard?: boolean; ke
     // Never pass arbitrary persisted paths to worktree remove.
     if (path.resolve(workspace.path) !== workspaceFolder(project.id, task.key)) throw new DomainError('Invalid workspace path');
     const blockers = await removalBlockers(id);
-    if (!input.discard && (blockers.files.length || blockers.commits.length)) throw new WorkspaceRemovalError(blockers);
+    // A kept branch keeps its unpushed commits: only uncommitted files would be lost.
+    if (!input.discard && (blockers.files.length || !input.keepBranch && blockers.commits.length)) throw new WorkspaceRemovalError(blockers);
     if (await fs.lstat(workspace.path).then(() => true, () => false)) {
       await runGit(project.repo_path, ['worktree', 'remove', ...(input.discard ? ['--force'] : []), '--', workspace.path], options);
     }

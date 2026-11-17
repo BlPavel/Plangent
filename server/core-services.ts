@@ -19,7 +19,7 @@ agents.configureAgentsDependencies({ preparation, tasks, workspaces });
 
 execution.configureExecutionDependencies({ review });
 
-git.configureGitDependencies({ preparation });
+git.configureGitDependencies({ preparation, work });
 
 library.configureLibraryDependencies({ agents, preparation, workspaces });
 

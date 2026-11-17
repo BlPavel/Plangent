@@ -196,6 +196,11 @@ export type WorkGETWorkResponse = ({
 export type WorkPOSTTasksTaskIdCloseBody = {
     discard?: boolean;
 };
+/** Before closing: uncommitted files that would be lost and commits that exist only in the local branch (they stay in it). */
+export type WorkGETTasksTaskIdCloseCheckResponse = {
+    files: string[];
+    commits: string[];
+};
 export type WorkPOSTTasksTaskIdCancelBody = {
     mode: 'discard' | 'keep';
 };
@@ -221,6 +226,7 @@ export interface WorkEndpoints {
     "POST /api/projects/:projectId/tasks/:taskId/check/send": Endpoint<"POST /api/projects/:projectId/tasks/:taskId/check/send", WorkPOSTTasksTaskIdCheckSendBody, C.AgentSession, Record<string, never>, "json", never>;
     "GET /api/work/attention": Endpoint<"GET /api/work/attention", never, WorkGETAttentionResponse, Record<string, never>, "json", never>;
     "GET /api/projects/:projectId/work": Endpoint<"GET /api/projects/:projectId/work", never, WorkGETWorkResponse, Record<string, never>, "json", never>;
+    "GET /api/projects/:projectId/tasks/:taskId/close-check": Endpoint<"GET /api/projects/:projectId/tasks/:taskId/close-check", never, WorkGETTasksTaskIdCloseCheckResponse, Record<string, never>, "json", never>;
     "POST /api/projects/:projectId/tasks/:taskId/close": Endpoint<"POST /api/projects/:projectId/tasks/:taskId/close", WorkPOSTTasksTaskIdCloseBody, C.Task, Record<string, never>, "json", never>;
     "POST /api/projects/:projectId/tasks/:taskId/cancel": Endpoint<"POST /api/projects/:projectId/tasks/:taskId/cancel", WorkPOSTTasksTaskIdCancelBody, C.Task, Record<string, never>, "json", never>;
     "POST /api/projects/:projectId/tasks/:taskId/add-plan": Endpoint<"POST /api/projects/:projectId/tasks/:taskId/add-plan", never, C.Task, Record<string, never>, "json", never>;

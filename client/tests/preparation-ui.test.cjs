@@ -111,7 +111,7 @@ test('work-state matches server check, finish and closed transitions for tasks a
       [{ sessions: [{ role: 'executor', status: 'thinking' }] }, 'execution', offset],
       [{ sessions: [{ role: 'task-reviewer', status: 'thinking' }] }, 'check', offset + 1],
       [{ remarks: 1 }, 'check', offset + 1],
-      [{ sessions: [{ role: 'executor', status: 'complete' }] }, 'check', offset + 1],
+      [{ workDone: true, sessions: [{ role: kind === 'errand' ? 'errand' : 'executor', status: 'complete' }] }, 'check', offset + 1],
       [{ finish: { status: 'running' } }, 'check', offset + 1],
       [{ finish: { status: 'complete' } }, 'check', offset + 1],
       [{ task: { ...task, status: 'done' } }, 'done', workStagesOf(task).length],
@@ -164,6 +164,22 @@ test('WorkStages marks an unfinished stage with one button, leads on from a fini
     view.props.active = 'plan'; view.props.drafting = undefined
     view.props.stages = []; await flush()
     assert.deepEqual(marks().slice(0, 4), ['Не начато', 'Не начато', 'Не начато', 'Не начато'])
+  } finally { view.unmount() }
+})
+
+test('completed errand execution stays ready and does not pulse during follow-up chat or review', async () => {
+  const { WorkStages, workStagesOf, computeWorkState } = await compiled
+  const task = { kind: 'errand' }
+  const state = status => computeWorkState({ task, workDone: true, sessions: [{ role: 'errand', status }] })
+  const view = mount(WorkStages, { task, state: state('complete'), hasPlan: false, active: 'check',
+    tabs: workStagesOf(task).map(s => ({ id: s.tab, label: s.label })), stages: [], execDone: false })
+  try {
+    for (const status of ['starting', 'thinking', 'waiting', 'error', 'ready', 'complete']) {
+      view.props.state = state(status); await flush()
+      const mark = document.querySelector('[role="tab"] [role="img"]')
+      assert.equal(mark.getAttribute('aria-label'), 'Агент выполнил то, что вы написали', status)
+      assert.equal(mark.getAnimations?.().length ?? (mark.classList.contains('live') ? 1 : 0), 0, status)
+    }
   } finally { view.unmount() }
 })
 

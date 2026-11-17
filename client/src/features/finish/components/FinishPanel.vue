@@ -105,8 +105,9 @@
           <AppTextarea v-if="store.run.options.includeDescription" v-model="commit.body" block aria-label="Описание коммита" rows="2" :disabled="!editable" />
           <div v-for="path in commit.files" :key="path" class="fp-file" :class="{ selected: selected?.path === path }" :draggable="editable" @dragstart="drag($event, index, path)">
             <span v-if="editable" class="fp-grip" title="Перетащите файл в другой коммит">⋮⋮</span>
-            <AppButton variant="link" size="sm" type="button"  :title="'Показать diff: ' + path" @click="selected = selected?.path === path ? null : { index, path }">{{ path }}</AppButton>
-            <AppSelect v-if="editable && draft.length > 1" :model-value="String(index)" :options="draft.map((other, to) => ({ value: String(to), label: `→ ${to + 1}. ${other.title}` }))" label="Перенести файл в коммит" title="Перенести файл в другой коммит" size="sm" @update:model-value="move(index, Number($event), path)" />
+            <!-- A long path is cut from the folder side: the file name stays visible, the full path is in the hint. -->
+            <AppButton variant="link" size="sm" type="button" start class="fp-path" :title="'Показать diff: ' + path" @click="selected = selected?.path === path ? null : { index, path }"><span class="fp-path-dir">{{ folderOf(path) }}</span><span class="fp-path-name">{{ nameOf(path) }}</span></AppButton>
+            <AppSelect v-if="editable && draft.length > 1" class="fp-move" :model-value="String(index)" :options="draft.map((other, to) => ({ value: String(to), label: `→ ${to + 1}`, description: other.title }))" label="Перенести файл в коммит" title="Перенести файл в другой коммит" size="sm" @update:model-value="move(index, Number($event), path)" />
           </div>
           <div v-if="editable && (index > 0 || commit.files.length > 1)" class="fp-commit-actions">
             <AppButton variant="link" size="sm" v-if="index > 0" type="button"  @click="merge(index)">Объединить с предыдущим</AppButton>
@@ -176,6 +177,8 @@ import type { Task } from '@contracts'
 const props = defineProps<{ projectId: string; task?: { id: string; key: string } | null; blocked?: string; branch?: string | null; workspaceId?: string; closable?: boolean }>()
 const emit = defineEmits<{ attention: []; close: [] }>()
 const copy = <T,>(value: T): T => JSON.parse(JSON.stringify(value))
+const folderOf = (path: string) => path.slice(0, path.lastIndexOf('/') + 1)
+const nameOf = (path: string) => path.slice(path.lastIndexOf('/') + 1)
 const message = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause)).replace(/^Error:\s*/, '')
 const app = useAppStore(), store = useFinishStore(), git = useGitStore()
 const localError = ref(''), branchesError = ref(''), refreshingBranches = ref(false)
@@ -400,17 +403,19 @@ textarea.control { height: auto; padding: 6px 10px; resize: vertical; line-heigh
 .fp-steps .waiting { color: var(--text); font-weight: 600; } .fp-steps .waiting .fp-dot { color: var(--on-accent); border-color: var(--blue); background: var(--blue); }
 .fp-steps .error { color: var(--danger-hover); font-weight: 600; } .fp-steps .error .fp-dot { color: var(--on-accent); border-color: var(--danger); background: var(--danger); }
 .fp-status { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.fp-commits { display: flex; flex-direction: column; gap: 8px; }
-.fp-commit { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg2); transition: border-color var(--motion-fast), background var(--motion-fast); }
+.fp-commits { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.fp-commit { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg2); transition: border-color var(--motion-fast), background var(--motion-fast); }
 .fp-commit.over { border-color: var(--blue-hover); background: var(--blue-soft); }
-.fp-commit-head { display: flex; align-items: center; gap: 6px; }
+.fp-commit-head { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .fp-num { flex-shrink: 0; width: 18px; text-align: center; font-weight: 600; color: var(--text-faint); }
-.fp-file { display: flex; align-items: center; gap: 4px; padding: 1px 4px; border-radius: var(--radius-sm); }
+.fp-file { display: flex; align-items: center; gap: 4px; min-width: 0; padding: 1px 4px; border-radius: var(--radius-sm); }
 .fp-file.selected { background: var(--blue-soft); }
-.fp-grip { cursor: grab; font-size: var(--fs-xs); color: var(--text-faint); user-select: none; }
-.fp-path { flex: 1; min-width: 0; padding: 2px 0; font: inherit; font-family: var(--font-mono); font-size: var(--fs-sm); text-align: left; color: var(--text); background: none; border: none; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; }
-.fp-path:hover { color: var(--blue-hover); }
-.fp-move { max-width: 90px; height: 22px; font: inherit; font-size: var(--fs-xs); color: var(--text-muted); background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.fp-grip { flex-shrink: 0; cursor: grab; font-size: var(--fs-xs); color: var(--text-faint); user-select: none; }
+.fp-path { flex: 1 1 auto; min-width: 0; max-width: 100%; }
+.fp-path-dir, .fp-path-name { font-family: var(--font-mono); font-size: var(--fs-sm); white-space: nowrap; }
+.fp-path-dir { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--text-faint); }
+.fp-path-name { flex-shrink: 0; }
+.fp-move { flex-shrink: 0; }
 .fp-commit-actions { display: flex; gap: 12px; flex-wrap: wrap; }
 .fp-diff { height: 360px; min-width: 0; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; background: var(--bg); }
 .fp-mr-draft { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg2); }

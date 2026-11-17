@@ -56,7 +56,7 @@ function blocked(id: string): string {
 
 const waiting = computed(() => props.state?.agentWorking ? 'Агент работает…'
   : props.task.kind === 'errand' ? 'Напишите агенту, что сделать' : 'Запустите очередь')
-const live = (id: string) => !!props.tabs.find(s => s.id === id)?.live || (id === 'chat' && !!props.state?.agentWorking)
+const live = (id: string) => !!props.tabs.find(s => s.id === id)?.live || (id === 'chat' && props.state?.stage === 'execution' && props.state.agentWorking)
 
 type Tone = 'done' | 'current' | 'next'
 function mark(id: string): { state: 'ready' | 'changed' | 'skipped' | 'draft' | 'empty'; tone: Tone; label?: string } {
@@ -71,7 +71,7 @@ function mark(id: string): { state: 'ready' | 'changed' | 'skipped' | 'draft' | 
   }
   // A failed or pending summary request is never evidence of developer approval.
   if (['analysis', 'architecture', 'qa', 'plan'].includes(id)) return { state: id === 'plan' && props.hasPlan ? 'draft' : 'empty', tone }
-  if (id === 'chat' && props.state?.canCheck && !props.state.agentWorking) return { state: 'ready', tone: 'done', label: 'Агент выполнил то, что вы написали' }
+  if (id === 'chat' && props.state?.canCheck) return { state: 'ready', tone: 'done', label: 'Агент выполнил то, что вы написали' }
   if (id === 'exec' && props.execDone) return { state: 'ready', tone: 'done', label: 'Все пункты плана выполнены' }
   if (tone === 'done') return { state: 'ready', tone }
   return tone === 'current' ? { state: 'draft', tone, label: 'Текущий этап работы' } : { state: 'empty', tone }

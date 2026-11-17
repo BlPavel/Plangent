@@ -23,7 +23,7 @@ test('work lifecycle, default viewing, recovery and notifications', async t => {
   const { initSessions, createSession, updateSession, addEvent } = await import('../../core-services').then(() => import('../../core/agents/sessions/sessions'));
   const { initQueues, getQueue, saveQueue } = await import('../../core-services').then(() => import('../../core/execution/queue'));
   const { createWorkspace, activeWorkspace, getWorkspace, rootForSession, WorkspaceRemovalError } = await import('../../core-services').then(() => import('../../core/workspaces'));
-  const { closeWork, reopenWork, cancelErrand, addPlan } = await import('../../core-services').then(() => import('../../core/work/actions'));
+  const { closeCheck, closeWork, reopenWork, cancelErrand, addPlan } = await import('../../core-services').then(() => import('../../core/work/actions'));
   const { workEntry, workAttention } = await import('../../core-services').then(() => import('../../core/work'));
   const { initWorkEvents } = await import('../../core-services').then(() => import('../../core/work/events'));
   const { onBroadcast } = await import('../../core-services').then(() => import('../../core/shared/events'));
@@ -63,7 +63,8 @@ test('work lifecycle, default viewing, recovery and notifications', async t => {
       assert.equal(activeWorkspace(task.id)?.id, workspace.id);
       assert.equal(await fs.readFile(path.join(workspace.path, 'manual.txt'), 'utf8'), 'Keep this');
       git(workspace.path, 'add', 'manual.txt'); git(workspace.path, 'commit', '-m', 'Manual change');
-      await assert.rejects(closeWork(task.id), error => error instanceof WorkspaceRemovalError && error.blockers.commits.length === 1);
+      // Unpushed commits stay in the kept branch: they are only reported, closing does not need them pushed.
+      assert.equal((await closeCheck(task.id)).commits.length, 1);
       git(workspace.path, 'push', '-u', 'origin', workspace.branch);
       const chat = createSession({ project_id: project.id, task_id: task.id, role: 'task-chat', agent_id: agent.id, policy: 'ask', metadata: { workspace_id: workspace.id } });
       updateSession(chat.id, { status: 'complete' }); addEvent(chat.id, 'assistant', { text: 'Same chat' });
@@ -147,6 +148,9 @@ test('work lifecycle, default viewing, recovery and notifications', async t => {
       addEvent(session.id, 'turn_end', { stopReason: 'end_turn' }); sessionSignals.emit('turn_end', session.id);
       assert.equal(events.filter(e => e.type === 'work:ready_for_check' && e.taskId === errand.id).length, 1);
       assert.equal(workEntry(errand.id).state.canCheck, true);
+      completeAgentWork(session.id, 'Follow-up answer, work was already completed');
+      addEvent(session.id, 'turn_end', { stopReason: 'end_turn' }); sessionSignals.emit('turn_end', session.id);
+      assert.equal(events.filter(e => e.type === 'work:ready_for_check' && e.taskId === errand.id).length, 1);
       updateSession(session.id, { status: 'ready', metadata: { work_fix_pending: true } });
       addEvent(session.id, 'turn_end', { stopReason: 'end_turn' }); sessionSignals.emit('turn_end', session.id);
       assert.equal(events.filter(e => e.type === 'work:fixes_ready' && e.taskId === errand.id).length, 1);
@@ -169,6 +173,25 @@ test('work lifecycle, default viewing, recovery and notifications', async t => {
       assert.ok(!git(repo, 'branch', '--list', 'work/retained'));
       const plain = createTask({ project_id: project.id }); await closeWork(plain.id);
       assert.equal(getTask(plain.id)?.status, 'done'); await deleteTask(plain.id); assert.equal(getTask(plain.id), null);
+    });
+    await t.test('a finish that went through closes its work; the branch keeps the commits', async () => {
+      db.prepare('UPDATE projects SET default_agent_id=? WHERE id=?').run(agent.id, project.id);
+      const { createFinishService } = await import('../../core-services').then(() => import('../../core/git/finish'));
+      const finish = createFinishService({ prompt: async id => { updateSession(id, { status: 'ready' }); }, close: async () => {} });
+      const finished = createTask({ project_id: project.id, kind: 'errand' });
+      const place = await createWorkspace(finished.id, { branch: 'work/finished', base: 'main' });
+      await fs.writeFile(path.join(place.path, 'done.txt'), 'Done\n');
+      const run = await finish.start(project.id, { task_id: finished.id, scenario: 'commits' });
+      assert.ok(run);
+      await finish.setCommits(run.id, [{ files: ['done.txt'], title: 'Add done' }], true);
+      await finish.finishCommits(run.id);
+      assert.equal(getTask(finished.id)?.closed_at, null, 'waiting for confirmation keeps the work open');
+      await finish.accept(run.id);
+      // The work closes once the finish has released the repository.
+      for (let i = 0; i < 100 && !getTask(finished.id)?.closed_at; i++) await new Promise(resolve => setTimeout(resolve, 20));
+      assert.equal(getTask(finished.id)?.status, 'done');
+      assert.equal(activeWorkspace(finished.id), null);
+      assert.equal(git(repo, 'log', '-1', '--format=%s', 'work/finished'), 'Add done');
     });
   } finally {
     stop(); await new Promise<void>(resolve => server.close(() => resolve())); db.close();

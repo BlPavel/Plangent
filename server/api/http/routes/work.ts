@@ -1,6 +1,6 @@
 import { listWork, workAttention } from '../../../core/work';
 import { changeWorkBranch } from '../../../core/work/branch';
-import { closeWork, reopenWork, cancelErrand, addPlan, errandFromWork } from '../../../core/work/actions';
+import { closeCheck, closeWork, reopenWork, cancelErrand, addPlan, errandFromWork } from '../../../core/work/actions';
 import { WorkspaceRemovalError } from '../../../core/workspaces';
 import { Router } from 'express';
 import { typedRoutes, type JsonHandler } from '../typed-route';
@@ -106,6 +106,11 @@ function actionHandler<K extends ActionKey>(action: (id: string, body: Endpoints
     }
   };
 }
+work.json('GET /api/projects/:projectId/tasks/:taskId/close-check', async (req, res) => {
+  if (getTask(req.params.taskId)?.project_id !== req.params.projectId) return res.status(404).json({ error: 'Task not found' });
+  try { res.json(await closeCheck(req.params.taskId)); }
+  catch (error) { res.status(error instanceof DomainError ? error.status : 400).json({ error: error instanceof Error ? error.message : String(error) }); }
+});
 work.json('POST /api/projects/:projectId/tasks/:taskId/close', actionHandler<'POST /api/projects/:projectId/tasks/:taskId/close'>((id, body) => closeWork(id, { discard: body?.discard === true })));
 work.json('POST /api/projects/:projectId/tasks/:taskId/reopen', actionHandler<'POST /api/projects/:projectId/tasks/:taskId/reopen'>(id => reopenWork(id)));
 work.json('POST /api/projects/:projectId/tasks/:taskId/cancel', actionHandler<'POST /api/projects/:projectId/tasks/:taskId/cancel'>((id, body) => cancelErrand(id, body?.mode)));
