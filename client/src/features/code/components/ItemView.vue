@@ -4,7 +4,7 @@
     @save="save" @cancel="editing = false"
   />
   <ItemCard
-    v-else :draft-key="`code-review:${item.review_id}:item:${item.id}:${place}:text`" :item="item" :thread="thread" :state="state" :read-only="readOnly" :show-location="showLocation" :embedded="embedded" :busy="busy" :error="error"
+    v-else :draft-key="`code-review:${item.review_id}:item:${item.id}:${place}:text`" :project-id="store.projectId" :workspace-id="store.workspaceId" :item="item" :thread="thread" :state="state" :read-only="readOnly" :show-location="showLocation" :embedded="embedded" :busy="busy" :error="error"
     :decision="decision" :discussing="discussing" :working="working" :permissions="working ? agent.permissions : []"
     @stop-discussing="discussing = false" @edit="editing = true" @remove="remove" @general="general" @goto="emit('goto')" @open-ref="emit('open-ref', $event)"
     @reply="reply" @remove-message="removeMessage" @close="close"

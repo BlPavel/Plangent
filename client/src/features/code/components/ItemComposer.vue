@@ -29,7 +29,7 @@
 
 <script setup lang="ts">
 import { IconAttach as UIIconAttach } from '@shared/ui/icons'
-import { projectsEndpoints } from '@features/projects'
+import { useReviewAttachments } from '../composables/useReviewAttachments'
 
 import { useDraft } from '@core/composables/useDraft'
 import { useDraftsStore } from '@core/stores/drafts'
@@ -64,23 +64,7 @@ const knownRefs = new Set(props.initialRefs ?? [])
 const { suggestions, loading, search, clear } = useMentionFiles(() => store.projectId)
 const token = ref<{ start: number; end: number; query: string } | null>(null)
 /** Files and screenshots: saved next to Plangent and named in the item, so the agent can open them. */
-const files = useDraft<{ name: string; path: string }[]>(() => `code-review:${store.review?.id ?? store.projectId}:composer:${props.draftKey ?? props.where}:files`, () => [])
-const uploading = ref(false), attachError = ref('')
-async function attach(list: File[]) {
-  if (!list.length) return
-  uploading.value = true; attachError.value = ''
-  try {
-    for (const file of list) {
-      const data = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = reject; reader.readAsDataURL(file) })
-      const name = file.name || 'скриншот.png'
-      const { path } = await projectsEndpoints.postUploadTemp({ params: {  }, body: { data, name } })
-      files.value.push({ name, path })
-    }
-  } catch (cause) { attachError.value = 'Не удалось приложить файл: ' + (cause instanceof Error ? cause.message : String(cause)) }
-  finally { uploading.value = false }
-}
-function onPaste(event: ClipboardEvent) { if (event.clipboardData?.files.length) { event.preventDefault(); void attach(Array.from(event.clipboardData.files)) } }
-function picked(event: Event) { const input = event.target as HTMLInputElement; void attach(Array.from(input.files ?? [])); input.value = '' }
+const { files, uploading, attachError, onPaste, picked, attachedText } = useReviewAttachments(() => `code-review:${store.review?.id ?? store.projectId}:composer:${props.draftKey ?? props.where}:files`)
 const placeholder = computed(() => (kind.value === 'question' ? 'Что непонятно? Агент только ответит, код не тронет' : 'Что исправить? (? в начале — вопрос)'))
 
 // "?" at the start of the text makes it a question, as the toggle would.
@@ -133,7 +117,7 @@ function onKey(event: KeyboardEvent) {
 /** Forgets the draft (an edit starts from the item's own text next time), then closes. */
 function cancel() { useDraftsStore().clearPrefix(`code-review:${store.review?.id ?? store.projectId}:composer:${props.draftKey ?? props.where}:`); emit('cancel') }
 function save() {
-  const attached = files.value.map(file => '📎 ' + file.name + ': ' + file.path).join('\n')
+  const attached = attachedText()
   // The leading «?» only chose the kind: the saved question keeps the kind, not the mark.
   const body = kind.value === 'question' ? text.value.trimStart().replace(/^\?+\s*/, '') : text.value
   const value = [body.trim(), attached].filter(Boolean).join('\n\n')

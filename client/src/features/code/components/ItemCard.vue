@@ -53,11 +53,24 @@
 
       <!-- Everything the developer can do with the item is here, at the bottom: write, discuss, request changes, finish. -->
       <form v-if="!readOnly || canGoto" class="it-reply" @submit.prevent="submitText">
-        <AppTextarea
-          v-if="!readOnly && (state !== 'draft' || discussing) && (item.closed || !queuedReplies.length)"
-          v-model="text" :disabled="actionBusy" block rows="2" :placeholder="state === 'draft' ? 'Что в этом замечании непонятно или с чем вы не согласны? Написанное встанет в очередь и уйдёт агенту вместе с остальным. Ctrl+Enter — в очередь' : state === 'closed' ? 'Написать агенту (пункт откроется снова)…' : 'Ответить агенту…'"
-          @keydown.enter.ctrl.prevent="submitText" @keydown.enter.meta.prevent="submitText"
-        />
+        <div v-if="canReply" class="it-reply-field">
+          <SuggestMenu v-if="token" :anchor="area" title="Файлы и папки" :loading="loading" empty="Ничего не найдено" :items="suggestions" :active="active" @dismiss="dismissMentions" @pick="insertMention" @hover="active = $event" />
+          <AppTextarea
+            ref="areaComponent"
+            v-model="text" :disabled="actionBusy" block rows="2" :placeholder="state === 'draft' ? 'Что в этом замечании непонятно или с чем вы не согласны? Написанное встанет в очередь и уйдёт агенту вместе с остальным. Ctrl+Enter — в очередь' : state === 'closed' ? 'Написать агенту (пункт откроется снова)…' : 'Ответить агенту…'"
+            @input="updateToken" @click="updateToken" @keyup="mentionKeyUp" @keydown="replyKey" @paste="pasteFiles"
+          />
+        </div>
+        <div v-if="canReply" class="it-attachments">
+          <div v-if="files.length" class="it-attached-files">
+            <AppChip v-for="(file, index) in files" :key="file.path" :title="file.path" :removable="!actionBusy" remove-label="Убрать" @remove="files.splice(index, 1)">📎 {{ file.name }}</AppChip>
+          </div>
+          <AppButton variant="subtle" size="xs" icon type="button" :disabled="actionBusy" title="Приложить файл или скриншот (можно вставить Ctrl+V)" aria-label="Приложить файл" @click="fileInput?.element?.click()"><UIIconAttach /></AppButton>
+          <AppInput ref="fileInput" type="file" multiple hidden :disabled="actionBusy" @change="picked" />
+          <span v-if="uploading" role="status">Прикрепляю…</span>
+          <span v-else class="it-note muted">@ — файл или папка</span>
+          <div v-if="attachError" class="it-note" role="alert">{{ attachError }}</div>
+        </div>
         <div v-if="canGoto || item.outdated || mode !== 'none' || canReopen || (!readOnly && !item.closed) || $slots.extra" class="it-actions">
           <AppButton v-if="canGoto" class="it-act it-goto" size="xs" variant="ghost" type="button" @click="emit('goto')"><UIIconCode />К коду</AppButton>
           <AppButton v-if="item.outdated && !readOnly" class="it-act" size="xs" variant="ghost" type="button" @click="act('general')">Сделать общим</AppButton>
@@ -90,15 +103,20 @@
 
 <script setup lang="ts">
 import AppTextarea from '@shared/ui/AppTextarea.vue'
+import { AppChip, AppInput } from '@shared/ui'
+import { useReviewAttachments } from '../composables/useReviewAttachments'
 import { useDraft } from '@core/composables/useDraft'
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
+import { SuggestMenu, useMentionFiles, type SuggestItem } from '@features/agent-chat'
 import AppButton from '@shared/ui/AppButton.vue'
-import { IconCode as UIIconCode } from '@shared/ui/icons'
+import { IconCode as UIIconCode, IconAttach as UIIconAttach } from '@shared/ui/icons'
 import { MessageMarkdown } from '@shared/markdown'
 import type { CodeReviewItem, CodeReviewMessage } from '../types'
 import { discussionText, stateLabel, type ThreadState } from '../utils/thread'
 
 const props = defineProps<{
+  projectId?: string | null
+  workspaceId?: string | null
   draftKey?: string
   /** The developer's decision on the review agent's draft: accepted to be fixed, or still to decide. */
   decision?: 'accepted' | 'pending'
@@ -135,13 +153,53 @@ const KIND_LABELS: Record<string, string> = {
   implement: 'сделать', options: 'варианты', questions: 'уточняющие вопросы', change: 'изменил код', disagree: 'не согласен',
 }
 const pending = ref(false)
-const actionBusy = computed(() => props.busy || pending.value)
+const actionBusy = computed(() => props.busy || pending.value || uploading.value)
 const permissions = computed(() => props.permissions ?? [])
 // Collapsed by default: the developer opens a thread themselves. Only a permission request opens it, since the agent is blocked on it.
 const open = ref(permissions.value.length > 0)
 watch(() => permissions.value.length > 0, value => { if (value) open.value = true })
 watch(() => props.item.closed, closed => { if (closed) open.value = false })
 const text = useDraft(() => props.draftKey ?? `code-review:${props.item.review_id}:item:${props.item.id}:text`, () => '')
+const { files, uploading, attachError, onPaste, picked, attachedText } = useReviewAttachments(() => `${props.draftKey ?? `code-review:${props.item.review_id}:item:${props.item.id}:text`}:files`)
+const fileInput = ref<InstanceType<typeof AppInput>>()
+const hasReply = computed(() => !!text.value.trim() || files.value.length > 0)
+function pasteFiles(event: ClipboardEvent) { if (!actionBusy.value) onPaste(event) }
+const areaComponent = ref<InstanceType<typeof AppTextarea>>()
+const area = computed(() => areaComponent.value?.element)
+const active = ref(0)
+const token = ref<{ start: number; end: number; query: string } | null>(null)
+const { suggestions, loading, search, clear } = useMentionFiles(() => props.projectId ?? null, () => props.workspaceId)
+function dismissMentions() { token.value = null; clear() }
+watch(suggestions, () => { active.value = 0 })
+function updateToken() {
+  if (!area.value || actionBusy.value || area.value.selectionStart !== area.value.selectionEnd) { dismissMentions(); return }
+  const caret = area.value.selectionStart
+  const match = /(?:^|\s)@([^\s@]*)$/.exec(text.value.slice(0, caret))
+  const previous = token.value
+  token.value = match ? { start: caret - match[1].length - 1, end: caret, query: match[1] } : null
+  if (!token.value) clear()
+  else if (!previous || previous.query !== token.value.query) search(token.value.query)
+}
+function mentionKeyUp(event: KeyboardEvent) { if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) updateToken() }
+function insertMention(item: SuggestItem, commit = false) {
+  const t = token.value
+  if (!t || actionBusy.value) return
+  const drill = item.dir && !commit
+  const value = '@' + item.value + (drill ? '' : ' ')
+  text.value = text.value.slice(0, t.start) + value + text.value.slice(t.end)
+  dismissMentions()
+  const caret = t.start + value.length
+  void nextTick(() => { area.value?.focus(); area.value?.setSelectionRange(caret, caret); if (drill) updateToken() })
+}
+function replyKey(event: KeyboardEvent) {
+  if (event.isComposing || actionBusy.value) return
+  if (event.key === 'Escape' && token.value) { event.preventDefault(); event.stopPropagation(); dismissMentions(); return }
+  if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); submitText(); return }
+  if (!token.value || !suggestions.value.length) return
+  if (event.key === 'ArrowDown') { event.preventDefault(); active.value = (active.value + 1) % suggestions.value.length }
+  else if (event.key === 'ArrowUp') { event.preventDefault(); active.value = (active.value - 1 + suggestions.value.length) % suggestions.value.length }
+  else if ((event.key === 'Tab' || event.key === 'Enter') && !event.shiftKey) { event.preventDefault(); insertMention(suggestions.value[active.value], event.key === 'Tab') }
+}
 
 const label = computed(() => (props.item.outdated ? 'Устарело' : props.decision === 'accepted' ? '✓ Принято' : props.decision === 'pending' ? 'Ждёт решения' : stateLabel(props.item, props.state, props.working)))
 /** Questions written with the «?» shortcut before it was dropped on save still carry the mark. */
@@ -149,15 +207,17 @@ const itemText = computed(() => (props.item.kind === 'question' ? props.item.tex
 const summary = computed(() => itemText.value.replace(/\s+/g, ' ').trim())
 /** What the developer wrote and has not sent yet. */
 const queuedReplies = computed(() => props.thread.filter(m => m.author === 'developer' && !m.sent))
+const canReply = computed(() => !props.readOnly && (props.state !== 'draft' || props.discussing) && (props.item.closed || !queuedReplies.value.length))
+watch(() => [props.item.id, props.draftKey, props.projectId, props.workspaceId, open.value, canReply.value], dismissMentions)
 const canReopen = computed(() => !props.readOnly && props.item.closed && ['done', 'answered'].includes(props.item.status))
 const canGoto = computed(() => !!props.showLocation && !!props.item.file && !props.item.outdated)
 /** What the bottom bar offers: the item's own actions, what to do with a written reply, or how to answer the agent. */
 const mode = computed<'draft' | 'queued' | 'typing' | 'idle' | 'none'>(() => {
   if (props.readOnly) return 'none'
-  if (props.item.closed) return text.value.trim() ? 'typing' : 'none'
+  if (props.item.closed) return hasReply.value ? 'typing' : 'none'
   if (props.state === 'draft') return props.discussing ? 'typing' : 'draft'
   if (queuedReplies.value.length) return 'queued'
-  if (text.value.trim()) return 'typing'
+  if (hasReply.value) return 'typing'
   return props.state === 'waiting' && !props.item.closed ? 'idle' : 'none'
 })
 /** Takes back the written reply: it leaves the queue and returns to the reply box, ready to be changed. */
@@ -206,22 +266,34 @@ function requestChange() {
   sendReply(written ? 'Исправь: ' + written : 'Выполни то, о чём мы договорились в обсуждении: внеси изменения в код.', 'implement')
 }
 function submitText() {
-  if (!text.value.trim() || actionBusy.value) return
+  if (!hasReply.value || actionBusy.value) return
   sendReply(text.value.trim())
 }
 function sendReply(message: string, kind: 'text' | 'implement' = 'text') {
   const written = text.value
+  const attached = [...files.value]
+  const owner = props.item.id
+  const key = props.draftKey
+  const target = files.value
+  const body = [message, attachedText()].filter(Boolean).join('\n\n')
   pending.value = true
-  emit('reply', message, success => {
+  emit('reply', body, success => {
     pending.value = false
     if (!success) return
-    if (text.value === written) text.value = ''
+    if (props.item.id === owner && props.draftKey === key && text.value === written) text.value = ''
+    for (const file of attached) {
+      const index = target.indexOf(file)
+      if (index >= 0) target.splice(index, 1)
+    }
     open.value = false
   }, kind)
 }
 </script>
 
 <style scoped>
+.it-reply-field { position: relative; }
+.it-attachments { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.it-attached-files { display: flex; flex-wrap: wrap; gap: 4px; flex-basis: 100%; }
 .it { container-type: inline-size; border: 1px solid var(--border-strong); border-left-width: 3px; border-radius: var(--radius-sm); background: var(--bg2); font-size: var(--fs-sm); }
 .it.embedded { background: var(--bg3); border-top-color: var(--blue); border-right-color: var(--blue); border-bottom-color: var(--blue); box-shadow: 0 2px 10px var(--overlay-soft); }
 .it.embedded .it-summary { font-weight: var(--fw-medium); }

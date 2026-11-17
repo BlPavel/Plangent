@@ -56,6 +56,140 @@ async function click(text) {
   await nextTick()
 }
 
+test('discussion mentions search the workspace, support files and folders, and survive a failed reply', async () => {
+  const Card = await component('client/src/features/code/components/ItemCard.vue')
+  const originalFetch = global.fetch, queries = [], replies = []
+  global.fetch = async url => {
+    queries.push(new URL(url, 'http://localhost'))
+    return new Response(JSON.stringify([
+      { path: 'src/', dir: true, uri: 'file:///work/src/' },
+      { path: 'src/file.ts', dir: false, uri: 'file:///work/src/file.ts' },
+    ]), { status: 200 })
+  }
+  const props = reactive({ projectId: 'p', workspaceId: 'w',
+    item: { id: 'mentions', review_id: 'review', status: 'answered', kind: 'fix', text: 'Fix', refs: [], closed: false },
+    thread: [], state: 'waiting',
+  })
+  let complete
+  const mount = async () => {
+    const app = createApp({ render: () => h(Card, { ...props, onReply: (text, done) => { replies.push(text); complete = done } }) })
+    app.mount('#app')
+    document.querySelector('[role="button"][aria-expanded]').dispatchEvent(new window.Event('click', { bubbles: true }))
+    await nextTick()
+    return app
+  }
+  const type = async value => {
+    const input = document.querySelector('textarea')
+    input.value = value; input.setSelectionRange(value.length, value.length)
+    input.dispatchEvent(new window.Event('input', { bubbles: true }))
+    await new Promise(resolve => setTimeout(resolve, 100)); await nextTick()
+  }
+  const key = async (value, ctrlKey = false) => {
+    const event = new window.Event('keydown', { bubbles: true, cancelable: true })
+    event.key = value; event.ctrlKey = ctrlKey
+    document.querySelector('textarea').dispatchEvent(event)
+    await nextTick(); await nextTick()
+  }
+  let app
+  try {
+    app = await mount()
+    await type('Check @fi')
+    assert.ok(document.querySelector('[role=listbox]'))
+    assert.equal(queries[0].pathname, '/api/projects/p/mentions')
+    assert.equal(queries[0].searchParams.get('workspace'), 'w')
+    await key('ArrowDown'); await key('Enter')
+    assert.equal(document.querySelector('textarea').value, 'Check @src/file.ts ')
+    assert.equal(replies.length, 0, 'Enter picks a mention without submitting')
+    await type('Check @src/file.ts and @s')
+    await key('Tab')
+    assert.equal(document.querySelector('textarea').value, 'Check @src/file.ts and @src/ ')
+    await key('Enter', true)
+    assert.deepEqual(replies, ['Check @src/file.ts and @src/'])
+    complete(false); await nextTick()
+    app.unmount(); app = await mount()
+    assert.equal(document.querySelector('textarea').value, 'Check @src/file.ts and @src/ ')
+    await type('Check @src/file.ts and @s')
+    await key('Enter')
+    await new Promise(resolve => setTimeout(resolve, 100)); await nextTick()
+    assert.equal(document.querySelector('textarea').value, 'Check @src/file.ts and @src/')
+    assert.equal(queries.at(-1).searchParams.get('q'), 'src/', 'Enter drills into a directory')
+    await key('Escape')
+    assert.equal(document.querySelector('[role=listbox]'), null)
+    await key('Enter', true)
+    complete(true); await nextTick()
+    assert.equal(document.querySelector('.it-body'), null)
+  } finally { app?.unmount(); global.fetch = originalFetch }
+})
+
+test('discussion accepts files and pasted screenshots, retains failed drafts and queues attachment-only replies', async () => {
+  const Card = await component('client/src/features/code/components/ItemCard.vue')
+  const originalFetch = global.fetch, originalReader = global.FileReader
+  global.FileReader = class { readAsDataURL(file) { this.result = `data:${file.type};base64,YQ==`; this.onload() } }
+  const uploads = [], replies = []
+  let finishUpload, complete
+  global.fetch = (url, options) => {
+    assert.equal(url, '/api/upload-temp')
+    uploads.push(JSON.parse(options.body))
+    return new Promise(resolve => { finishUpload = () => resolve(new Response(JSON.stringify({ path: `C:/temp/${uploads.at(-1).name}` }), { status: 200 })) })
+  }
+  const props = reactive({
+    item: { id: 'attachments', review_id: 'review', status: 'answered', kind: 'fix', text: 'Fix', refs: [], closed: false },
+    thread: [], state: 'waiting',
+  })
+  const mount = async () => {
+    const app = createApp({ render: () => h(Card, { ...props, onReply: (text, done) => { replies.push(text); complete = done }, onRemoveMessage: id => { props.thread = props.thread.filter(m => m.id !== id) } }) })
+    app.mount('#app')
+    document.querySelector('[role="button"][aria-expanded]').dispatchEvent(new window.Event('click', { bubbles: true }))
+    await nextTick()
+    return app
+  }
+  const settle = async () => { await new Promise(resolve => setImmediate(resolve)); await nextTick() }
+  const submit = async () => { document.querySelector('form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })); await nextTick() }
+  let app
+  try {
+    app = await mount()
+    const picker = document.querySelector('input[type=file]')
+    assert.ok(document.querySelector('[aria-label="Приложить файл"]'))
+    Object.defineProperty(picker, 'files', { configurable: true, value: [{ name: 'details.txt', type: 'text/plain' }] })
+    picker.dispatchEvent(new window.Event('change', { bubbles: true }))
+    await nextTick()
+    assert.equal(picker.value, '')
+    await submit()
+    assert.equal(replies.length, 0, 'cannot queue until the upload finishes')
+    await settle(); finishUpload(); await settle()
+    assert.equal(uploads[0].name, 'details.txt')
+    assert.ok(document.querySelector('[title="C:/temp/details.txt"]'))
+    document.querySelector('[aria-label="Убрать"]').dispatchEvent(new window.Event('click', { bubbles: true }))
+    await nextTick()
+    assert.equal(document.querySelector('[title="C:/temp/details.txt"]'), null)
+    const paste = new window.Event('paste', { bubbles: true, cancelable: true })
+    paste.clipboardData = { files: [{ name: 'screen.png', type: 'image/png' }] }
+    document.querySelector('textarea').dispatchEvent(paste)
+    assert.equal(paste.defaultPrevented, true)
+    await settle(); finishUpload(); await settle()
+    await submit()
+    assert.deepEqual(replies, ['📎 screen.png: C:/temp/screen.png'])
+    complete(false); await nextTick()
+    assert.ok(document.querySelector('[title="C:/temp/screen.png"]'))
+    app.unmount()
+    app = await mount()
+    assert.ok(document.querySelector('[title="C:/temp/screen.png"]'), 'attachments survive a remount after failure')
+    await submit()
+    props.thread = [{ id: 'queued', author: 'developer', text: replies.at(-1), kind: 'text', sent: false, files: [], options: [] }]
+    props.state = 'queued'
+    complete(true); await nextTick()
+    document.querySelector('[role="button"][aria-expanded]').dispatchEvent(new window.Event('click', { bubbles: true }))
+    await nextTick()
+    assert.equal(document.querySelector('input[type=file]'), null, 'no new attachment field while a reply is queued')
+    await click('Отменить')
+    props.state = 'waiting'; await nextTick()
+    assert.equal(document.querySelector('textarea').value, replies.at(-1), 'taking back a reply retains its attachment path')
+    assert.equal(document.querySelector('[title="C:/temp/screen.png"]'), null, 'successful queueing cleared the attachment draft')
+    props.readOnly = true; await nextTick()
+    assert.equal(document.querySelector('input[type=file]'), null, 'history cannot attach files')
+  } finally { app?.unmount(); global.fetch = originalFetch; global.FileReader = originalReader }
+})
+
 test('review card shows textual suggestions, closes all reply kinds and submits discussion in the developer own words', async () => {
   const Card = await component('client/src/features/code/components/ItemCard.vue')
   const events = []
