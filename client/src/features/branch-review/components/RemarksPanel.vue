@@ -20,6 +20,7 @@
       </template>
     </div>
     <QueueBar :screen-key="screenKey" :scope="scope" :review-id="reviewId" :head="head" />
+    <div class="rp-visibility"><AppClosedItemsToggle v-model="visibility.preference.showClosed" :hidden-count="visibility.hiddenCount.value" /></div>
     <p v-if="error" role="alert" class="rp-error">{{ error }}</p>
     <div class="rp-list">
       <form v-if="composing" class="rp-new" @submit.prevent="addGeneral" @keydown.esc.stop.prevent="composing = false">
@@ -54,14 +55,18 @@
           @goto="emit('goto-question', q)" @to-remark="emit('to-remark', q, $event)"
         />
       </template>
-      <details v-if="rejected.length || closedQuestions.length" class="rp-sent">
-        <summary>Отклонённые {{ rejected.length + closedQuestions.length }}</summary>
-        <RemarkCard v-for="r in rejected" :key="r.id" :remark="r" :screen-key="screenKey" :scope="scope" :review-id="reviewId" show-location @goto="emit('goto', $event)" />
+      <section v-if="shownRejected.length || shownClosedQuestions.length" class="rp-sent">
+        <div class="rp-group">Закрытые {{ shownRejected.length + shownClosedQuestions.length }}</div>
+        <AppClosedItemNotice v-for="r in shownRejected" :key="r.id" :notice="visibility.notice('remark:' + r.id, true)" @reveal="visibility.reveal('remark:' + r.id)">
+          <RemarkCard :remark="r" :screen-key="screenKey" :scope="scope" :review-id="reviewId" show-location @goto="emit('goto', $event)" />
+        </AppClosedItemNotice>
+        <AppClosedItemNotice v-for="q in shownClosedQuestions" :key="q.id" :notice="visibility.notice('question:' + q.id, true)" @reveal="visibility.reveal('question:' + q.id)">
         <BranchQuestionCard
-          v-for="q in closedQuestions" :key="q.id" :question="q" :messages="screen.messages.filter(m => m.question_id === q.id)" :screen-key="screenKey" :scope="scope" :review-id="reviewId" :agent-busy="agentBusy"
+          :question="q" :messages="screen.messages.filter(m => m.question_id === q.id)" :screen-key="screenKey" :scope="scope" :review-id="reviewId" :agent-busy="agentBusy"
           @goto="emit('goto-question', q)" @to-remark="emit('to-remark', q, $event)"
         />
-      </details>
+        </AppClosedItemNotice>
+      </section>
       <details v-if="sent.length" class="rp-sent">
         <summary>Отправленные {{ sent.length }}</summary>
         <RemarkCard v-for="r in sent" :key="r.id" :remark="r" :screen-key="screenKey" :scope="scope" :review-id="reviewId" show-location @goto="emit('goto', $event)" />
@@ -71,6 +76,9 @@
 </template>
 <script setup lang="ts">
 import AppTextarea from '@shared/ui/AppTextarea.vue'
+import AppClosedItemsToggle from '@shared/ui/AppClosedItemsToggle.vue'
+import AppClosedItemNotice from '@shared/ui/AppClosedItemNotice.vue'
+import { useRemarkVisibility } from '@core/composables/useRemarkVisibility'
 import { useDraft } from '@core/composables/useDraft'
 import { computed, ref } from 'vue'
 import { useAppStore } from '@core/stores/app'
@@ -102,6 +110,12 @@ const busy = ref(false), error = ref(''), composing = ref(false), text = useDraf
 const drafts = computed(() => screen.remarks.filter(r => r.status === 'draft' || r.status === 'uncertain'))
 const rejected = computed(() => screen.remarks.filter(r => r.status === 'rejected'))
 const sent = computed(() => screen.remarks.filter(r => r.status === 'sent'))
+const visibility = useRemarkVisibility(() => `${props.scope}:${props.reviewId}`, () => [
+  ...screen.remarks.map(r => ({ id: 'remark:' + r.id, closed: r.status === 'rejected' })),
+  ...screen.questions.filter(q => !props.embedded(q)).map(q => ({ id: 'question:' + q.id, closed: q.closed })),
+])
+const shownRejected = computed(() => rejected.value.filter(r => visibility.visible('remark:' + r.id, true)))
+const shownClosedQuestions = computed(() => closedQuestions.value.filter(q => visibility.visible('question:' + q.id, true)))
 const groups = computed(() => {
   const general = drafts.value.filter(r => !r.path)
   const files = [...new Set(drafts.value.filter(r => r.path).map(r => r.path))].sort()
@@ -160,6 +174,7 @@ async function markSent() {
 </script>
 <style scoped>
 .rp { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.rp-visibility { flex-shrink: 0; padding: var(--sp-2) var(--sp-3); }
 .rp-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 10px; flex-shrink: 0; }
 .rp-agent { display: flex; align-items: center; gap: 8px; padding: 8px 10px; flex-shrink: 0; border-bottom: 1px solid var(--border); }
 .rp-name { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

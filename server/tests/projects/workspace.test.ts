@@ -4,12 +4,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-test('groups, sources and sharing: keys, catalog, library targets and moving tasks', async () => {
+test('groups, sources and sharing: keys, explicit references, library targets and moving tasks', async () => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'plangent-workspace-test-'));
   process.env.PLANGENT_DATA_DIR = path.join(temp, 'data');
   const { getDb } = await import('../../infrastructure/db/schema');
   const projects = await import('../../core-services').then(() => import('../../core/projects/index'));
-  const { referenceCatalog, workspaceBriefing, mentionedReferences, writableRoots } = await import('../../core-services').then(() => import('../../core/projects/workspace'));
+  const { mentionedReferences, writableRoots } = await import('../../core-services').then(() => import('../../core/projects/workspace'));
   const library = await import('../../core-services').then(() => import('../../core/library'));
   const { resolvePlanTemplate, DEFAULT_PLAN_TEMPLATE } = await import('../../core-services').then(() => import('../../core/library/plan-template'));
   const { writeItemContent } = await import('../../core-services').then(() => import('../../core/library/library-manager'));
@@ -37,32 +37,17 @@ test('groups, sources and sharing: keys, catalog, library targets and moving tas
     const uiKit = projects.createProject({ kind: 'source', name: 'UI kit', key: 'ui-kit', repo_path: dir('ui-kit'), description: 'Компоненты' });
     const docs = projects.createProject({ kind: 'source', name: 'Docs', key: 'docs', repo_path: dir('docs') });
     const solo = projects.createProject({ name: 'Solo', repo_path: dir('solo') });
-    // Only neighbouring work projects are automatic; all sources require an explicit mention.
-    assert.deepEqual(referenceCatalog(orders).map(r => r.key), ['profile']);
-    assert.deepEqual(referenceCatalog(solo).map(r => r.key), []);
     getDb().prepare('UPDATE projects SET config=? WHERE id=?').run(JSON.stringify({ available_everywhere: true }), docs.id);
     getDb().prepare('INSERT INTO source_targets (source_id,target_id) VALUES (?,?)').run(uiKit.id, group.id);
-    assert.deepEqual(referenceCatalog(solo), []);
-    assert.deepEqual(referenceCatalog(orders).map(r => r.key), ['profile']);
     assert.ok(!('available_everywhere' in projects.getProject(docs.id)!.config));
     assert.ok(!('targets' in projects.getProject(uiKit.id)!));
     assert.throws(() => projects.updateProject(docs.id, { config: JSON.parse('{"available_everywhere":true}') }), /только вручную/);
     assert.throws(() => projects.updateProject(docs.id, JSON.parse('{"targets":[]}')), /только вручную/);
     assert.throws(() => projects.createProject({ kind: 'source', name: 'Rejected', repo_path: dir('rejected'), ...JSON.parse('{"targets":[]}') }), /только вручную/);
-    const soloBriefing = workspaceBriefing(solo);
-    assert.ok(soloBriefing.startsWith(`[Plangent] Active project: "Solo" (@solo). Working directory: ${solo.repo_path}`));
-    assert.ok(!soloBriefing.includes('@docs'));
-    assert.match(soloBriefing, /"this application"/);
-    assert.match(soloBriefing, /only when the developer explicitly mentions/);
-    assert.ok(!soloBriefing.includes(docs.repo_path));
-    assert.ok(!workspaceBriefing(group).includes(uiKit.repo_path));
-    assert.ok(!workspaceBriefing(orders).includes(uiKit.repo_path));
     assert.equal(mentionedReferences(solo, 'What is this application?'), '');
     assert.ok(mentionedReferences(solo, 'Compare with @docs').includes(docs.repo_path));
     assert.ok(mentionedReferences(solo, 'Compare with @ui-kit/src').includes(uiKit.repo_path));
     assert.ok(!mentionedReferences(solo, 'Compare with @docs').includes(uiKit.repo_path));
-    assert.match(workspaceBriefing(group), /@profile[\s\S]*@zakazy/);
-    assert.doesNotMatch(workspaceBriefing(orders), /Компоненты[\s\S]*Компоненты/);
 
     // A plan template shared with the group applies to its projects, a direct one wins.
     const groupTemplate = library.createLibraryItem({ type: 'plan-template', slug: 'g-tpl', title: 'g', scope: 'project', targets: [group.id] });

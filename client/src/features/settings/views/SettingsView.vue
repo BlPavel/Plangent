@@ -146,11 +146,11 @@
         <template v-if="editAgent && (defaults.models.length || defaults.efforts.length)">
           <div v-if="defaults.models.length" class="select-field">
             <label>Модель</label>
-            <AppSelect v-model="agentForm.model" :options="[{ value: '', label: 'Как решит агент' }, ...defaults.models]" />
+            <AppSelect :popup-max-width="220" v-model="agentForm.model" :options="[{ value: '', label: 'Как решит агент' }, ...defaults.models]" />
           </div>
           <div v-if="defaults.efforts.length" class="select-field">
             <label>Глубина рассуждений</label>
-            <AppSelect v-model="agentForm.reasoning_effort" :options="[{ value: '', label: 'Как решит агент' }, ...defaults.efforts]" />
+            <AppSelect :popup-max-width="220" v-model="agentForm.reasoning_effort" :options="[{ value: '', label: 'Как решит агент' }, ...defaults.efforts]" />
           </div>
           <span class="hint">Для новых чатов и шагов задачи; при запуске можно выбрать другое.</span>
         </template>

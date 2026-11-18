@@ -187,6 +187,7 @@ async function closeAll() {
 const openFound = (path: string, line?: number) => open(path, line || !code.changes.some(change => change.path === path) ? 'file' : 'diff', line)
 async function selectList(tab: SideListTab) {
   state.value.list = tab
+  if (tab === 'files') { await nextTick(); if (code.selectedPath) tree.value?.reveal(code.selectedPath) }
   if (tab === 'search') { await nextTick(); search.value?.focus() }
 }
 

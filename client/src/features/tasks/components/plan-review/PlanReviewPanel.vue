@@ -66,26 +66,18 @@
           </AppButton>
         </div>
       </header>
+      <AppClosedItemsToggle v-model="visibility.preference.showClosed" :hidden-count="visibility.hiddenCount.value" />
       <p v-if="activityText" class="activity" role="status"><span class="phase-dot" />{{ activityText }}</p>
       <p v-else-if="reportChat" class="report-link" role="status">{{ L.recipientNom }} вносил изменения. Отчёт о том, что и как исправлено, он пишет в своём чате, там же можно задать вопрос или попросить поправить.
         <AppButton variant="link" size="md" type="button"  @click="$emit('openPlanner', reportChat)">Открыть {{ L.recipientChat }}</AppButton></p>
+      <AppClosedItemNotice v-for="remark in activeRemarks" :key="remark.id" :notice="visibility.notice(remark.id, isClosed(remark))" @reveal="visibility.reveal(remark.id)">
       <RemarkCard :task-id="taskId"
-        v-for="remark in activeRemarks" :key="remark.id" :ref="el => setCard(remark.id, el)"
+        :ref="el => setCard(remark.id, el)"
         :remark="remark" :target="target" :number="cardNumber(remark.id)" :readonly="readonly || locked" :busy="state.busy.value" :selected="focused === remark.id" :planner="plannerState(remark)" :reviewer-working="reviewerWorking"
         @highlight="$emit('highlight', $event)" @open-planner="remark.planner_session_id && $emit('openPlanner', remark.planner_session_id)" @edit="(text, suggestion) => state.run(() => api.edit(projectId, taskId, detail!.review.id, remark.id, text, suggestion))"
         @decision="(status, comment) => state.run(() => api.decision(projectId, taskId, detail!.review.id, remark.id, status, comment))"
       />
-      <details v-if="appliedRemarks.length" :key="`${projectId}:${taskId}:${target}:${detail.review.id}`" ref="appliedSection" class="applied-remarks">
-        <summary>Учтено ({{ appliedRemarks.length }})</summary>
-        <div class="applied-cards">
-          <RemarkCard :task-id="taskId"
-            v-for="remark in appliedRemarks" :key="remark.id" :ref="el => setCard(remark.id, el)"
-            :remark="remark" :target="target" :number="cardNumber(remark.id)" :readonly="readonly || locked" :busy="state.busy.value" :selected="focused === remark.id" :planner="plannerState(remark)" :reviewer-working="reviewerWorking"
-            @highlight="$emit('highlight', $event)" @open-planner="remark.planner_session_id && $emit('openPlanner', remark.planner_session_id)" @edit="(text, suggestion) => state.run(() => api.edit(projectId, taskId, detail!.review.id, remark.id, text, suggestion))"
-            @decision="(status, comment) => state.run(() => api.decision(projectId, taskId, detail!.review.id, remark.id, status, comment))"
-          />
-        </div>
-      </details>
+      </AppClosedItemNotice>
     </template>
     <p v-if="detail && !detail.remarks.length" class="muted">{{ phase === 'running' ? 'Замечаний пока нет: ревьюер ещё работает.' : 'Ревьюер не нашёл замечаний.' }}</p>
     <AppModal v-model="sendOpen" size="small" :title="'Отправить ' + L.recipient" confirm-label="Отправить" @confirm="send">
@@ -96,7 +88,10 @@
   </aside>
 </template>
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, shallowRef, toRef, watch, type ComponentPublicInstance } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, toRef, watch, type ComponentPublicInstance } from 'vue'
+import { useRemarkVisibility } from '@core/composables/useRemarkVisibility'
+import AppClosedItemsToggle from '@shared/ui/AppClosedItemsToggle.vue'
+import AppClosedItemNotice from '@shared/ui/AppClosedItemNotice.vue'
 import { useAgentsStore } from '@features/agents'
 import { useChatStore, ChatComposer } from '@features/agent-chat'
 import AppButton from '@shared/ui/AppButton.vue'
@@ -115,9 +110,9 @@ const target = toRef(props, 'target')
 const L = computed(() => reviewLabels[props.target])
 const state = usePlanReview(toRef(props, 'projectId'), toRef(props, 'taskId'), target)
 const detail = state.detail, agents = useAgentsStore(), chats = useChatStore()
-const activeRemarks = computed(() => detail.value?.remarks.filter(r => r.status !== 'applied') ?? [])
-const appliedRemarks = computed(() => detail.value?.remarks.filter(r => r.status === 'applied') ?? [])
-const appliedSection = shallowRef<HTMLDetailsElement>()
+const isClosed = (remark: Remark) => remark.status === 'applied' || remark.status === 'rejected'
+const visibility = useRemarkVisibility(() => `${props.projectId}:${props.taskId}:${props.target}:${detail.value?.review.id}`, () => (detail.value?.remarks ?? []).map(r => ({ id: r.id, closed: isClosed(r) })))
+const activeRemarks = computed(() => (detail.value?.remarks ?? []).filter(r => visibility.visible(r.id, isClosed(r))))
 watch(state.counts, counts => emit('counts', counts), { immediate: true })
 const wishField = ref<InstanceType<typeof ChatComposer>>(), skill = ref(''), skills = ref<Skill[]>([])
 const origins = { direct: 'проект', group: 'группа', global: 'везде' }
@@ -218,7 +213,7 @@ function setCard(id: string, el: Element | ComponentPublicInstance | null) {
 function cardNumber(id: string) { return (detail.value?.remarks.findIndex(r => r.id === id) ?? -1) + 1 }
 async function focusCard(id: string) {
   const remark = detail.value?.remarks.find(r => r.id === id)
-  if (remark?.status === 'applied' && appliedSection.value) appliedSection.value.open = true
+  visibility.reveal(id)
   focused.value = id
   await nextTick()
   cards.get(id)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
@@ -299,8 +294,6 @@ h3, p { margin: 0; } h3 { font-size: var(--fs-md); }
 .counts { color: var(--text-muted); font-size: var(--fs-sm); }
 .next { padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg2); }
 .spacer { flex: 1; }
-.applied-remarks > summary { cursor: pointer; color: var(--text-muted); font-size: var(--fs-sm); }
-.applied-cards { display: flex; flex-direction: column; gap: var(--sp-3); margin-top: var(--sp-3); }
 .error-box { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 12px; border: 1px solid var(--danger); border-radius: var(--radius-sm); background: var(--danger-soft); color: var(--danger-hover); }
 .activity { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: var(--radius-sm); font-weight: 600; background: var(--warning-soft); color: var(--warning-text); }
 .activity .phase-dot { animation: phase-pulse 1.2s ease-in-out infinite; }

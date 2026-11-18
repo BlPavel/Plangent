@@ -14,7 +14,7 @@ import { getAgent } from '../catalog';
 import { getProject } from '../../projects';
 import type { getTask } from '../../tasks';
 import type { listAnalysisSections } from '../../preparation';
-import { readOnlyRoots, workspaceBriefing, mentionedReferences, WORKSPACE_BRIEFING_VERSION } from '../../projects';
+import { readOnlyRoots, mentionedReferences } from '../../projects';
 import type { rootForSession, writableRootsForSession, assertTaskWorkspaceReady } from '../../workspaces';
 import { broadcast } from '../../shared';
 import { addEvent, getSession, history, toolCallPayload, updateSession, updateAgentTitle } from './sessions';
@@ -481,7 +481,6 @@ export async function sendPrompt(id: string, content: ACP.ContentBlock[], gitFor
   // agent lost the conversation) but never shown as something the developer wrote.
   // Reference sources enter any session only through an explicit developer @mention.
   const project = getProject(session.project_id);
-  const workspace = project ? workspaceBriefing(project, await moduleDependencies.workspaces.rootForSession(session)) : '';
   const task = session.task_id ? moduleDependencies.tasks.getTask(session.task_id) : null;
   const authoredSections = task ? moduleDependencies.preparation.listAnalysisSections(task.id).filter(section => section.author === 'developer') : [];
   const referenceRequest = [text, task?.title, task?.description,
@@ -489,15 +488,8 @@ export async function sendPrompt(id: string, content: ACP.ContentBlock[], gitFor
   const references = project ? mentionedReferences(project, referenceRequest) : '';
   const roleBriefing = session.role === 'code-fixer' ? buildCodeFixerBriefing(session.project_id)
     : session.role === 'librarian' ? moduleDependencies.preparation.buildLibrarianPrompt(project?.name ?? session.project_id) + (session.metadata.library_scope === 'global' ? '\nThis chat was opened from global settings. Read and propose GLOBAL library items only. The project is provided for code context; do not edit project or group instructions.' : '') : '';
-  const hasGitTools = ['chat', 'task-chat', 'errand'].includes(session.role) && project?.kind === 'project' && !session.metadata.branch_review && !session.metadata.mr_private;
-  const gitBriefing = hasGitTools
-    ? 'Do not run git commands that modify the repository. For Git actions requested by the developer, use the Plangent git_action tool. Do not add agent attribution to commit messages or pull requests.'
-    : 'Do not commit or run git commands that modify the repository. The user makes commits through Plangent. Do not add agent attribution to commit messages or pull requests.';
-  const commandBriefing = commandToolAvailable(session)
-    ? 'Run shell commands (installing dependencies, tests, builds, linters, type checks) with the Plangent run_command tool, not your own shell: your shell is refused. Use heavy: true for long commands. Plain file reads, listings and searches (cat, Get-Content, ls, rg) may use your own shell. Read and edit files with your normal file tools, subject to this session’s permissions; file operations do not need run_command.' : '';
-  const briefing = [gitBriefing, commandBriefing, workspace, roleBriefing || (typeof session.metadata.briefing === 'string' ? session.metadata.briefing : '')].filter(Boolean).join('\n\n');
-  const withBriefing = briefing && (!session.metadata.briefed || session.metadata.needsContext || hasGitTools && session.metadata.gitToolsBriefingVersion !== 1
-    || session.metadata.workspaceBriefingVersion !== WORKSPACE_BRIEFING_VERSION);
+  const briefing = roleBriefing || (typeof session.metadata.briefing === 'string' ? session.metadata.briefing : '');
+  const withBriefing = briefing && (!session.metadata.briefed || session.metadata.needsContext);
   const sectionBriefing = session.role === 'librarian' ? librarianSectionBriefing(session.metadata) : '';
   const completedWorkBriefing = (session.role === 'errand' && (session.metadata.work_done || session.metadata.auto_review_turn)
     || session.role === 'executor' && session.metadata.step_completed)
@@ -511,7 +503,7 @@ export async function sendPrompt(id: string, content: ACP.ContentBlock[], gitFor
     ...commandPrompt(session, content),
   ];
   if (session.metadata.needsContext || withBriefing) updateSession(id, { metadata: { ...getSession(id).metadata, needsContext: false,
-    ...(briefing ? { briefed: true, workspaceBriefingVersion: WORKSPACE_BRIEFING_VERSION, ...(hasGitTools ? { gitToolsBriefingVersion: 1 } : {}) } : {}) } });
+    ...(briefing ? { briefed: true } : {}) } });
   addEvent(id, 'user', { content, text, ...(withBriefing ? { briefing: true } : {}) });
   void state.connection.prompt({ sessionId: session.acp_session_id!, prompt }).then(result => {
     flush(id, state);

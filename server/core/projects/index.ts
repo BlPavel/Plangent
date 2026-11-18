@@ -335,7 +335,5 @@ export function listProjectsWithActiveTasks() {
 }
 
 export { readOnlyRoots } from './workspace';
-export { workspaceBriefing } from './workspace';
 export { mentionedReferences } from './workspace';
-export { WORKSPACE_BRIEFING_VERSION } from './workspace';
 export { writableRoots } from './workspace';

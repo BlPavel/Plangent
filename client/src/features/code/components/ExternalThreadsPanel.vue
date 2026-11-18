@@ -11,13 +11,18 @@
     <div v-else-if="store.data && !store.data.mr" class="ep-muted ep-pad">Для текущей ветки нет МР.</div>
     <div v-else-if="store.data && !store.data.threads.length" class="ep-muted ep-pad">В МР пока нет комментариев.</div>
     <div v-if="store.data?.threads.length" class="ep-list">
-      <ExternalThreadCard v-for="t in store.data.threads" :key="t.id" :thread="t" show-location :can-discuss="canDiscuss" @goto="emit('goto', t)" @discuss="emit('discuss', $event)" />
+      <AppClosedItemNotice v-for="t in shown" :key="t.id" :notice="visibility.notice(t.id, t.resolved)" @reveal="visibility.reveal(t.id)">
+        <ExternalThreadCard :thread="t" show-location :can-discuss="canDiscuss" @goto="emit('goto', t)" @discuss="emit('discuss', $event)" />
+      </AppClosedItemNotice>
     </div>
   </section>
 </template>
 
 <script setup lang="ts">
 import AppButton from '@shared/ui/AppButton.vue'
+import { computed } from 'vue'
+import { useRemarkVisibility } from '@core/composables/useRemarkVisibility'
+import AppClosedItemNotice from '@shared/ui/AppClosedItemNotice.vue'
 import { useExternalThreadsStore } from '../stores/external'
 import type { ExternalThread } from '../types'
 import ExternalThreadCard from './ExternalThreadCard.vue'
@@ -25,6 +30,8 @@ import ExternalThreadCard from './ExternalThreadCard.vue'
 defineProps<{ canDiscuss?: boolean }>()
 const emit = defineEmits<{ goto: [thread: ExternalThread]; discuss: [thread: ExternalThread] }>()
 const store = useExternalThreadsStore()
+const visibility = useRemarkVisibility(() => store.data?.mr?.url ?? '', () => (store.data?.threads ?? []).map(t => ({ id: t.id, closed: t.resolved })))
+const shown = computed(() => (store.data?.threads ?? []).filter(t => visibility.visible(t.id, t.resolved)))
 </script>
 
 <style scoped>

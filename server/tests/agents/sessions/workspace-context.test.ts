@@ -17,7 +17,6 @@ test('ACP supplies reference sources only on explicit mention, with no discovery
   const { createTask } = await import('../../../core-services').then(() => import('../../../core/tasks'));
   const { initQueues } = await import('../../../core-services').then(() => import('../../../core/execution/queue'));
   const { stopWatchAnalysis } = await import('../../../core-services').then(() => import('../../../core/tasks/task-files'));
-  const { WORKSPACE_BRIEFING_VERSION } = await import('../../../core-services').then(() => import('../../../core/projects/workspace'));
   const { mcpRouter, sessionMcpConfig, allowed } = await import('../../../core-services').then(() => import('../../../api/mcp/server'));
   const { killProcessTree } = await import('../../../infrastructure/terminal/process-tree');
   sessions.initSessions();
@@ -64,20 +63,14 @@ test('ACP supplies reference sources only on explicit mention, with no discovery
   }
   function checkWorkspace(result: Awaited<ReturnType<typeof ask>>) {
     assert.equal(result.cwd, circlePath);
-    const briefing = result.prompt[0].text;
-    assert.ok(briefing.includes(`Active project: "circle" (@circle). Working directory: ${circlePath}`));
-    assert.ok(!JSON.stringify(result.prompt).includes('mtsip'));
-    assert.ok(!JSON.stringify(result.prompt).includes('private-docs'));
-    assert.ok(!briefing.includes('get_references'));
-    assert.ok(briefing.includes('only when the developer explicitly mentions'));
-    assert.deepEqual(result.prompt.at(-1), { type: 'text', text: question });
+    assert.deepEqual(result.prompt, [{ type: 'text', text: question }]);
   }
   try {
     checkWorkspace(await ask());
-    assert.equal(sessions.getSession(chat.id).metadata.workspaceBriefingVersion, WORKSPACE_BRIEFING_VERSION);
+    assert.equal(sessions.history(chat.id).find(e => e.type === 'user')!.payload.briefing, undefined);
     assert.equal(sessions.history(chat.id).find(e => e.type === 'user')!.payload.text, question);
 
-    // Once received, the briefing is not repeated on every turn.
+    // Neither the first nor subsequent turns add an automatic preamble.
     assert.deepEqual((await ask()).prompt, [{ type: 'text', text: question }]);
 
     const fileMention = await ask('Посмотри @private-docs/README.md');
@@ -96,7 +89,7 @@ test('ACP supplies reference sources only on explicit mention, with no discovery
     activeSessions.push(executor.id);
     const execution = await ask('Начинай', executor.id);
     assert.equal(execution.cwd, taskRoot);
-    assert.ok(execution.prompt[0].text.includes('Working directory: ' + taskRoot));
+    assert.ok(!JSON.stringify(execution.prompt).includes('Working directory:'));
     assert.ok(execution.prompt.some(block => block.text.includes(mtsipPath)));
     assert.ok(!JSON.stringify(execution.prompt).includes(hiddenPath));
 
@@ -104,11 +97,10 @@ test('ACP supplies reference sources only on explicit mention, with no discovery
     activeSessions.push(analyst.id);
     checkWorkspace(await ask(question, analyst.id));
 
-    // Existing conversations retain briefed=true from the old implementation.
-    sessions.updateSession(chat.id, { metadata: { ...sessions.getSession(chat.id).metadata, workspaceBriefingVersion: 1 } });
+    // Legacy briefing metadata must not bring back the automatic preamble.
+    sessions.updateSession(chat.id, { metadata: { ...sessions.getSession(chat.id).metadata, briefed: true, workspaceBriefingVersion: 1, gitToolsBriefingVersion: 1 } });
     await host.closeSession(chat.id);
     checkWorkspace(await ask());
-    assert.equal(sessions.getSession(chat.id).metadata.workspaceBriefingVersion, WORKSPACE_BRIEFING_VERSION);
 
     // The agent cannot discover a source catalog on its own.
     const listed = (await call('tools/list')).result!.tools;

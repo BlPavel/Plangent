@@ -41,6 +41,12 @@ but writing Git operations go through Plangent's checked tools and
 [Git workflows](git.md), never shell commands. Chat Git actions require the
 turn's Git permission and an ordinary project.
 
+Ordinary chats receive no automatic project or shell/Git instruction preamble.
+The adapter receives the working directory and file permissions separately;
+MCP tool descriptions explain command and Git usage. External references enter
+the prompt only through explicit `@key` mentions. Role and task briefings still
+accompany the first message and are resent when conversation context is restored.
+
 Agents run shell commands through the Plangent MCP tool `run_command`
 (`sessions/shell-commands.ts`), not their own shell. Once a session has the
 tool, `permissionDecision` refuses the agent's native `execute` calls with a pointer

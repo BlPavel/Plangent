@@ -39,3 +39,21 @@ Run `npm run lint` (restricted HTML elements/classes) and
 `npm run test:ui-consistency` (CSS and override checks). Behavioral tests use
 roles, accessible labels and stable data attributes rather than primitive classes;
 `npm run test:ui-primitives` verifies the primitives themselves.
+
+Closed review cards share the persisted `core/stores/remark-visibility` preference
+across code, branch reviews, MR discussions and task document reviews. Use
+`useRemarkVisibility` with an owner key and explicit closed flags; an agent reply,
+acceptance for implementation or publication is not closure. Code items use
+`closed`, external discussions use `resolved`, branch remarks use `rejected`,
+and task document remarks use `applied` or `rejected`.
+
+Use `AppClosedItemsToggle` (built on AppCheckbox) for the setting and hidden count.
+Render it once in the remarks panel, alongside its filters. Do not duplicate it
+in file/diff toolbars or the embedded MR section of the same panel.
+Apply visibility to both cards and code widget/marker lines. Explicit closed-only
+filters override the preference for their list. `AppClosedItemNotice` leaves a
+short notice after a live closure; its Show action and direct navigation reveal
+only that card until the owner changes. Never save these temporary exceptions.
+Outdated anchors and review selection keep their existing meaning; this setting
+does not attach historical remarks to a different line or review. Verify with
+`node --test client/tests/remark-visibility.test.cjs` and the review UI suites.

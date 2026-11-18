@@ -95,6 +95,97 @@ test('send to chat picks the last typed visible field in the same workspace and 
   store.unregister(revealed); removeReveal()
   assert.equal(await store.insertMention(mention), false)
 })
+test('main file tabs remember modes and neighbours independently of the side panel and other folders', () => {
+  setActivePinia(createPinia())
+  const tabs = moduleAt('client/src/features/code/stores/side-panel.ts').useSidePanelStore()
+  const main = tabs.mainPlace('p', null), work = tabs.mainPlace('p', 'w')
+  assert.equal(require('vue').isReactive(main), true, 'the first visit must return reactive tab state')
+  const side = tabs.place('p', null), other = tabs.mainPlace('other', null)
+  tabs.open(main, 'a.ts', 'file'); tabs.open(main, 'b.ts', 'diff')
+  tabs.open(main, 'a.ts', 'diff'); tabs.open(main, 'c.ts', 'file')
+  assert.deepEqual(plain(main.files), [
+    { path: 'a.ts', mode: 'diff' }, { path: 'c.ts', mode: 'file' }, { path: 'b.ts', mode: 'diff' },
+  ])
+  tabs.open(side, 'side.ts', 'file'); tabs.open(work, 'work.ts', 'diff')
+  tabs.close(main, 'a.ts')
+  assert.equal(main.active, 'c.ts', 'closing an inactive tab preserves the active file')
+  tabs.close(main, 'c.ts'); assert.equal(main.active, 'b.ts')
+  assert.deepEqual(plain(tabs.mainPlace('p', null)), plain(main))
+  tabs.closeAll(main)
+  assert.equal(side.active, 'side.ts'); assert.equal(work.active, 'work.ts')
+  tabs.forgetWorkspace('w'); assert.equal(tabs.mainPlace('p', 'w').files.length, 0)
+  tabs.forgetProject('p')
+  assert.deepEqual(plain(Object.values(tabs.mainPlaces)), [plain(other)])
+  assert.equal(tabs.place('p', null).files.length, 0)
+})
+
+function mainTabsHarness(h) {
+  const { computed, ref, effectScope } = require('vue')
+  const fileTabs = moduleAt('client/src/features/code/stores/side-panel.ts').useSidePanelStore()
+  const props = { projectId: 'p', workspaceId: null }
+  const fileState = computed(() => fileTabs.mainPlace(props.projectId, props.workspaceId))
+  const file = 'client/src/features/code/views/CodeTab.vue'
+  const source = fs.readFileSync(file, 'utf8')
+  const navigation = source.slice(source.indexOf('/** Opens a file;'), source.indexOf('const openChange ='))
+  const begin = source.slice(source.indexOf('async function begin('), source.indexOf('onMounted(() =>'))
+  const scope = effectScope(), scrolls = []
+  const api = scope.run(() => moduleAt(file, {}, {
+    fileTabs, fileState, props, store: h.store, loaded: ref(false), takeCodeOpen: () => null,
+    viewer: ref({ scrollToLine: async (...args) => scrolls.push(args) }),
+  }, "import { nextTick, watch } from 'vue'; let opening = 0; let ready = false;\n" + navigation + begin +
+    '\nexports.api = { open, activate, closeFile, closeAllFiles, begin };').api)
+  return { ...api, fileTabs, fileState, props, scrolls, stop: () => { scope.stop(); h.store.stop() } }
+}
+
+test('main screen restores tabs, opens search lines, closes missing files and keeps closed tabs closed on revisit', async () => {
+  const { nextTick } = require('vue')
+  const h = harness(), tabs = mainTabsHarness(h)
+  try {
+    h.codeApi.changes = async () => [{ path: 'a.ts', status: 'M' }]
+    await tabs.begin('p')
+    assert.equal(tabs.fileState.value.active, 'a.ts')
+    await tabs.open('b.ts', 'file', 12)
+    await tabs.activate('a.ts')
+    assert.equal(tabs.fileState.value.files[0].mode, 'diff')
+    assert.deepEqual(tabs.scrolls, [[12, 'new']])
+    await tabs.begin('p')
+    assert.deepEqual(plain(tabs.fileState.value.files.map(f => f.path)), ['a.ts', 'b.ts'])
+    await tabs.closeFile('b.ts')
+    assert.equal(h.store.selectedPath, 'a.ts')
+    await tabs.open('missing.ts', 'file')
+    h.codeApi.file = async (_p, path) => {
+      if (path === 'missing.ts') throw new Error('File not found')
+      return { path, kind: 'text', content: '' }
+    }
+    await h.store.refresh(); await nextTick(); await nextTick()
+    assert.equal(tabs.fileState.value.active, 'a.ts')
+    assert.equal(h.store.selectedPath, 'a.ts')
+    await tabs.closeAllFiles()
+    assert.equal(h.store.selectedPath, null)
+    await tabs.begin('p')
+    assert.equal(tabs.fileState.value.files.length, 0, 'revisiting must not reopen the first change')
+    assert.equal(h.store.selectedPath, null)
+  } finally { tabs.stop() }
+})
+
+test('closing a loading main tab prevents a late response from reopening it', async () => {
+  const h = harness(), tabs = mainTabsHarness(h)
+  try {
+    await tabs.begin('p')
+    await tabs.open('a.ts', 'file')
+    let release
+    h.codeApi.file = async (_p, path) => path === 'slow.ts'
+      ? new Promise(resolve => { release = () => resolve({ path, kind: 'text', content: '' }) })
+      : { path, kind: 'text', content: '' }
+    const pending = tabs.open('slow.ts', 'file', 42)
+    await tabs.closeFile('slow.ts')
+    release(); await pending
+    assert.equal(tabs.fileState.value.active, 'a.ts')
+    assert.equal(h.store.selectedPath, 'a.ts')
+    assert.deepEqual(tabs.scrolls, [])
+  } finally { tabs.stop() }
+})
+
 function harness() {
   setActivePinia(createPinia())
   const handlers = new Set()

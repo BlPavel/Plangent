@@ -4,6 +4,8 @@ export { default as AppCard } from './AppCard.vue';
 export { default as AppPageHeader } from './AppPageHeader.vue';
 export { default as AppItemCard } from './AppItemCard.vue';
 export { default as AppCheckbox } from './AppCheckbox.vue';
+export { default as AppClosedItemsToggle } from './AppClosedItemsToggle.vue';
+export { default as AppClosedItemNotice } from './AppClosedItemNotice.vue';
 export { default as AppChip } from './AppChip.vue';
 export { default as AppChoiceList } from './AppChoiceList.vue';
 export { default as AppCombobox } from './AppCombobox.vue';

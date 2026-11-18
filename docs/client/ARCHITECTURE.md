@@ -53,6 +53,15 @@ owners call `provideCodeStores`; reusable `BaseSwitcher`, `SearchPanel` and
 `FileViewer` obtain the owner's stores from `stores/context`, falling back to
 the main instance. Each instance owns its subscriptions, requests and lifecycle.
 
+The main code screen and side panel reuse `CodeFileTabs` and the tab operations
+in `stores/side-panel`. The store keeps their open files separately (`mainPlaces`
+and `places`), keyed by project and workspace, for the lifetime of the application.
+Each tab remembers its file/diff mode. Closing all main tabs keeps the screen
+empty when revisiting that place; deleting a project or workspace clears both lists.
+`CodeFileTabs` handles overflow in both locations: paging arrows, mouse-wheel
+scrolling, automatic active-tab reveal, and an open-file menu with full paths.
+The menu also holds the close-all action to keep it away from scrolling controls.
+
 Rules and verification:
 
 - [UI components](ui-components.md): shared primitives and layout boundaries.

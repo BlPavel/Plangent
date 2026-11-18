@@ -378,6 +378,87 @@ test('named git stores keep their branches and lifecycle separate', async () => 
 })
 
 
+test('overflowing file tabs support wheel, paging, active reveal and a full-path file menu', async () => {
+  let observer
+  class ResizeObserverMock {
+    constructor(callback) { this.callback = callback; observer = this }
+    observe() {}
+    disconnect() { this.disconnected = true }
+  }
+  const comp = require('./client-test-loader.cjs').loader({
+    '../composables/useMentionDrag': { useMentionDrag: () => () => {} },
+    '@shared/code-viewer': { fileIconName: () => '', iconSvg: () => '' },
+    '@shared/composables/usePopover': { usePopover: () => ({ style: require('vue').ref({}) }) },
+  }, { ResizeObserver: ResizeObserverMock })('client/src/features/code/components/CodeFileTabs.vue').default
+  const state = reactive({
+    files: Array.from({ length: 12 }, (_, i) => ({ path: `folder-${i}/index.ts` })),
+    active: 'folder-0/index.ts',
+  })
+  let closed = false
+  const screen = mount({ setup: () => () => h(comp, {
+    ...state, statuses: {}, onSelect: path => { state.active = path }, 'onClose-all': () => { closed = true },
+  }) })
+  try {
+    const viewport = screen.root.querySelector('[data-file-tabs-viewport]')
+    let width = 300
+    Object.defineProperties(viewport, {
+      clientWidth: { get: () => width }, scrollWidth: { get: () => state.files.length * 150 },
+    })
+    viewport.scrollLeft = 0
+    viewport.getBoundingClientRect = () => ({ left: 0, right: width, width })
+    for (const [index, tab] of [...viewport.querySelectorAll('[role="tab"]')].entries()) {
+      tab.getBoundingClientRect = () => ({ left: index * 150 - viewport.scrollLeft, right: (index + 1) * 150 - viewport.scrollLeft, width: 150 })
+    }
+    viewport.scrollBy = options => {
+      viewport.scrollLeft += options.left
+      viewport.dispatchEvent(new window.Event('scroll'))
+    }
+    observer.callback(); await nextTick(); await nextTick()
+    const nav = label => screen.root.querySelector(`[aria-label="Прокрутить вкладки ${label}"]`)
+    assert.equal(nav('влево').disabled, true)
+    assert.equal(nav('вправо').disabled, false)
+    nav('вправо').click(); await nextTick()
+    assert.equal(viewport.scrollLeft, 240)
+    assert.equal(nav('влево').disabled, false)
+    const wheel = (deltaY, ctrlKey = false, deltaX = 0) => {
+      const event = new window.Event('wheel', { cancelable: true })
+      Object.assign(event, { deltaY, deltaX, deltaMode: 0, ctrlKey })
+      viewport.dispatchEvent(event)
+      return event
+    }
+    assert.equal(wheel(100).defaultPrevented, true)
+    assert.equal(viewport.scrollLeft, 340)
+    assert.equal(wheel(100, true).defaultPrevented, false)
+    assert.equal(wheel(0, false, 100).defaultPrevented, false)
+    assert.equal(viewport.scrollLeft, 340)
+
+    state.active = 'folder-11/index.ts'
+    await settle()
+    assert.equal(viewport.scrollLeft, 1500, 'selection reveals the last tab without scrolling the page')
+    assert.equal(nav('вправо').disabled, true)
+    width = 180
+    observer.callback(); await nextTick()
+    assert.equal(viewport.scrollLeft, 1620, 'resizing keeps the selected tab visible')
+
+    screen.root.querySelector('[aria-label="Открытые файлы (12)"]').click(); await nextTick()
+    const menu = document.querySelector('[role="menu"]')
+    const choices = [...menu.querySelectorAll('[role="menuitem"]')]
+    assert.match(choices[11].textContent, /✓ index.ts/)
+    assert.match(choices[0].textContent, /folder-0\/index.ts/)
+    assert.match(choices[11].textContent, /folder-11\/index.ts/)
+    choices[0].click(); await settle()
+    assert.equal(state.active, 'folder-0/index.ts')
+    assert.equal(viewport.scrollLeft, 0)
+    screen.root.querySelector('[aria-label="Открытые файлы (12)"]').click(); await nextTick()
+    button(document.querySelector('[role="menu"]'), 'Закрыть все файлы').click()
+    assert.equal(closed, true)
+    width = 2000
+    observer.callback(); await nextTick()
+    assert.equal(nav('вправо'), null, 'paging controls disappear when files fit')
+  } finally { screen.close() }
+  assert.equal(observer.disconnected, true)
+})
+
 test('tree paths, file tabs and search hits produce references with their owning workspace', async () => {
   const load = require('./client-test-loader.cjs').loader
   const mentions = load()('client/src/features/agent-chat/utils/mention-drag.ts')

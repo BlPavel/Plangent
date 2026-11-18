@@ -70,7 +70,10 @@
       <div class="ct-resizer" :class="{ off: leftCollapsed }" role="separator" aria-orientation="vertical" aria-label="Ширина левой панели" title="Потяните, чтобы изменить ширину; двойной клик — сбросить" tabindex="0" @pointerdown="startResize($event, 'left')" @dblclick="leftWidth = 300" @keydown="resizeKey($event, 'left')" />
 
       <main class="ct-center">
+        <CodeFileTabs v-if="fileState.files.length" :files="fileState.files" :active="fileState.active" :statuses="fileStatuses"
+          @select="activate" @close="closeFile" @close-all="closeAllFiles" />
         <FileViewer
+          class="ct-viewer"
           ref="viewer" v-model:mode="mode" :project-id="projectId"
           :markers="markers.new" :old-markers="markers.old" :widget-lines="widgets.new" :old-widget-lines="widgets.old"
           @select="onSelect" @marker-click="onMarker"
@@ -82,14 +85,20 @@
           </template>
           <template #notes="{ path }">
             <div v-if="fileNotes.length || composing?.scope === 'file'" class="ct-notes">
-              <ItemView v-for="item in fileNotes" :key="item.id" :item="item" :read-only="reviewReadOnly" @open-ref="openRef" @show-change="showChange" />
+              <AppClosedItemNotice v-for="item in fileNotes" :key="item.id" :notice="visibility.notice(item.id, item.closed)" @reveal="visibility.reveal(item.id)">
+                <ItemView :item="item" :read-only="reviewReadOnly" @open-ref="openRef" @show-change="showChange" />
+              </AppClosedItemNotice>
               <ItemComposer v-if="composing?.scope === 'file'" :where="path" :busy="draftBusy" :error="draftError" @save="saveDraft" @cancel="cancelCompose" />
             </div>
           </template>
           <template #widget="{ line, side }">
             <div class="ct-widget">
-              <ExternalThreadCard v-for="t in externalAt(line, side)" :key="t.id" :thread="t" :can-discuss="canDiscuss" @discuss="discussExternal" />
-              <ItemView v-for="item in itemsAt(line, side)" :key="item.id" :item="item" embedded :read-only="reviewReadOnly" @open-ref="openRef" @show-change="showChange" />
+              <AppClosedItemNotice v-for="t in externalAt(line, side)" :key="'external:' + t.id" :notice="visibility.notice('external:' + t.id, t.resolved)" @reveal="visibility.reveal('external:' + t.id)">
+                <ExternalThreadCard :thread="t" :can-discuss="canDiscuss" @discuss="discussExternal" />
+              </AppClosedItemNotice>
+              <AppClosedItemNotice v-for="item in itemsAt(line, side)" :key="item.id" :notice="visibility.notice(item.id, item.closed)" @reveal="visibility.reveal(item.id)">
+                <ItemView :item="item" embedded :read-only="reviewReadOnly" @open-ref="openRef" @show-change="showChange" />
+              </AppClosedItemNotice>
               <ItemComposer
                 v-if="composing?.scope === 'line' && composing.side === side && composing.end === line" :where="composeWhere"
                 :busy="draftBusy" :error="draftError" @save="saveDraft" @cancel="cancelCompose"
@@ -130,13 +139,10 @@
   </div>
 </template>
 
-<script lang="ts">
-// Module-level so the open file survives switching project tabs (the screen unmounts and stops watching).
-const lastOpened = new Map<string, string>()
-</script>
-
 <script setup lang="ts">
 import { useMentionDrag } from '../composables/useMentionDrag'
+import { useRemarkVisibility } from '@core/composables/useRemarkVisibility'
+import AppClosedItemNotice from '@shared/ui/AppClosedItemNotice.vue'
 import { takeCodeOpen } from '../navigation'
 import { useCodeScreen } from '@core/composables/useCodeScreen'
 import AppButton from '@shared/ui/AppButton.vue'
@@ -162,6 +168,8 @@ import CommitBox from '../components/CommitBox.vue'
 import BaseSwitcher from '../components/BaseSwitcher.vue'
 import ChangesList from '../components/ChangesList.vue'
 import FileViewer from '../components/FileViewer.vue'
+import CodeFileTabs from '../components/CodeFileTabs.vue'
+import { useSidePanelStore } from '../stores/side-panel'
 import HistoryMenu from '../components/HistoryMenu.vue'
 import ItemComposer from '../components/ItemComposer.vue'
 import ItemView from '../components/ItemView.vue'
@@ -199,7 +207,7 @@ const emit = defineEmits<{ back: []; 'close-work': [] }>()
 
 const git = useGitStore()
 const external = useExternalThreadsStore()
-watch(() => props.projectId, id => external.reset(id, props.workspaceId ?? undefined), { immediate: true })
+watch(() => [props.projectId, props.workspaceId] as const, ([id]) => external.reset(id, props.workspaceId ?? undefined), { immediate: true })
 const pathsOf = (list: GitChange[]) => list.flatMap(c => [c.path, ...(c.originalPath ? [c.originalPath] : [])])
 async function stageMany(list: GitChange[], stage: boolean) { try { await git.run(stage ? 'stage' : 'unstage', { paths: pathsOf(list) }); await store.refresh() } catch { /* git error displayed in the branch bar */ } }
 const toggleStage = (change: GitChange) => stageMany([change], change.status === 'U' || ['.', ' ', '?'].includes(change.indexStatus))
@@ -211,7 +219,7 @@ async function discardChange(list: GitChange[]) {
 }
 /** Ticks «к коммиту» only make sense for the folder against HEAD. */
 const stageable = computed(() => !!store.repository && store.effectiveBase === 'head' && !store.openedReviewId)
-watch(() => props.projectId, id => { void git.start(id, props.workspaceId ?? undefined) }, { immediate: true })
+watch(() => [props.projectId, props.workspaceId] as const, ([id]) => { void git.start(id, props.workspaceId ?? undefined) }, { immediate: true })
 const store = useCodeStore()
 provideCodeStores(store, git)
 const dragMention = useMentionDrag(store)
@@ -226,7 +234,16 @@ const agent = useReviewAgentStore()
 watch(() => [props.work, props.task?.id, props.task?.kind, props.workspaceId], () => {
   agent.work = props.work && props.task ? { projectId: props.projectId, taskId: props.task.id, workspaceId: props.workspaceId ?? undefined, kind: props.task.kind } : null
 }, { immediate: true })
-const mode = ref<'diff' | 'file'>('diff')
+const fileTabs = useSidePanelStore()
+const fileState = computed(() => fileTabs.mainPlace(props.projectId, props.workspaceId ?? null))
+const activeFile = computed(() => fileState.value.files.find(file => file.path === fileState.value.active))
+const mode = computed({
+  get: () => activeFile.value?.mode ?? 'diff',
+  set: (value: 'diff' | 'file') => { if (activeFile.value) activeFile.value.mode = value },
+})
+const fileStatuses = computed(() => Object.fromEntries(store.shownChanges.map(change => [change.path, change.status])))
+let ready = false
+let opening = 0
 const quickOpen = ref(false)
 const loaded = ref(false)
 
@@ -305,14 +322,20 @@ const draftWord = computed(() => (drafts.value % 10 === 1 && drafts.value % 100 
 
 const fileCounts = computed(() => {
   const counts: Record<string, number> = {}
-  for (const item of store.items) if (item.file) counts[item.file] = (counts[item.file] ?? 0) + 1
+  for (const item of store.items) if (item.file && visibility.visible(item.id, item.closed)) counts[item.file] = (counts[item.file] ?? 0) + 1
   return counts
 })
-const currentItems = computed(() => store.items.filter(item => item.file === store.selectedPath && !item.outdated && (item.side !== 'old' || (item.comparison_base ? item.comparison_base === store.diffEnds?.base : store.effectiveBase !== 'remote'))))
+const locatedItems = computed(() => store.items.filter(item => item.file === store.selectedPath && !item.outdated && (item.side !== 'old' || (item.comparison_base ? item.comparison_base === store.diffEnds?.base : store.effectiveBase !== 'remote'))))
+const locatedExternal = computed(() => (external.data?.threads ?? []).filter(t => t.path === store.selectedPath))
+const visibility = useRemarkVisibility(() => `${store.projectId}:${store.workspaceId}:${store.review?.id}:${store.selectedPath}`, () => [
+  ...locatedItems.value.map(item => ({ id: item.id, closed: item.closed })),
+  ...locatedExternal.value.map(t => ({ id: 'external:' + t.id, closed: t.resolved })),
+])
+const currentItems = computed(() => locatedItems.value.filter(item => visibility.visible(item.id, item.closed)))
 const fileNotes = computed(() => currentItems.value.filter(item => item.scope === 'file'))
 const endLine = (item: CodeReviewItem) => item.line_end ?? item.line_start ?? 0
 // Colleagues' threads of the branch's MR, shown on their lines beside the review items.
-const externalHere = computed(() => (external.data?.threads ?? []).filter(t => t.path === store.selectedPath))
+const externalHere = computed(() => locatedExternal.value.filter(t => visibility.visible('external:' + t.id, t.resolved)))
 const externalAt = (line: number, side: CodeSide) => externalHere.value.filter(t => t.line === line && t.side === side)
 const markers = computed(() => {
   const result: Record<CodeSide, LineMarker[]> = { new: [], old: [] }
@@ -395,20 +418,45 @@ watch(() => store.selectedPath, () => { composing.value = null })
 async function selectLeft(tab: LeftTab) {
   leftCollapsed.value = false
   leftTab.value = tab
+  if (tab === 'files') { await nextTick(); if (store.selectedPath) tree.value?.reveal(store.selectedPath) }
   if (tab === 'search') { await nextTick(); search.value?.focus() }
 }
 
 /** Opens a file; `line` scrolls to it once the content is on screen. */
 async function open(path: string, as: 'diff' | 'file', line?: number, side: CodeSide = 'new') {
-  mode.value = as
-  if (store.selectedPath !== path) await store.selectFile(path)
-  lastOpened.set(props.projectId, path)
+  const mine = opening
+  fileTabs.open(fileState.value, path, as)
+  await activate(path)
+  if (mine !== opening || store.selectedPath !== path) return
   if (line) {
     // The viewer mounts one tick after the file arrives.
     await nextTick(); await nextTick()
     await viewer.value?.scrollToLine(line, side)
   }
 }
+/** Selecting a tab preserves its own file/diff mode. Missing files leave their neighbour active. */
+async function activate(path: string) {
+  const mine = opening
+  fileState.value.active = path
+  if (store.selectedPath !== path) await store.selectFile(path)
+  if (mine !== opening || store.selectedPath !== path || fileState.value.active !== path) return
+  if (!store.file && !store.shownChanges.some(change => change.path === path)) await closeFile(path)
+}
+async function closeFile(path: string) {
+  const wasActive = fileState.value.active === path
+  fileTabs.close(fileState.value, path)
+  if (!wasActive) return
+  if (fileState.value.active) await activate(fileState.value.active)
+  else await store.selectFile(null)
+}
+async function closeAllFiles() {
+  fileTabs.closeAll(fileState.value)
+  await store.selectFile(null)
+}
+// Refresh closes a file that disappeared; restarting the store must preserve remembered tabs.
+watch(() => store.selectedPath, path => {
+  if (ready && path === null && fileState.value.active) void closeFile(fileState.value.active)
+})
 const openChange = (change: GitChange) => open(change.path, 'diff')
 
 async function showInTree(path: string) {
@@ -417,16 +465,24 @@ async function showInTree(path: string) {
   await nextTick()
   tree.value?.reveal(path)
 }
-function goto(item: CodeReviewItem) {
+async function goto(item: CodeReviewItem) {
   if (!item.file) return
   const changed = store.changes.some(c => c.path === item.file)
   const as = item.side === 'old' || (changed && store.selectedPath !== item.file) ? 'diff' : store.selectedPath === item.file ? mode.value : 'file'
-  void open(item.file, as, item.scope === 'line' ? item.line_start ?? undefined : undefined, item.side)
+  await open(item.file, as)
+  if (store.selectedPath !== item.file) return
+  visibility.reveal(item.id)
+  await nextTick()
+  if (item.scope === 'line' && item.line_start) await viewer.value?.scrollToLine(item.line_start, item.side)
 }
-function gotoExternal(t: ExternalThread) {
+async function gotoExternal(t: ExternalThread) {
   if (!t.path) return
   const changed = store.changes.some(c => c.path === t.path)
-  void open(t.path, t.side === 'old' || changed ? 'diff' : 'file', t.line ?? undefined, t.side)
+  await open(t.path, t.side === 'old' || changed ? 'diff' : 'file')
+  if (store.selectedPath !== t.path) return
+  visibility.reveal('external:' + t.id)
+  await nextTick()
+  if (t.line) await viewer.value?.scrollToLine(t.line, t.side)
 }
 /** «Разобрать с агентом»: the colleague's comment becomes an ordinary review item, discussed in its thread. */
 const canDiscuss = computed(() => !!store.repository && !reviewReadOnly.value)
@@ -454,7 +510,7 @@ function showRight(tab: RightTab) { rightCollapsed.value = false; rightTab.value
 watch(() => route.query.finish, value => { if (value === '1') showRight('finish') })
 // --- the developer's merge/rebase: its conflicts and the agent resolving them ----------
 const conflicts = useConflictsStore()
-watch(() => props.projectId, id => { void conflicts.start(id, props.workspaceId ?? undefined) }, { immediate: true })
+watch(() => [props.projectId, props.workspaceId] as const, ([id]) => { void conflicts.start(id, props.workspaceId ?? undefined) }, { immediate: true })
 const conflictAttention = computed(() => conflicts.mode === 'answer' ? conflicts.questions.length : 0)
 watch(() => conflicts.operation, operation => { if (!operation && rightTab.value === 'conflicts') rightTab.value = 'remarks' })
 const rightTabs = computed(() => [
@@ -509,26 +565,35 @@ function onKey(event: KeyboardEvent) {
 }
 
 async function begin(projectId: string) {
+  const mine = ++opening
+  ready = false
   loaded.value = false
   await store.start(projectId, props.workspaceId ?? undefined)
+  if (mine !== opening) return
   loaded.value = true
-  if (store.projectId !== projectId) return
-  // «Открыть в Коде» of the side panel: the same way back to a file as `lastOpened`, with its line and comparison.
+  const firstVisit = !fileState.value.initialized
+  fileState.value.initialized = true
+  // «Открыть в Коде» of the side panel adds or activates a tab, with its line and comparison.
   const asked = takeCodeOpen(projectId, props.workspaceId ?? null)
   if (asked) {
     if (asked.base !== 'head') await store.setBase(asked.base, asked.round)
-    if (store.projectId !== projectId) return
-    if (asked.path) { await open(asked.path, asked.mode, asked.line ?? undefined); return }
+    if (mine !== opening) return
+    if (asked.path) { await open(asked.path, asked.mode, asked.line ?? undefined); if (mine === opening) ready = true; return }
   }
-  const remembered = lastOpened.get(projectId)
-  if (remembered) { await open(remembered, store.changes.some(c => c.path === remembered) ? 'diff' : 'file'); return }
-  const first = [...store.changes].sort((a, b) => a.path.localeCompare(b.path))[0]
-  if (first) await open(first.path, 'diff')
+  const remembered = fileState.value.active
+  if (remembered) await activate(remembered)
+  else if (firstVisit) {
+    const first = [...store.changes].sort((a, b) => a.path.localeCompare(b.path))[0]
+    if (first) await open(first.path, 'diff')
+  }
+  if (mine === opening) {
+    ready = true
+  }
 }
 
 onMounted(() => { window.addEventListener('keydown', onKey) })
-onBeforeUnmount(() => { window.removeEventListener('keydown', onKey); store.stop(); git.stop(); conflicts.stop(); if (props.work) agent.work = null })
-watch(() => props.projectId, id => { void begin(id) }, { immediate: true })
+onBeforeUnmount(() => { opening++; ready = false; window.removeEventListener('keydown', onKey); store.stop(); git.stop(); conflicts.stop(); if (props.work) agent.work = null })
+watch(() => [props.projectId, props.workspaceId] as const, ([id]) => { void begin(id) }, { immediate: true })
 </script>
 
 <style scoped>
@@ -580,7 +645,8 @@ watch(() => props.projectId, id => { void begin(id) }, { immediate: true })
 /* The last block fills the pane; toolbars above it (comparison switch) keep their height. */
 .ct-pane > * { flex-shrink: 0; }
 .ct-pane > :last-child { flex: 1; min-height: 0; }
-.ct-center { min-width: 0; min-height: 0; padding-bottom: var(--sp-2); }
+.ct-center { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding-bottom: var(--sp-2); }
+.ct-viewer { flex: 1; }
 .ct-right { display: flex; flex-direction: column; min-height: 0; min-width: 0; border-left: 1px solid var(--border); background: var(--bg); }
 .ct-notes { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; max-height: 40%; overflow-y: auto; padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--bg2); }
 .ct-widget { display: flex; flex-direction: column; gap: 4px; }

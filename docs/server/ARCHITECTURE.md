@@ -28,7 +28,7 @@ Core modules:
   watcher (any file event drops them); checks before Git writes call `infrastructure/git` directly.
 - `integrations/`: accounts, connections and authorization lifecycle.
 - `settings/`: application/git settings, agent choices and level resolution.
-- `projects/`: projects, groups, briefing, remote URLs and documentation `sources/`.
+- `projects/`: projects, groups, workspace roots, explicit references, remote URLs and documentation `sources/`.
 - `library/`: items, levels, synchronization, proposals and built-in texts.
 - `agents/`: `catalog/`, `sessions/`, selection, launch, turn waiting and one-shot work.
 - `tasks/`: tasks, moves and task files.

@@ -91,6 +91,7 @@
       </div>
 
       <div v-if="items.length" class="rp-filters">
+        <AppClosedItemsToggle v-model="visibility.preference.showClosed" :hidden-count="filter === 'closed' ? 0 : visibility.hiddenCount.value" />
         <AppTabs compact bare :model-value="filter" :items="filters.map(f => ({ value: f.id, label: f.label, count: f.count }))" label="Какие пункты показать" @update:model-value="filter = $event as typeof filter" />
       </div>
       <div class="rp-meta">
@@ -108,14 +109,18 @@
         <RecentReviews v-if="store.screen === 'clean'" />
         <template v-for="(item, index) in shown" :key="item.id">
           <div v-if="state(item) === 'closed' && (index === 0 || state(shown[index - 1]) !== 'closed') && filter === 'all'" class="rp-section">Закрытые</div>
+          <AppClosedItemNotice :notice="filter !== 'closed' && visibility.notice(item.id, item.closed)" @reveal="visibility.reveal(item.id)">
           <ItemView
             :item="item" :read-only="readOnly" show-location
             @goto="emit('goto', item)" @open-ref="emit('open-ref', $event)" @show-change="(round, file) => emit('show-change', round, file)"
           />
+          </AppClosedItemNotice>
         </template>
         <template v-if="outdated.length && filter === 'all'">
           <div class="rp-section">Устарели ({{ outdated.length }})</div>
-          <ItemView v-for="item in outdated" :key="item.id" :item="item" :read-only="readOnly" show-location @open-ref="emit('open-ref', $event)" />
+          <AppClosedItemNotice v-for="item in outdated" :key="item.id" :notice="visibility.notice(item.id, item.closed)" @reveal="visibility.reveal(item.id)">
+            <ItemView :item="item" :read-only="readOnly" show-location @open-ref="emit('open-ref', $event)" />
+          </AppClosedItemNotice>
         </template>
       </div>
     </template>
@@ -124,6 +129,9 @@
 
 <script setup lang="ts">
 import { useDraft } from '@core/composables/useDraft'
+import { useRemarkVisibility } from '@core/composables/useRemarkVisibility'
+import AppClosedItemsToggle from '@shared/ui/AppClosedItemsToggle.vue'
+import AppClosedItemNotice from '@shared/ui/AppClosedItemNotice.vue'
 import { useDraftsStore } from '@core/stores/drafts'
 import { computed, ref } from 'vue'
 import AppButton from '@shared/ui/AppButton.vue'
@@ -221,13 +229,14 @@ function send() {
 }
 const state = (item: CodeReviewItem): ThreadState => threadState(item, store.messages)
 const live = computed(() => items.value.filter(i => !i.outdated))
-const outdated = computed(() => items.value.filter(i => i.outdated))
+const outdated = computed(() => items.value.filter(i => i.outdated && visibility.visible(i.id, i.closed)))
 /** What «Отправить» carries: new drafts and threads with queued replies. */
 const pending = computed(() => live.value.filter(i => isSendable(i, state(i))).length)
 const setupCount = computed(() => agent.setup?.ids?.length ?? pending.value)
 const count = (states: ThreadState[]) => live.value.filter(i => states.includes(state(i))).length
+const visibility = useRemarkVisibility(() => `${store.projectId}:${store.workspaceId}:${review.value?.id}`, () => items.value.map(item => ({ id: item.id, closed: item.closed })))
 const filters = computed(() => [
-  { id: 'all' as const, label: 'Все', count: live.value.length },
+  { id: 'all' as const, label: visibility.preference.showClosed ? 'Все' : 'Открытые', count: live.value.filter(i => visibility.preference.showClosed || !i.closed).length },
   { id: 'waiting' as const, label: 'Ждут вас', count: count(['waiting']) },
   { id: 'agent' as const, label: 'У агента', count: count(['agent', 'queued']) },
   { id: 'closed' as const, label: 'Закрытые', count: count(['closed']) },
@@ -235,7 +244,7 @@ const filters = computed(() => [
 const FILTER_STATES: Record<typeof filter.value, ThreadState[] | null> = { all: null, waiting: ['waiting'], agent: ['agent', 'queued'], closed: ['closed'] }
 const shown = computed(() => {
   const states = FILTER_STATES[filter.value]
-  return live.value.filter(i => !states || states.includes(state(i))).sort((a, b) => STATE_ORDER[state(a)] - STATE_ORDER[state(b)])
+  return live.value.filter(i => (!states || states.includes(state(i))) && (filter.value === 'closed' || visibility.visible(i.id, i.closed))).sort((a, b) => STATE_ORDER[state(a)] - STATE_ORDER[state(b)])
 })
 /** Permissions not attached to a card: the agent did not say which item it works on. */
 const loosePermissions = computed(() => (agent.focusItem && items.value.some(i => i.id === agent.focusItem) ? [] : agent.permissions))

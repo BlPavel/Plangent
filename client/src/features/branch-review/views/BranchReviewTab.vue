@@ -87,14 +87,20 @@
             </template>
             <template #items="{ line, side }">
               <div class="line-items">
-                <RemarkCard v-for="r in remarksAt(selectedFile.path, side, line)" :key="r.id" :remark="r" :screen-key="props.projectId" :scope="scope" :review-id="detail.review.id" where="diff" />
-                <ExternalThreadCard v-for="t in threadsAt(selectedFile.path, side, line)" :key="t.id" :thread="t" :actions="threadActions">
+                <AppClosedItemNotice v-for="r in remarksAt(selectedFile.path, side, line)" :key="'remark:' + r.id" :notice="visibility.notice('remark:' + r.id, r.status === 'rejected')" @reveal="visibility.reveal('remark:' + r.id)">
+                  <RemarkCard :remark="r" :screen-key="props.projectId" :scope="scope" :review-id="detail.review.id" where="diff" />
+                </AppClosedItemNotice>
+                <AppClosedItemNotice v-for="t in threadsAt(selectedFile.path, side, line)" :key="'thread:' + t.id" :notice="visibility.notice('thread:' + t.id, t.resolved)" @reveal="visibility.reveal('thread:' + t.id)">
+                <ExternalThreadCard :thread="t" :actions="threadActions">
                   <template #after><ThreadDiscussion :thread="t" :screen-key="props.projectId" :scope="scope" :review-id="detail.review.id" where="diff" /></template>
                 </ExternalThreadCard>
+                </AppClosedItemNotice>
+                <AppClosedItemNotice v-for="q in questionsAt(selectedFile.path, side, line)" :key="'question:' + q.id" :notice="visibility.notice('question:' + q.id, q.closed)" @reveal="visibility.reveal('question:' + q.id)">
                 <BranchQuestionCard
-                  v-for="q in questionsAt(selectedFile.path, side, line)" :key="q.id" :question="q" :messages="messagesOf(q.id)" :screen-key="props.projectId" :scope="scope" :review-id="detail.review.id"
+                  :question="q" :messages="messagesOf(q.id)" :screen-key="props.projectId" :scope="scope" :review-id="detail.review.id"
                   @to-remark="toRemark(q, $event)"
                 />
+                </AppClosedItemNotice>
               </div>
             </template>
           </BranchDiff>
@@ -109,15 +115,18 @@
           />
           <RemarksPanel v-else-if="screen.panel === 'remarks'" :screen-key="props.projectId" :scope="scope" :review-id="detail.review.id" :head="detail.review.head" :mr="!!detail.review.mr_iid" :embedded="embedded" @goto="gotoRemark" @goto-question="goto" @to-remark="toRemark" />
           <div v-else class="side-threads">
+            <AppClosedItemsToggle v-model="visibility.preference.showClosed" :hidden-count="threadFilter === 'resolved' ? 0 : hiddenThreadCount" />
             <QueueBar :screen-key="props.projectId" :scope="scope" :review-id="detail.review.id" :head="detail.review.head" class="side-queue" />
             <div v-if="!info?.threads.length" class="side-empty">В МР пока нет обсуждений.</div>
             <template v-else>
               <p class="side-summary">Решено {{ threadStats.resolved }} из {{ threadStats.all }}<template v-if="threadStats.waiting"> · <span class="waiting">ждут ответа: {{ threadStats.waiting }}</span></template></p>
-              <AppSegmented :model-value="threadFilter" :options="[{ value: 'open', label: 'Открытые (' + threadStats.open + ')' }, { value: 'resolved', label: 'Решённые (' + threadStats.resolved + ')' }, { value: 'all', label: 'Все' }]" label="Какие треды" @update:model-value="threadFilter = $event as typeof threadFilter" />
+              <AppSegmented :model-value="threadFilter" :options="[{ value: 'open', label: 'Открытые (' + threadStats.open + ')' }, { value: 'resolved', label: 'Закрытые (' + threadStats.resolved + ')' }, { value: 'all', label: visibility.preference.showClosed ? 'Все' : 'По настройке' }]" label="Какие треды" @update:model-value="threadFilter = $event as typeof threadFilter" />
             </template>
-            <ExternalThreadCard v-for="t in shownThreads" :key="t.id" :thread="t" :actions="threadActions" show-location @goto="gotoThread(t)">
+            <AppClosedItemNotice v-for="t in shownThreads" :key="t.id" :notice="threadFilter !== 'resolved' && visibility.notice('thread:' + t.id, t.resolved)" @reveal="visibility.reveal('thread:' + t.id)">
+            <ExternalThreadCard :thread="t" :actions="threadActions" show-location @goto="gotoThread(t)">
               <template #after><ThreadDiscussion :thread="t" :screen-key="props.projectId" :scope="scope" :review-id="detail.review.id" /></template>
             </ExternalThreadCard>
+            </AppClosedItemNotice>
           </div>
         </aside>
       </div>
@@ -125,6 +134,9 @@
   </section>
 </template>
 <script setup lang="ts">
+import { useRemarkVisibility } from '@core/composables/useRemarkVisibility'
+import AppClosedItemsToggle from '@shared/ui/AppClosedItemsToggle.vue'
+import AppClosedItemNotice from '@shared/ui/AppClosedItemNotice.vue'
 import { useCodeScreen } from '@core/composables/useCodeScreen'
 import AppEmptyState from '@shared/ui/AppEmptyState.vue'
 import AppBadge from '@shared/ui/AppBadge.vue'
@@ -211,7 +223,15 @@ const threadStats = computed(() => {
   const open = list.filter(t => !t.resolved)
   return { all: list.length, resolved: list.length - open.length, open: open.length, waiting: open.filter(t => !t.notes.at(-1)?.mine).length }
 })
-const shownThreads = computed(() => (info.value?.threads ?? []).filter(t => threadFilter.value === 'all' || (threadFilter.value === 'resolved') === t.resolved))
+const visibility = useRemarkVisibility(() => `${scope.value}:${detail.value?.review.id}:${path.value}`, () => [
+  ...screen.remarks.map(r => ({ id: 'remark:' + r.id, closed: r.status === 'rejected' })),
+  ...screen.questions.map(q => ({ id: 'question:' + q.id, closed: q.closed })),
+  ...(info.value?.threads ?? []).map(t => ({ id: 'thread:' + t.id, closed: t.resolved })),
+])
+const hiddenThreadCount = computed(() => visibility.preference.showClosed ? 0 : (info.value?.threads ?? []).filter(t => t.resolved && (!visibility.visible('thread:' + t.id, true) || visibility.notice('thread:' + t.id, true))).length)
+const shownThreads = computed(() => (info.value?.threads ?? []).filter(t =>
+  (threadFilter.value === 'all' || (threadFilter.value === 'resolved') === t.resolved)
+  && (threadFilter.value === 'resolved' || visibility.visible('thread:' + t.id, t.resolved))))
 const panels = computed<{ id: ReviewPanel; label: string; count: number; working?: boolean }[]>(() => [
   { id: 'overview', label: 'Обзор', count: 0, working: detail.value?.review.analysis_status === 'running' },
   { id: 'remarks', label: 'Замечания', count: screen.remarks.filter(r => r.status === 'draft' || r.status === 'uncertain').length + screen.questions.filter(q => !embedded(q) && !q.closed).length },
@@ -220,17 +240,17 @@ const panels = computed<{ id: ReviewPanel; label: string; count: number; working
 
 // What sits under a line of the diff: the developer's and the agent's remarks and colleagues' GitLab threads.
 // A published remark of an MR comes back as a GitLab thread: the diff shows the thread, not both.
-const inDiff = (r: Remark) => !r.outdated && r.status !== 'rejected' && !(r.status === 'sent' && detail.value?.review.mr_iid)
+const inDiff = (r: Remark) => !r.outdated && visibility.visible('remark:' + r.id, r.status === 'rejected') && !(r.status === 'sent' && detail.value?.review.mr_iid)
 const remarksAt = (file: string, side: CodeSide, line: number) => screen.remarks.filter(r => r.path === file && r.side === side && r.line === line && inDiff(r))
-const threadsAt = (file: string, side: CodeSide, line: number) => (info.value?.threads ?? []).filter(t => t.path === file && t.side === side && t.line === line)
+const threadsAt = (file: string, side: CodeSide, line: number) => (info.value?.threads ?? []).filter(t => t.path === file && t.side === side && t.line === line && visibility.visible('thread:' + t.id, t.resolved))
 /** A conversation about a remark or a colleague's thread lives inside that card, not in a card of its own. */
 const embedded = (q: BranchQuestion) => (!!q.remark_id && screen.remarks.some(r => r.id === q.remark_id)) || (!!q.thread_id && !!info.value?.threads.some(t => t.id === q.thread_id))
-const questionsAt = (file: string, side: CodeSide, line: number) => screen.questions.filter(q => q.path === file && q.side === side && q.line === line && !embedded(q) && !q.closed)
+const questionsAt = (file: string, side: CodeSide, line: number) => screen.questions.filter(q => q.path === file && q.side === side && q.line === line && !embedded(q) && visibility.visible('question:' + q.id, q.closed))
 const messagesOf = (id: string) => screen.messages.filter(m => m.question_id === id)
 const itemsOf = (file: string) => [
-  ...screen.questions.filter(q => q.path === file && !embedded(q) && !q.closed).map(q => ({ side: q.side, line: q.line })),
+  ...screen.questions.filter(q => q.path === file && !embedded(q) && visibility.visible('question:' + q.id, q.closed)).map(q => ({ side: q.side, line: q.line })),
   ...screen.remarks.filter(r => r.path === file && inDiff(r)).map(r => ({ side: r.side, line: r.line })),
-  ...(info.value?.threads ?? []).filter(t => t.path === file && t.line).map(t => ({ side: t.side, line: t.line! })),
+  ...(info.value?.threads ?? []).filter(t => t.path === file && t.line && visibility.visible('thread:' + t.id, t.resolved)).map(t => ({ side: t.side, line: t.line! })),
 ]
 const questionsIn = (file: string) => screen.questions.filter(q => q.path === file && !embedded(q) && !q.closed).length
 const remarksIn = (file: string) => screen.remarks.filter(r => r.path === file && inDiff(r)).length
@@ -272,9 +292,9 @@ function select(value: LineSelection) { selection.value = value; draft.value = '
 function clearReview() { detail.value = undefined; info.value = null; screen.remarks = []; screen.thread = null; screen.questions = []; screen.messages = []; screen.onlyChanged = false; selection.value = null; draft.value = '' }
 function back() { clearReview(); void loadMrs() }
 function revealFile(file: string) { if (screen.onlyChanged && !visibleFiles.value.some(f => f.path === file)) screen.onlyChanged = false; choose(file) }
-function goto(question: BranchQuestion) { if (question.path) revealFile(question.path) }
-function gotoRemark(remark: Remark) { if (remark.path) revealFile(remark.path) }
-function gotoThread(thread: ExternalThread) { if (thread.path) revealFile(thread.path) }
+function goto(question: BranchQuestion) { if (question.path) { revealFile(question.path); visibility.reveal('question:' + question.id) } }
+function gotoRemark(remark: Remark) { if (remark.path) { revealFile(remark.path); visibility.reveal('remark:' + remark.id) } }
+function gotoThread(thread: ExternalThread) { if (thread.path) { revealFile(thread.path); visibility.reveal('thread:' + thread.id) } }
 
 /** A remark goes to the drafts on the right; a question waits in the agent's queue. Nothing leaves until the developer sends it. */
 async function submit() {

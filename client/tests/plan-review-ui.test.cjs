@@ -6,6 +6,7 @@ const Module = require('node:module');
 const { parseHTML } = require('linkedom');
 const { window } = parseHTML('<html><body><div id="app"></div></body></html>');
 for (const key of ['window', 'document', 'HTMLElement', 'SVGElement', 'Element', 'Node']) global[key] = window[key];
+Object.defineProperty(window.HTMLInputElement.prototype, 'checked', { configurable: true, get() { return this.testChecked ?? false }, set(value) { this.testChecked = !!value } });
 Object.defineProperty(window.HTMLElement.prototype, 'open', { configurable:true, get() { return this.hasAttribute('open'); }, set(value) { if (value) this.setAttribute('open',''); else this.removeAttribute('open'); } });
 global.requestAnimationFrame = callback => setTimeout(callback, 0);
 global.cancelAnimationFrame = clearTimeout;
@@ -75,6 +76,7 @@ test('plan review UI decisions, delivery, live remapping, answers, another round
     calls.push({url, input, method:options.method});
     let result;
     if (url.endsWith('/plan-reviews')) result = reviews;
+    else if (url.endsWith('/skills')) result = [];
     else if (url.endsWith('/recipients')) result = { sessions: [{ id: 'planner', title: 'Planner', available: true, busy: false }], default_session_id: 'planner' };
     else if (url.endsWith('/decision')) {
       const id = url.split('/').at(-2), card = detail.remarks.find(r => r.id === id);
@@ -110,7 +112,8 @@ test('plan review UI decisions, delivery, live remapping, answers, another round
   await click('Отклонить', cards[2]);
   const rejection = calls.filter(c => c.url.endsWith('/decision')).at(-1).input;
   assert.equal(rejection.status, 'rejected'); assert.equal(rejection.comment, '');
-  assert.equal(document.querySelectorAll('article')[2].querySelector('form'), null);
+  assert.equal(document.querySelectorAll('article').length, 2);
+  assert.match(document.body.textContent, /Замечание закрыто/);
   // The comment waits in its card until it is sent to the reviewer with the batch button.
   assert.equal(calls.filter(c => c.url.endsWith('/discuss')).length, 0);
   assert.match(document.body.textContent, /Ждёт отправки/);
@@ -136,21 +139,21 @@ test('plan review UI decisions, delivery, live remapping, answers, another round
   sockets[0].onmessage({data:JSON.stringify({type:'plan_review_updated',taskId:'t'})});
   await flush(); await flush();
   assert.match(document.body.textContent,/Planner answer/);
-  assert.match(document.body.textContent,/Учтено в плане/);
+  assert.equal(document.querySelectorAll('[role=status]').length > 0, true);
   assert.doesNotMatch(document.body.textContent,/к прежней редакции плана/);
   assert.match(document.body.textContent,/Открыть чат планировщика/);
   assert.match(document.body.textContent,/Планировщик ответил/);
   assert.deepEqual(counts.at(-1),{p9:1});
   cards = document.querySelectorAll('article');
-  const appliedGroup = document.querySelector('.applied-remarks');
-  assert.equal(appliedGroup.open, false);
-  assert.equal(appliedGroup.querySelector('summary').textContent, 'Учтено (1)');
   assert.match(cards[0].textContent, /Card two/);
-  assert.match(appliedGroup.querySelector('article').textContent, /Card one/);
-  // Coverage links reveal the original card even after it moves into the collapsed group.
+  assert.equal([...cards].some(card => /Card one/.test(card.textContent)), false);
+  // Coverage links reveal only the requested closed card, without changing the preference.
   document.querySelector('.table-wrap button').click(); await flush();
-  assert.equal(appliedGroup.open, true);
-  const stepButton = [...appliedGroup.querySelectorAll('button')].find(b=>b.textContent.trim()==='p7');
+  const appliedCard = [...document.querySelectorAll('article')].find(card => /Card one/.test(card.textContent));
+  assert.ok(appliedCard);
+  assert.match(appliedCard.textContent, /Учтено в плане/);
+  assert.equal(document.querySelector('input[type=checkbox]').checked, false);
+  const stepButton = [...appliedCard.querySelectorAll('button')].find(b=>b.textContent.trim()==='p7');
   stepButton.click(); await flush(); assert.deepEqual(highlights.at(-1),['p7']);
   locked.value = true; await flush();
   assert.equal([...document.querySelectorAll('button')].some(b => b.textContent.trim() === 'Новый раунд'), false);
