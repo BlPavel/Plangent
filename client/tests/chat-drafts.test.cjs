@@ -86,6 +86,51 @@ test('new and existing chats restore exact unsent text after leaving the view', 
   }
 })
 
+test('composer restores draft height when a hidden tab appears and when its width changes', async () => {
+  const previousObserver = global.ResizeObserver
+  const observers = []
+  global.ResizeObserver = class {
+    constructor(callback) { this.callback = callback; observers.push(this) }
+    observe(element) { this.element = element }
+    disconnect() { this.disconnected = true }
+    resize(width) { this.callback([{ contentRect: { width } }]) }
+  }
+  const chat = await harness({ draftKey: 'session:resize' })
+  try {
+    await nextTick()
+    const input = document.querySelector('textarea')
+    const observer = observers.find(item => item.element?.tagName === 'TEXTAREA')
+    let fullHeight = 180
+    Object.defineProperty(input, 'scrollHeight', { get: () => input.testHidden ? 0 : fullHeight })
+    await chat.type('A long draft\nwith several lines')
+    assert.equal(input.style.height, '180px')
+    observer.resize(500)
+    input.testHidden = true
+    observer.resize(0)
+    chat.store.get('session:resize').text += '\nAnother line while hidden'
+    await nextTick()
+    assert.equal(input.style.height, '180px', 'hidden updates preserve the last measured height')
+    input.testHidden = false
+    fullHeight = 220
+    observer.resize(500)
+    assert.equal(input.style.height, '220px', 'showing the tab restores height without typing')
+    fullHeight = 320
+    observer.resize(300)
+    assert.equal(input.style.height, '240px', 'narrower fields grow up to the height limit')
+    fullHeight = 100
+    observer.resize(700)
+    assert.equal(input.style.height, '100px', 'wider fields shrink to fit the draft')
+    fullHeight = 44
+    await chat.type('')
+    assert.equal(input.style.height, '44px', 'clearing the draft restores the minimum height')
+    chat.unmount()
+    assert.equal(observer.disconnected, true)
+  } finally {
+    if (document.querySelector('textarea')) chat.unmount()
+    global.ResizeObserver = previousObserver
+  }
+})
+
 test('deleting a session removes its draft and selection without touching other chats', async () => {
   const chat = await harness({ draftKey: 'new-chat:project-a' })
   try {

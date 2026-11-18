@@ -57,6 +57,24 @@ function choice(category: string, c: { value: string; name: string; description?
   return category === 'model' && rest.length ? { value: c.value, label: head, description: rest.join(' · ') } : { value: c.value, label: c.name, description: c.description ?? undefined }
 }
 
+/** Third-party Claude presets report one model under several role aliases. Keep their wire ids. */
+function providerModelSelect(select: AgentSelect): AgentSelect {
+  if (select.kind !== 'model') return select
+  const model = select.options.map(o => o.label.match(/^((?:deepseek-flash|glm-[\w.-]+|kimi-[\w.-]+|k\d[\w.-]*)(?:\[1m\])?) \(opus\)$/i)?.[1]).find(Boolean)
+  if (!model) return select
+  const mapped = (role: string) => select.options.some(o => o.label.toLowerCase() === `${model} (${role})`.toLowerCase())
+  // Match the explicit role mapping, not merely an agent that also offers DeepSeek.
+  if (!mapped('opus') || !mapped('sonnet')) return select
+  const base = model.replace(/\[1m\]$/i, '')
+  const aliases = select.options.filter(o => [model.toLowerCase(), base.toLowerCase()].includes(o.label.replace(/\s+\([^)]*\)$/, '').toLowerCase()))
+  const selected = aliases.find(o => o.value === select.current)
+    ?? aliases.find(o => o.value === model)
+    ?? aliases.find(o => o.label.startsWith(model))
+  if (!selected) return select
+  const label = base === 'deepseek-flash' ? 'DeepSeek Flash' : base.replace(/^glm-/i, 'GLM ').replace(/^kimi-k/i, 'Kimi K').replace(/^k(\d)/i, 'Kimi K$1').replace(/-pro$/i, ' Pro')
+  return { ...select, current: selected.value, options: [{ value: selected.value, label, ...(model.endsWith('[1m]') ? { description: 'Контекст до 1 млн токенов' } : {}) }] }
+}
+
 export function agentSelects(source: AgentOptionsSource | null | undefined): AgentSelect[] {
   if (!source) return []
   const selects: AgentSelect[] = []
@@ -77,7 +95,7 @@ export function agentSelects(source: AgentOptionsSource | null | undefined): Age
       options: source.models.availableModels.map(m => choice('model', { value: m.modelId, name: m.name, description: m.description })) })
   }
   const order = ['mode', 'model', 'thought_level']
-  return selects.sort((a, b) => (order.indexOf(a.category) + 1 || 9) - (order.indexOf(b.category) + 1 || 9))
+  return selects.map(providerModelSelect).sort((a, b) => (order.indexOf(a.category) + 1 || 9) - (order.indexOf(b.category) + 1 || 9))
 }
 
 /** Model and reasoning-depth choices, for pickers that only set these two (task queue, agent defaults). */

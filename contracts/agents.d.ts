@@ -44,6 +44,7 @@ export interface AgentPreset {
     name: string;
     acp_command: string;
     acp_args: string[];
+    env?: Record<string, string>;
     command: string;
     update_command: string;
     layout_profile: LayoutProfile | null;
@@ -51,16 +52,7 @@ export interface AgentPreset {
 // HTTP endpoint map: full mounted paths, including the /api prefix.
 import type * as C from "./index";
 import type { Endpoint, JsonValue } from "./endpoint";
-export type AgentsGETPresetsResponse = {
-    [key: string]: {
-        "name": string;
-        "acp_command": string;
-        "acp_args": (string)[];
-        "command": string;
-        "update_command": string;
-        "layout_profile": null | C.LayoutProfile;
-    };
-};
+export type AgentsGETPresetsResponse = Record<string, AgentPreset>;
 export type AgentsGETIdLimitsResponse = {
     "agentId": string;
     "at": number;

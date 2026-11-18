@@ -64,7 +64,7 @@ import { IconAttach as UIIconAttach } from '@shared/ui/icons'
 import AppChip from '@shared/ui/AppChip.vue'
 import AppInput from '@shared/ui/AppInput.vue'
 import AppTextarea from '@shared/ui/AppTextarea.vue'
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useMentionFiles } from '../composables/useMentionFiles'
 import { projectsEndpoints } from '@features/projects'
 import { MENTION_DRAG_TYPE, mentionText, readMentionDrag, type MentionDrag } from '../utils/mention-drag'
@@ -195,12 +195,24 @@ async function insertAt() {
 
 function resize() {
   const el = input.value
-  if (!el) return
+  if (!el || el.scrollHeight === 0) return
   el.style.height = 'auto'
   el.style.height = Math.min(el.scrollHeight, 240) + 'px'
 }
 
-onMounted(resize)
+watch(input, (el, _previous, onCleanup) => {
+  resize()
+  if (!el || typeof ResizeObserver === 'undefined') return
+  let width = 0
+  const resizeObserver = new ResizeObserver(([entry]) => {
+    const nextWidth = entry.contentRect.width
+    if (nextWidth === width) return
+    width = nextWidth
+    if (width > 0) resize()
+  })
+  resizeObserver.observe(el)
+  onCleanup(() => resizeObserver.disconnect())
+}, { flush: 'post' })
 watch(text, resize, { flush: 'post' })
 
 // ── Sending ───────────────────────────────────────────────────────────────

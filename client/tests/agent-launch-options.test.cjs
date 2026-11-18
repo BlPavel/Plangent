@@ -3,6 +3,68 @@ const assert = require('node:assert/strict')
 const { ref, reactive, effectScope, nextTick } = require('vue')
 const { loader } = require('./client-test-loader.cjs')
 
+test('DeepSeek Flash role aliases become one choice with a usable adapter id in every picker', () => {
+  const { agentSelects, modelAndEffort } = loader()('client/src/features/agent-chat/utils/agent-options.ts')
+  const models = [
+    { value: 'default', name: 'Default (recommended)', description: 'deepseek-flash[1m]' },
+    { value: 'opus', name: 'deepseek-flash[1m] (opus)' },
+    { value: 'fable', name: 'Fable 5.1' },
+    { value: 'sonnet', name: 'deepseek-flash[1m] (sonnet)' },
+    { value: 'haiku', name: 'deepseek-flash' },
+    { value: 'deepseek-flash[1m]', name: 'deepseek-flash[1m] (deepseek-flash[1m])' },
+  ]
+  for (const legacy of [false, true]) {
+    for (const current of ['opus', 'default', 'deepseek-flash[1m]']) {
+      const source = legacy
+        ? { models: { currentModelId: current, availableModels: models.map(m => ({ modelId: m.value, name: m.name, description: m.description })) } }
+        : { configOptions: [{ id: 'model', category: 'model', type: 'select', currentValue: current, options: models }] }
+      const before = JSON.stringify(source)
+      const select = agentSelects(source).find(s => s.kind === 'model')
+      assert.equal(select.options.length, 1)
+      assert.equal(select.options[0].label, 'DeepSeek Flash')
+      assert.equal(select.current, select.options[0].value)
+      assert.ok(models.some(m => m.value === select.current), 'never invent an unsupported model id')
+      if (current !== 'default') assert.equal(select.current, current)
+      assert.deepEqual(modelAndEffort(source).models, select.options)
+      assert.equal(JSON.stringify(source), before, 'cached options remain unchanged')
+    }
+  }
+  const mixed = { models: { availableModels: [
+    { modelId: 'deepseek-flash', name: 'DeepSeek Flash' },
+    { modelId: 'claude-opus', name: 'Claude Opus' },
+  ] } }
+  assert.equal(modelAndEffort(mixed).models.length, 2, 'other providers retain their models')
+})
+
+for (const [model, label] of [['glm-5.3[1m]', 'GLM 5.3'], ['kimi-k3[1m]', 'Kimi K3'], ['k3.1-pro', 'Kimi K3.1 Pro']]) {
+  test(label + ' role aliases show one provider model and preserve the selected wire id', () => {
+    const { agentSelects } = loader()('client/src/features/agent-chat/utils/agent-options.ts')
+    const options = [
+      { value: 'default', name: 'Default (recommended)', description: model },
+      ...['opus', 'sonnet', 'haiku', 'fable'].map(value => ({ value, name: `${model} (${value})` })),
+      { value: model, name: `${model} (${model})` },
+      { value: 'other', name: 'Other Claude model' },
+    ]
+    for (const legacy of [false, true]) {
+      for (const current of ['sonnet', 'default', model]) {
+        const source = legacy
+          ? { models: { currentModelId: current, availableModels: options.map(o => ({ modelId: o.value, name: o.name, description: o.description })) } }
+          : { configOptions: [{ id: 'model', category: 'model', type: 'select', currentValue: current, options }] }
+        const select = agentSelects(source).find(s => s.kind === 'model')
+        assert.equal(select.options.length, 1)
+        assert.equal(select.options[0].label, label)
+        assert.equal(select.current, current === 'default' ? model : current)
+        assert.equal(select.options[0].value, select.current)
+      }
+    }
+    const mixed = { configOptions: [{ id: 'model', category: 'model', type: 'select', options: [
+      { value: 'opus', name: `${model} (opus)` },
+      { value: 'sonnet', name: 'another-model (sonnet)' },
+    ] }] }
+    assert.equal(agentSelects(mixed)[0].options.length, 2, 'different model tiers must stay separate')
+  })
+}
+
 function fixture(t, source) {
   const chat = reactive({ agentOptions: { first: source, second: source }, fetchAgentOptions() {} })
   const agents = { agents: [{ id: 'first', model: 'chosen-model', reasoning_effort: 'high' }] }

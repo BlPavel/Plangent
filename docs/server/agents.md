@@ -4,6 +4,31 @@
 `core/agents/sessions/` owns state, prompt queues, modes and permissions.
 Consumers import the public `core/agents` API.
 
+Agent presets use the shared `AgentPreset` contract. Optional `env` defaults
+are copied into the settings form when a preset is applied; credentials in
+shipped presets stay empty. Applying a preset clears model/effort overrides
+from the previous adapter. DeepSeek uses the Claude ACP adapter with DeepSeek's
+Anthropic-compatible endpoint and model environment variables, including its
+background/subagent models. Its `command` stays empty so Claude account usage
+is not displayed as DeepSeek usage. Set `ANTHROPIC_AUTH_TOKEN` in the agent's
+environment to a DeepSeek API key before starting a conversation.
+
+GLM (Z.ai) and Kimi (Moonshot API) use the same ACP adapter. GLM uses
+`https://api.z.ai/api/anthropic`, a Z.ai GLM Coding Plan key, and `glm-5.3[1m]`.
+Kimi uses `https://api.moonshot.ai/anthropic`, a Moonshot platform API key,
+and `kimi-k3[1m]`; this is separate from Kimi Code subscription credentials.
+Both presets map all Claude model tiers (including Fable) and subagents to
+their configured provider model. Supply the key in `ANTHROPIC_AUTH_TOKEN`.
+References: [Z.ai](https://docs.z.ai/devpack/tool/claude),
+[Kimi](https://platform.kimi.ai/docs/guide/claude-code-kimi).
+
+The separate `kimi-code` preset is for Kimi Code subscription benefits. It uses
+`https://api.kimi.ai/coding/`, model `k3.1-pro`, and a 262144-token context cap.
+Put the Kimi Code Console key in `ANTHROPIC_API_KEY`; leave
+`ANTHROPIC_AUTH_TOKEN` empty. It uses the same model for all tiers and subagents.
+An active membership with Kimi Code benefits is required. Reference:
+[Kimi Code setup](https://www.kimi.com/code/docs/en/third-party-tools/claude-code.html).
+
 Use `selectAgent` and the settings resolver for agent choice.
 `createAgentSession` translates mode/config preferences; `runAgentWork`
 starts or prompts a session and records delivery failures. Register

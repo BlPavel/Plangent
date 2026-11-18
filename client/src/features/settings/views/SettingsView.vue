@@ -324,6 +324,8 @@ function applyPreset(p: AgentPreset) {
     ...agentForm.value,
     name: agentForm.value.name || p.name,
     acp_command: p.acp_command, acp_args: JSON.stringify(p.acp_args),
+    env: JSON.stringify(p.env ?? {}, null, 2),
+    model: '', reasoning_effort: '',
     command: p.command, update_command: p.update_command,
     ...layoutToForm(p.layout_profile),
   }
