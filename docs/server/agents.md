@@ -76,12 +76,32 @@ read-only/discussion choices remain effective for ordinary chats and errands. Ex
 sessions keep their saved choices; change their mode explicitly when needed.
 
 An errand's chat can change its agent (`POST /api/agent-sessions/:id/agent`,
-`switchAgent`): between turns only. The old process stops, `acp_session_id` and
+`switchAgent`): between turns only. The old ACP session closes, `acp_session_id` and
 the options the old agent reported are cleared, and the new agent starts at once;
 the conversation goes to it with the next message through `needsContext`.
 
 `infrastructure/acp/` owns adapter processes, protocol transport, probes and
-shutdown. Completed executor, task-reviewer and plan-reviewer work uses a
+shutdown. `pool.ts` shares a process for compatible pinned Codex ACP 2.x (from
+2.1.1) and Claude ACP 0.x (from 0.85.1) launches, including provider presets
+using Claude ACP. Sharing additionally requires advertised `session/close`
+support. Custom launchers and other adapters remain isolated. The compatibility
+key includes the resolved command, arguments, client version and the complete
+effective environment (including project/workspace overrides and credentials),
+hashed in memory. Models, modes, directories, MCP tokens and permissions remain
+session-scoped. Options probes still use a short-lived isolated process.
+
+The pool initializes once, routes notifications and permissions by ACP session
+id, and serializes session creation/loading; prompts in different chats remain
+concurrent. Updates received before a new session's response are buffered and
+delivered only to its returned id; unknown permission requests are denied.
+Closing, switching or idling a chat releases only its session. The final owner
+stops the whole process tree. A failed session close removes the process from
+reuse but leaves siblings working until they release it. Process/transport
+failure fails all affected chats and releases pending permissions; the next
+message starts a new process and uses the existing session restoration rules.
+There is no new limit or queue for agent turns.
+
+Completed executor, task-reviewer and plan-reviewer work uses a
 one-minute idle deadline, including preflight and architecture/QA review.
 Other idle sessions use five minutes. Active turns and pending permissions
 must finish before shutdown. Non-resumable adapters are stopped too; a later

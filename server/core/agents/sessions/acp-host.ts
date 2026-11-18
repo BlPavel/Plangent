@@ -6,6 +6,7 @@ import type { buildLibrarianPrompt } from '../../preparation';
 import type * as ACP from '../../../infrastructure/acp/types';
 import { startAdapter, stopAdapter, configureAdapterTermination } from '../../../infrastructure/acp/process';
 import { connectAdapter, type AdapterConnection } from '../../../infrastructure/acp/client';
+import { adapterPool, supportsSharedProcess, type AdapterLease } from '../../../infrastructure/acp/pool';
 import { randomUUID } from 'crypto';
 import os from 'os';
 import path from 'path';
@@ -31,6 +32,7 @@ import type { AgentSession, PermissionPolicy } from './types';
 import type { Agent } from '../../../models';
 
 interface LiveSession {
+  lease: AdapterLease;
   connection: AdapterConnection;
   /** The adapter's latest stderr: a failed turn's real cause is often only there. */
   stderr: string;
@@ -307,27 +309,32 @@ async function boot(id: string): Promise<LiveSession> {
   catch (error) { updateSession(id, { status: 'error', reason: String(error) }); throw error; }
   // The project folder reaches the agent through session/new. Starting the process there would make npx
   // honor the project's .npmrc (e.g. a corporate registry) when it resolves the adapter itself.
-  const child = startAdapter(command, args, env);
-  const connection = await connectAdapter(child, { update: event => update(id, event), permission: request => requestDeveloperPermission(id, request) });
-  const state: LiveSession = { connection, stderr: '', process: child, busy: false, stopping: false, loading: !!session.acp_session_id,
-    cancelled: false, gitForTurn: false, turnId: '', turnAbort: null, idleSince: Date.now(), text: '', textType: '', permissions: new Map() };
-  live.set(id, state);
-  let stderr = '';
-  child.stderr!.on('data', chunk => { stderr = (stderr + chunk.toString()).slice(-8000); state.stderr = stderr; });
+  let state: LiveSession | undefined;
   const failed = (reason: string) => {
-    if (state.stopping) return;
+    if (!state || state.stopping) return;
     state.stopping = true;
+    state.turnAbort?.abort();
     flush(id, state);
     for (const pending of state.permissions.values()) pending.resolve({ outcome: { outcome: 'cancelled' } });
-    connection.close();
+    state.permissions.clear();
     live.delete(id);
+    const stopped = state.lease.release().finally(() => {
+      if (stoppingProcesses.get(id) === stopped) stoppingProcesses.delete(id);
+    });
+    stoppingProcesses.set(id, stopped);
+    void stopped.catch(error => console.error('[agents] failed process cleanup:', error));
     updateSession(id, { status: 'error', reason });
     sessionSignals.emit('error-state', id, reason);
   };
-  child.on('error', e => failed(e.message));
-  child.on('exit', code => failed(`Адаптер завершился (${code}). ${stderr}`));
-  const exited = new Promise<void>(resolve => child.once('exit', () => resolve()));
-  const timeout = setTimeout(() => { failed('Адаптер не ответил за 90 секунд'); void terminate(child.pid); }, 90_000);
+  const launch = launchCommand(agent);
+  const lease = await adapterPool.acquire({ command, args, env, version: APP_VERSION,
+    shared: supportsSharedProcess(launch.command, launch.args) }, {
+    update: event => update(id, event), permission: request => requestDeveloperPermission(id, request), failed,
+  });
+  const connection = lease.connection;
+  state = { lease, connection, get stderr() { return lease.stderr; }, process: lease.process, busy: false, stopping: false, loading: !!session.acp_session_id,
+    cancelled: false, gitForTurn: false, turnId: '', turnAbort: null, idleSince: Date.now(), text: '', textType: '', permissions: new Map() };
+  live.set(id, state);
   try {
     const initialized = await connection.initialize(APP_VERSION);
     updateSession(id, { metadata: { ...session.metadata, ...initialized } });
@@ -391,16 +398,13 @@ async function boot(id: string): Promise<LiveSession> {
     state.idleSince = Date.now();
     return state;
   } catch (error) {
-    // A dying adapter first surfaces as "ACP connection closed"; give it a moment to exit so the
-    // reason carries its stderr (npm registry errors, crashes) instead.
-    await Promise.race([exited, new Promise(resolve => setTimeout(resolve, 1000))]);
-    const reason = agentFailure(error, stderr);
+    const reason = agentFailure(error, lease.stderr);
     console.error(`[agent ${id}] start failed:`, reason);
     failed(reason);
-    await terminate(child.pid);
+    await lease.release();
     // The caller (and the developer's request) sees the cause too, not only «Internal error».
     throw Object.assign(new Error(reason), { code: (error as { code?: unknown })?.code, cause: error });
-  } finally { clearTimeout(timeout); }
+  }
 }
 export async function setModel(id: string, model: string): Promise<void> {
   const state = live.get(id);
@@ -506,6 +510,7 @@ export async function sendPrompt(id: string, content: ACP.ContentBlock[], gitFor
     ...(briefing ? { briefed: true } : {}) } });
   addEvent(id, 'user', { content, text, ...(withBriefing ? { briefing: true } : {}) });
   void state.connection.prompt({ sessionId: session.acp_session_id!, prompt }).then(result => {
+    if (state.stopping) return;
     flush(id, state);
     addEvent(id, 'turn_end', { stopReason: result.stopReason });
     const latest = getSession(id);
@@ -574,16 +579,22 @@ export async function cancelSession(id: string): Promise<void> {
   await state.connection.cancel({ sessionId: getSession(id).acp_session_id! });
 }
 export async function closeSession(id: string): Promise<void> {
+  await starting.get(id)?.catch(() => {});
   const state = live.get(id);
   if (!state) { await stoppingProcesses.get(id); return; }
-  await cancelSession(id).catch(() => {});
+  if (state.stopping) { await stoppingProcesses.get(id); return; }
   state.stopping = true;
+  const cancelled = cancelSession(id).catch(() => {});
   flush(id, state);
-  state.connection.close();
-  await terminate(state.process.pid);
   live.delete(id);
+  const stopped = cancelled.then(() => state.lease.release()).finally(() => {
+    if (stoppingProcesses.get(id) === stopped) stoppingProcesses.delete(id);
+  });
+  stoppingProcesses.set(id, stopped);
+  await stopped;
 }
 export async function shutdownSessions(): Promise<void> {
+  await Promise.allSettled(starting.values());
   await Promise.all([...live.keys()].map(closeSession));
   await Promise.all(stoppingProcesses.values());
 }
@@ -592,8 +603,7 @@ export function stopIdleSessions(now = Date.now()): void {
   const stop = (id: string, state: LiveSession) => {
     state.stopping = true;
     live.delete(id);
-    state.connection.close();
-    const stopped = terminate(state.process.pid)
+    const stopped = state.lease.release()
       .catch(error => console.error('[agents] idle stop failed:', error))
       .finally(() => { if (stoppingProcesses.get(id) === stopped) stoppingProcesses.delete(id); });
     stoppingProcesses.set(id, stopped);
