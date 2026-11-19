@@ -3,7 +3,7 @@ import { Router, Request, Response } from 'express';
 import { listAgents, getAgent, createAgent, updateAgent, deleteAgent, updateAgentCli, type AgentInput } from '../../../core/agents/catalog';
 import { agentLimits } from '../../../core/agents/catalog/limits';
 import { agentPresets } from '../../../core/agents/catalog/presets';
-import { agentOptions, cachedAgentOptions } from '../../../core/agents';
+import { agentOptions, cachedAgentOptions, prepareAgentProxyChange } from '../../../core/agents';
 
 export const agentsRouter = Router();
 const agentsRouterRoutes = typedRoutes(agentsRouter, '/api/agents');
@@ -33,10 +33,11 @@ agentsRouterRoutes.json('GET /api/agents/:id/acp-options', async (req, res) => {
   catch (e) { res.status(502).json({ error: e instanceof Error ? e.message : String(e) }); }
 });
 
-const FIELDS = ['name', 'acp_command', 'acp_args', 'env', 'command', 'update_command', 'layout_profile', 'model', 'reasoning_effort', 'active'] as const;
+const FIELDS = ['name', 'acp_command', 'acp_args', 'env', 'command', 'update_command', 'layout_profile', 'model', 'reasoning_effort', 'active', 'use_proxy'] as const;
 const pick = (body: Record<string, unknown>) => Object.fromEntries(FIELDS.filter(f => body[f] !== undefined).map(f => [f, body[f]])) as Partial<AgentInput>;
 
 agentsRouterRoutes.json('POST /api/agents', (req, res) => {
+  if (req.body?.use_proxy !== undefined && typeof req.body.use_proxy !== 'boolean') return res.status(400).json({ error: 'use_proxy must be a boolean' });
   const data = pick(req.body);
   if (!data.name?.trim()) return res.status(400).json({ error: 'Укажите название агента' });
   if (!data.acp_command?.trim()) return res.status(400).json({ error: 'Укажите команду ACP-адаптера' });
@@ -44,10 +45,20 @@ agentsRouterRoutes.json('POST /api/agents', (req, res) => {
   catch (e) { res.status(400).json({ error: /UNIQUE/.test(String(e)) ? 'Агент с таким названием уже есть' : String(e) }); }
 });
 
-agentsRouterRoutes.json('PATCH /api/agents/:id', (req, res) => {
-  const a = updateAgent(req.params.id, pick(req.body));
-  if (!a) return res.status(404).json({ error: 'Not found' });
-  res.json(a);
+agentsRouterRoutes.json('PATCH /api/agents/:id', async (req, res) => {
+  if (req.body?.use_proxy !== undefined && typeof req.body.use_proxy !== 'boolean') return res.status(400).json({ error: 'use_proxy must be a boolean' });
+  let release: (() => void) | undefined;
+  try {
+    if (req.body?.use_proxy !== undefined && getAgent(req.params.id)?.use_proxy !== req.body.use_proxy)
+      release = await prepareAgentProxyChange(req.params.id);
+    const a = updateAgent(req.params.id, pick(req.body));
+    if (!a) return res.status(404).json({ error: 'Not found' });
+    res.json(a);
+  } catch (error) {
+    res.status(409).json({ error: (error as Error).message });
+  } finally {
+    release?.();
+  }
 });
 
 agentsRouterRoutes.json('POST /api/agents/:id/update', async (req, res) => {

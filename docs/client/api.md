@@ -4,6 +4,15 @@ Every feature owns server calls in `api.ts`. Bind endpoint keys from the common
 contract there; components and stores call the feature API. This keeps request
 paths and transport details out of screens.
 
+Global agent proxy configuration uses `GET`/`PUT /api/settings/agent-proxy`.
+Passwords are write-only: an omitted password retains it on the same server and
+username, an empty password removes it, and changing server/username clears the
+old password unless a replacement is supplied. `POST /api/settings/agent-proxy/check`
+tests upstream CONNECT to the Codex and Claude API hosts without model requests.
+`Agent.use_proxy` is edited through the existing agent endpoint. The settings
+screen exposes its switch on each agent card and the global configuration in
+the Proxy section; commands through Plangent retain their own environment.
+
 The library text editor uses `GET /api/library/instruction-text` with `type`,
 `scope` and, for project scope, `projectId`. The response contains effective,
 own, inherited and built-in text; clients do not resolve inheritance with list

@@ -16,6 +16,8 @@ behavior, ownership, cancellation and migration compatibility.
 Colocated tests cover local policies and the MCP registry.
 
 The test command preloads `server/tests/support/environment.cjs`.
+It isolates both the database directory and OS temporary files for every worker,
+including command logs, so tests cannot clear logs of the hosting Plangent process.
 Native modules must match the Node ABI; tests do not rebuild them.
 Electron packaging rebuilds native modules for Electron, so use typecheck/build
 for ordinary verification. Platform vault behavior needs release smoke tests

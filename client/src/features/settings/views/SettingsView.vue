@@ -21,6 +21,7 @@
           <template #title>{{ a.name }}</template>
           <template #subtitle><code class="agent-cmd">{{ launchLine(a) }}</code></template>
           <template #actions>
+            <AppSwitch :model-value="a.use_proxy" :disabled="proxySaving.has(a.id)" :aria-label="'Использовать прокси: ' + a.name" @update:model-value="toggleProxy(a, $event)">Использовать прокси</AppSwitch>
             <AppButton variant="ghost" size="sm" :disabled="checking.has(a.id)" title="Запустить агента и узнать, что он умеет" @click="check(a)">
               {{ checking.has(a.id) ? 'Проверка…' : 'Проверить' }}
             </AppButton>
@@ -57,6 +58,8 @@
         </AppItemCard>
       </div>
     </div>
+
+    <div v-if="tab === 'proxy'" class="tab-body"><AgentProxySettings /></div>
 
     <!-- Skills (global) -->
     <div v-if="tab === 'skills'" class="tab-body">
@@ -191,6 +194,8 @@
 import { LIBRARY_SECTIONS } from '../../../../../common/library-registry'
 import AppEmptyState from '@shared/ui/AppEmptyState.vue'
 import { agentsEndpoints } from '@features/agents'
+import AgentProxySettings from '../components/AgentProxySettings.vue'
+import { AppSwitch } from '@shared/ui'
 
 import { ref, computed, onMounted, provide, watch } from 'vue'
 import { useRoute } from 'vue-router'
@@ -237,11 +242,12 @@ provide(libraryAgentKey, { open: text => {
 // Every text editor below sits under the page header, so they skip their own title.
 provide(pageTitledKey, true)
 
-const tab = ref<Tab>(route.query.tab === 'connections' ? 'connections' : 'agents')
+const tab = ref<Tab>(route.query.tab === 'connections' ? 'connections' : route.query.tab === 'proxy' ? 'proxy' : 'agents')
 watch(tab, () => { agentRequest.value = null })
 const page = computed(() => navTreePage(SETTINGS_NAV, tab.value))
 // What the page is for, under its title — the same place a project's settings say it.
 const description = computed(() => ({
+  proxy: 'Общий прокси для выбранных агентов. HTTP, HTTPS и SOCKS5.',
   agents: 'Агенты подключаются по ACP (Agent Client Protocol). Plangent сам отвечает на их запросы разрешений, поэтому режимы «без подтверждений» агента не нужны.',
   'git-agents': 'Действуют во всех проектах и группах, где агенты не выбраны в их настройках → «Git» → «Агенты».',
   'review-agent': 'Действует во всех проектах и группах, где агент не выбран в их настройках → «Ревью» → «Агенты».',
@@ -254,7 +260,7 @@ const description = computed(() => ({
   commands: 'Агенты запускают команды через Plangent. Здесь ограничивается, сколько тяжёлых команд (тесты, сборка, линтеры) выполняется одновременно на этом компьютере.',
   'plan-review': 'Общие проверки плана действуют во всех проектах всегда. Свои требования проекта или группы пишутся скиллами в их настройках → «Ревью» → «План».',
 } as Partial<Record<Tab, string>>)[tab.value])
-watch(() => route.query.tab, t => { if (t === 'connections') tab.value = t })
+watch(() => route.query.tab, t => { if (t === 'connections' || t === 'proxy') tab.value = t })
 
 // ── Agents ────────────────────────────────────────────────────────────────────
 
@@ -262,6 +268,17 @@ const presets = ref<Record<string, AgentPreset>>({})
 const loadingPresets = ref(true)
 const showAgentModal = ref(false)
 const editAgent = ref<Agent | null>(null)
+const proxySaving = ref(new Set<string>())
+async function toggleProxy(agent: Agent, enabled: boolean) {
+  proxySaving.value.add(agent.id)
+  try {
+    await agentsStore.update(agent.id, { use_proxy: enabled })
+    delete chatStore.agentOptions[agent.id]
+    if (editAgent.value?.id === agent.id) editAgent.value = { ...editAgent.value, use_proxy: enabled }
+    appStore.toast(enabled ? 'Агент использует глобальный прокси' : 'Прокси агента отключён', 'success')
+  } catch (error) { appStore.toast(String(error), 'error') }
+  finally { proxySaving.value.delete(agent.id) }
+}
 
 const defaultAgentForm = () => ({
   name: '', acp_command: '', acp_args: '[]', env: '{}',
@@ -364,6 +381,7 @@ async function saveAgent() {
   const f = agentForm.value
   const data = {
     name: f.name.trim(),
+    use_proxy: editAgent.value?.use_proxy ?? false,
     acp_command: f.acp_command.trim(), acp_args: acpArgs, env: envParsed,
     model: f.model, reasoning_effort: f.reasoning_effort,
     layout_profile: formToLayout(),

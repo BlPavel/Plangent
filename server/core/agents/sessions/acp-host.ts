@@ -22,7 +22,7 @@ import { addEvent, getSession, history, toolCallPayload, updateSession, updateAg
 import { getAcpOptions, saveAcpOptions, type AcpOptions } from '../catalog/acp-options';
 import { enqueue, queuedPrompts, editQueued } from './prompt-queue';
 import { permissionDecision, shellGitDecision, commandToolAvailable, COMMAND_REDIRECT_REASON } from './permissions';
-import { agentEnv } from './env';
+import { resolvedAgentEnv } from './env';
 import { agentSessionSettings } from './session-settings';
 import { isBypassMode, selectSessionMode } from './session-modes';
 import { APP_VERSION } from '../../shared';
@@ -52,6 +52,7 @@ interface LiveSession {
 const live = new Map<string, LiveSession>();
 const starting = new Map<string, Promise<LiveSession>>();
 const stoppingProcesses = new Map<string, Promise<void>>();
+const changingProxy = new Set<string>();
 export const sessionSignals = new EventEmitter();
 let mcpConfig: (session: AgentSession, http: boolean) => ACP.McpServer[] = () => [];
 const terminate = stopAdapter;
@@ -94,11 +95,12 @@ export function agentOptions(agentId: string, refresh = false): Promise<AcpOptio
   return probeAgent(agentId);
 }
 function probeAgent(agentId: string): Promise<AcpOptions> {
+  if (changingProxy.has(agentId)) return Promise.reject(new Error('Настройки прокси агента изменяются. Повторите запрос.'));
   if (probes.has(agentId)) return probes.get(agentId)!;
   const job = (async () => {
     const agent = getAgent(agentId);
     if (!agent) throw new Error('Агент не найден');
-    const env = agentEnv(process.env, agent.env);
+    const env = await resolvedAgentEnv(agent);
     const { command, args } = await adapterCommand(agent, env);
     const child = startAdapter(command, args, env);
     let commands: { name: string; description: string }[] = [];
@@ -115,7 +117,7 @@ function probeAgent(agentId: string): Promise<AcpOptions> {
       return await Promise.race([
         (async () => {
           const init = await connection.initialize(APP_VERSION);
-          const response = await connection.newSession({ cwd: os.tmpdir(), mcpServers: [], ...agentSessionSettings(agent) });
+          const response = await connection.newSession({ cwd: os.tmpdir(), mcpServers: [], ...agentSessionSettings(agent, env) });
           let commandsTimer: ReturnType<typeof setTimeout> | undefined;
           await Promise.race([receivedCommands, new Promise<void>(resolve => { commandsTimer = setTimeout(resolve, 1500); })]);
           clearTimeout(commandsTimer);
@@ -288,7 +290,9 @@ export async function authorizeCommand(id: string, title: string, signal: AbortS
   return allowed && !state.cancelled && !state.stopping && state.turnAbort?.signal === signal && !signal.aborted;
 }
 export async function startSession(id: string): Promise<LiveSession> {
+  if (changingProxy.has(getSession(id).agent_id)) throw new Error('Настройки прокси агента изменяются. Повторите запрос.');
   await stoppingProcesses.get(id);
+  if (changingProxy.has(getSession(id).agent_id)) throw new Error('Настройки прокси агента изменяются. Повторите запрос.');
   if (starting.has(id)) return starting.get(id)!;
   if (live.has(id)) return live.get(id)!;
   const promise = boot(id);
@@ -303,9 +307,11 @@ async function boot(id: string): Promise<LiveSession> {
   if (session.task_id && !session.metadata.mr_private) moduleDependencies.workspaces.assertTaskWorkspaceReady(session.task_id);
   const sessionRoot = await moduleDependencies.workspaces.rootForSession(session);
   updateSession(id, { status: 'starting', reason: '' });
-  const env = agentEnv(process.env, agent.env, project.config.extra_env, moduleDependencies.workspaces.envForSession(session));
-  let command: string, args: string[];
-  try { ({ command, args } = await adapterCommand(agent, env)); }
+  let command: string, args: string[], env: NodeJS.ProcessEnv;
+  try {
+    env = await resolvedAgentEnv(agent, project.config.extra_env, moduleDependencies.workspaces.envForSession(session));
+    ({ command, args } = await adapterCommand(agent, env));
+  }
   catch (error) { updateSession(id, { status: 'error', reason: String(error) }); throw error; }
   // The project folder reaches the agent through session/new. Starting the process there would make npx
   // honor the project's .npmrc (e.g. a corporate registry) when it resolves the adapter itself.
@@ -342,7 +348,7 @@ async function boot(id: string): Promise<LiveSession> {
     let response: ACP.NewSessionResponse | ACP.LoadSessionResponse;
     // A group works in its service folder; its projects live elsewhere and join the session's scope.
     const extra = (await moduleDependencies.workspaces.writableRootsForSession(session)).slice(1);
-    const where = { cwd: sessionRoot, mcpServers, ...agentSessionSettings(agent),
+    const where = { cwd: sessionRoot, mcpServers, ...agentSessionSettings(agent, env),
       ...(extra.length && initialized.agentCapabilities?.sessionCapabilities?.additionalDirectories ? { additionalDirectories: extra } : {}) };
     if (session.acp_session_id && initialized.agentCapabilities?.loadSession) {
       try {
@@ -597,6 +603,16 @@ export async function shutdownSessions(): Promise<void> {
   await Promise.allSettled(starting.values());
   await Promise.all([...live.keys()].map(closeSession));
   await Promise.all(stoppingProcesses.values());
+}
+/** Route switches apply to existing chats before their next turn. Never interrupt an active turn. */
+export async function prepareAgentProxyChange(agentId: string): Promise<() => void> {
+  if (changingProxy.has(agentId) || probes.has(agentId)) throw new Error('Дождитесь окончания проверки агента перед сменой прокси');
+  const ids = [...new Set([...live.keys(), ...starting.keys()])].filter(id => getSession(id).agent_id === agentId);
+  if (ids.some(id => starting.has(id) || live.get(id)?.busy)) throw new Error('Дождитесь окончания хода агента перед сменой прокси');
+  changingProxy.add(agentId);
+  try { await Promise.all(ids.map(closeSession)); }
+  catch (error) { changingProxy.delete(agentId); throw error; }
+  return () => changingProxy.delete(agentId);
 }
 /** Reclaim idle processes for every adapter. Owners explicitly mark finished short-lived work. */
 export function stopIdleSessions(now = Date.now()): void {

@@ -8,6 +8,7 @@ function parse(row: Record<string, unknown>): Agent {
     acp_command: (row.acp_command as string) ?? '',
     acp_args: JSON.parse(row.acp_args as string || '[]'),
     env: JSON.parse(row.env as string || '{}'),
+    use_proxy: Boolean(row.use_proxy),
     command: row.command as string,
     update_command: row.update_command as string,
     layout_profile: row.layout_profile ? JSON.parse(row.layout_profile as string) : null,
@@ -35,8 +36,8 @@ export type AgentInput = Partial<Omit<Agent, 'id' | 'created_at'>> & { name: str
 export function createAgent(data: AgentInput): Agent {
   const id = uuidv4();
   getDb().prepare(`
-    INSERT INTO agents (id, name, acp_command, acp_args, env, command, update_command, layout_profile, model, reasoning_effort)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO agents (id, name, acp_command, acp_args, env, command, update_command, layout_profile, model, reasoning_effort, use_proxy)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
     data.name,
@@ -48,6 +49,7 @@ export function createAgent(data: AgentInput): Agent {
     data.layout_profile ? JSON.stringify(data.layout_profile) : null,
     data.model ?? '',
     data.reasoning_effort ?? '',
+    data.use_proxy ? 1 : 0,
   );
   return getAgent(id)!;
 }
@@ -57,11 +59,11 @@ export function updateAgent(id: string, data: Partial<Omit<Agent, 'id' | 'create
   if (!current) return null;
   const u = { ...current, ...data, layout_profile: data.layout_profile !== undefined ? data.layout_profile : current.layout_profile };
   getDb().prepare(`
-    UPDATE agents SET name=?, acp_command=?, acp_args=?, env=?, command=?, update_command=?, layout_profile=?, model=?, reasoning_effort=?, active=? WHERE id=?
+    UPDATE agents SET name=?, acp_command=?, acp_args=?, env=?, command=?, update_command=?, layout_profile=?, model=?, reasoning_effort=?, active=?, use_proxy=? WHERE id=?
   `).run(
     u.name, u.acp_command, JSON.stringify(u.acp_args), JSON.stringify(u.env), u.command, u.update_command,
     u.layout_profile ? JSON.stringify(u.layout_profile) : null,
-    u.model, u.reasoning_effort, u.active ? 1 : 0, id,
+    u.model, u.reasoning_effort, u.active ? 1 : 0, u.use_proxy ? 1 : 0, id,
   );
   return getAgent(id);
 }

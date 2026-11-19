@@ -1,4 +1,5 @@
 import './core-services';
+import { shutdownAgentProxy } from './core/settings';
 import { initializeAgentPresets } from './core/agents/catalog/seed';
 import { recoverWorkspaces } from './core/workspaces/recovery';
 import { initWorkEvents } from './core/work/events';
@@ -67,7 +68,10 @@ export async function startServer(port = DEFAULT_PORT, vault?: SecretVault): Pro
   });
 }
 
-export async function shutdown(): Promise<void> { await Promise.all([shutdownSessions(), shutdownTerminals()]); }
+export async function shutdown(): Promise<void> {
+  await shutdownAgentProxy();
+  await Promise.all([shutdownSessions(), shutdownTerminals()]);
+}
 process.once('SIGTERM', () => { void shutdown().finally(() => process.exit()); });
 process.once('SIGINT', () => { void shutdown().finally(() => process.exit()); });
 

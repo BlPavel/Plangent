@@ -1,4 +1,5 @@
 import { moduleDependencies } from './dependencies';
+export { agentProxySettings, saveAgentProxy, agentProxyUrl, checkAgentProxy, shutdownAgentProxy } from './agent-proxy';
 import * as queries from '../../infrastructure/db/repositories/settings/index';
 export function readSetting(key: string) {
   const row = queries.rowSelectAppSettings(key) as { value: string; updated_at: string } | undefined;

@@ -4,6 +4,42 @@
 `core/agents/sessions/` owns state, prompt queues, modes and permissions.
 Consumers import the public `core/agents` API.
 
+## Agent proxy
+
+The global proxy lives in `core/settings/agent-proxy.ts`; `Agent.use_proxy`
+selects it per agent (off for existing and new agents). Credentials are encrypted
+with the configured secret vault and never returned by the settings API. The
+address accepts HTTP, HTTPS, SOCKS5 and SOCKS5h; an optional PEM CA augments trust
+for the HTTPS connection to the proxy. TLS verification remains enabled.
+
+`infrastructure/agent-proxy/` runs an authenticated loopback HTTP/CONNECT gateway.
+It dials only the configured upstream, with no direct fallback. SOCKS5 resolves
+provider hostnames remotely. Adapters receive only temporary local credentials;
+corporate credentials stay in the server. The gateway supports streaming and
+CONNECT tunnels, including TLS/WebSocket traffic. Saving proxy settings closes
+existing tunnels; clearing the address blocks selected agents.
+
+`resolvedAgentEnv` applies this route after host, agent, project and workspace
+environment layers, replacing both cases of proxy variables and inherited
+`NO_PROXY` exceptions. Only loopback bypasses the proxy for Plangent MCP. Claude
+also receives these values in programmatic settings, above user/project settings.
+The same resolver covers sessions, options probes and usage-limit CLI launches.
+The switch closes idle sessions before changing their route and refuses changes
+during an active turn or options probe. The adapter pool separates environments.
+Codex's adapter session config disables alternative system-proxy/PAC features;
+Claude is also configured to resolve target hostnames through the proxy.
+
+Shell commands through `run_command`, terminals, Git, agent installation updates
+and other application integrations keep their own network environment. Installing
+an adapter during a proxied launch inherits that launch's proxy environment.
+This is application routing for clients that honor their proxy settings, not an
+OS sandbox for arbitrary code. Codex and Claude native runtime smoke tests use
+fake credentials and local APIs; opt in with `PLANGENT_PROXY_CLI_TESTS=1` when
+their adapters are installed under `data/adapters/` (Claude smoke path: Windows).
+
+Transport tests cover HTTP/HTTPS, CA verification, authenticated SOCKS5, streaming,
+unavailable/auth-rejecting proxies, credential isolation and closing old tunnels.
+
 Agent presets use the shared `AgentPreset` contract. Optional `env` defaults
 are copied into the settings form when a preset is applied; credentials in
 shipped presets stay empty. Applying a preset clears model/effort overrides

@@ -4,6 +4,7 @@ import { getAgent } from './index';
 
 import type { Agent } from '../../../models';
 import { APP_VERSION } from '../../shared';
+import { resolvedAgentEnv, enforceAgentProxy } from '../sessions/env';
 
 // Subscription limits read straight from the agent CLI's own account endpoints. These are account
 // reads (what `/usage` and `/status` show), not model calls, so polling costs no tokens or quota.
@@ -22,9 +23,14 @@ function provider(agent: Agent): 'claude' | 'codex' | null {
 }
 
 /** Spawns `command args`, writes the given JSON lines and resolves with the first reply `pick` accepts. */
-function rpc<T>(agent: Agent, command: string, args: string[], lines: (reply: Record<string, unknown> | null) => unknown[], pick: (msg: Record<string, unknown>) => T | undefined): Promise<T> {
+async function rpc<T>(agent: Agent, command: string, args: string[], lines: (reply: Record<string, unknown> | null) => unknown[], pick: (msg: Record<string, unknown>) => T | undefined): Promise<T> {
+  const env = await resolvedAgentEnv(agent);
+  const launchArgs = agent.use_proxy && provider(agent) === 'claude' && env.HTTPS_PROXY
+    ? [...args, '--settings', JSON.stringify({ env: enforceAgentProxy({}, env.HTTPS_PROXY) })]
+    : agent.use_proxy && provider(agent) === 'codex'
+      ? [...args, '-c', 'features.respect_system_proxy=false', '-c', 'features.system_proxy_fallback=false'] : args;
   return new Promise((resolve, reject) => {
-    const child = startAdapter(command, args, { ...process.env, ...agent.env }, false);
+    const child = startAdapter(command, launchArgs, env, false);
     let buffer = '', done = false, stderr = '';
     const finish = (error: Error | null, value?: T) => {
       if (done) return;

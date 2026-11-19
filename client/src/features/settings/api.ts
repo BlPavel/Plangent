@@ -1,6 +1,9 @@
 import { endpoint } from '@core/api/endpoint'
 
 export const settingsEndpoints = {
+  getAgentProxy: endpoint('GET /api/settings/agent-proxy'),
+  putAgentProxy: endpoint('PUT /api/settings/agent-proxy'),
+  checkAgentProxy: endpoint('POST /api/settings/agent-proxy/check'),
   savePassword: (kind: string, id: string, password: string) => {
     if (kind === 'connections') return settingsEndpoints.putIntegrationsConnectionsByIdPassword({ params: { id }, body: { password } })
     if (kind === 'credentials') return settingsEndpoints.putIntegrationsCredentialsByIdPassword({ params: { id }, body: { password } })

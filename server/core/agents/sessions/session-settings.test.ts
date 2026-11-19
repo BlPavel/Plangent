@@ -11,3 +11,14 @@ test('Claude sessions disable attribution and bypass; other adapters keep their 
   }
   assert.deepEqual(agentSessionSettings(base), {});
 });
+
+test('Claude programmatic settings pin the proxy over settings.json without forwarding unrelated secrets', () => {
+  const agent = { id: 'agent-claude', command: 'claude', acp_command: '', acp_args: [], use_proxy: true };
+  const env = { HTTPS_PROXY: 'http://local:123', https_proxy: 'http://local:123', NO_PROXY: 'localhost', OPENAI_API_KEY: 'private' };
+  const options = agentSessionSettings(agent, env)._meta!.claudeCode.options;
+  assert.equal(options.settings.env!.HTTPS_PROXY, env.HTTPS_PROXY);
+  assert.equal(options.settings.env!.https_proxy, env.https_proxy);
+  assert.equal(options.settings.env!.NO_PROXY, '127.0.0.1,localhost,::1');
+  assert.equal(options.settings.env!.OPENAI_API_KEY, undefined);
+  assert.equal(agentSessionSettings({ ...agent, use_proxy: false }, env)._meta!.claudeCode.options.settings.env, undefined);
+});

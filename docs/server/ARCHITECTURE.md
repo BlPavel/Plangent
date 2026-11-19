@@ -44,7 +44,7 @@ Delivery lives in `api/http/` (including `routes/`, `typed-route.ts` and
 `local-origin.ts`), `api/ws/` and `api/mcp/`.
 Infrastructure owns `db/` (connection, transactions, ordered `migrations/` and
 per-domain `repositories/`), `git/`, `code-hosts/`, `http-client/`, `acp/`,
-`docs-sources/`, `secrets/`, `files/` and `terminal/`.
+`docs-sources/`, `secrets/`, `files/`, `agent-proxy/` and `terminal/`.
 Integration tests live in `server/tests/<domain>/`; `tests/support/` provides
 isolated databases, Git repositories and the mock ACP agent.
 Client tests live in `client/tests/`. `scripts/` owns build/runtime setup,

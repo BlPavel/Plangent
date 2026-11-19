@@ -11,7 +11,7 @@ import { getAgent, updateAgent as persistAgent } from '../../../infrastructure/d
 export function updateAgent(id: string, data: Partial<Omit<Agent, 'id' | 'created_at'>>): Agent | null {
   const current = getAgent(id);
   const updated = persistAgent(id, data);
-  const connection = (a: Agent) => JSON.stringify([a.acp_command, a.acp_args, a.env]);
+  const connection = (a: Agent) => JSON.stringify([a.acp_command, a.acp_args, a.env, a.use_proxy]);
   if (current && updated && connection(current) !== connection(updated)) clearAcpOptions(id);
   return updated;
 }

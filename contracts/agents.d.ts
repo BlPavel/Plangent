@@ -29,6 +29,8 @@ export interface Agent {
     acp_command: string;
     acp_args: string[];
     env: Record<string, string>;
+    /** Route this agent's connections through the global proxy. */
+    use_proxy: boolean;
     // Plain CLI: used to read usage limits; update_command updates it.
     command: string;
     update_command: string;
