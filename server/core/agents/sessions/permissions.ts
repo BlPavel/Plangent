@@ -5,11 +5,27 @@ import type { AgentSession, PermissionPolicy } from './types';
 type ToolCall = RequestPermissionRequest['toolCall'];
 let isApplicationToolCall: (tool: ToolCall) => boolean = () => false;
 export function configureApplicationTools(recognize: (tool: ToolCall) => boolean): void { isApplicationToolCall = recognize; }
-let hasCommandTool: (session: AgentSession) => boolean = () => false;
-/** Whether the session can run shell commands through Plangent's `run_command`; its own shell is then refused. */
-export function configureCommandTool(available: (session: AgentSession) => boolean): void { hasCommandTool = available; }
-export const commandToolAvailable = (session: AgentSession) => hasCommandTool(session);
-export const COMMAND_REDIRECT_REASON = 'Shell commands run through the Plangent run_command tool (heavy: true for tests, builds, linters and type checks). Use it instead of your own shell. Plain file reads, listings and searches (cat, Get-Content, ls, rg) may use your own shell.';
+let toolAvailable: (session: AgentSession, tool: 'run_command' | 'git_action') => boolean = () => false;
+export function configureSessionToolAvailability(available: typeof toolAvailable): void { toolAvailable = available; }
+export const commandToolAvailable = (session: AgentSession) => toolAvailable(session, 'run_command');
+const NATIVE_READ_GUIDANCE = 'Use native file tools or a single plain shell command for file reads, listings and searches. A single read-only Git command such as git status or git diff may also use the native shell.';
+export const COMMAND_REDIRECT_REASON = NATIVE_READ_GUIDANCE + " For simple native shell writes use Set-Content or Add-Content with -LiteralPath and -Value, or New-Item -Path with -ItemType File and optional -Value. Use a single command, an absolute path and single-quoted literals. Use native editing tools for other file changes when supported. Run tests, builds, linters and type checks through Plangent run_command with heavy: true. Use run_command for other shell commands. If native execution was refused because of routing, continue through the appropriate permitted tool.";
+export function gitToolGuidance(session: AgentSession): string {
+  return toolAvailable(session, 'git_action')
+    ? 'Use Plangent git_action for Git changes and publishing. If an action is cancelled, stop that operation and report it.'
+    : 'Plangent git_action is unavailable in this session. Leave repository changes to the developer or the applicable Plangent workflow.';
+}
+export function commandBriefing(session: AgentSession): string {
+  const commands = session.policy !== 'read-only' && commandToolAvailable(session)
+    ? COMMAND_REDIRECT_REASON
+    : NATIVE_READ_GUIDANCE;
+  return [
+    commands,
+    'Never use shell commands for Git changes.',
+    gitToolGuidance(session),
+    'After a tool failure, check the reason. If the tool was unsuitable or the call was malformed, continue with the correct available tool or arguments. Respect denied permissions and cancelled approvals. Continue independent work and report the specific blocker if the requested operation cannot proceed.',
+  ].join('\n');
+}
 import { isInside } from '../../shared';
 
 export const dangerousCommands = ['git push --force', 'git reset --hard', 'rm -rf', 'git clean -fd'];
@@ -97,6 +113,35 @@ function toolStrings(value: unknown): string[] {
 export interface FolderScope { writable: string[]; readOnly?: string[]; files?: string[]; restrictWrites?: boolean }
 const samePath = (a: string, b: string) => process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b;
 
+// Accept only one text-file cmdlet with literal arguments. An absolute path avoids
+// relying on the adapter's working directory.
+export function plainFileWritePath(command: unknown): string | undefined {
+  if (typeof command !== 'string' || /[\x00-\x1f\x7f%"\x60\u2018-\u201f]/.test(command)) return;
+  const text = command.trim();
+  const file = /^(?:Set|Add)-Content +\-LiteralPath +'([^']+)' +\-Value +'[^']*'(?: +\-Encoding +utf8)?$/i.exec(text)?.[1]
+    ?? /^New-Item +\-Path +'([^']+)' +\-ItemType +File(?: +\-Value +'[^']*')?$/i.exec(text)?.[1];
+  return file;
+}
+
+function canWriteShellFile(file: string, scope?: FolderScope): boolean {
+  if (!scope?.writable.length || !path.isAbsolute(file) || /^[\\/]{2}/.test(file)) return false;
+  if (process.platform === 'win32' && !/^[A-Za-z]:[\\/]/.test(file)) return false;
+  const localPath = process.platform === 'win32' ? file.replace(/^[A-Za-z]:/, '') : file;
+  const segments = localPath.split(/[\\/]/).filter(Boolean);
+  if (segments.some(segment => /[:*?\[\]<>|]|[. ]$|^(?:con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])(?:\.|$)/i.test(segment))) return false;
+  try {
+    const target = path.resolve(file);
+    const parent = fs.realpathSync(path.dirname(target));
+    const physical = path.join(parent, path.basename(target));
+    const existing = fs.lstatSync(target, { throwIfNoEntry: false });
+    if (existing && (!existing.isFile() || existing.nlink !== 1)) return false;
+    const protectedPath = (value: string) => /(?:^|[\\/])\.(?:git|agents|codex|aws)(?:[\\/]|$)/i.test(value);
+    if ([target, physical].some(protectedPath)) return false;
+    if (scope.readOnly?.some(root => isInside(root, target) || isInside(physicalPath(root), physical))) return false;
+    return scope.writable.some(root => !samePath(root, target) && isInside(root, target) && isInside(physicalPath(root), physical));
+  } catch { return false; }
+}
+
 /**
  * How Plangent answers an agent's permission request. Automatic approval covers edits inside the
  * writable folders only, so a mistyped absolute path goes to the developer; reference sources are
@@ -115,6 +160,15 @@ export function permissionDecision(policy: PermissionPolicy, request: RequestPer
   if (gitDecision === 'allow' && tool.kind === 'execute' && typeof command === 'string'
       && /^git(?:[ \t]+[A-Za-z0-9_./:@=+\-]+)*[ \t]*$/.test(command)) return 'allow';
   if (tool.kind === 'execute' && raw && typeof raw === 'object' && isPlainReadCommand(raw.command)) return 'allow';
+  if (tool.kind === 'execute' && typeof raw?.command === 'string') {
+    const shellCommand = raw.command;
+    const file = plainFileWritePath(shellCommand);
+    if (file !== undefined) {
+      if (policy === 'read-only' || role === 'conflict-resolver' || role === 'code-fixer' || !canWriteShellFile(file, scope)) return 'deny';
+      if (dangerous.some(rule => shellCommand.toLowerCase().includes(rule.toLowerCase()))) return 'ask';
+      return policy === 'ask' ? 'ask' : 'allow';
+    }
+  }
   if (redirectCommands && tool.kind === 'execute') return 'deny';
   // The conflict resolver reads, runs read-only git and edits only the conflicted files; it never asks the developer.
   if (role === 'conflict-resolver') {

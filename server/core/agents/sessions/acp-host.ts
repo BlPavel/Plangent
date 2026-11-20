@@ -23,7 +23,7 @@ import { broadcast } from '../../shared';
 import { addEvent, getSession, listSessions, history, toolCallPayload, updateSession, updateAgentTitle } from './sessions';
 import { getAcpOptions, saveAcpOptions, type AcpOptions } from '../catalog/acp-options';
 import { enqueue, queuedPrompts, editQueued } from './prompt-queue';
-import { permissionDecision, shellGitDecision, commandToolAvailable, COMMAND_REDIRECT_REASON } from './permissions';
+import { permissionDecision, shellGitDecision, plainFileWritePath, commandToolAvailable, commandBriefing, gitToolGuidance, COMMAND_REDIRECT_REASON } from './permissions';
 import { resolvedAgentEnv } from './env';
 import { agentSessionSettings } from './session-settings';
 import { isBypassMode, selectSessionMode } from './session-modes';
@@ -215,7 +215,9 @@ export async function requestDeveloperPermission(id: string, request: ACP.Reques
       ...(conflictFiles ? { files: conflictFiles } : {}) } : undefined, session.role, redirect);
   const option = request.options.find(o => o.kind === (decision === 'allow' ? 'allow_once' : 'reject_once'));
   const gitDenied = decision === 'deny' && shellGitDecision(toolCall) === 'deny';
-  const gitReason = gitDenied ? 'Shell Git command refused. Request repository changes with the Plangent git_action tool.'
+  const fileWriteDenied = decision === 'deny' && toolCall.kind === 'execute' && plainFileWritePath((toolCall.rawInput as { command?: unknown } | undefined)?.command) !== undefined;
+  const gitReason = gitDenied ? 'Shell Git command refused. ' + gitToolGuidance(session)
+    : fileWriteDenied ? 'Shell file write refused by the session file policy. Check the absolute path and writable folders.'
     : decision === 'deny' && redirect && toolCall.kind === 'execute' ? COMMAND_REDIRECT_REASON : undefined;
   if (decision !== 'ask' && option) {
     addEvent(id, 'permission_result', { title: toolCall.title, toolCallId: toolCall.toolCallId, decision, ...(gitReason ? { gitReason } : {}) });
@@ -510,6 +512,7 @@ export async function sendPrompt(id: string, content: ACP.ContentBlock[], gitFor
     || session.role === 'executor' && session.metadata.step_completed)
     ? 'The assigned work has already been completed. You may read and edit files, answer questions and address follow-up requests or review remarks. Do not call complete_step again; finish with an ordinary reply.' : '';
   const prompt: ACP.ContentBlock[] = [
+    { type: 'text', text: commandBriefing(session) },
     ...(withBriefing ? [{ type: 'text' as const, text: briefing }] : []),
     ...(completedWorkBriefing ? [{ type: 'text' as const, text: completedWorkBriefing }] : []),
     ...(sectionBriefing ? [{ type: 'text' as const, text: sectionBriefing }] : []),

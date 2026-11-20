@@ -3,7 +3,7 @@ import path from 'node:path';
 import { runCommand, readCommandLog } from '../../../infrastructure/terminal/command-runner';
 import { configureSlotLimit } from '../../../infrastructure/terminal/command-slots';
 import { readSetting } from '../../settings';
-import { getProject } from '../../projects';
+import { getProject, readOnlyRoots } from '../../projects';
 import { isInside } from '../../shared';
 import { moduleDependencies } from '../dependencies';
 import { permissionDecision, shellGitDecision, gitToolGuidance } from './permissions';
@@ -29,7 +29,9 @@ async function commandFolder(session: AgentSession, requested: unknown): Promise
 /** Same rules as the agent's own shell: refused, allowed or asked of the developer by the session policy. */
 async function authorize(session: AgentSession, command: string, signal: AbortSignal): Promise<void> {
   const toolCall = { toolCallId: 'run_command', kind: 'execute' as const, title: 'Shell command', rawInput: { command } };
-  const decision = permissionDecision(session.policy, { sessionId: session.id, toolCall, options: [] }, getProject(session.project_id)?.config.dangerous_commands, undefined, session.role);
+  const decision = permissionDecision(session.policy, { sessionId: session.id, toolCall, options: [] },
+    getProject(session.project_id)?.config.dangerous_commands,
+    { writable: await moduleDependencies.workspaces.writableRootsForSession(session), readOnly: readOnlyRoots() }, session.role);
   if (decision === 'allow') return;
   if (decision === 'deny') {
     throw new Error(shellGitDecision(toolCall) === 'deny' ? 'Shell Git command refused. ' + gitToolGuidance(session)

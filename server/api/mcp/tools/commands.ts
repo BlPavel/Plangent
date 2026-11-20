@@ -3,10 +3,10 @@ import { defineTools } from './types';
 
 const definitions = {
   run_command: {
-    description: 'Run a shell command in the project folder and get its exit code and output. Use this instead of your own shell. '
+    description: 'Run commands that require the project environment and get their exit code and output. Use native file tools or a single plain shell command for file reads, listings and searches. A single read-only Git command may also use the native shell. '
       + 'Mark heavy=true (default) for tests, builds, linters and type checks: heavy commands share a limited number of slots across all agents and may wait in a queue. '
-      + 'Mark heavy=false only for quick commands (file edits with sed or scripts, listing, small tools) so they start at once. '
-      + 'Long output is shortened (start and end kept) and the full log stays available through command_output. Never change the Git repository with shell Git commands; use git_action. '
+      + 'Mark heavy=false for quick project commands so they start at once. '
+      + 'Long output is shortened (start and end kept) and the full log stays available through command_output. Git changes require git_action when available. '
       + `The command runs in the platform shell (${process.platform === 'win32' ? 'cmd.exe on Windows' : 'sh'}).`,
     fields: {
       command: { type: 'string', description: 'The command line.' },

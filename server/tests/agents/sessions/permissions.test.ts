@@ -66,6 +66,34 @@ test('edit policy only auto-approves known edit and read operations', () => {
   assert.equal(permissionDecision('ask', request('read', 'Read file')), 'ask');
 });
 
+test('literal shell file writes respect the session policy and writable paths', () => {
+  const root = process.cwd();
+  const file = path.join(root, 'sample file.txt');
+  const scope = { writable: [root], readOnly: [path.join(root, 'docs')] };
+  const write = (command: string) => ({ ...request('execute', 'Write file'),
+    toolCall: { toolCallId: 't', kind: 'execute' as const, rawInput: { command } } });
+  for (const command of [
+    `New-Item -Path '${file}' -ItemType File`,
+    `Set-Content -LiteralPath '${file}' -Value 'updated' -Encoding utf8`,
+    `Add-Content -LiteralPath '${file}' -Value 'more'`,
+  ]) {
+    assert.equal(permissionDecision('allow-edits', write(command), undefined, scope, 'chat', true), 'allow', command);
+    assert.equal(permissionDecision('ask', write(command), undefined, scope, 'chat', true), 'ask', command);
+    assert.equal(permissionDecision('read-only', write(command), undefined, scope, 'executor', true), 'deny', command);
+  }
+  for (const target of ['relative.txt', path.join(root, '.git', 'config'), path.join(root, '.agents', 'skill.md'),
+    path.join(root, 'docs', 'file.txt'), path.resolve(root, '..', 'outside.txt')]) {
+    assert.equal(permissionDecision('allow-all', write(`Set-Content -LiteralPath '${target}' -Value 'text'`), undefined, scope, 'chat', true), 'deny', target);
+  }
+  for (const command of [
+    `Set-Content -LiteralPath '${file}' -Value 'text'; npm test`,
+    `Set-Content -LiteralPath '${file}' -Value (Get-Content source.txt)`,
+    'npm test',
+  ]) {
+    assert.equal(permissionDecision('allow-all', write(command), undefined, scope, 'chat', true), 'deny', command);
+  }
+});
+
 test('shell git writes are denied for every role and policy', () => {
   for (const role of [undefined, 'executor', 'analyst', 'code-fixer', 'librarian', 'planner']) {
     for (const policy of ['ask', 'allow-all', 'allow-edits', 'read-only'] as const) {

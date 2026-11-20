@@ -11,11 +11,11 @@ import { getProject } from '../../core/projects';
 import type { AgentSession } from '../../core/agents';
 import { getFinish } from '../../core/git/finish';
 import { tools, type PlangentTool } from './tools';
-import { configureApplicationTools, configureCommandTool } from '../../core/agents';
+import { configureApplicationTools, configureSessionToolAvailability } from '../../core/agents';
 import { isPlangentToolCall } from './plangent-tools';
 
 configureApplicationTools(isPlangentToolCall);
-configureCommandTool(session => allowed(session).includes('run_command'));
+configureSessionToolAvailability((session, tool) => allowed(session).includes(tool));
 const tokens = new Map<string, string>();
 export function sessionMcpConfig(session: AgentSession, http: boolean): McpServer[] {
   const token = randomBytes(32).toString('hex');

@@ -8,7 +8,7 @@ export { configureSessionHost, cachedAgentOptions, agentOptions, isBypassMode, r
 export * from './sessions/one-shot';
 export type * from './sessions/types';
 export * from './work';
-export { configureApplicationTools, configureCommandTool } from './sessions/permissions';
+export { configureApplicationTools, configureSessionToolAvailability } from './sessions/permissions';
 export { runSessionCommand, readSessionCommandOutput } from './sessions/shell-commands';
 export { CHAT_IDLE_MS, COMPLETED_WORK_IDLE_MS } from './sessions/idle-policy';
 export { configureDependencies as configureAgentsDependencies } from './dependencies';

@@ -90,6 +90,8 @@ for approval. Actions that always require approval still ask.
 
 Each turn includes shell and Git guidance based on the MCP tools available to
 the session, including ordinary chats, errands and plan execution.
+The guidance tells the agent to recover from tool selection and argument errors
+and to report blockers when an operation cannot proceed.
 The adapter receives the working directory and file permissions separately.
 External references enter the prompt only through explicit `@key` mentions.
 Role and task briefings still
@@ -100,7 +102,13 @@ Agents run shell commands through the Plangent MCP tool `run_command`
 tool, `permissionDecision` refuses the agent's native `execute` calls with a pointer
 to the tool, except a single read-only `git` command and one plain file read, listing
 or search (`isPlainReadCommand`: `cat`, `Get-Content`, `ls`, `rg` and similar, without
-operators, redirection, expansion or options that run or follow anything). Agents
+operators, redirection, expansion or options that run or follow anything).
+Writable sessions can also use a single literal PowerShell `Set-Content`,
+`Add-Content` or `New-Item -ItemType File` command. The target must use an
+absolute path under a writable root with an existing parent. The policy checks
+both the supplied path and the resolved parent, excludes protected project
+directories, and rejects existing links as file targets. The ask policy still
+requires approval. Agents
 without a native read tool read files that way, in any policy. The tool applies
 the session policy like a native command: dangerous commands and every policy
 except `allow-all` ask the developer, read-only refuses. The folder must lie
