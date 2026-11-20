@@ -6,7 +6,7 @@ import { readSetting } from '../../settings';
 import { getProject } from '../../projects';
 import { isInside } from '../../shared';
 import { moduleDependencies } from '../dependencies';
-import { permissionDecision, shellGitDecision } from './permissions';
+import { permissionDecision, shellGitDecision, gitToolGuidance } from './permissions';
 import { captureTurn, authorizeCommand } from './acp-host';
 import type { AgentSession } from './types';
 
@@ -32,7 +32,7 @@ async function authorize(session: AgentSession, command: string, signal: AbortSi
   const decision = permissionDecision(session.policy, { sessionId: session.id, toolCall, options: [] }, getProject(session.project_id)?.config.dangerous_commands, undefined, session.role);
   if (decision === 'allow') return;
   if (decision === 'deny') {
-    throw new Error(shellGitDecision(toolCall) === 'deny' ? 'Shell Git command refused. Request repository changes with the Plangent git_action tool.'
+    throw new Error(shellGitDecision(toolCall) === 'deny' ? 'Shell Git command refused. ' + gitToolGuidance(session)
       : session.policy === 'read-only' ? 'Commands are not allowed in a read-only session' : 'The command is not allowed in this session');
   }
   if (!await authorizeCommand(session.id, 'Команда: ' + command.slice(0, 300), signal)) throw new Error('The developer did not allow this command');
