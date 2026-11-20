@@ -85,6 +85,35 @@ test('plan editor retains its source version across remounts; taking latest and 
     key.id='b';await nextTick();assert.equal(view.el.querySelector('textarea'),null)
   }finally{view.close()}
 })
+for (const [action, expected] of [
+  ['start', { active: true, text: 'My edit', stale: true }],
+  ['reload', { active: true, text: 'Updated', stale: false }],
+  ['cancel', { active: false, text: '', stale: false }],
+]) {
+  test(`document draft after ${action} with a newer source`, async () => {
+    const { useDocumentDraft } = await compiled
+    const source = reactive({ text: 'Original', version: 1 })
+    let draft
+    const view = await mount({
+      setup() {
+        draft = useDocumentDraft(() => 'task:a:plan-edit', () => source)
+        return () => null
+      },
+    }, {})
+    try {
+      draft.start()
+      draft.text.value = 'My edit'
+      Object.assign(source, { text: 'Updated', version: 2 })
+      draft[action]()
+      assert.deepEqual({
+        active: draft.active.value,
+        text: draft.text.value,
+        stale: draft.stale.value,
+      }, expected)
+    } finally { view.close() }
+  })
+}
+
 test('prefix cleanup and chat deletion clear only their owner and selection',async()=>{
   const {useDraftsStore,useChatDraftsStore}=await compiled;const pinia=createPinia();const store=useDraftsStore(pinia),chats=useChatDraftsStore(pinia)
   for(const key of ['task:a:plan-edit','task:a:section:1','task:ab:plan-edit','session:one','session:one:reply','session:two'])store.get(key,()=>({text:key}))

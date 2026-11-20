@@ -17,11 +17,21 @@ Object.defineProperty(window.HTMLTextAreaElement.prototype, 'value', {
 })
 const { createApp, h, reactive, nextTick } = require('vue')
 const { createPinia } = require('pinia')
+const serverListeners = new Set()
+global.subscribeTestEvent = callback => {
+  serverListeners.add(callback)
+  return () => serverListeners.delete(callback)
+}
+global.ResizeObserver = class { observe() {} disconnect() {} }
+global.localStorage = { getItem: () => null, setItem() {}, removeItem() {} }
 const { build } = require('esbuild')
 const { parse, compileScript, compileTemplate } = require('@vue/compiler-sfc')
 const compiled = (async () => {
   const bundle = await build({
     stdin: { contents: `
+      export { default as CodeTab } from './client/src/features/code/views/CodeTab.vue'
+      export { useCodeStore } from './client/src/features/code/stores/code'
+      export { useSidePanelStore } from './client/src/features/code/stores/side-panel'
       export { default as WorkStages } from './client/src/features/tasks/components/WorkStages.vue'
       export { default as WorkPreparing } from './client/src/features/tasks/components/WorkPreparing.vue'
       export { default as ExecutionBranch } from './client/src/features/tasks/components/ExecutionBranch.vue'
@@ -39,14 +49,45 @@ const compiled = (async () => {
     bundle: true, write: false, platform: 'node', format: 'cjs', external: ['vue', 'pinia'], loader: { '.css': 'empty' },
     alias: { '@shared': path.resolve('client/src/shared'), '@core': path.resolve('client/src/core'), '@features': path.resolve('client/src/features') },
     plugins: [{ name: 'vue-test', setup(build) {
+      build.onLoad({ filter: /features[\\/]code[\\/]stores[\\/]review-agent\.ts$/ }, () => ({
+        contents: 'export const useReviewAgentStore = () => ({ work: null, session: null })', loader: 'ts',
+      }))
+      build.onLoad({ filter: /features[\\/]finish[\\/]index\.ts$/ }, () => ({
+        contents: 'export const FinishPanel = { render: () => null }; export const useFinishStore = () => ({ run: null }); export const finishStages = {}', loader: 'ts',
+      }))
+      build.onLoad({ filter: /features[\\/]task-mr[\\/]index\.ts$/ }, () => ({
+        contents: 'export const TaskMrPanel = { render: () => null }', loader: 'ts',
+      }))
+      build.onLoad({ filter: /node_modules[\\/]vue-router[\\/]/ }, () => ({
+        contents: 'export const useRoute = () => ({ query: {} })', loader: 'ts',
+      }))
       // Agent launch and review have their own suites; keep the real document renderer and API.
       build.onLoad({ filter: /features[\\/]agent-chat[\\/]index\.ts$/ }, () => ({
-        contents: "export { default as MessageMarkdown } from '../../shared/markdown/MessageMarkdown.vue'; export const NewChatPanel = { render: () => null }; export const useComposerReveal = () => {}; export const useChatStore = () => ({ agentOptions: { 'test-agent': {} }, fetchAgentOptions: async () => {} }); export const modelAndEffort = () => ({ models: [], efforts: [] })", loader: 'ts', resolveDir: path.resolve('client/src/features/agent-chat'),
+        contents: "export { writeMentionDrag } from './utils/mention-drag'; export { default as MessageMarkdown } from '../../shared/markdown/MessageMarkdown.vue'; export const NewChatPanel = { render: () => null }; export const useComposerReveal = () => {}; export const useChatStore = () => ({ agentOptions: { 'test-agent': {} }, fetchAgentOptions: async () => {} }); export const modelAndEffort = () => ({ models: [], efforts: [] })", loader: 'ts', resolveDir: path.resolve('client/src/features/agent-chat'),
       }))
       build.onLoad({ filter: /features[\\/]agents[\\/]index\.ts$/ }, () => ({ contents: "export { useAgentsStore } from './stores/agents'", loader: 'ts', resolveDir: path.resolve('client/src/features/agents') }))
       build.onLoad({ filter: /features[\\/]code[\\/]index\.ts$/ }, () => ({ contents: "export { gitApi, codeApi } from './api'", loader: 'ts', resolveDir: path.resolve('client/src/features/code') }))
-      build.onLoad({ filter: /core[\\/]api[\\/]events\.ts$/ }, () => ({ contents: 'export const onServerEvent = () => () => {}; export const sendServerMessage = () => {}', loader: 'ts' }))
+      build.onLoad({ filter: /core[\\/]api[\\/]events\.ts$/ }, () => ({
+        contents: 'export const onServerEvent = callback => global.subscribeTestEvent(callback); export const sendServerMessage = () => {}', loader: 'ts',
+      }))
+      build.onLoad({ filter: /shared[\\/]code-viewer[\\/]index\.ts$/ }, args => ({
+        // Keep CodeTab, FileViewer and their stores real; observe the public renderer boundary.
+        contents: `export * from './find'; export { fileIconName, iconSvg } from './file-icons';
+          export { parseUnifiedDiff } from './diff-model';
+          import { h, ref } from 'vue';
+          export const FileTree = { render: () => null };
+          export const CodeView = { props: ['file', 'mode'], setup(props, { expose }) {
+            const target = ref(null);
+            expose({ scrollToLine(line, side) { target.value = { line, side } } });
+            return () => h('div', { 'data-viewer-path': props.file.path, 'data-viewer-mode': props.mode,
+              'data-viewer-line': target.value?.line, 'data-viewer-side': target.value?.side }, props.file.content);
+          } };`, loader: 'ts', resolveDir: path.dirname(args.path),
+      }))
       build.onLoad({ filter: /\.vue$/ }, args => {
+        if (/[\\/]features[\\/]code[\\/]components[\\/]/.test(args.path)
+          && !['SearchPanel.vue', 'FileViewer.vue', 'CodeFileTabs.vue'].includes(path.basename(args.path))) {
+          return { contents: 'export default { render: () => null }', loader: 'ts' }
+        }
         if (['TaskChats.vue', 'PlanReviewPanel.vue'].includes(path.basename(args.path))) return { contents: 'export default { render: () => null }', loader: 'ts' }
         const { descriptor } = parse(fs.readFileSync(args.path, 'utf8'), { filename: args.path })
         const contents = descriptor.script || descriptor.scriptSetup
@@ -118,6 +159,98 @@ const stages = statuses => ['analysis', 'architecture', 'qa', 'plan'].map((stage
 const materialProps = () => ({ type: 'architecture', material: null, projectId: 'project', taskId: 'task', lockedReason: '', done: false,
   chats: [], selectedChat: null, initials: {}, launching: false, launchError: '', live: false })
 const material = (content, version = 1) => ({ type: 'qa', content, version, author: 'developer' })
+
+test('project search recovers from an empty stream, opens a matching line and updates its status on a file event', async () => {
+  const { CodeTab, useCodeStore, useSidePanelStore } = await compiled
+  const path = 'src/result.ts'
+  let files = [path], store, tabs
+  global.fetch = async url => {
+    const { pathname, searchParams } = new URL(url, 'http://localhost')
+    if (pathname.endsWith('/search')) {
+      const rows = searchParams.get('q') === 'needle'
+        ? [{ type: 'match', path, line: 7, text: 'the needle' }]
+        : []
+      return new Response([...rows, { type: 'done', matches: rows.length, files: rows.length, truncated: false }]
+        .map(row => JSON.stringify(row)).join('\n') + '\n')
+    }
+    const data = { files, changes: [], stats: {}, tree: [], current: null, repository: null,
+      branches: [], settings: {}, coauthors: [], conflicts: null,
+      file: { path, kind: 'text', size: 20, content: 'line 1\nline 2\nline 3\nline 4\nline 5\nline 6\nthe needle\n' } }
+    return Response.json(data[pathname.split('/').pop()])
+  }
+  const view = mount({
+    setup() {
+      store = useCodeStore()
+      tabs = useSidePanelStore()
+      return () => h(CodeTab, { projectId: 'p' })
+    },
+  }, {})
+  async function search(query) {
+    const input = document.querySelector('input[placeholder="Поиск по проекту"]')
+    input.value = query
+    input.dispatchEvent(new window.Event('input', { bubbles: true }))
+    await nextTick()
+    const enter = new window.Event('keydown', { bubbles: true, cancelable: true })
+    enter.key = 'Enter'
+    input.dispatchEvent(enter)
+    await flush()
+  }
+  try {
+    await flush()
+    await click('Поиск')
+    assert.match(document.body.textContent, /Введите запрос/)
+    await search('absent')
+    assert.match(document.body.textContent, /Ничего не найдено/)
+    assert.equal(document.querySelector('.ct-center [role=tab]'), null)
+    await search('needle')
+    assert.match(document.body.textContent, /1 совпадение в 1 файле/)
+    const result = [...document.querySelectorAll('button')].find(button => button.textContent.includes('the needle'))
+    assert.ok(result)
+    result.click()
+    await flush()
+    assert.equal(store.selectedPath, path)
+    assert.equal(tabs.mainPlace('p', null).active, path)
+    assert.match(document.querySelector('.ct-center [role=tab][aria-selected=true]').textContent, /result\.ts/)
+    const viewer = document.querySelector('[data-viewer-path]')
+    assert.equal(viewer.getAttribute('data-viewer-path'), path)
+    assert.equal(viewer.getAttribute('data-viewer-mode'), 'file')
+    assert.equal(viewer.getAttribute('data-viewer-line'), '7')
+    assert.equal(viewer.getAttribute('data-viewer-side'), 'new')
+
+    files = [path, 'src/needle.ts']
+    for (const listener of serverListeners) listener({ type: 'code:changed', projectId: 'p' })
+    await new Promise(resolve => setTimeout(resolve, 110))
+    await flush()
+    assert.match(document.body.textContent, /1 по имени · 1 совпадение/)
+  } finally {
+    view.unmount()
+    store.stop()
+    delete global.fetch
+  }
+})
+
+test('task document editors restore both independent drafts after switching tasks', async () => {
+  const { MaterialPanel } = await compiled
+  const view = mount(MaterialPanel, { ...materialProps(), taskId: 'a', material: material('Source A') })
+  const select = async (taskId, source) => {
+    Object.assign(view.props, { taskId, material: material(source) })
+    await flush()
+  }
+  try {
+    await click('Редактировать вручную')
+    assert.equal(document.querySelector('textarea').value, 'Source A')
+    await type('Draft A')
+    await select('b', 'Source B')
+    assert.equal(document.querySelector('textarea'), null)
+    await click('Редактировать вручную')
+    assert.equal(document.querySelector('textarea').value, 'Source B')
+    await type('Draft B')
+    for (const [task, source, draft] of [['a', 'Source A', 'Draft A'], ['b', 'Source B', 'Draft B']]) {
+      await select(task, source)
+      assert.equal(document.querySelector('textarea').value, draft)
+    }
+  } finally { view.unmount() }
+})
 
 test('work-state matches server check, finish and closed transitions for tasks and errands', async () => {
   const { computeWorkState, workStageIndex, workStagesOf, workTab } = await compiled

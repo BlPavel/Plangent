@@ -15,22 +15,34 @@ function moduleAt(file) {
 const { fuzzyFiles } = moduleAt('client/src/features/code/utils/fuzzy.ts')
 const { findPattern, findInLine, markHtml } = moduleAt('client/src/shared/code-viewer/find.ts')
 
-test('fuzzy: file name match beats directory match, non-subsequences are dropped', () => {
-  const files = ['server/core/code/search.ts', 'client/src/search/other.ts', 'README.md', 'src/App.vue']
-  const hits = fuzzyFiles(files, 'search.ts').map(h => h.path)
-  assert.equal(hits[0], 'server/core/code/search.ts')
-  assert.ok(!fuzzyFiles(files, 'zzz').length)
-  assert.equal(fuzzyFiles(files, 'app')[0].path, 'src/App.vue')
-  assert.equal(fuzzyFiles(files, '').length, 4)
-})
+const files = ['server/core/code/search.ts', 'client/src/search/other.ts', 'README.md', 'src/App.vue']
+for (const [query, expected] of [
+  ['search.ts', ['server/core/code/search.ts', 'client/src/search/other.ts']],
+  ['zzz', []],
+  ['app', ['src/App.vue']],
+  ['', files],
+]) {
+  test(`fuzzy file ranking for ${JSON.stringify(query)}`, () => {
+    assert.deepEqual(Array.from(fuzzyFiles(files, query), hit => hit.path), expected)
+  })
+}
 
-test('in-file find: case, whole word, regex, invalid regex', () => {
-  const text = 'Foo foo food'
-  const run = options => findInLine(text, findPattern({ query: 'foo', ...options }).pattern).map(r => r.start)
-  assert.equal(run({}).join(), '0,4,8')
-  assert.equal(run({ caseSensitive: true }).join(), '4,8')
-  assert.equal(run({ wholeWord: true }).join(), '0,4')
-  assert.equal(findInLine(text, findPattern({ query: 'fo+', regex: true }).pattern).length, 3)
+for (const [name, options, expected] of [
+  ['literal', { query: 'foo' }, [[0, 3], [4, 7], [8, 11]]],
+  ['case sensitive', { query: 'foo', caseSensitive: true }, [[4, 7], [8, 11]]],
+  ['whole word', { query: 'foo', wholeWord: true }, [[0, 3], [4, 7]]],
+  ['regex', { query: 'fo+', regex: true }, [[0, 3], [4, 7], [8, 11]]],
+  ['no match', { query: 'missing' }, []],
+]) {
+  test(`line search: ${name}`, () => {
+    const { pattern, error } = findPattern(options)
+    assert.equal(error, undefined)
+    assert.ok(pattern)
+    assert.deepEqual(Array.from(findInLine('Foo foo food', pattern), ({ start, end }) => [start, end]), expected)
+  })
+}
+
+test('line search rejects invalid regex and accepts empty input without a pattern', () => {
   assert.ok(findPattern({ query: '(', regex: true }).error)
   assert.equal(findPattern({ query: '' }).pattern, null)
 })

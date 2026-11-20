@@ -119,6 +119,23 @@ test('main file tabs remember modes and neighbours independently of the side pan
   assert.equal(tabs.place('p', null).files.length, 0)
 })
 
+for (const [closing, expected] of [
+  ['a.ts', 'b.ts'],
+  ['b.ts', 'c.ts'],
+  ['c.ts', 'b.ts'],
+  ['missing.ts', 'b.ts'],
+]) {
+  test(`active tab after closing ${closing}`, () => {
+    setActivePinia(createPinia())
+    const tabs = moduleAt('client/src/features/code/stores/side-panel.ts').useSidePanelStore()
+    const state = tabs.mainPlace('project', null)
+    for (const path of ['a.ts', 'b.ts', 'c.ts']) tabs.open(state, path, 'file')
+    tabs.open(state, closing === 'c.ts' ? 'c.ts' : 'b.ts', 'file')
+    tabs.close(state, closing)
+    assert.equal(state.active, expected)
+  })
+}
+
 function mainTabsHarness(h) {
   const { computed, ref, effectScope } = require('vue')
   const fileTabs = moduleAt('client/src/features/code/stores/side-panel.ts').useSidePanelStore()
