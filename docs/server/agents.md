@@ -84,13 +84,15 @@ one-shot helper instead of creating another adapter launcher.
 Roles select instructions and [MCP](mcp.md) tools; read-only policy restricts
 writes. Session permissions check shell/file access. Agents may read Git state,
 but writing Git operations go through Plangent's checked tools and
-[Git workflows](git.md), never shell commands. Chat Git actions require the
-turn's Git permission and an ordinary project.
+[Git workflows](git.md), never shell commands. Chat Git actions are available
+in ordinary projects. Without Git permission for the turn, each action asks
+for approval. Actions that always require approval still ask.
 
-Ordinary chats receive no automatic project or shell/Git instruction preamble.
-The adapter receives the working directory and file permissions separately;
-MCP tool descriptions explain command and Git usage. External references enter
-the prompt only through explicit `@key` mentions. Role and task briefings still
+Each turn includes shell and Git guidance based on the MCP tools available to
+the session, including ordinary chats, errands and plan execution.
+The adapter receives the working directory and file permissions separately.
+External references enter the prompt only through explicit `@key` mentions.
+Role and task briefings still
 accompany the first message and are resent when conversation context is restored.
 
 Agents run shell commands through the Plangent MCP tool `run_command`
