@@ -39,6 +39,20 @@ test('GitHub: create PR maps to the host contract, reviewers and labels are best
   assert.equal(mr.sha, 'h'.repeat(40));
 });
 
+test('GitHub: a rejected PR creation reaches the caller and skips follow-up requests', async () => {
+  const calls: { url: string; method: string }[] = [];
+  const path = '/repos/o/r/pulls';
+  const refusal = new IntegrationHttpError(new IntegrationError('Creation refused', 'remote_error', 502), path, 422);
+  const host = fake(() => refusal, calls);
+
+  await assert.rejects(host.createMergeRequest({
+    source_branch: 'feature/x', target_branch: 'main', title: 'Add thing', reviewer_logins: ['dev'], labels: 'a',
+  }), { message: 'Creation refused', code: 'remote_error', status: 502, remote_status: 422 });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, path);
+  assert.equal(calls[0].method, 'POST');
+});
+
 test('GitHub: state mapping, branch lookup, refs and unsupported review operations', async () => {
   const calls: { url: string; method: string }[] = [];
   const host = fake(url => url.includes('?state=open') ? [pr()] : pr({ state: 'closed', merged_at: '2026-01-02T00:00:00Z' }), calls);

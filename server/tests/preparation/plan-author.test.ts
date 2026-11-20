@@ -13,7 +13,7 @@ test('plan author survives materialization, startup and completion; manual saves
   const { createProject } = await import('../../core-services').then(() => import('../../core/projects'));
   const { createTask } = await import('../../core-services').then(() => import('../../core/tasks'));
   const { initQueues } = await import('../../core-services').then(() => import('../../core/execution/queue'));
-  const { getLatestPlan, updatePlan } = await import('../../core-services').then(() => import('../../core/preparation/plans'));
+  const { getLatestPlan, updatePlan, parsePlanSteps } = await import('../../core-services').then(() => import('../../core/preparation/plans'));
   const { submitPlan, materializePlanFile, stopWatchPlanFile, getPlanFilePath } = await import('../../core-services').then(() => import('../../core/preparation/plan-file'));
   const { initTaskFile } = await import('../../core-services').then(() => import('../../core/tasks/task-files-startup'));
   initQueues();
@@ -41,10 +41,12 @@ test('plan author survives materialization, startup and completion; manual saves
       await new Promise(resolve => setTimeout(resolve, 25));
     }
     assert.equal(getLatestPlan(task.id)!.session_id, null);
-    submitPlan(task, root, '- [ ] (p1) Again', true, 'planner-three');
-    const edited = updatePlan(id, '- [ ] Editor save')!;
+    submitPlan(task, root, '- [ ] (p1) Again\n- [x] (p2) Done', true, 'planner-three');
+    const edited = updatePlan(id, '- [x] (p2) Done\n- [ ] (p1) Editor save\n- [ ] New step')!;
     assert.equal(edited.author, 'developer');
     assert.equal(edited.session_id, null);
+    assert.deepEqual(parsePlanSteps(getLatestPlan(task.id)!.content).map(step => [step.id, step.done]),
+      [['p2', true], ['p1', false], ['p3', false]]);
   } finally {
     stopWatchPlanFile(task.id);
     (await import('../../core-services').then(() => import('../../core/tasks/task-files'))).stopWatchAnalysis(task.id);

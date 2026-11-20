@@ -1,0 +1,35 @@
+{
+  "files": {
+    ".gitignore": "ignored/\n",
+    "examples/пример.txt": "heading\r\nчай Needlework\r\nчай Needle\r\n",
+    "ignored/hidden.txt": "чай Needle\n",
+    "binary.bin": "чай Needle\u0000"
+  },
+  "visiblePaths": [".gitignore", "binary.bin", "examples/пример.txt"],
+  "ignoredPaths": ["ignored/hidden.txt"],
+  "textPath": "examples/пример.txt",
+  "binaryPath": "binary.bin",
+  "missingPath": "examples/missing.txt",
+  "searches": [
+    {
+      "options": { "query": "чай" },
+      "matches": [
+        { "type": "match", "path": "examples/пример.txt", "line": 2, "text": "чай Needlework" },
+        { "type": "match", "path": "examples/пример.txt", "line": 3, "text": "чай Needle" }
+      ],
+      "done": { "type": "done", "matches": 2, "files": 1, "truncated": false }
+    },
+    {
+      "options": { "query": "needle", "wholeWord": true },
+      "matches": [
+        { "type": "match", "path": "examples/пример.txt", "line": 3, "text": "чай Needle" }
+      ],
+      "done": { "type": "done", "matches": 1, "files": 1, "truncated": false }
+    },
+    {
+      "options": { "query": "absent" },
+      "matches": [],
+      "done": { "type": "done", "matches": 0, "files": 0, "truncated": false }
+    }
+  ]
+}

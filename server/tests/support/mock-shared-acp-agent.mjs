@@ -43,7 +43,10 @@ agent({ name: 'mock-shared' })
     const { sessionId } = ctx.params;
     const session = sessions.get(sessionId);
     if (!session) throw new Error('Session closed');
-    const text = ctx.params.prompt.map(p => p.text ?? '').join('');
+    const text = ctx.params.prompt
+      .map(block => block.text ?? '')
+      .filter(block => !block.startsWith('Use native file tools or a single plain shell command for file reads'))
+      .join('');
     if (text === 'crash') { process.exit(7); }
     session.cancelled = false;
     if (text === 'hold') while (!session.cancelled) await new Promise(resolve => setTimeout(resolve, 10));

@@ -129,6 +129,9 @@ test('workspace lifecycle, preparation, roots, permissions and library', async t
       const recreated = await workspaces.recreateWorkspace(created.id);
       assert.ok(!fs.existsSync(path.join(recreated.path, 'left.txt')));
       assert.equal(git(recreated.path, 'branch', '--show-current'), 'feature/half');
+      assert.equal(workspaces.activeWorkspace(task.id)?.id, recreated.id);
+      assert.equal(fs.readFileSync(path.join(recreated.path, 'tracked.txt'), 'utf8'), 'base');
+      assert.equal(fs.readFileSync(path.join(repo, 'main-change.txt'), 'utf8'), 'not the workspace');
       fs.rmSync(path.join(recreated.path, '.git'));
       await workspaces.removeWorkspace(recreated.id, { keepBranch: true });
       assert.ok(!fs.existsSync(recreated.path));

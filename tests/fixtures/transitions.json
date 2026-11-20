@@ -1,0 +1,22 @@
+{
+  "plan": [
+    {"content":"- [ ] (p4) Build\n- [ ] Check","index":0,"done":true,"expected":"- [x] (p4) Build\n- [ ] Check"},
+    {"content":"- [x] (p4) Build","index":0,"done":false,"expected":"- [ ] (p4) Build"},
+    {"content":"- [ ] (p4) Build","index":1,"done":true,"expected":"- [ ] (p4) Build"},
+    {"content":"- [?] Invalid","index":0,"done":true,"expected":"- [?] Invalid"}
+  ],
+  "review": [
+    {"current":"","event":"start","expected":"running"},
+    {"current":"running","event":"report","expected":"done"},
+    {"current":"running","event":"start","error":"Start a new review first"},
+    {"current":"done","event":"start","error":"Start a new review first"},
+    {"current":"","event":"report","error":"Review is not running"},
+    {"current":"done","event":"report","error":"Review is not running"}
+  ],
+  "work": [
+    {"queueStatus":"running","plan":"- [ ] (p1) Build","stage":"execution","canCheck":false},
+    {"queueStatus":"stopped","plan":"- [ ] (p1) Build","stage":"execution","canCheck":true},
+    {"queueStatus":"finished","plan":"- [ ] (p1) Build","stage":"execution","canCheck":true},
+    {"queueStatus":"finished","plan":"- [x] (p1) Build","stage":"check","canCheck":true}
+  ]
+}

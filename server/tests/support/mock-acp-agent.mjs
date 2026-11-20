@@ -27,7 +27,10 @@ agent({ name: 'mock' })
   .onNotification('session/cancel', () => { cancelled = true; })
   .onRequest('session/prompt', async ctx => {
     cancelled = false;
-    const text = ctx.params.prompt.map(p => p.text ?? '').join('');
+    const text = ctx.params.prompt
+      .map(block => block.text ?? '')
+      .filter(block => !block.startsWith('Use native file tools or a single plain shell command for file reads'))
+      .join('');
     if (process.argv.includes('--inspect-mode')) {
       await ctx.client.notify('session/update', { sessionId: 'mock-session', update: {
         sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: currentMode },

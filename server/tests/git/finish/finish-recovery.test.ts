@@ -29,6 +29,21 @@ test('finish recovers from rejected commits, rewriting hooks, changed files and 
     await fs.writeFile(path.join(root, 'a.txt'), 'base\n'); await stage(root, ['a.txt']); await commit(root, { title: 'base' }, () => defaultGitSettings);
     git(root, 'switch', '-c', 'feature/work');
     const project = createProject({ name: 'Recovery', repo_path: root, default_agent_id: agent.id });
+    git(root, 'switch', 'main');
+    await fs.writeFile(path.join(root, 'a.txt'), 'main change\n');
+    await stage(root, ['a.txt']);
+    await commit(root, { title: 'main change' }, () => defaultGitSettings);
+    git(root, 'switch', 'feature/work');
+    await fs.writeFile(path.join(root, 'a.txt'), 'feature change\n');
+    await stage(root, ['a.txt']);
+    await commit(root, { title: 'feature change' }, () => defaultGitSettings);
+    assert.throws(() => git(root, 'merge', 'main'));
+    const conflicted = await fs.readFile(path.join(root, 'a.txt'), 'utf8');
+    assert.match(conflicted, /<<<<<<< HEAD/);
+    await assert.rejects(service.start(project.id, { scenario: 'commits' }), { code: 'operation_in_progress' });
+    assert.equal(activeFinish(project.id), null);
+    assert.equal(await fs.readFile(path.join(root, 'a.txt'), 'utf8'), conflicted);
+    git(root, 'merge', '--abort');
     const hooks = path.join(root, '.git', 'hooks');
     const hook = async (name: string, body: string | null) => {
       if (body === null) return fs.rm(path.join(hooks, name), { force: true });
@@ -124,7 +139,13 @@ test('finish recovers from rejected commits, rewriting hooks, changed files and 
     assert.match(getFinish(sixth.id).error, /не создав коммиты/);
     assert.equal(getFinish(sixth.id).status, 'error');
     assert.equal((await service.revise(sixth.id, '')).status, 'running');
-    assert.equal((await service.cancel(sixth.id, true)).status, 'cancelled');
+    await service.setCommits(sixth.id, [{ files: ['a.txt'], title: 'six' }], true);
+    await service.finishCommits(sixth.id);
+    assert.equal((await service.accept(sixth.id)).status, 'complete');
+    assert.equal(getFinish(sixth.id).status, 'complete');
+    assert.equal(git(root, 'rev-list', '--count', `${sixth.base_head}..HEAD`), '1');
+    assert.equal(await fs.readFile(path.join(root, 'a.txt'), 'utf8'), 'six\n');
+    assert.equal(git(root, 'status', '--porcelain'), '');
 
     // 7. A finish whose task is gone is not "active": it does not block anything and the next start cancels it.
     const orphan = insertFinish({ id: 'orphan', project_id: project.id, task_id: null, workspace_id: null, scenario: 'commits', options: { scenario: 'commits', task_id: 'deleted-task' },

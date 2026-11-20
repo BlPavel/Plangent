@@ -44,6 +44,8 @@ test('real plan saves drive subscription, including deleted/reused ids; HTTP enf
     assert.ok(read.review.plan_content.includes('Second'));
     const accepted = await request('/' + reviewId + '/remarks/' + remark.id + '/decision', 'PUT', { status: 'accepted', comment: 'Please fix' });
     assert.equal(accepted.status, 200);
+    const savedDecision = service.detail(project.id, task.id, reviewId).remarks.find(item => item.id === remark.id);
+    assert.deepEqual([savedDecision?.status, savedDecision?.decision], ['accepted', 'Please fix']);
     service.sent(project.id,task.id,reviewId,[remark.id],'planner');
     submitPlan(task, root, '- [ ] (p1) First\n- [ ] (p2) Third revised', true, 'planner');
     read = service.detail(project.id,task.id,reviewId);

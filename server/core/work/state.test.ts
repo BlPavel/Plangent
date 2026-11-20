@@ -8,6 +8,16 @@ const task: Task = { id: 't', project_id: 'p', key: 'T', kind: 'task', status: '
 const workspace: Workspace = { id: 'w', project_id: 'p', task_id: 't', branch: 'work', base_branch: 'main', path: '/w', port_slot: 1, status: 'ready', setup_done: 1, error: '', setup_log: '', created_at: '', removed_at: null };
 const queue: TaskQueue = { taskId: 't', projectId: 'p', status: 'idle', stages: [], stageIndex: 0, pauseRequested: false, updatedAt: '' };
 
+test('queue transitions preserve execution while steps are open and gate verification', () => {
+  const { work } = require('../../../tests/fixtures/transitions.json') as {
+    work: { queueStatus: TaskQueue['status']; plan: string; stage: string; canCheck: boolean }[];
+  };
+  for (const row of work) {
+    const state = computeWorkState({ task, workspace, plan: row.plan, queue: { ...queue, status: row.queueStatus } });
+    assert.deepEqual([state.stage, state.canCheck], [row.stage, row.canCheck], JSON.stringify(row));
+  }
+});
+
 test('work state: stage, group and primary action across lifecycle and precedence', () => {
   const cases: [string, Partial<WorkInput>, string, string, string][] = [
     ['draft', {}, 'plan', 'preparation', 'plan'],

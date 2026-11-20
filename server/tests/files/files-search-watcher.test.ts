@@ -6,8 +6,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileTree, readCodeFile, readBytes, MAX_FILE_SIZE } from '../../core/files/files';
-import { searchCode, type SearchEvent } from '../../core/files/search';
+import { searchCode, searchPattern, type SearchEvent } from '../../core/files/search';
 import { relevantChange, subscribeCode } from '../../core/files/watcher';
+import { searchFixture, writeSearchFixture } from '../support/search-fixture';
 
 export function git(root: string, ...args: string[]): string {
   return execFileSync('git', ['-c', 'core.autocrlf=false', ...args], { cwd: root, encoding: 'utf8', windowsHide: true });
@@ -36,6 +37,45 @@ async function collect(root: string, options: Parameters<typeof searchCode>[1]):
   for await (const event of searchCode(root, options)) events.push(event);
   return events;
 }
+
+test('search pattern handles literal punctuation, case and whole-word boundaries', () => {
+  const cases = [
+    [{ query: 'a.b' }, 'A.B', true],
+    [{ query: 'a.b' }, 'axb', false],
+    [{ query: 'needle', wholeWord: true }, '(Needle)', true],
+    [{ query: 'needle', wholeWord: true }, 'Needlework', false],
+    [{ query: 'needle', wholeWord: true }, '_needle', false],
+    [{ query: 'needle', caseSensitive: true }, 'Needle', false],
+  ] as const;
+  for (const [options, line, expected] of cases) {
+    assert.equal(searchPattern(options).test(line), expected, JSON.stringify({ options, line }));
+  }
+  assert.throws(() => searchPattern({ query: 'first\r\nsecond' }), /one non-empty line/);
+});
+
+test('portable file and search examples on a temporary repository', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'plangent-search-fixture-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  await writeSearchFixture(root);
+  // Exercise the Node line splitter before enabling Git search on the same files.
+  for (const example of searchFixture.searches) {
+    assert.deepEqual(await collect(root, { ...example.options, mask: 'examples/**' }),
+      [...example.matches, example.done]);
+  }
+  git(root, 'init');
+  assert.deepEqual((await fileTree(root, 'examples')).map(entry => entry.path), [searchFixture.textPath]);
+  assert.ok(!(await fileTree(root)).some(entry => entry.path === 'ignored'));
+  assert.deepEqual((await fileTree(root, 'ignored', true)).filter(entry => entry.ignored).map(entry => entry.path),
+    searchFixture.ignoredPaths);
+  const file = await readCodeFile(root, searchFixture.textPath);
+  assert.equal(file.path, searchFixture.textPath);
+  assert.equal(file.kind, 'text');
+  assert.equal(file.content, searchFixture.files[searchFixture.textPath as keyof typeof searchFixture.files]);
+  assert.equal((await readCodeFile(root, searchFixture.binaryPath)).kind, 'binary');
+  for (const example of searchFixture.searches) {
+    assert.deepEqual(await collect(root, example.options), [...example.matches, example.done]);
+  }
+});
 
 test('tree levels, ignored toggle, statuses, text/image/binary/large and containment', async t => {
   const root = await fixture(t);

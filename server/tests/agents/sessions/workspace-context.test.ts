@@ -59,7 +59,11 @@ test('ACP supplies reference sources only on explicit mention, with no discovery
     await host.sendPrompt(sessionId, [{ type: 'text', text }]);
     await done;
     const reply = sessions.history(sessionId).filter(e => e.type === 'assistant').at(-1)!;
-    return JSON.parse(String(reply.payload.text)) as { cwd: string; prompt: { type: string; text: string }[] };
+    const result = JSON.parse(String(reply.payload.text)) as { cwd: string; prompt: { type: string; text: string }[] };
+    return {
+      ...result,
+      prompt: result.prompt.filter(block => !block.text.startsWith('Use native file tools or a single plain shell command for file reads')),
+    };
   }
   function checkWorkspace(result: Awaited<ReturnType<typeof ask>>) {
     assert.equal(result.cwd, circlePath);

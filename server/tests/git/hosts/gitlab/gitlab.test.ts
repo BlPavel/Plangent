@@ -22,6 +22,27 @@ test('GitLab position: added, removed, offset context and renamed files', () => 
   assert.equal(buildPosition(version, headers, 'old', 1).old_line, 1);
   assert.deepEqual(parseRemoteUrl('ssh://git@host.example:2222/group/repo.git'), { host: 'host.example', port: '2222', projectPath: 'group/repo', normalized: 'host.example:2222/group/repo' });
 });
+test('GitLab: merge request creation returns the created MR or propagates a refusal', async () => {
+  const path = '/api/v4/projects/team%2Frepo/merge_requests';
+  const input = { source_branch: 'feature/x', target_branch: 'main', title: 'Add thing' };
+  const created = { ...input, iid: 7, state: 'opened', web_url: 'https://host/team/repo/-/merge_requests/7' };
+  let refuse = false;
+  const provider = new GitLab('connection', 'team/repo', async (connection, url, options) => {
+    assert.equal(connection, 'connection');
+    assert.equal(url, path);
+    assert.equal(options?.method, 'POST');
+    assert.deepEqual(JSON.parse(String(options?.body)), input);
+    if (refuse) throw new IntegrationHttpError(new IntegrationError('Creation refused', 'remote_error', 502), url, 422);
+    return { status: 201, headers: new Headers(), body: JSON.stringify(created), url, redirects: [] };
+  });
+
+  assert.deepEqual(await provider.createMergeRequest(input), created);
+  refuse = true;
+  await assert.rejects(provider.createMergeRequest(input), {
+    message: 'Creation refused', code: 'remote_error', status: 502, remote_status: 422,
+  });
+});
+
 test('provider pagination, search paths, optional APIs and guarded bulk publishing', async () => {
   const calls: {
     url: string;

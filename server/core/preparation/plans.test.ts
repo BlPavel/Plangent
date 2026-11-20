@@ -66,3 +66,13 @@ test('numbering is idempotent for existing ids with extra whitespace', () => {
   assert.ok(numbered.content.endsWith('- [ ] (p9) New'));
   assert.deepEqual(assignMissingIds(numbered.content), { content: numbered.content, changed: false });
 });
+
+test('step completion only changes an existing checkbox', () => {
+  const { setStepDone } = fixture();
+  const { plan } = nodeRequire('../../../tests/fixtures/transitions.json') as {
+    plan: { content: string; index: number; done: boolean; expected: string }[];
+  };
+  for (const row of plan) {
+    assert.equal(setStepDone(row.content, row.index, row.done), row.expected, JSON.stringify(row));
+  }
+});

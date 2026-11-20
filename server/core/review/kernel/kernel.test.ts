@@ -22,9 +22,12 @@ test('a batch includes fresh threads and queued developer replies, and only sent
 
 test('a reported review cannot start again until its owner creates a new cycle', () => {
   const phases = { idle: '', running: 'running', reported: 'done' };
-  assert.equal(reviewTransition('', 'start', phases), 'running');
-  assert.equal(reviewTransition('running', 'report', phases), 'done');
-  assert.throws(() => reviewTransition('running', 'start', phases), /new review/);
-  assert.throws(() => reviewTransition('done', 'start', phases), /new review/);
-  assert.throws(() => reviewTransition('', 'report', phases), /not running/);
+  const { review } = require('../../../../tests/fixtures/transitions.json') as {
+    review: ({ current: string; event: 'start' | 'report' } & ({ expected: string } | { error: string }))[];
+  };
+  for (const row of review) {
+    const transition = () => reviewTransition(row.current, row.event, phases);
+    if ('error' in row) assert.throws(transition, { message: row.error, status: 409 });
+    else assert.equal(transition(), row.expected, JSON.stringify(row));
+  }
 });

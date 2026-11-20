@@ -109,6 +109,13 @@ test('execution roots, errands, task chats and independent review rounds', async
       const report = sessions.history(executor.id).filter(e => e.type === 'assistant').map(e => e.payload.text).join('');
       assert.equal(JSON.parse(report).cwd, workspace.path);
       await getOrchestrator(queueTask.id)!.stop();
+      const { workEntry } = await import('../../core/work');
+      const stopped = workEntry(queueTask.id);
+      assert.equal(queues.getQueue(queueTask.id, project.id).status, 'stopped');
+      assert.equal(stopped.task.status, 'in_progress');
+      assert.equal(stopped.state.stage, 'execution');
+      assert.equal(stopped.state.counts.completed, 0);
+      assert.equal(stopped.state.canCheck, true);
       assert.equal((await post(url, { branch_name: 'ignored-on-restart', auto_review: true, review_agent: { agent_id: agent.id } })).status, 202);
       assert.equal(tasks.getTask(queueTask.id)!.auto_review, true);
       assert.equal(tasks.getTask(queueTask.id)!.review_agent?.agent_id, agent.id);
