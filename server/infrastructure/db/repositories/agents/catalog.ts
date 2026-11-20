@@ -21,13 +21,13 @@ function parse(row: Record<string, unknown>): Agent {
 
 export function listAgents(activeOnly = false): Agent[] {
   const sql = activeOnly
-    ? 'SELECT * FROM agents WHERE active = 1 ORDER BY created_at ASC'
-    : 'SELECT * FROM agents ORDER BY created_at ASC';
+    ? 'SELECT * FROM agents WHERE deleted_at IS NULL AND active = 1 ORDER BY created_at ASC'
+    : 'SELECT * FROM agents WHERE deleted_at IS NULL ORDER BY created_at ASC';
   return (getDb().prepare(sql).all() as Record<string, unknown>[]).map(parse);
 }
 
 export function getAgent(id: string): Agent | null {
-  const row = getDb().prepare('SELECT * FROM agents WHERE id = ?').get(id) as Record<string, unknown> | undefined;
+  const row = getDb().prepare('SELECT * FROM agents WHERE id = ? AND deleted_at IS NULL').get(id) as Record<string, unknown> | undefined;
   return row ? parse(row) : null;
 }
 
@@ -71,9 +71,18 @@ export function updateAgent(id: string, data: Partial<Omit<Agent, 'id' | 'create
 export function deleteAgent(id: string): boolean {
   const db = getDb();
   const tx = db.transaction((agentId: string) => {
+    const agent = getAgent(agentId);
+    if (!agent) return false;
     db.prepare('UPDATE projects SET default_agent_id = NULL WHERE default_agent_id = ?').run(agentId);
-    db.prepare('UPDATE runs SET agent_id = NULL WHERE agent_id = ?').run(agentId);
-    return db.prepare('DELETE FROM agents WHERE id = ?').run(agentId).changes > 0;
+    if (db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='agent_sessions'").get()) {
+      db.prepare("UPDATE agent_sessions SET metadata=json_set(metadata, '$.deletedAgentName', ?) WHERE agent_id=?").run(agent.name, agentId);
+    }
+    if (db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='agent_acp_options'").get()) {
+      db.prepare('DELETE FROM agent_acp_options WHERE agent_id=?').run(agentId);
+    }
+    // Release the unique display name so the developer can create a replacement.
+    return db.prepare("UPDATE agents SET deleted_at=datetime('now'), active=0, name=? WHERE id=? AND deleted_at IS NULL")
+      .run(`${agent.name} [deleted:${agentId}]`, agentId).changes > 0;
   });
   return tx(id);
 }

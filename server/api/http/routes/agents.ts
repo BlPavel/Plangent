@@ -1,9 +1,10 @@
 import { typedRoutes } from '../typed-route';
 import { Router, Request, Response } from 'express';
-import { listAgents, getAgent, createAgent, updateAgent, deleteAgent, updateAgentCli, type AgentInput } from '../../../core/agents/catalog';
+import { listAgents, getAgent, createAgent, updateAgent, updateAgentCli, type AgentInput } from '../../../core/agents/catalog';
 import { agentLimits } from '../../../core/agents/catalog/limits';
 import { agentPresets } from '../../../core/agents/catalog/presets';
-import { agentOptions, cachedAgentOptions, prepareAgentProxyChange } from '../../../core/agents';
+import { DomainError } from '../../../models/domain-error';
+import { agentOptions, cachedAgentOptions, prepareAgentProxyChange, deleteAgent } from '../../../core/agents';
 
 export const agentsRouter = Router();
 const agentsRouterRoutes = typedRoutes(agentsRouter, '/api/agents');
@@ -69,16 +70,13 @@ agentsRouterRoutes.json('POST /api/agents/:id/update', async (req, res) => {
   }
 });
 
-agentsRouterRoutes.empty('DELETE /api/agents/:id', (req, res) => {
+agentsRouterRoutes.empty('DELETE /api/agents/:id', async (req, res) => {
   try {
-    const ok = deleteAgent(req.params.id);
+    const ok = await deleteAgent(req.params.id);
     if (!ok) return res.status(404).json({ error: 'Not found' });
     res.status(204).end();
   } catch (error: unknown) {
-    const code = (error as { code?: string }).code;
-    if (code === 'SQLITE_CONSTRAINT_FOREIGNKEY' || code === 'SQLITE_CONSTRAINT') {
-      return res.status(409).json({ error: 'У агента есть чаты — удалите их во вкладке «Агенты» (чат) и повторите попытку' });
-    }
+    if (error instanceof DomainError) return res.status(error.status).json({ error: error.message });
     res.status(500).json({ error: error instanceof Error ? error.message : 'Не удалось удалить агента' });
   }
 });

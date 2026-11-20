@@ -4,6 +4,16 @@
 `core/agents/sessions/` owns state, prompt queues, modes and permissions.
 Consumers import the public `core/agents` API.
 
+Deleting an agent soft-deletes its catalog record (`deleted_at`) and clears
+project defaults and cached ACP options. Deleted agents are excluded from reads,
+selection and new launches, including old chats. Existing sessions and events
+remain; session metadata keeps `deletedAgentName` for history labels. Switching
+the chat to an available agent clears that label and retains the conversation.
+The internal deleted name is suffixed with its id to allow a replacement with
+the same display name. Built-in agents are not reseeded over deleted records.
+Deletion locks launches/probes, refuses active turns, loading sessions, queued
+prompts and permission requests with HTTP 409, and closes idle sessions first.
+
 ## Agent proxy
 
 The global proxy lives in `core/settings/agent-proxy.ts`; `Agent.use_proxy`

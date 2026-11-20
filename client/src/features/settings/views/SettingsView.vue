@@ -18,42 +18,50 @@
           Нет агентов. Добавьте первого.
         </AppEmptyState>
         <AppItemCard v-for="a in agentsStore.agents" :key="a.id">
-          <template #title>{{ a.name }}</template>
-          <template #subtitle><code class="agent-cmd">{{ launchLine(a) }}</code></template>
-          <template #actions>
-            <AppSwitch :model-value="a.use_proxy" :disabled="proxySaving.has(a.id)" :aria-label="'Использовать прокси: ' + a.name" @update:model-value="toggleProxy(a, $event)">Использовать прокси</AppSwitch>
-            <AppButton variant="ghost" size="sm" :disabled="checking.has(a.id)" title="Запустить агента и узнать, что он умеет" @click="check(a)">
-              {{ checking.has(a.id) ? 'Проверка…' : 'Проверить' }}
-            </AppButton>
-            <AppButton
-              v-if="canUpdate(a)"
-              variant="update"
-              size="sm"
-              :disabled="updatingAgentId === a.id"
-              title="Обновить CLI агента и ACP-адаптер до последней версии"
-              @click="updateAgent(a)"
-            >
-              {{ updatingAgentId === a.id ? 'Обновление…' : '⟳ Обновить' }}
-            </AppButton>
-            <AppButton variant="ghost" size="sm" @click="openEdit(a)">Изменить</AppButton>
-            <AppButton variant="danger-ghost" size="sm" @click="remove(a.id)">
-              <IconTrash /> Удалить
-            </AppButton>
+          <template #title>
+            {{ a.name }}
+            <AppBadge v-if="checking.has(a.id)" tone="info">Проверка…</AppBadge>
+            <AppBadge v-else-if="report(a.id)" :tone="report(a.id)?.ok ? 'success' : 'danger'">
+              {{ report(a.id)?.ok ? 'Проверка пройдена' : 'Ошибка проверки' }}
+            </AppBadge>
           </template>
-          <div class="agent-meta">
-            <template v-if="report(a.id)?.ok">
-              <span v-if="report(a.id)!.title">{{ report(a.id)!.title }}</span>
-              <span>Моделей: {{ report(a.id)!.models }}</span>
-              <span v-if="report(a.id)!.capabilities" :class="{ bad: !report(a.id)!.capabilities!.loadSession }">
-                {{ report(a.id)!.capabilities!.loadSession ? 'Восстанавливает чаты' : 'Не восстанавливает чаты после перезапуска' }}
-              </span>
-              <span v-if="report(a.id)!.capabilities">MCP: {{ report(a.id)!.capabilities!.mcpHttp ? 'HTTP' : 'через stdio-мост' }}</span>
-            </template>
-            <span v-else-if="report(a.id)" class="bad" :title="report(a.id)!.error">Не запускается: {{ report(a.id)!.error }}</span>
-            <span v-if="a.model">Модель: {{ a.model }}</span>
-            <span v-if="a.reasoning_effort">Рассуждения: {{ a.reasoning_effort }}</span>
-            <span v-if="Object.keys(a.env).length">Env: {{ Object.keys(a.env).join(', ') }}</span>
-            <span v-if="a.layout_profile?.main">Инструкции → {{ a.layout_profile.main.file }}</span>
+          <div class="agent-details">
+            <dl class="agent-meta">
+              <template v-if="report(a.id)?.ok">
+                <div class="agent-detail"><dt>Доступно моделей</dt><dd>{{ report(a.id)!.models }}</dd></div>
+                <div v-if="report(a.id)!.capabilities" class="agent-detail">
+                  <dt>Восстановление чатов</dt>
+                  <dd :class="{ bad: !report(a.id)!.capabilities!.loadSession }">{{ report(a.id)!.capabilities!.loadSession ? 'Поддерживается' : 'Недоступно после перезапуска' }}</dd>
+                </div>
+                <div v-if="report(a.id)!.capabilities" class="agent-detail"><dt>MCP</dt><dd>{{ report(a.id)!.capabilities!.mcpHttp ? 'HTTP' : 'Через stdio-мост' }}</dd></div>
+              </template>
+              <div v-else-if="report(a.id)" class="agent-detail agent-detail-wide"><dt>Ошибка запуска</dt><dd class="bad">{{ report(a.id)!.error }}</dd></div>
+              <div v-if="a.model" class="agent-detail"><dt>Модель</dt><dd>{{ a.model }}</dd></div>
+              <div v-if="a.reasoning_effort" class="agent-detail"><dt>Рассуждения</dt><dd>{{ a.reasoning_effort }}</dd></div>
+              <div v-if="a.layout_profile?.main" class="agent-detail agent-detail-wide"><dt>Инструкции</dt><dd>{{ a.layout_profile.main.file }}</dd></div>
+            </dl>
+            <div class="agent-toolbar">
+              <AppSwitch :model-value="a.use_proxy" :disabled="proxySaving.has(a.id)" :aria-label="'Использовать прокси: ' + a.name" @update:model-value="toggleProxy(a, $event)">Использовать прокси</AppSwitch>
+              <div class="agent-actions">
+                <AppButton variant="ghost" size="sm" :disabled="checking.has(a.id)" title="Запустить агента и узнать, что он умеет" @click="check(a)">
+                  {{ checking.has(a.id) ? 'Проверка…' : 'Проверить' }}
+                </AppButton>
+                <AppButton
+                  v-if="canUpdate(a)"
+                  variant="update"
+                  size="sm"
+                  :disabled="updatingAgentId === a.id"
+                  title="Обновить CLI агента и ACP-адаптер до последней версии"
+                  @click="updateAgent(a)"
+                >
+                  {{ updatingAgentId === a.id ? 'Обновление…' : '⟳ Обновить' }}
+                </AppButton>
+                <AppButton variant="ghost" size="sm" @click="openEdit(a)">Изменить</AppButton>
+                <AppButton variant="danger-ghost" size="sm" @click="remove(a.id)">
+                  <IconTrash /> Удалить
+                </AppButton>
+              </div>
+            </div>
           </div>
         </AppItemCard>
       </div>
@@ -195,7 +203,7 @@ import { LIBRARY_SECTIONS } from '../../../../../common/library-registry'
 import AppEmptyState from '@shared/ui/AppEmptyState.vue'
 import { agentsEndpoints } from '@features/agents'
 import AgentProxySettings from '../components/AgentProxySettings.vue'
-import { AppSwitch } from '@shared/ui'
+import { AppBadge, AppSwitch } from '@shared/ui'
 
 import { ref, computed, onMounted, provide, watch } from 'vue'
 import { useRoute } from 'vue-router'
@@ -291,11 +299,6 @@ const agentForm = ref(defaultAgentForm())
 
 // Seeded agents have no acp_command of their own and start from their preset.
 const SEEDED: Record<string, string> = { 'agent-claude': 'claude', 'agent-codex': 'codex' }
-function launchLine(a: Agent) {
-  const p = a.acp_command ? a : presets.value[SEEDED[a.id]]
-  const command = a.acp_command || p?.acp_command
-  return command ? [command, ...(p?.acp_args ?? [])].join(' ') : 'ACP-команда не задана'
-}
 
 // What the agent reported about itself (via a throwaway ACP session).
 const checking = ref(new Set<string>())
@@ -484,9 +487,16 @@ onMounted(() => {
 
 .plan-template-tab { min-height: 0; overflow: hidden; }
 
-.agent-list { display: flex; flex-direction: column; gap: var(--sp-2); }
-.agent-cmd { font-size: var(--fs-sm); color: var(--text-muted); }
-.agent-meta { display: flex; gap: 16px; flex-wrap: wrap; font-size: var(--fs-sm); color: var(--text-muted); }
+.agent-list { display: flex; flex-direction: column; gap: var(--sp-3); }
+.agent-details { display: flex; flex-direction: column; gap: var(--sp-3); min-width: 0; }
+.agent-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--sp-3); border-top: 1px solid var(--border); padding-top: var(--sp-3); }
+.agent-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: var(--sp-2); margin-left: auto; }
+.agent-meta { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--sp-2) var(--sp-4); margin: 0; font-size: var(--fs-sm); min-width: 0; }
+.agent-meta:empty { display: none; }
+.agent-detail { display: flex; align-items: baseline; gap: var(--sp-1); min-width: 0; overflow-wrap: anywhere; }
+.agent-detail dt { flex-shrink: 0; color: var(--text-muted); }
+.agent-detail dt::after { content: ':'; }
+.agent-detail dd { margin: 0; color: var(--text); }
 .agent-meta .bad { color: var(--danger-hover); }
 .actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 

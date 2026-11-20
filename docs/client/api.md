@@ -4,6 +4,11 @@ Every feature owns server calls in `api.ts`. Bind endpoint keys from the common
 contract there; components and stores call the feature API. This keeps request
 paths and transport details out of screens.
 
+Deleting an agent keeps its chats and events, hides it from settings and agent
+pickers, and labels existing chats with `metadata.deletedAgentName`. A chat can
+continue after switching to an available agent. DELETE returns 409 while the
+agent has active work or an options probe; idle sessions are closed automatically.
+
 Global agent proxy configuration uses `GET`/`PUT /api/settings/agent-proxy`.
 Passwords are write-only: an omitted password retains it on the same server and
 username, an empty password removes it, and changing server/username clears the

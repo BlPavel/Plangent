@@ -11,14 +11,16 @@ import { randomUUID } from 'crypto';
 import os from 'os';
 import path from 'path';
 import { EventEmitter } from 'events';
+import { DomainError } from '../../../models/domain-error';
 import { getAgent } from '../catalog';
+import { deleteAgent as persistAgentDeletion } from '../../../infrastructure/db/repositories/agents/catalog';
 import { getProject } from '../../projects';
 import type { getTask } from '../../tasks';
 import type { listAnalysisSections } from '../../preparation';
 import { readOnlyRoots, mentionedReferences } from '../../projects';
 import type { rootForSession, writableRootsForSession, assertTaskWorkspaceReady } from '../../workspaces';
 import { broadcast } from '../../shared';
-import { addEvent, getSession, history, toolCallPayload, updateSession, updateAgentTitle } from './sessions';
+import { addEvent, getSession, listSessions, history, toolCallPayload, updateSession, updateAgentTitle } from './sessions';
 import { getAcpOptions, saveAcpOptions, type AcpOptions } from '../catalog/acp-options';
 import { enqueue, queuedPrompts, editQueued } from './prompt-queue';
 import { permissionDecision, shellGitDecision, commandToolAvailable, COMMAND_REDIRECT_REASON } from './permissions';
@@ -290,6 +292,7 @@ export async function authorizeCommand(id: string, title: string, signal: AbortS
   return allowed && !state.cancelled && !state.stopping && state.turnAbort?.signal === signal && !signal.aborted;
 }
 export async function startSession(id: string): Promise<LiveSession> {
+  if (!getAgent(getSession(id).agent_id)) throw new Error('Агент удалён или не найден. Выберите другого агента.');
   if (changingProxy.has(getSession(id).agent_id)) throw new Error('Настройки прокси агента изменяются. Повторите запрос.');
   await stoppingProcesses.get(id);
   if (changingProxy.has(getSession(id).agent_id)) throw new Error('Настройки прокси агента изменяются. Повторите запрос.');
@@ -426,7 +429,7 @@ export async function setModel(id: string, model: string): Promise<void> {
   updateSession(id, { model });
 }
 // What the previous agent reported about itself; the new one fills these in when it starts.
-const AGENT_OWN_METADATA = ['configOptions', 'modes', 'models', 'preferredMode', 'preferredConfig', 'reasoningEffort', 'agentCapabilities', 'authMethods', 'agentInfo', 'protocolVersion'];
+const AGENT_OWN_METADATA = ['configOptions', 'modes', 'models', 'preferredMode', 'preferredConfig', 'reasoningEffort', 'agentCapabilities', 'authMethods', 'agentInfo', 'protocolVersion', 'deletedAgentName'];
 /** Hands the chat to another agent: the old process stops, the new one starts and gets the conversation with the next message. */
 export async function switchAgent(id: string, agentId: string): Promise<void> {
   const session = getSession(id);
@@ -435,6 +438,7 @@ export async function switchAgent(id: string, agentId: string): Promise<void> {
   if (!agent) throw new Error('Агент не найден');
   if (live.get(id)?.busy || starting.has(id) || ['thinking', 'starting', 'waiting'].includes(session.status)) throw new Error('Дождитесь окончания хода');
   await closeSession(id);
+  if (!getAgent(agentId) || changingProxy.has(agentId)) throw new DomainError('Агент удалён или его настройки изменяются. Выберите другого агента.', 409);
   const kept = Object.fromEntries(Object.entries(getSession(id).metadata).filter(([key]) => !AGENT_OWN_METADATA.includes(key)));
   const hasHistory = history(id).some(e => e.type === 'user' || e.type === 'assistant');
   updateSession(id, { agent_id: agentId, model: agent.model, acp_session_id: null, status: 'ready', reason: '', metadata: { ...kept, briefed: false, needsContext: hasHistory } });
@@ -477,6 +481,7 @@ export async function enableExecution(id: string, policy: PermissionPolicy = 'al
 }
 export async function sendPrompt(id: string, content: ACP.ContentBlock[], gitForTurn = false): Promise<void> {
   const state = await startSession(id);
+  if (state.stopping || changingProxy.has(getSession(id).agent_id)) throw new Error('Настройки агента изменяются. Повторите запрос.');
   if (state.busy) { enqueue(id, JSON.stringify(gitForTurn ? { content, gitForTurn: true } : content)); broadcast({ type: 'agent_queue', sessionId: id }); return; }
   state.busy = true;
   state.cancelled = false;
@@ -606,13 +611,28 @@ export async function shutdownSessions(): Promise<void> {
 }
 /** Route switches apply to existing chats before their next turn. Never interrupt an active turn. */
 export async function prepareAgentProxyChange(agentId: string): Promise<() => void> {
-  if (changingProxy.has(agentId) || probes.has(agentId)) throw new Error('Дождитесь окончания проверки агента перед сменой прокси');
+  return prepareAgentChange(agentId);
+}
+/** Lock launches and probes before closing idle sessions; active work must finish first. */
+async function prepareAgentChange(agentId: string): Promise<() => void> {
+  if (changingProxy.has(agentId) || probes.has(agentId)) throw new DomainError('Дождитесь окончания проверки или изменения настроек агента', 409);
   const ids = [...new Set([...live.keys(), ...starting.keys()])].filter(id => getSession(id).agent_id === agentId);
-  if (ids.some(id => starting.has(id) || live.get(id)?.busy)) throw new Error('Дождитесь окончания хода агента перед сменой прокси');
+  if (ids.some(id => starting.has(id) || live.get(id)?.busy || live.get(id)?.loading || live.get(id)?.permissions.size || queuedPrompts(id).length)) throw new DomainError('Дождитесь окончания работы агента перед изменением настроек или удалением', 409);
   changingProxy.add(agentId);
   try { await Promise.all(ids.map(closeSession)); }
   catch (error) { changingProxy.delete(agentId); throw error; }
   return () => changingProxy.delete(agentId);
+}
+/** Existing chats retain their history and can be handed to another agent. */
+export async function deleteAgent(agentId: string): Promise<boolean> {
+  if (!getAgent(agentId)) return false;
+  const release = await prepareAgentChange(agentId);
+  try {
+    const deleted = persistAgentDeletion(agentId);
+    if (deleted) for (const session of listSessions().filter(session => session.agent_id === agentId)) broadcast({ type: 'agent_session', session });
+    return deleted;
+  }
+  finally { release(); }
 }
 /** Reclaim idle processes for every adapter. Owners explicitly mark finished short-lived work. */
 export function stopIdleSessions(now = Date.now()): void {

@@ -4,6 +4,7 @@ import { addWorkspacePortSlot } from './013-workspace-port-slot';
 import { addTaskReviewAgent } from './014-task-review-agent';
 import { addWorkspaceSetupDone } from './015-workspace-setup-done';
 import { addAgentProxy } from './016-agent-proxy';
+import { addAgentDeletion } from './017-agent-deletion';
 import { migrateBranchReviewTables } from './010-branch-review-tables';
 import type Database from 'better-sqlite3';
 import { migrateTaskWorkspaces } from './002-migrateTaskWorkspaces';
@@ -262,5 +263,6 @@ export function migrate(db: Database.Database): void {
   addTaskReviewAgent(db);
   addWorkspaceSetupDone(db);
   addAgentProxy(db);
+  addAgentDeletion(db);
 }
 

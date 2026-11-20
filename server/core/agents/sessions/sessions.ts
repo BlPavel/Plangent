@@ -4,7 +4,9 @@ import type { AgentSession, SessionEvent } from './types';
 export { initSessions, getSession, listSessions, history, toolCallPayload, findings } from '../../../infrastructure/db/repositories/agents/sessions';
 export type { ReviewFinding } from '../../../infrastructure/db/repositories/agents/sessions';
 import { getSession } from '../../../infrastructure/db/repositories/agents/sessions';
+import { getAgent } from '../catalog';
 export function createSession(data: Parameters<typeof repository.createSession>[0]): AgentSession {
+  if (!getAgent(data.agent_id)) throw new Error('Агент удалён или не найден. Выберите другого агента.');
   if (['librarian', 'committer', 'plan-reviewer', 'task-reviewer'].includes(data.role)) data = { ...data, policy: 'read-only' };
   const session = repository.createSession(data);
   broadcast({ type: 'agent_session', session });

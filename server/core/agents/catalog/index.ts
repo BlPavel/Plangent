@@ -5,7 +5,7 @@ import { clearAcpOptions } from './acp-options';
 
 const execAsync = promisify(exec);
 
-export { listAgents, getAgent, createAgent, deleteAgent } from '../../../infrastructure/db/repositories/agents/catalog';
+export { listAgents, getAgent, createAgent } from '../../../infrastructure/db/repositories/agents/catalog';
 export type { AgentInput } from '../../../infrastructure/db/repositories/agents/catalog';
 import { getAgent, updateAgent as persistAgent } from '../../../infrastructure/db/repositories/agents/catalog';
 export function updateAgent(id: string, data: Partial<Omit<Agent, 'id' | 'created_at'>>): Agent | null {
