@@ -38,6 +38,18 @@ export const agentPresets: Record<string, AgentPreset> = {
     update_command: 'npm install -g @google/gemini-cli@latest',
     layout_profile: { main: { file: 'GEMINI.md', global: '~/.gemini/GEMINI.md' } },
   },
+  qwen: {
+    name: 'Qwen Code',
+    acp_command: 'qwen',
+    acp_args: ['--acp'],
+    command: 'qwen',
+    update_command: 'npm install -g @qwen-code/qwen-code@latest',
+    layout_profile: {
+      skills: { dir: '.qwen/skills', global: '~/.qwen/skills', file: 'plangent-<slug>/SKILL.md' },
+      commands: { dir: '.qwen/skills', global: '~/.qwen/skills', file: 'plangent-<slug>/SKILL.md', asSkill: true },
+      main: { file: 'QWEN.md', global: '~/.qwen/QWEN.md' },
+    },
+  },
   gigacode: {
     name: 'GigaCode',
     acp_command: 'gigacode',

@@ -59,6 +59,17 @@ background/subagent models. Its `command` stays empty so Claude account usage
 is not displayed as DeepSeek usage. Set `ANTHROPIC_AUTH_TOKEN` in the agent's
 environment to a DeepSeek API key before starting a conversation.
 
+Qwen Code uses its native stdio ACP mode, `qwen --acp`. The `qwen` preset
+provides `npm install -g @qwen-code/qwen-code@latest` as its install/update
+command. Install the CLI and configure authentication by running `qwen`
+interactively before checking or launching the agent in Plangent. The preset
+does not override the CLI's saved provider, model or credentials. Library
+instructions use `QWEN.md` (global: `~/.qwen/QWEN.md`); skills and commands
+export as skills under `.qwen/skills` (global: `~/.qwen/skills`).
+References: [Qwen ACP setup](https://qwenlm.github.io/qwen-code-docs/en/users/integration-jetbrains/),
+[authentication](https://qwenlm.github.io/qwen-code-docs/en/users/configuration/auth/),
+[skills](https://qwenlm.github.io/qwen-code-docs/en/users/features/skills/).
+
 GLM (Z.ai) and Kimi (Moonshot API) use the same ACP adapter. GLM uses
 `https://api.z.ai/api/anthropic`, a Z.ai GLM Coding Plan key, and `glm-5.3[1m]`.
 Kimi uses `https://api.moonshot.ai/anthropic`, a Moonshot platform API key,
