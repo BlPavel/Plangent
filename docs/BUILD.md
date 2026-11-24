@@ -10,8 +10,8 @@
 
 ## Требования
 
-- Node.js 22+ (ACP-адаптер Claude требует Node.js 22; нативные модули `better-sqlite3` и `node-pty` собираются под
-  конкретную версию Node/Electron ABI, см. ниже).
+- Node.js 22+ (его требует ACP-адаптер Claude). Модуль `better-sqlite3`
+  должен соответствовать ABI того процесса, в котором работает сервер.
 - На macOS для сборки нативных модулей нужны Xcode Command Line Tools
   (`xcode-select --install`).
 - На Windows — Visual Studio Build Tools (обычно ставятся автоматически при
@@ -29,10 +29,10 @@ Electron-окно параллельно, с горячей перезагруз
 
 ### Частая ошибка: NODE_MODULE_VERSION mismatch
 
-`better-sqlite3` и `node-pty` — нативные модули, скомпилированные под
-конкретный ABI. В dev-режиме сервер (`tsx watch`) запускается под системным
-Node, а `npm run electron:build` / `electron:release` пересобирают эти модули
-под ABI самого Electron (через `@electron/rebuild`). Если после сборки
+`better-sqlite3` скомпилирован под конкретный ABI. В dev-режиме сервер
+(`tsx watch`) запускается под системным Node, а `npm run electron:build` /
+`electron:release` пересобирают `better-sqlite3` под ABI самого Electron
+через `@electron/rebuild`. Если после сборки
 приложения снова запустить `npm run electron:dev`, сервер упадёт с ошибкой
 вида:
 
@@ -45,8 +45,10 @@ was compiled against a different Node.js version using NODE_MODULE_VERSION ...
 
 ```bash
 npm rebuild better-sqlite3
-npm rebuild node-pty
 ```
+
+Терминал использует `node-pty` из `npm ci`. На macOS утилите
+`spawn-helper` выставляет права на запуск скрипт `postinstall`.
 
 ## Локальная сборка приложения
 
@@ -56,12 +58,12 @@ npm run electron:build
 
 Собирает клиент и сервер, пересобирает нативные модули под Electron ABI и
 запускает `electron-builder`. На выходе — неподписанный `.dmg` (на macOS) или
-`.exe`-инсталлятор (на Windows) в `dist-electron/`. Сборка под конкретную ОС
+`.exe`-инсталлятор (на Windows) в `dist/`. Сборка под конкретную ОС
 делается только на этой же ОС — кросс-компиляции нет.
 
 ### Windows: ошибка MSB8040 про Spectre-библиотеки
 
-На Windows `@electron/rebuild` пересобирает `better-sqlite3` и `node-pty` через
+На Windows `@electron/rebuild` пересобирает `better-sqlite3` через
 MSBuild. Если установлено несколько версий Visual Studio Build Tools, MSBuild
 может выбрать toolset, для которого не установлены Spectre-библиотеки, и сборка
 упадёт с ошибкой:

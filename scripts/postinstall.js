@@ -8,19 +8,13 @@ const { join } = require("node:path");
 
 if (process.platform !== "darwin") process.exit(0);
 
-const helper = join(
-  __dirname,
-  "..",
-  "node_modules",
-  "node-pty",
-  "prebuilds",
-  "darwin-arm64",
-  "spawn-helper",
-);
-
-try {
-  if (existsSync(helper)) chmodSync(helper, 0o755);
-} catch (err) {
-  // Non-fatal: never fail `npm install` over this.
-  console.warn("postinstall: could not chmod spawn-helper:", err.message);
+const pty = join(__dirname, "..", "node_modules", "node-pty");
+for (const folder of ["prebuilds/darwin-arm64", "prebuilds/darwin-x64", "build/Release"]) {
+  const helper = join(pty, folder, "spawn-helper");
+  try {
+    if (existsSync(helper)) chmodSync(helper, 0o755);
+  } catch (err) {
+    // Non-fatal: never fail `npm install` over this.
+    console.warn("postinstall: could not chmod spawn-helper:", err.message);
+  }
 }

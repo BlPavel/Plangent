@@ -244,21 +244,21 @@ export function answerPermission(id: string, permissionId: string, optionId: str
     if (state!.busy) sessionSignals.emit('thinking', id);
   }
 }
-/** Ask through the same pending-permission channel as ACP; session policy never bypasses this. */
+/** Capture the current turn before preparing a Git action. */
 export function captureGitTurn(id: string): AbortSignal {
   const state = live.get(id);
   if (!state?.busy || !state.turnId || !state.turnAbort || state.cancelled || state.stopping) throw new Error('Git turn ended');
   return state.turnAbort.signal;
 }
-export async function authorizeGitAction(id: string, title: string, alwaysAsk: boolean, expectedSignal?: AbortSignal): Promise<AbortSignal | null> {
+export async function authorizeGitAction(id: string, title: string, expectedSignal: AbortSignal): Promise<AbortSignal | null> {
   const state = live.get(id);
   const session = getSession(id);
   if (!state || !state.busy || state.cancelled || state.stopping ||
       !['chat', 'task-chat', 'errand'].includes(session.role) || session.metadata.branch_review || session.metadata.mr_private || getProject(session.project_id)?.kind !== 'project') return null;
   const turnId = state.turnId;
   const signal = state.turnAbort?.signal;
-  if (!turnId || !signal || expectedSignal && expectedSignal !== signal) return null;
-  if (state.gitForTurn && !alwaysAsk) {
+  if (!turnId || signal !== expectedSignal) return null;
+  if (state.gitForTurn) {
     addEvent(id, 'notice', { text: title });
     return signal;
   }

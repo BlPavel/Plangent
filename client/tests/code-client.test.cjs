@@ -227,6 +227,30 @@ function harness() {
     emit: event => { for (const handler of handlers) handler(event) } }
 }
 
+test('dismissing another branch review hides only its banner through refresh and navigation', async () => {
+  const h = harness()
+  const paused = { id: 'review-one', number: 1, branch: 'release', status: 'open' }
+  let otherReviews = [paused]
+  h.codeReviewsApi.current = async () => ({ review: null, items: [], rounds: [], other_reviews: otherReviews })
+  h.codeReviewsApi.history = async () => [{ ...paused, items: 0 }]
+  try {
+    await h.store.start('p')
+    await h.store.loadHistory()
+    assert.equal(h.store.otherReview.items, 0)
+    h.store.dismissOtherReview()
+    assert.equal(h.store.otherReview, null)
+    await h.store.refresh()
+    assert.equal(h.store.otherReview, null)
+    assert.equal(h.store.history[0].id, paused.id)
+    await h.store.start('p')
+    assert.equal(h.store.otherReview, null)
+
+    otherReviews = [paused, { ...paused, id: 'review-two', number: 2 }]
+    await h.store.refresh()
+    assert.equal(h.store.otherReview.review.id, 'review-two')
+  } finally { h.store.stop() }
+})
+
 test('watcher updates data automatically; stop unsubscribes and clears state', async () => {
   const h = harness()
   await h.store.start('p')

@@ -2,7 +2,7 @@ import spawn from 'cross-spawn';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { DATA_DIR } from '../db/schema';
+import { DATA_DIR } from '../paths';
 
 // `npx --yes pkg@1.2.3` keeps npx and two cmd.exe wrappers alive for the whole session (~95 MB per chat)
 // and asks the registry on every start. A pinned adapter is installed once into the data folder and
@@ -59,12 +59,7 @@ async function install(name: string, version: string, env: Env): Promise<string 
     if (!binEntry(temp, name)) throw new Error(`В пакете ${name} нет node-скрипта для запуска`);
     try { fs.renameSync(temp, dir); } catch (error) { if (!binEntry(dir, name)) throw error; }
   } finally { fs.rmSync(temp, { recursive: true, force: true }); }
-  // Older versions of the same adapter are no longer used; a copy still running elsewhere stays locked and is skipped.
-  for (const entry of fs.readdirSync(root)) {
-    if (entry.startsWith(folder) && entry !== folder + version) {
-      try { fs.rmSync(path.join(root, entry), { recursive: true, force: true }); } catch { /* in use */ }
-    }
-  }
+  // Other records and running sessions may still use older versions, even on systems that allow unlinking open files.
   return binEntry(dir, name);
 }
 
@@ -76,9 +71,8 @@ export async function resolveAdapter(command: string, args: string[], env: Env):
   if (!installs.has(key)) {
     installs.set(key, install(spec.name, spec.version, env).catch(error => {
       console.warn(`[adapters] ${key}: ${error instanceof Error ? error.message : String(error)}; запускаю через npx`);
-      installs.delete(key);
       return null;
-    }));
+    }).finally(() => { installs.delete(key); }));
   }
   const entry = await installs.get(key)!;
   return entry ? { command: 'node', args: [entry, ...spec.rest] } : { command, args };

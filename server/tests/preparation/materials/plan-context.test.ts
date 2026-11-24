@@ -66,6 +66,10 @@ test('planner and executors get ready architecture and QA through MCP, links are
     const ready = value(await planning.callTool({ name: 'get_plan', arguments: {} }));
     assert.deepEqual(ready.qa.identifiers, ['Q1', 'Q3']);
     assert.match(ready.architecture.content, /Storage/);
+    assert.match(ready.format, /concrete steps to implement the task/);
+    assert.match(ready.format, /Ready architecture describes the target design and takes precedence over analysis/);
+    assert.match(ready.format, /Ready QA defines acceptance criteria and takes precedence over analysis/);
+    assert.match(ready.format, /ask the developer to resolve the conflict before finalizing the plan/);
     assert.equal(ready.materialsNotUsed, undefined);
     assert.equal(planningToolContext({ projectName: 'p', taskKey: 'k', }).qa, undefined);
 
@@ -93,7 +97,10 @@ test('planner and executors get ready architecture and QA through MCP, links are
     // Not an executor tool for other roles.
     await assert.rejects(planning.callTool({ name: 'get_step_context', arguments: {} }));
 
-    // The prompt never carries material text.
+    // The prompts never carry material text.
+    const plannerPrompt = buildPrompt({ projectName: project.name, taskKey: task.key, taskId: task.id, repoPath: root, purpose: 'plan' });
+    assert.match(plannerPrompt, /Prepare an implementation plan for the task/);
+    assert.ok(!/Boundary|Storage|Three|ANALYSIS TEXT/.test(plannerPrompt));
     const prompt = buildPrompt({ projectName: project.name, taskKey: task.key, taskId: task.id, repoPath: root, planContent: getLatestPlan(task.id)!.content, points: ['p1'], purpose: 'execute', });
     assert.match(prompt, /get_step_context/);
     assert.ok(!/Boundary|Storage|Three|ANALYSIS TEXT/.test(prompt));

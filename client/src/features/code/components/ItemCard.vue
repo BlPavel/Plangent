@@ -353,7 +353,7 @@ function sendReply(message: string, kind: 'text' | 'implement' = 'text') {
 .it-reply { display: flex; flex-direction: column; gap: 4px; }
 
 /* Every action of the bar is the same width, so the row reads as one set; only the colour tells main from the rest. */
-.it-act { flex: 0 0 auto; min-width: 76px; }
+.it-act, :slotted(.it-accept) { flex: 0 0 auto; min-width: 76px; }
 .it-goto { margin-right: auto; }
 .it-reply .it-actions { justify-content: flex-end; gap: 6px; padding-top: 8px; border-top: 1px solid var(--border); }
 </style>

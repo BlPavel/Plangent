@@ -42,6 +42,7 @@ Claude is also configured to resolve target hostnames through the proxy.
 Shell commands through `run_command`, terminals, Git, agent installation updates
 and other application integrations keep their own network environment. Installing
 an adapter during a proxied launch inherits that launch's proxy environment.
+
 This is application routing for clients that honor their proxy settings, not an
 OS sandbox for arbitrary code. Codex and Claude native runtime smoke tests use
 fake credentials and local APIs; opt in with `PLANGENT_PROXY_CLI_TESTS=1` when
@@ -49,6 +50,14 @@ their adapters are installed under `data/adapters/` (Claude smoke path: Windows)
 
 Transport tests cover HTTP/HTTPS, CA verification, authenticated SOCKS5, streaming,
 unavailable/auth-rejecting proxies, credential isolation and closing old tunnels.
+
+On macOS the saved preset update commands for Codex, Claude, Gemini and Qwen
+install the CLI with npm under `data/agent-cli` (inside Plangent's user data in
+the desktop build). Plangent puts that directory's `bin` first on its default
+PATH so subsequent launches use the updated CLI. Agent and project PATH
+overrides still apply. Custom update commands run as configured. Pinned ACP
+adapters are installed separately by version under `data/adapters`; other
+agent records and open sessions can continue using earlier versions.
 
 Agent presets use the shared `AgentPreset` contract. Optional `env` defaults
 are copied into the settings form when a preset is applied; credentials in
@@ -96,8 +105,8 @@ Roles select instructions and [MCP](mcp.md) tools; read-only policy restricts
 writes. Session permissions check shell/file access. Agents may read Git state,
 but writing Git operations go through Plangent's checked tools and
 [Git workflows](git.md), never shell commands. Chat Git actions are available
-in ordinary projects. Without Git permission for the turn, each action asks
-for approval. Actions that always require approval still ask.
+in ordinary projects. The chat's Git button approves every `git_action` for the
+message's turn. Without that permission, each Git action asks for approval.
 
 Each turn includes shell and Git guidance based on the MCP tools available to
 the session, including ordinary chats, errands and plan execution.

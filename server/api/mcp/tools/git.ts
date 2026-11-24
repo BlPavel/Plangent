@@ -29,7 +29,7 @@ export const tools = defineTools(definitions, {
 }, async (_name, session: AgentSession, args, emit) => {
   const expectedSignal = captureGitTurn(session.id);
   const prepared = await prepareChatGitAction(session, args);
-  const signal = await authorizeGitAction(session.id, prepared.title, prepared.alwaysAsk, expectedSignal);
+  const signal = await authorizeGitAction(session.id, prepared.title, expectedSignal);
   if (!signal) return { cancelled: true };
   let outputSize = 0;
   return prepared.execute(signal, event => {

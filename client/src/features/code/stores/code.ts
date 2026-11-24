@@ -45,6 +45,7 @@ export const useCodeStore = (instance = 'main') => defineStore(instance === 'mai
   const baseRound = ref<string | null>(null)
   const baseData = ref<BaseChanges | null>(null)
   const continuedHead = ref<string | null>(null)
+  const dismissedOtherReviews = ref(new Set<string>())
   const loading = ref(false)
   const error = ref<string | null>(null)
   const watchError = ref<string | null>(null)
@@ -91,9 +92,13 @@ export const useCodeStore = (instance = 'main') => defineStore(instance === 'mai
   const commitBannerShown = computed(() => screen.value === 'all-committed' || (screen.value === 'committed' && continuedHead.value !== head.value))
   /** An unfinished review of another branch (paused): the header offers it read-only. */
   const otherReview = computed(() => {
-    const other = current.value?.other_reviews.find(candidate => candidate.status === 'open')
+    const other = current.value?.other_reviews.find(candidate => candidate.status === 'open' && !dismissedOtherReviews.value.has(candidate.id))
     return other ? { review: other, items: history.value.find(entry => entry.id === other.id)?.items ?? null } : null
   })
+  function dismissOtherReview() {
+    const id = otherReview.value?.review.id
+    if (id) dismissedOtherReviews.value.add(id)
+  }
   const runningElsewhere = computed(() => current.value?.running_other_reviews ?? [])
 
   // Per-resource cancellation prevents stale responses after navigation or overlapping refreshes.
@@ -295,7 +300,7 @@ export const useCodeStore = (instance = 'main') => defineStore(instance === 'mai
   }
   onScopeDispose(stop)
   return { projectId, workspaceId, repository, head, branch, changes, stats, trees, files, includeIgnored, selectedPath, file, current, openedReviewId, openedReview, review, items, rounds, readOnly, history, loading, error, watchError,
-    base, remoteRef, baseRound, baseData, screen, unresolved, liveReview, agentWorking, effectiveBase, shownChanges, shownStats, diffEnds, commitBannerShown, otherReview, runningElsewhere, setBase, continueReview,
+    base, remoteRef, baseRound, baseData, screen, unresolved, liveReview, agentWorking, effectiveBase, shownChanges, shownStats, diffEnds, commitBannerShown, otherReview, dismissOtherReview, runningElsewhere, setBase, continueReview,
     matches, searchSummary, searching, searchError, start, stop, refresh, loadTree, selectFile, openReview, loadHistory, setIncludeIgnored, search, cancelSearch, clearSearch, diff,
     messages, addDraft, updateDraft, removeItem, makeGeneral, addMessage, removeMessage, closeItem, sendRound, stopAgent, finish, removeReview }
 })()

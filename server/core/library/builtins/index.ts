@@ -269,13 +269,24 @@ The plan describes the work, not how it was agreed: do not retell the interview,
 
 export const DEFAULT_PLAN_TEMPLATE = `# How to write a plan
 
-A plan says what to do and in what order, so that an executor implements the task step by step and the developer can accept every step. Write the plan in Russian.
+Write an execution-ready plan in Russian for sequential execution by different executors. Make each step an assignment with explicit direct dependencies, agreed contracts, a bounded scope and its own acceptance checks. The plan author is responsible for the architectural consistency of the whole solution.
+
+## Choose the requested deliverable
+
+Treat «составь план», «составь план по ТЗ» and «составь план реализации» for a change to the product or codebase as requests for an implementation plan. Use the specification, research notes, architecture and QA as inputs. Their presence or location does not make research the deliverable. Use research or documentation as the plan's goal when the developer explicitly asks for that deliverable, for example «составь план исследования».
+
+Complete the research needed to decide the implementation before drafting steps. Read the available sources and verify the contracts the steps rely on. If a consequential decision still needs the developer's input, follow the blocking-question rule below. A step to «уточнить контракт», «разобрать подключение» or «выбрать подход» leaves that decision to an executor and does not deliver the implementation.
+
+For an implementation plan, describe the outcome that will exist after execution. In «Цель», name the behaviour or technical capability and who uses it. In «Архитектура», describe or reference the target design of the change. In «Пункты плана», assign concrete changes that produce it. In «Файловая структура», show the implementation, configuration, tests and task-required documentation affected by those steps. Include documentation work when it is part of the requested result, such as updating an API reference for its consumers.
 
 The plan describes the work, not how it was agreed. Do not retell the interview, the chat or a review: no sections like «Решения интервью», no "as agreed in the interview", no "the developer chose".
 
-Settle choices before writing. A step never contains a decision still to be made ("согласовать", "выбрать", "решить", "пересмотреть D3"). When an open choice changes the steps, ask the developer in chat before writing the plan and wait for the answer; do not submit a partial plan that covers only the work independent of it. A question whose answer changes only a detail may go to «Вопросы разработчику»: write the steps under your recommended answer and say in the question what changes otherwise. Do not pick an interpretation silently, and do not agree for the sake of agreement: when a solution breaks boundaries or is worse than an alternative, say so with an argument.
+Read the code, the analysis and, when get_plan has them, the architecture and QA before writing. Base the plan on verified facts. Before reusing an existing entity, verify its public contract, dependencies and operating conditions. A similar example alone does not establish suitability. Follow the current architecture rules even if existing code violates them. Verify any assumption the solution depends on before finalizing the plan, or raise it as a blocking question for the developer.
 
-Read the code, the analysis and, when get_plan has them, the architecture and QA before writing. Base the plan on verified facts, not on assumptions.
+Surface significant doubts and contradictions among the requirements, architecture and code. First try to resolve them using available sources. Explain any remaining objections and their practical consequences.
+
+- If the developer's answer can change the architecture, scope, required behaviour, data preservation, or which steps are needed and in what order, ask a concrete question in chat and wait for the answer before finalizing the plan.
+- If the answer affects only a local detail, put a concrete question in «Вопросы разработчику». State the recommended option used in the steps and what would change under a different answer. Use the code to resolve questions it can answer.
 
 ## Structure
 
@@ -287,17 +298,27 @@ Use exactly these sections in this order, with these Russian headings. Add no ot
 4. \`## Пункты плана\`: the steps, see below.
 5. \`## Файловая структура\`: required, even for a small change. The tree of the affected folders after the plan is done, in a \`\`\`text block. Mark new entries \`(новый)\`, changed ones \`(изменён)\`, removed ones \`(удалён)\`, moved ones \`(перенесён из <path>)\`. Show unchanged neighbours only where they help to find the place.
 6. \`## Принятые решения\`: only when there are any. Decisions accepted for this task that are not already in the architecture document, wherever they were made (task, chat, interview, review). One bullet per decision: what is accepted, briefly why. Omit the section when there are none.
-7. \`## Вопросы разработчику\`: only when there are open questions. A numbered list (\`1.\`, \`2.\`, …), one question per item, so the developer can answer by number: the question and what in the plan depends on the answer. Include objections the developer did not accept. Omit the section when there are none.
+7. \`## Вопросы разработчику\`: only when there are open questions. A numbered list (\`1.\`, \`2.\`, …), one question per item, so the developer can answer by number: the question, the recommended option used in the steps, and the consequences of a different answer. Include unresolved objections about local details when relevant. Omit the section when there are none.
 
 ## Steps
 
-Steps are strictly ordered: a step that can only be done after another comes below it. One step is one piece of work the developer can accept on its own.
+For each required scenario, trace the path from the initiating action or external event to the observable result. Identify what starts the work, what performs it, who owns any state and how the result reaches its consumer. Specify how errors are handled. Include every necessary link in the steps and explain how existing components or services are connected.
+
+If the task involves state, asynchronous operations, caching or synchronization, specify initialization, how completeness and freshness are determined, updates, recovery after failure and cleanup. Data can be present and still be incomplete. For concurrent operations, specify which result takes precedence and how stale responses, duplicate application and restoration of deleted data are prevented where relevant. Cover the cases that apply to the task and choose mechanisms that fit its conditions.
+
+Order steps so prerequisites come before their consumers. Each step delivers one bounded result that can be assigned, verified and accepted independently once its prerequisites are in place. Give the executor the entry conditions, scope and observable result needed to work without reading the discussion history or making new architecture decisions. Link the relevant architecture decision and give the contracts needed for the work.
+
+Split a step when it contains independently acceptable results, distinct reasons for change or multiple independent failure modes. Sharing a screen or a library is insufficient reason to bundle work. For example, synchronization can have separate steps for delivering and normalizing events, rebuilding a full snapshot, applying updates and deletions, recovering after a disconnect, and connecting the mechanism to the application lifecycle.
+
+Group a contract change with changes to its immediate consumers when splitting the work would leave a broken intermediate state. Keep a file change or mechanical action inside its parent step when it has no independently acceptable result. Let the deliverables determine the number and length of steps.
 
 Each step is a checkbox line followed by a nested list, fields in this order:
 
 \`\`\`markdown
 - [ ] Название пункта
   - **Основания:** [[architecture#D2]], [[qa#Q3]]
+  - **Зависимости:** (p2), (p4). State which result is used from each.
+  - **Границы:** specific files or entities changed and adjacent contracts preserved.
   - **Образец:** \`path/to/similar.ts\`: what to repeat from it
   - **Что сделать:** what is created or changed, where it lives, who calls whom, where the data comes from.
   - **Приемка:** what must work after the step and how to check it.
@@ -305,88 +326,148 @@ Each step is a checkbox line followed by a nested list, fields in this order:
 
 - The step line is the name of the action, up to eight words. No links, explanations or ids.
 - **Основания** (only when there are any): links to the architecture decisions and QA criteria this step implements. Only links, no text. Omit the line when there is nothing to link.
+- **Зависимости** (only when the step needs a result from another step): list direct prerequisites and name the result consumed from each. Use the step’s \`(pN)\` label or its name if labels are unavailable. Include any other entry conditions in **Что сделать**.
+- **Границы** (required): identify the files or entities in scope and any adjacent contracts that must remain compatible. Name concrete boundaries relevant to the change.
 - **Образец** (only when there is one): an existing file, entity or documentation the implementation must follow, and what exactly to repeat. Omit the line when there is no sample.
-- **Что сделать** (required): the work itself. Name the entities, files and their responsibilities. Interfaces, signatures, input/output shapes and exact values given by the developer belong here, as a short code block in the project's notation when words are not enough. No implementation code: no function bodies, templates or styles.
-- **Приемка** (required): observable result and the way to check it: a test, a command, a screen and an action, a search that must find nothing. "Works", "matches the decisions" or "is recorded" is not acceptance.
+- **Что сделать** (required): the work itself. Describe responsibilities and how the parts connect. For each new public entity, specify its contract, location and consumer. Define any contract that a later step will consume in the step that delivers it. The consuming step uses that contract. Interfaces, signatures, input/output shapes and exact values given by the developer belong here, as a short code block in the project's notation when words are not enough. No implementation code: no function bodies, templates or styles.
+- **Приемка** (required): observable result and the way to check it: a test, a command, a screen and an action, a search that must find nothing. "Works", "matches the decisions" or "is recorded" is not acceptance. Give each material guarantee a check that can detect a violation. Include behavioural checks for behavioural guarantees. Use commands that match the project’s tooling and targets or, for a new project, the selected generator. State the expected result as an acceptance criterion. Report a result as observed only if the check was run.
 
 When a step has a tempting but poor path, name it in **Что сделать** and say why it is poor: an unnamed poor path gets chosen because it is shorter.
 
-Refer to another step by its \`(pN)\` label, or by its name while there are no labels yet. Cover every QA criterion with at least one step; when several steps cover a criterion, accept it in the last of them.
+Use **Приемка** to verify the step’s own result with its prerequisites in place. Cover every QA criterion. If a required scenario or criterion depends on several steps, put its end-to-end check in the acceptance of the last required step. Exercise how the parts interact and verify the observable result. Isolated checks cover the individual parts.
 
 ## Example
+
+Illustrative example for an Nx workspace with a buildable \`ui\` project and a recipient editor.
 
 \`\`\`markdown
 # Публичный компонент chips
 
 ## Цель
 
-Дать приложениям один компонент для списка чипов с удалением, вместо ручной вёрстки из отдельных chip в каждом экране.
+В редакторе получателей можно удалить выбранного получателя через общий компонент списка чипов.
 
 ## Архитектура
 
-[[architecture]]: chips владеет отображением, список хранит родитель ([[architecture#D1]]); chip становится внутренней частью chips ([[architecture#D2]]).
+[[architecture]] ([[architecture#D1]], [[architecture#D2]]).
 
 ## Пункты плана
 
-- [ ] Перенести chip внутрь chips
-  - **Основания:** [[architecture#D2]]
-  - **Что сделать:** перенести \`libs/ui/src/lib/chip/\` в \`libs/ui/src/lib/chips/elements/chip/\` без изменения поведения и селектора. Публичный экспорт \`ChipComponent\` из \`libs/ui/src/index.ts\` убрать: снаружи chip больше не используется.
-  - **Приемка:** сборка \`nx build ui\` проходит; поиск \`lib/chip/\` по репозиторию ничего не находит.
-- [ ] Создать компонент chips
-  - **Основания:** [[architecture#D1]], [[qa#Q1]], [[qa#Q2]]
-  - **Образец:** \`libs/ui/src/lib/tags/tags.component.ts\`: так же объявлены входы и событие удаления.
-  - **Что сделать:** компонент \`ChipsComponent\` в \`libs/ui/src/lib/chips/\` рисует chip для каждого элемента и по крестику отдаёт элемент наружу, сам список не меняет. Контракт:
+- [ ] Создать компонент списка чипов
+  - **Основания:** [[architecture#D1]], [[qa#Q1]]
+  - **Границы:** новый компонент в \`libs/ui/src/lib/chips/\`, его тест и экспорт в \`libs/ui/src/index.ts\`. Публичный контракт \`ChipComponent\` сохраняется до миграции редактора.
+  - **Что сделать:** создать и экспортировать \`ChipsComponent\` в \`libs/ui/src/lib/chips/\` для редактора получателей. Компонент использует \`ChipComponent\` для отрисовки каждого элемента и передаёт выбранный элемент родителю по событию \`removed\`. Условие начала работы — существующий \`ChipComponent\` предоставляет событие удаления. Контракт:
     \`\`\`ts
     items: readonly T[]            // T extends { id: string | number }
     displayWith: (item: T) => string
     removed: EventEmitter<T>
     \`\`\`
-    Не рекомендуется удалять элемент внутри компонента: состоянием начнут владеть двое, и родитель разойдётся с экраном.
-  - **Приемка:** тест \`chips.component.spec.ts\`: три элемента дают три чипа; клик по крестику второго испускает \`removed\` со вторым элементом, чипов по-прежнему три.
+  - **Приемка:** тест \`chips.component.spec.ts\` импортирует \`ChipsComponent\` через публичный API и проверяет, что три элемента дают три чипа, а клик по второму отдаёт второй элемент в \`removed\`. Входной список сохраняет все три записи.
+- [ ] Подключить список в редакторе получателей
+  - **Основания:** [[architecture#D2]], [[qa#Q2]]
+  - **Зависимости:** (p1). Использовать публичный \`ChipsComponent\` с \`items\`, \`displayWith\` и \`removed\`.
+  - **Границы:** компонент, шаблон и тест редактора, файлы \`ChipComponent\`, его внутренний импорт в \`ChipsComponent\` и экспорт в \`libs/ui/src/index.ts\`. Контракт \`ChipComponent\` сохраняется.
+  - **Что сделать:** редактор передаёт список получателей и функцию отображения в \`ChipsComponent\`. В компоненте редактора добавить обработчик \`removeRecipient\`, подписать его на \`removed\` в шаблоне и удалять получателя по \`id\` из списка редактора. Обновлённый список поступает в \`items\`. После миграции редактора как единственного внешнего потребителя \`ChipComponent\` перенести \`chip/\` в \`chips/elements/chip/\`, обновить внутренний импорт и убрать публичный экспорт \`ChipComponent\`.
+  - **Приемка:** в интеграционном тесте редактора с реальным \`ChipsComponent\` клик по второму из трёх чипов удаляет только второго получателя из списка редактора и с экрана. \`nx build ui\` проходит, публичный API экспортирует \`ChipsComponent\` и больше не экспортирует \`ChipComponent\`.
 
 ## Файловая структура
 
 \`\`\`text
+apps/example/src/app/recipients/
+├── recipients.component.html       (изменён)
+├── recipients.component.spec.ts    (изменён)
+└── recipients.component.ts         (изменён)
 libs/ui/src/
-├── index.ts                     (изменён)
+├── index.ts                        (изменён)
 └── lib/
-    ├── chip/                    (удалён)
-    └── chips/                   (новый)
-        ├── chips.component.ts   (новый)
+    ├── chip/                       (удалён)
+    └── chips/                      (новый)
+        ├── chips.component.ts      (новый)
         ├── chips.component.spec.ts (новый)
-        └── elements/chip/       (перенесён из lib/chip)
+        └── elements/chip/          (перенесён из lib/chip)
 \`\`\`
 
 ## Принятые решения
 
-- Порядок чипов совпадает с порядком \`items\`: сортировку делает родитель, если она ему нужна.
-- Пустой список ничего не рисует, без заглушки.
+- Порядок чипов совпадает с порядком получателей в списке редактора.
 
 ## Вопросы разработчику
 
-1. Есть ли потребители \`@rec-ui/chip\` вне репозитория? От ответа зависит, удалять ли экспорт в (p1) или оставить его с пометкой deprecated.
-2. Нужен ли переход фокуса на соседний чип после удаления? Сейчас фокус остаётся на месте; при «да» в (p2) добавится управление фокусом и тест на него.
+1. Куда переводить фокус после удаления? В (p2) заложено текущее поведение редактора. Если нужен переход к соседнему чипу, в (p2) добавятся управление фокусом и проверка перехода.
 \`\`\`
 
 ## Bad and good
 
-- A step that decides instead of doing. Bad: "Согласовать судьбу @rec-ui/chip и объём проверок". Good: ask before writing the plan; the step does the work that follows from the answer.
-- A step that changes the architecture. Bad: "при выборе совместимости пересмотреть D1/D3". Good: steps implement accepted decisions; a decision that turned out wrong is a question to the developer.
+The following examples describe a hypothetical feature with an agreed contract. They illustrate the expected deliverables for a request to plan link management.
+
+| Part of the plan | Bad | Good |
+| --- | --- | --- |
+| Цель | «Подготовить анализ раздела, на основе которого можно будет составить план». | «Пользователь с правом управления может перевыпустить URL из карточки ссылки. История остаётся привязанной к прежнему ID». |
+| Пункт и результат | «Уточнить контракт перевыпуска и оформить его в \`link-contracts.md\`». | «Подключить перевыпуск URL в карточке». Добавить в API-клиент \`rotateLink(id)\` с результатом \`{ url }\`. Обработчик действия карточки вызывает операцию через сервис состояния. После успеха сервис обновляет URL записи с тем же ID. Карточка получает обновлённую запись и использует новый URL для показа и копирования. При ошибке сервис сохраняет прежний URL и карточка позволяет повторить действие. |
+| Приемка | «В \`link-contracts.md\` описаны успешный ответ и ошибка». | «В интеграционном тесте перевыпустить URL для записи с историей. Карточка показывает и копирует новый URL, а ID и история совпадают с исходными. При ошибке карточка показывает прежний URL и действие можно повторить». |
+| Файловая структура | Только \`analysis/link-contracts.md\` и \`analysis/findings.md\`. | Например, \`src/links/link-api.ts\`, \`src/links/link-state.ts\`, \`src/links/link-card.ts\` и \`src/links/link-card.integration.test.ts\` с отметками изменений, соответствующими пунктам плана. |
+
+- A step that decides instead of doing. Bad: "Согласовать судьбу @rec-ui/chip и объём проверок". Good: resolve the export question before finalizing the plan. The step describes the resulting export change and its checks.
+- A step that changes the architecture. Bad: "при выборе совместимости пересмотреть D1/D3". Good: resolve the architecture question with the developer before finalizing the plan. The steps implement the accepted decision.
 - Acceptance about documents, not behaviour. Bad: "Проверка: контракт отражает решения интервью". Good: "Приемка: клик по крестику испускает \`removed\` с элементом; тест \`chips.component.spec.ts\` проходит".
 - Hedged wording. Bad: "предлагаемые имена: items, displayWith…". Good: the names are accepted before writing; an open name is a question.
 - Links mixed into the text. Bad: "…Основания: [[architecture#D1]], [[qa#Q8]], … Проверка: …" in one paragraph. Good: each field is its own nested line.
 - Retold materials. Bad: copying QA criteria or architecture decisions into «Цель» or a step. Good: a link in **Основания**.
 
+### Step size and handoff
+
+**Oversized step.** «Реализовать синхронизацию данных» bundles event delivery, persistence and recovery behind «данные актуальны, тесты проходят». Each of these results can be verified separately. For example, when the source provides ordered batches with a cursor and supports resuming from a saved cursor, use steps like these.
+
+\`\`\`markdown
+- [ ] Подключить доставку пакетов событий
+  - **Границы:** обработчик входящих пакетов и публичный контракт регистрации в транспорте. Хранение данных остаётся в приложении.
+  - **Что сделать:** транспорт предоставляет приложению регистрацию \`IEventBatchHandler\`. При доставке передаёт обработчику \`{ source, events, cursor }\` и сохраняет порядок вызовов по источнику.
+  - **Приемка:** тест транспорта проверяет состав пакета и порядок двух вызовов. Пакет без зарегистрированного обработчика обрабатывается без ошибки.
+- [ ] Сохранять пакет и курсор атомарно
+  - **Зависимости:** (p1) предоставляет регистрацию \`IEventBatchHandler\` и формат пакета.
+  - **Границы:** репозиторий событий и регистрация обработчика в приложении. Контракт транспорта сохраняется.
+  - **Что сделать:** репозиторий предоставляет \`applyBatch(batch)\` и \`readCommittedCursor(source)\`. \`applyBatch\` сохраняет изменения записей и подтверждённый курсор источника в одной транзакции. Пакет с уже подтверждённым курсором пропускается. Приложение регистрирует обработчик, который вызывает \`applyBatch\` при обычной доставке.
+  - **Приемка:** пакет, переданный зарегистрированному обработчику, сохраняет записи и курсор. Сбой перед подтверждением транзакции оставляет прежние записи и прежний курсор. Повтор подтверждённого пакета сохраняет по одному экземпляру каждой записи.
+- [ ] Восстанавливать обработку после разрыва
+  - **Зависимости:** (p2) предоставляет \`applyBatch\`, \`readCommittedCursor\` и обработчик обычной доставки.
+  - **Границы:** обработчик восстановления соединения приложения. Контракты доставки и репозитория сохраняются.
+  - **Что сделать:** при восстановлении соединения отложить обработку новых пакетов. Запросить у источника события после \`readCommittedCursor(source)\` через проверенный API восстановления и применить их по порядку через \`applyBatch\`. После успешного восстановления обработать отложенные пакеты и продолжить обычную доставку. При сбое повторить восстановление с последнего подтверждённого курсора.
+  - **Приемка:** разорвать соединение, изменить запись в источнике и восстановить соединение. Изменение доступно потребителю и сохраняется после перезапуска. Следующий обычный пакет применяется. При сбое восстановления повтор начинается с последнего подтверждённого курсора.
+\`\`\`
+
+**Steps that are too small.** «Создать файл интерфейса», «Добавить поле \`id\`» and «Экспортировать интерфейс» together deliver a public contract. One assignment can define the agreed fields of \`IItem\` in the module, expose the type through its public API and verify that a consumer can import it and type-check.
+
+**Unspecified result.** Check that the assignment makes the necessary design decisions explicit, names what its dependencies supply and verifies the promised behaviour.
+
+| Check | Bad | Good |
+| --- | --- | --- |
+| Design | «Выбрать хранилище и структуру данных». | «В согласованном хранилище каталога держать записи по \`id\` и признак полноты. \`readSnapshot()\` различает отсутствующий снимок и полный снимок с пустым списком. \`replaceSnapshot()\` заменяет снимок целиком». |
+| Dependencies | «(p2), (p3)». | «(p2) предоставляет \`createItem(draft)\`, (p3) предоставляет форму с выходом \`submitted(draft)\` и входами \`isSaving\` и \`errorMessage\`». |
+| Behavioural acceptance | «Сборка проходит, устаревшие ответы обработаны». | «Открыть карточку A, затем B. Доставить ответ B первым, ответ A последним. После обоих ответов карточка показывает данные B». |
+
+A step is small enough when another executor can deliver and verify one result using the stated contracts once the direct prerequisites are met. The plan author is responsible for keeping those contracts consistent.
+
 ## Before submitting
 
-Go through the plan in a separate pass and fix or raise in «Вопросы разработчику» everything you find:
+For an implementation plan, ask whether executing all the steps would deliver the requested change and whether the acceptance checks would detect its absence. Check each step for a concrete change, its place in the system and an observable result. If execution would produce only an analysis, findings or another plan, finish the preparation now and rewrite the steps around the actual deliverable. Apply the blocking-question rule if the missing answer determines what must be implemented.
+
+After drafting, make a separate pass comparing steps. Match entity names, data shapes, states, methods, error conditions and retry conditions across the steps that produce and consume them. Verify that each called method is available by the time it is used, each required output is handled and acceptance exercises the behaviour described.
+
+Review the plan as a whole. Fix issues and handle remaining questions according to their impact, as described above. Check for:
+
 - a violation of layers and dependency rules, including a cycle that would appear a step later;
 - an entity in the wrong layer or module, duplication of something that already exists;
-- a contradiction between steps or with the current code;
+- a contradiction with the current code;
 - a step that needs something the plan does not contain;
-- a step without **Что сделать** or **Приемка**, or with a decision still to be made;
+- a missing required field or a decision still to be made in a step;
 - «Файловая структура» that does not match the steps;
-- a value from the chat or the task that did not get into the step that needs it.`;
+- a value from the chat or the task that did not get into the step that needs it.
+
+- Can another executor follow the plan without redesigning the architecture or making unstated product decisions?
+- Does each material guarantee follow from the mechanisms described, and can the specified checks detect a violation?
+- Is each step detailed enough to be accepted independently?
+
+Keep only the steps, documents and entities that the task needs.`;
 
 export const DEFAULT_PLAN_REVIEW_INSTRUCTION =`# Plan review
 1. Check that the steps do not contradict each other or the analysis materials.

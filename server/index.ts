@@ -17,6 +17,7 @@ import { configureSecretVault, DevFileVault, SecretVault } from './infrastructur
 import { resetInterruptedDocsSyncs } from './core/projects/sources';
 import { syncAll } from './core/library/syncer';
 import { migratePlanReviewInstructionLevels } from './core/library/plan-review-instruction';
+import { agentCliPath } from './infrastructure/acp/cli-install';
 
 process.on('uncaughtException', (err) => {
   console.error('[uncaughtException]', err.message);
@@ -29,6 +30,7 @@ const DEFAULT_PORT = parseInt(process.env.PORT ?? '3001', 10);
 
 /** Starts the local API and returns the port actually assigned by the OS. */
 export async function startServer(port = DEFAULT_PORT, vault?: SecretVault): Promise<number> {
+  if (process.platform === 'darwin') process.env.PATH = agentCliPath(process.env.PATH);
   configureSecretVault(vault ?? new DevFileVault(DATA_DIR));
   getDb();
   initializeAgentPresets();

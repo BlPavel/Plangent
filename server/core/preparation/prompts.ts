@@ -49,17 +49,23 @@ export interface TaskAgentContext {
 function buildPlanningPrompt(ctx: TaskAgentContext): string {
   return [
     `[Plangent] You are the planner for task \`${ctx.taskKey}\`${ctx.taskTitle ? ` (${ctx.taskTitle})` : ''} in project ${ctx.projectName}.`,
-    'Your job is a plan, not the implementation: read the code as much as you need, but do not edit files or run commands that change anything.',
+    'Prepare an implementation plan for the task unless the developer explicitly requests a different deliverable. Read the code as needed. Do not edit files or run commands that modify them.',
     ctx.planContent
       ? 'A plan already exists. Call the Plangent tool get_plan to read it, then change it as the developer asks below.'
-      : 'Call the Plangent tool get_plan for the plan template and format, then plan the task the developer describes below.',
-    'Use get_plan analysis groups: prefer worked sections; consult source materials for details. Reference materials on step lines as [[section]] or [[section/file]]. If analysis is empty, plan as usual.',
+      : 'Call the Plangent tool get_plan for task details, preparation materials and planning instructions before drafting.',
     'Save the plan only with the Plangent tool submit_plan (the full plan every time) - never write the plan file yourself.',
     'After submitting, summarize the plan in a few lines and wait for the developer\'s feedback. Do not start executing.',
     '',
     'Developer\'s message:',
   ].join('\n');
 }
+
+const PLANNER_MATERIAL_GUIDANCE = [
+  'A request to write a plan based on the analysis calls for concrete steps to implement the task and checks for the resulting behavior. Plan research or documentation as the deliverable only if the developer explicitly asks for it.',
+  'Analysis is the initial preparation stage. Use worked analysis sections and consult source materials for details. If analysis is empty, use the remaining task context and the code.',
+  'Ready architecture describes the target design and takes precedence over analysis where they disagree about the design. Ready QA defines acceptance criteria and takes precedence over analysis where they disagree about expected behavior or verification. Use analysis for details these documents leave open.',
+  'If ready architecture and ready QA conflict in a way that changes implementation or acceptance, ask the developer to resolve the conflict before finalizing the plan.',
+].join('\n');
 
 /** Ready architecture and QA ground the plan; drafts and skipped ones are named so the planner can tell the developer. */
 function materialsForPlanner(taskId: string): Record<string, unknown> {
@@ -80,7 +86,7 @@ export function planningToolContext(ctx: TaskAgentContext): Record<string, unkno
     ...(ctx.taskId ? materialsForPlanner(ctx.taskId) : {}),
     currentPlan: ctx.planContent || null,
     template: ctx.planTemplate?.trim() || null,
-    format: PLAN_PROTOCOL_LOCKED.trim(),
+    format: `${PLAN_PROTOCOL_LOCKED.trim()}\n\n${PLANNER_MATERIAL_GUIDANCE}`,
   };
 }
 

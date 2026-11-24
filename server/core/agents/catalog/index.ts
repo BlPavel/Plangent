@@ -2,8 +2,16 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import { Agent } from '../../../models';
 import { clearAcpOptions } from './acp-options';
+import { agentPresets } from './presets';
+import { installAgentCli } from '../../../infrastructure/acp/cli-install';
 
 const execAsync = promisify(exec);
+
+// Match the saved preset commands, including Claude's existing npm update command.
+const presetCliPackages = new Map(Object.values(agentPresets).flatMap(({ update_command }) => {
+  const match = /^npm (?:install|update) -g (@[\w.-]+\/[\w.-]+)(?:@latest)?$/.exec(update_command);
+  return match ? [[update_command, `${match[1]}@latest`] as const] : [];
+}));
 
 export { listAgents, getAgent, createAgent } from '../../../infrastructure/db/repositories/agents/catalog';
 export type { AgentInput } from '../../../infrastructure/db/repositories/agents/catalog';
@@ -22,10 +30,10 @@ export interface AgentUpdateResult {
   adapter: { ok: true; package: string; from: string; to: string } | { ok: false; package: string; error: string } | null;
 }
 
-async function run(command: string, timeout: number): Promise<string> {
+async function run(command: string, timeout: number, stdoutOnly = false): Promise<string> {
   try {
     const { stdout, stderr } = await execAsync(command, { cwd: process.cwd(), timeout, maxBuffer: 1024 * 1024, windowsHide: true });
-    return [stdout, stderr].filter(Boolean).join('\n').trim();
+    return stdoutOnly ? stdout.trim() : [stdout, stderr].filter(Boolean).join('\n').trim();
   } catch (error: unknown) {
     const e = error as { stderr?: string; stdout?: string; message: string };
     throw new Error([e.message, e.stdout, e.stderr].filter(Boolean).join('\n').trim());
@@ -49,7 +57,7 @@ async function updateAdapter(agent: Agent): Promise<AgentUpdateResult['adapter']
   if (index < 0) return null;
   const [, pkg, from] = PINNED_PACKAGE.exec(agent.acp_args[index])!;
   try {
-    const latest = (await run(`npm view ${pkg} version`, 60_000)).split('\n').pop()!.trim();
+    const latest = await run(`npm view ${pkg} version`, 60_000, true);
     if (!PINNED_PACKAGE.test(`${pkg}@${latest}`)) throw new Error(`npm вернул неожиданную версию: ${latest}`);
     if (!newerVersion(latest, from)) return { ok: true, package: pkg, from, to: from };
     const acp_args = agent.acp_args.map((arg, i) => (i === index ? `${pkg}@${latest}` : arg));
@@ -69,7 +77,12 @@ export async function updateAgentCli(id: string): Promise<AgentUpdateResult> {
   const adapter = await updateAdapter(agent);
   let cli: AgentUpdateResult['cli'] = null;
   if (agent.update_command.trim()) {
-    try { cli = { ok: true, output: await run(agent.update_command, 300_000) }; }
+    const spec = process.platform === 'darwin' ? presetCliPackages.get(agent.update_command.trim()) : undefined;
+    try {
+      const output = spec ? await installAgentCli(spec) : await run(agent.update_command, 300_000);
+      if (spec) clearAcpOptions(id);
+      cli = { ok: true, output };
+    }
     catch (e) { cli = { ok: false, error: e instanceof Error ? e.message : String(e) }; }
   }
   if (!cli && !adapter) throw new Error('Нечего обновлять: не задана команда обновления и адаптер не закреплён на версии из npm');

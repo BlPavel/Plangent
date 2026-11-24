@@ -12,7 +12,12 @@
         v-else-if="banner.id === 'working'" variant="ghost" size="xs" :disabled="agent.stopping"
         title="Прервать агента; если он завис, его процесс будет закрыт. Пункты без ответа вернутся в очередь, их можно отправить заново" @click="agent.stop()"
       >{{ agent.stopping ? 'Останавливаю…' : 'Остановить агента' }}</AppButton>
-      <AppButton v-else-if="banner.id === 'other'" variant="ghost" size="xs" @click="store.openReview(store.otherReview!.review.id)">Открыть только для чтения</AppButton>
+      <template v-else-if="banner.id === 'other'">
+        <AppButton variant="ghost" size="xs" @click="store.openReview(store.otherReview!.review.id)">Открыть только для чтения</AppButton>
+        <AppButton variant="ghost" size="xs" icon title="Закрыть уведомление" aria-label="Закрыть уведомление" @click="store.dismissOtherReview()">
+          <IconClose />
+        </AppButton>
+      </template>
       <template v-else-if="banner.id === 'committed'">
         <FinishReview inline label="Завершить" variant="blue" @open-items="emit('open-items')" />
         <AppButton variant="ghost" size="xs" title="Не спрашивать, пока не появится новый коммит" @click="store.continueReview()">Продолжить</AppButton>
@@ -28,6 +33,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import AppButton from '@shared/ui/AppButton.vue'
+import { IconClose } from '@shared/ui/icons'
 import { useAppStore } from '@core/stores/app'
 import { useCodeStore } from '../stores/code'
 import { useReviewAgentStore } from '../stores/review-agent'

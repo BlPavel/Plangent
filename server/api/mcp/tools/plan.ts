@@ -3,7 +3,7 @@ import type { AgentSession } from '../../../core/agents';
 import { defineTools, type ToolEvent } from './types';
 import { planTask, planResult } from './context';
 const definitions = {
-get_plan: { description: 'Get the task, its current plan (if any), the plan template and the plan format rules. Call it before writing a plan.', fields: {} },
+get_plan: { description: 'Get the task, current plan, preparation materials, template and planning instructions. Call it before writing or revising the implementation plan.', fields: {} },
 submit_plan: {
     description: 'Save the whole plan (markdown). Every tracked step is its own line "- [ ] step text"; everything else (headings, notes) is free text. ' +
       'Keep existing "(pN)" ids of steps you keep; leave ids out for new steps - Plangent numbers them. Call again with the full plan after every change.',

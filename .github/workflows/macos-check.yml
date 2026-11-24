@@ -1,0 +1,83 @@
+name: macOS checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+        id: dependencies
+      - run: npm run typecheck
+      - run: npm test
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+      - run: npm run test:client
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+      - run: npm run electron:build -- --dir
+        id: package
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+      - name: Start the packaged desktop app with a Finder-like PATH
+        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
+        shell: bash
+        run: |
+          bundle="$(find dist -type d -name Plangent.app -print -quit)"
+          test -n "$bundle"
+          log="$RUNNER_TEMP/plangent-startup.log"
+          PATH=/usr/bin:/bin:/usr/sbin:/sbin "$bundle/Contents/MacOS/Plangent" > "$log" 2>&1 &
+          app_pid=$!
+          trap 'kill "$app_pid" 2>/dev/null || true' EXIT
+          for attempt in {1..30}; do
+            url="$(sed -n 's/^Plangent running at http:\/\/localhost:/http:\/\/127.0.0.1:/p' "$log" | tail -n 1)"
+            if [[ -n "$url" ]] && curl --fail --silent --max-time 2 "$url/api/health"; then exit 0; fi
+            kill -0 "$app_pid" 2>/dev/null || break
+            sleep 1
+          done
+          cat "$log"
+          exit 1
+      - name: Smoke test the packaged backend and terminal
+        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
+        shell: bash
+        run: |
+          bundle="$(find dist -type d -name Plangent.app -print -quit)"
+          test -n "$bundle"
+          resources="$PWD/$bundle/Contents/Resources"
+          export PLANGENT_DATA_DIR="$RUNNER_TEMP/plangent-smoke"
+          ELECTRON_RUN_AS_NODE=1 "$bundle/Contents/MacOS/Plangent" - "$resources" <<'NODE'
+          const assert = require('node:assert/strict');
+          const path = require('node:path');
+          const root = path.join(process.argv[2], 'app.asar');
+          const backend = require(path.join(root, 'server/dist/server/index.js'));
+          const { createPtySession, killPtySession } = require(path.join(root, 'server/dist/server/infrastructure/terminal/pty-manager.js'));
+          (async () => {
+            const port = await backend.startServer(0);
+            assert.ok((await fetch(`http://127.0.0.1:${port}/api/health`)).ok);
+            const terminal = createPtySession('smoke', '/bin/sh', ['-c', 'printf plangent-pty-ok'], process.cwd());
+            try {
+              const code = await new Promise((resolve, reject) => {
+                const timer = setTimeout(() => reject(new Error('terminal timeout')), 5000);
+                terminal.pty.onExit(({ exitCode }) => { clearTimeout(timer); resolve(exitCode); });
+              });
+              assert.equal(code, 0);
+              assert.match(terminal.buffer, /plangent-pty-ok/);
+            } finally {
+              await killPtySession('smoke');
+              await backend.shutdown();
+            }
+          })().then(() => process.exit(0), error => { console.error(error); process.exit(1); });
+          NODE

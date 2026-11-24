@@ -64,8 +64,10 @@ Finishing (`finish/`) treats a failed step as a state the developer can leave, n
   tracked hook scripts stay as the branch has them.
 
 Agents never run writing Git commands in a shell. Plangent checks roles,
-project scope and workflow state. Chat `git_action` requires the turn's Git
-permission; private MR reviews and source projects cannot use it.
+project scope and workflow state. The chat's Git button approves all supported
+`git_action` operations for that turn, including discard, merge, rebase, stash
+drop and tag deletion. If the button is off, each operation asks for approval.
+Private MR reviews and source projects cannot use the tool.
 
 `core/work/branch.ts` changes a task's existing workspace branch through
 `POST /api/projects/:projectId/tasks/:taskId/switch-branch`. The queue and agents

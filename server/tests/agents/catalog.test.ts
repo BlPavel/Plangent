@@ -1,10 +1,52 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { closeDb, getDb } from '../../infrastructure/db/schema';
 import { createAgent, deleteAgent, getAgent, listAgents, updateAgent } from '../../infrastructure/db/repositories/agents/catalog';
 import { readOptions, writeOptions } from '../../infrastructure/db/repositories/agents/options';
 import { addEvent, createSession, getSession, history, initSessions } from '../../infrastructure/db/repositories/agents/sessions';
 import { addAgentDeletion } from '../../infrastructure/db/migrations/017-agent-deletion';
+import { updateAgentCli } from '../../core/agents/catalog';
+import { agentPresets } from '../../core/agents/catalog/presets';
+import { agentCliPath } from '../../infrastructure/acp/cli-install';
+import { DATA_DIR } from '../../infrastructure/paths';
+
+test('macOS preset update installs and launches a CLI from Plangent data', { skip: process.platform !== 'darwin' }, async t => {
+  const fixture = await fs.mkdtemp(path.join(os.tmpdir(), 'fake npm '));
+  const originalPath = process.env.PATH;
+  t.after(async () => {
+    if (originalPath === undefined) delete process.env.PATH;
+    else process.env.PATH = originalPath;
+    closeDb();
+    await fs.rm(fixture, { recursive: true, force: true });
+  });
+
+  await fs.writeFile(path.join(fixture, 'npm'), [
+    '#!/bin/sh',
+    'set -eu',
+    'test "$1" = install',
+    'test "$2" = --global',
+    'test "$3" = --prefix',
+    'test "$7" = @qwen-code/qwen-code@latest',
+    'mkdir -p "$4/bin"',
+    'printf "#!/bin/sh\\nprintf updated\\n" > "$4/bin/qwen"',
+    'chmod +x "$4/bin/qwen"',
+  ].join('\n'), { mode: 0o755 });
+  process.env.PATH = agentCliPath(`${fixture}${path.delimiter}${originalPath ?? ''}`);
+  const preset = agentPresets.qwen;
+  const agent = createAgent({ name: preset.name, command: preset.command, acp_command: preset.acp_command,
+    acp_args: preset.acp_args, update_command: preset.update_command });
+  writeOptions(agent.id, '{}', Date.now());
+  assert.deepEqual(await updateAgentCli(agent.id), { cli: { ok: true, output: '' }, adapter: null });
+  assert.equal(readOptions(agent.id), undefined);
+  await fs.access(path.join(DATA_DIR, 'agent-cli', 'bin', 'qwen'));
+  const { stdout } = await promisify(execFile)('qwen', ['--acp']);
+  assert.equal(stdout, 'updated');
+});
 
 test('deleting an agent after run removal clears project defaults and cached options', t => {
   t.after(closeDb);

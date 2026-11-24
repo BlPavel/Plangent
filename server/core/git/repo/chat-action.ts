@@ -31,7 +31,6 @@ export async function prepareChatGitAction(session: AgentSession, args: Record<s
   const root = await rootForSession(session);
   return {
     title: `Git: ${JSON.stringify(args)}`,
-    alwaysAsk: ['discard', 'merge', 'rebase'].includes(action) || action === 'stash' && args.stashAction === 'drop' || action === 'tag' && args.tagAction === 'delete',
     execute: async (signal: AbortSignal, onProgress?: (event: { operationId: string; state?: 'started' | 'finished'; output?: string }) => void) => {
       signal.throwIfAborted();
       if (getProject(session.project_id)?.kind !== 'project' || await rootForSession(session) !== root) throw new Error('Git workspace changed while awaiting approval');

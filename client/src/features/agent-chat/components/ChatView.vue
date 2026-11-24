@@ -65,9 +65,9 @@
           <slot v-else-if="cards?.includes(row.type)" name="card" :event="row" />
           <template v-else-if="row.type === 'tool_call' && String(row.payload.title ?? '').endsWith('ask_interview_questions')" />
           <ToolCallCard v-else-if="row.type === 'tool_call'" :call="row.payload" />
-          <div v-else-if="row.type === 'git_action_progress'" class="card notice">
+          <div v-else-if="row.type === 'git_action_progress'" class="card notice" :class="{ 'git-finished-compact': row.payload.state === 'finished' && !row.payload.output?.trim() }">
             <div class="card-label">Git · {{ row.payload.state === 'finished' ? 'завершено' : 'выполняется' }}</div>
-            <pre v-if="row.payload.output" class="notice-text">{{ row.payload.output }}</pre>
+            <pre v-if="row.payload.output?.trim()" class="notice-text">{{ row.payload.output }}</pre>
           </div>
           <div v-else-if="row.type === 'plan'" class="card plan">
             <div class="card-label">План</div>
@@ -418,6 +418,8 @@ kbd { font-family: inherit; font-size: var(--fs-xs); padding: 1px 5px; border: 1
 
 .notice-line { font-size: var(--fs-sm); color: var(--text-faint); text-align: center; overflow-wrap: anywhere; }
 .notice-text { font-size: var(--fs-md); white-space: pre-wrap; overflow-wrap: anywhere; }
+.git-finished-compact { display: flex; align-items: center; min-block-size: var(--size-md); padding-block: 0; }
+.git-finished-compact .card-label { margin-bottom: 0; }
 .notice.request_help { border-color: var(--warning-soft); background: var(--warning-soft); }
 .notice.complete_step { border-color: var(--accent-soft); }
 
