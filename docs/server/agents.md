@@ -79,12 +79,14 @@ References: [Qwen ACP setup](https://qwenlm.github.io/qwen-code-docs/en/users/in
 [authentication](https://qwenlm.github.io/qwen-code-docs/en/users/configuration/auth/),
 [skills](https://qwenlm.github.io/qwen-code-docs/en/users/features/skills/).
 
-GLM (Z.ai) and Kimi (Moonshot API) use the same ACP adapter. GLM uses
-`https://api.z.ai/api/anthropic`, a Z.ai GLM Coding Plan key, and `glm-5.3[1m]`.
-Kimi uses `https://api.moonshot.ai/anthropic`, a Moonshot platform API key,
+GLM (Z.ai) and the Moonshot API Kimi preset use the same Claude ACP adapter. GLM uses
+`https://api.z.ai/api/anthropic` and a Z.ai GLM Coding Plan key. Its default,
+Opus, Fable and subagent roles map to `glm-5.4[1m]`; Sonnet and Haiku map to
+`glm-5.3[1m]`, so both provider models remain selectable. Kimi's Moonshot API
+preset uses `https://api.moonshot.ai/anthropic`, a Moonshot platform API key,
 and `kimi-k3[1m]`; this is separate from Kimi Code subscription credentials.
-Both presets map all Claude model tiers (including Fable) and subagents to
-their configured provider model. Supply the key in `ANTHROPIC_AUTH_TOKEN`.
+The Moonshot preset maps all Claude model tiers (including Fable) and subagents
+to its configured provider model. Supply the key in `ANTHROPIC_AUTH_TOKEN`.
 References: [Z.ai](https://docs.z.ai/devpack/tool/claude),
 [Kimi](https://platform.kimi.ai/docs/guide/claude-code-kimi).
 

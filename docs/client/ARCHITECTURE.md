@@ -25,10 +25,12 @@ resolve it from session permissions. Keep the options probe's current mode separ
 from the developer's choice. Model and reasoning presets still apply normally.
 
 `features/agent-chat/utils/agent-options.ts` presents the Claude adapter's explicit
-DeepSeek Flash, GLM and Kimi Opus/Sonnet mappings to the same model as one choice. Preserve
-the reported wire id for model changes. Apply this to both config options and
-legacy model lists, including cached options and existing chats. Other model
-catalogs (including agents offering DeepSeek alongside other providers) stay intact.
+DeepSeek Flash, GLM and Kimi Opus/Sonnet mappings as provider models rather than
+Claude roles. Aliases of the same model collapse to one choice; distinct provider
+models (for example GLM 5.4 and 5.3) remain separate choices. Preserve the
+reported wire id for model changes. Apply this to both config options and legacy
+model lists, including cached options and existing chats. Other model catalogs
+(including agents offering DeepSeek alongside other providers) stay intact.
 
 Put routed screens in `views/`, embedded components in `components/`, domain
 stores in the feature's `stores/`. Global application state belongs in `core/stores`.

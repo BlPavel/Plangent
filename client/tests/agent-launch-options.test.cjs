@@ -65,6 +65,25 @@ for (const [model, label] of [['glm-5.3[1m]', 'GLM 5.3'], ['kimi-k3[1m]', 'Kimi 
   })
 }
 
+test('distinct GLM role mappings stay separate model choices and preserve their wire ids', () => {
+  const { agentSelects } = loader()('client/src/features/agent-chat/utils/agent-options.ts')
+  const options = [
+    { value: 'default', name: 'Default (recommended)', description: 'glm-5.4[1m]' },
+    ...['opus', 'fable'].map(value => ({ value, name: `glm-5.4[1m] (${value})` })),
+    ...['sonnet', 'haiku'].map(value => ({ value, name: `glm-5.3[1m] (${value})` })),
+    ...['glm-5.4[1m]', 'glm-5.3[1m]'].map(value => ({ value, name: `${value} (${value})` })),
+  ]
+  for (const current of ['default', 'sonnet', 'glm-5.3[1m]']) {
+    const select = agentSelects({ configOptions: [{ id: 'model', category: 'model', type: 'select', currentValue: current, options }] })
+      .find(s => s.kind === 'model')
+    assert.equal(select.options.map(o => o.label).join(','), 'GLM 5.4,GLM 5.3')
+    assert.equal(select.options.length, 2)
+    assert.equal(select.current, current === 'default' ? 'glm-5.4[1m]' : current)
+    assert.equal(select.options.find(o => o.value === select.current).label, current === 'default' ? 'GLM 5.4' : 'GLM 5.3')
+    assert.ok(options.some(o => o.value === select.current), 'never invent an unsupported model id')
+  }
+})
+
 function fixture(t, source) {
   const chat = reactive({ agentOptions: { first: source, second: source }, fetchAgentOptions() {} })
   const agents = { agents: [{ id: 'first', model: 'chosen-model', reasoning_effort: 'high' }] }

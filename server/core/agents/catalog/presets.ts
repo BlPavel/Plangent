@@ -95,7 +95,10 @@ agentPresets.deepseek = claudeApiPreset('DeepSeek', 'https://api.deepseek.com/an
 });
 
 // https://docs.z.ai/devpack/tool/claude — use a Z.ai GLM Coding Plan key.
-agentPresets.glm = claudeApiPreset('GLM (Z.ai)', 'https://api.z.ai/api/anthropic', 'glm-5.3[1m]', {
+// Keep distinct provider models on distinct Claude roles so the ACP model picker can offer both.
+agentPresets.glm = claudeApiPreset('GLM (Z.ai)', 'https://api.z.ai/api/anthropic', 'glm-5.4[1m]', {
+  ANTHROPIC_DEFAULT_SONNET_MODEL: 'glm-5.3[1m]',
+  ANTHROPIC_DEFAULT_HAIKU_MODEL: 'glm-5.3[1m]',
   CLAUDE_CODE_AUTO_COMPACT_WINDOW: '1000000',
   CLAUDE_CODE_MAX_CONTEXT_TOKENS: '1000000',
   CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',

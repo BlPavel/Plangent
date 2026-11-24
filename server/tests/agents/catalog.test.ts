@@ -15,6 +15,16 @@ import { agentPresets } from '../../core/agents/catalog/presets';
 import { agentCliPath } from '../../infrastructure/acp/cli-install';
 import { DATA_DIR } from '../../infrastructure/paths';
 
+test('GLM exposes 5.4 and 5.3 through distinct model roles', () => {
+  const glm = agentPresets.glm;
+  assert.equal(glm.acp_command, agentPresets.claude.acp_command);
+  assert.equal(glm.env?.ANTHROPIC_MODEL, 'glm-5.4[1m]');
+  assert.equal(glm.env?.ANTHROPIC_DEFAULT_OPUS_MODEL, 'glm-5.4[1m]');
+  assert.equal(glm.env?.ANTHROPIC_DEFAULT_FABLE_MODEL, 'glm-5.4[1m]');
+  assert.equal(glm.env?.ANTHROPIC_DEFAULT_SONNET_MODEL, 'glm-5.3[1m]');
+  assert.equal(glm.env?.ANTHROPIC_DEFAULT_HAIKU_MODEL, 'glm-5.3[1m]');
+});
+
 test('macOS preset update installs and launches a CLI from Plangent data', { skip: process.platform !== 'darwin' }, async t => {
   const fixture = await fs.mkdtemp(path.join(os.tmpdir(), 'fake npm '));
   const originalPath = process.env.PATH;

@@ -57,22 +57,42 @@ function choice(category: string, c: { value: string; name: string; description?
   return category === 'model' && rest.length ? { value: c.value, label: head, description: rest.join(' · ') } : { value: c.value, label: c.name, description: c.description ?? undefined }
 }
 
-/** Third-party Claude presets report one model under several role aliases. Keep their wire ids. */
+const PROVIDER_MODEL = /^(?:deepseek-flash|glm-[\w.-]+|kimi-[\w.-]+|k\d[\w.-]*)(?:\[1m\])?$/i
+
+/** Third-party Claude presets expose provider models through Claude role aliases. Keep one wire choice per real model. */
 function providerModelSelect(select: AgentSelect): AgentSelect {
   if (select.kind !== 'model') return select
-  const model = select.options.map(o => o.label.match(/^((?:deepseek-flash|glm-[\w.-]+|kimi-[\w.-]+|k\d[\w.-]*)(?:\[1m\])?) \(opus\)$/i)?.[1]).find(Boolean)
-  if (!model) return select
-  const mapped = (role: string) => select.options.some(o => o.label.toLowerCase() === `${model} (${role})`.toLowerCase())
-  // Match the explicit role mapping, not merely an agent that also offers DeepSeek.
-  if (!mapped('opus') || !mapped('sonnet')) return select
-  const base = model.replace(/\[1m\]$/i, '')
-  const aliases = select.options.filter(o => [model.toLowerCase(), base.toLowerCase()].includes(o.label.replace(/\s+\([^)]*\)$/, '').toLowerCase()))
-  const selected = aliases.find(o => o.value === select.current)
-    ?? aliases.find(o => o.value === model)
-    ?? aliases.find(o => o.label.startsWith(model))
-  if (!selected) return select
-  const label = base === 'deepseek-flash' ? 'DeepSeek Flash' : base.replace(/^glm-/i, 'GLM ').replace(/^kimi-k/i, 'Kimi K').replace(/^k(\d)/i, 'Kimi K$1').replace(/-pro$/i, ' Pro')
-  return { ...select, current: selected.value, options: [{ value: selected.value, label, ...(model.endsWith('[1m]') ? { description: 'Контекст до 1 млн токенов' } : {}) }] }
+  const entries = select.options.map(option => {
+    const role = option.label.match(/^((?:deepseek-flash|glm-[\w.-]+|kimi-[\w.-]+|k\d[\w.-]*)(?:\[1m\])?) \(([^)]+)\)$/i)
+    const described = option.description?.trim()
+    const model = role?.[1] ?? (described && PROVIDER_MODEL.test(described) ? described : PROVIDER_MODEL.test(option.label) ? option.label : '')
+    return { option, model, role: role?.[2].toLowerCase() ?? '' }
+  })
+  const roles = new Set(entries.filter(e => e.model && e.role).map(e => e.role))
+  // Match the explicit role mapping, not merely an agent that also offers one of these providers.
+  if (!roles.has('opus') || !roles.has('sonnet')) return select
+  const groups = new Map<string, { model: string; entries: typeof entries }>()
+  for (const entry of entries.filter(e => e.model)) {
+    const key = entry.model.replace(/\[1m\]$/i, '').toLowerCase()
+    const group = groups.get(key)
+    if (group) {
+      group.entries.push(entry)
+      if (entry.model.endsWith('[1m]')) group.model = entry.model
+    } else groups.set(key, { model: entry.model, entries: [entry] })
+  }
+  const options = [...groups.values()].map(({ model, entries }) => {
+    // A default role alias is not a stable model id: prefer the explicit id, then a concrete role.
+    const concrete = entries.filter(e => e.role || PROVIDER_MODEL.test(e.option.value) || PROVIDER_MODEL.test(e.option.label))
+    const selected = concrete.find(e => e.option.value === select.current)
+      ?? entries.find(e => e.option.value === model)
+      ?? entries.find(e => e.option.value === model.replace(/\[1m\]$/i, ''))
+      ?? concrete[0] ?? entries[0]
+    const base = model.replace(/\[1m\]$/i, '')
+    const label = base === 'deepseek-flash' ? 'DeepSeek Flash' : base.replace(/^glm-/i, 'GLM ').replace(/^kimi-k/i, 'Kimi K').replace(/^k(\d)/i, 'Kimi K$1').replace(/-pro$/i, ' Pro')
+    return { value: selected.option.value, label, ...(model.endsWith('[1m]') ? { description: 'Контекст до 1 млн токенов' } : {}) }
+  })
+  const current = options.find(o => o.value === select.current)?.value ?? options[0]?.value ?? select.current
+  return { ...select, current, options }
 }
 
 export function agentSelects(source: AgentOptionsSource | null | undefined): AgentSelect[] {
