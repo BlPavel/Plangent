@@ -12,7 +12,7 @@ import os from 'os';
 import path from 'path';
 import { EventEmitter } from 'events';
 import { DomainError } from '../../../models/domain-error';
-import { getAgent } from '../catalog';
+import { getAgent, launchCommandFor, isCommandAvailable, agentInstallPlan, AgentCliMissingError, forgetAgentCliState } from '../catalog';
 import { deleteAgent as persistAgentDeletion } from '../../../infrastructure/db/repositories/agents/catalog';
 import { getProject } from '../../projects';
 import type { getTask } from '../../tasks';
@@ -28,7 +28,6 @@ import { resolvedAgentEnv } from './env';
 import { agentSessionSettings } from './session-settings';
 import { isBypassMode, selectSessionMode } from './session-modes';
 import { APP_VERSION } from '../../shared';
-import { agentPresets, presetForAgentId } from '../catalog/presets';
 import { resolveAdapter } from '../catalog/adapter-install';
 import type { AgentSession, PermissionPolicy } from './types';
 import type { Agent } from '../../../models';
@@ -62,17 +61,18 @@ export function configureSessionHost(config: { mcp: typeof mcpConfig; terminate:
   mcpConfig = config.mcp;
   configureAdapterTermination(config.terminate);
 }
-/** The configured start command, before a pinned adapter is resolved to its installed copy. */
-function launchCommand(agent: Agent): { command: string; args: string[] } {
-  const preset = agentPresets[presetForAgentId[agent.id]];
-  const command = agent.acp_command || preset?.acp_command;
-  if (!command) throw new Error(`У агента «${agent.name}» не задана ACP-команда. Укажите её в настройках агента.`);
-  return { command, args: agent.acp_command ? agent.acp_args ?? [] : preset?.acp_args ?? [] };
-}
+const launchCommand = (agent: Agent) => {
+  const launch = launchCommandFor(agent);
+  if (!launch.command) throw new Error(`У агента «${agent.name}» не задана ACP-команда. Укажите её в настройках агента.`);
+  return launch;
+};
 const launchKey = (agent: Agent) => { try { return JSON.stringify(launchCommand(agent)); } catch { return ''; } };
 async function adapterCommand(agent: Agent, env: Record<string, string | undefined>): Promise<{ command: string; args: string[] }> {
   const { command, args } = launchCommand(agent);
-  return resolveAdapter(command, args, env);
+  const resolved = await resolveAdapter(command, args, env);
+  // npx fallbacks and native CLIs both fail late with ENOENT; report the installable reason before spawning.
+  if (!isCommandAvailable(resolved.command, env)) throw new AgentCliMissingError(resolved.command, agentInstallPlan(agent));
+  return resolved;
 }
 /** Cached options, unless they were reported by another adapter (e.g. a preset moved to a new version). */
 export function cachedAgentOptions(agentId: string): AcpOptions | null {
@@ -632,7 +632,10 @@ export async function deleteAgent(agentId: string): Promise<boolean> {
   const release = await prepareAgentChange(agentId);
   try {
     const deleted = persistAgentDeletion(agentId);
-    if (deleted) for (const session of listSessions().filter(session => session.agent_id === agentId)) broadcast({ type: 'agent_session', session });
+    if (deleted) {
+      forgetAgentCliState(agentId);
+      for (const session of listSessions().filter(session => session.agent_id === agentId)) broadcast({ type: 'agent_session', session });
+    }
     return deleted;
   }
   finally { release(); }

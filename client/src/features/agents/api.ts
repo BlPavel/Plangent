@@ -19,9 +19,13 @@ export const agentsApi = {
     return value && { ...value, models: value.models as AgentOptionsSource['models'] }
   },
   upgrade: endpoint('POST /api/agents/:id/update'),
+  cli: endpoint('GET /api/agents/:id/cli'),
+  installCli: endpoint('POST /api/agents/:id/cli/install'),
 }
 
 export const agentsEndpoints = {
   postAgentsByIdUpdate: agentsApi.upgrade,
   getAgentsPresets: agentsApi.presets,
+  getAgentsByIdCli: agentsApi.cli,
+  postAgentsByIdCliInstall: agentsApi.installCli,
 }

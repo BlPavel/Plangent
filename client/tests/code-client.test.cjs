@@ -891,7 +891,7 @@ test('review agent launch leaves the hidden sandbox mode to the server permissio
   for (const readOnly of [false, true]) {
     const changes = []
     moduleAt(file, {
-      '@features/agents': { useAgentsStore: () => ({ agents: [{ id: 'codex', name: 'Codex' }] }) },
+      '@features/agents': { useAgentsStore: () => ({ agents: [{ id: 'codex', name: 'Codex' }] }), ensureAgentCli: async () => ({ installed: true, state: 'done' }), getAgentInstallMode: async () => 'ask' },
       '@features/projects': { useReviewAgentChoice: () => ({ choice: ref({ agentId: 'codex', policy: 'allow-edits' }), loaded: ref(true) }) },
       '@shared/ui/AppButton.vue': {}, '@shared/ui/AppSelect.vue': {}, './UsageMeter.vue': {},
       '../composables/useAgentLaunchOptions': { useAgentLaunchOptions: () => ({

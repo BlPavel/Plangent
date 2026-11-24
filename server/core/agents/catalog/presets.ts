@@ -50,6 +50,18 @@ export const agentPresets: Record<string, AgentPreset> = {
       main: { file: 'QWEN.md', global: '~/.qwen/QWEN.md' },
     },
   },
+  opencode: {
+    name: 'OpenCode',
+    acp_command: 'opencode',
+    acp_args: ['acp'],
+    command: 'opencode',
+    update_command: 'npm install -g @opencode/cli@latest',
+    layout_profile: {
+      skills: { dir: '.opencode/skills', global: '~/.config/opencode/skills', file: 'plangent-<slug>/SKILL.md' },
+      commands: { dir: '.opencode/commands', global: '~/.config/opencode/commands', file: 'plangent-<slug>.md' },
+      main: { file: 'AGENTS.md', global: '~/.config/opencode/AGENTS.md' },
+    },
+  },
   gigacode: {
     name: 'GigaCode',
     acp_command: 'gigacode',

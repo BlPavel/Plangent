@@ -65,7 +65,7 @@ const compiled = (async () => {
       build.onLoad({ filter: /features[\\/]agent-chat[\\/]index\.ts$/ }, () => ({
         contents: "export { writeMentionDrag } from './utils/mention-drag'; export { default as MessageMarkdown } from '../../shared/markdown/MessageMarkdown.vue'; export const NewChatPanel = { render: () => null }; export const useComposerReveal = () => {}; export const useChatStore = () => ({ agentOptions: { 'test-agent': {} }, fetchAgentOptions: async () => {} }); export const modelAndEffort = () => ({ models: [], efforts: [] })", loader: 'ts', resolveDir: path.resolve('client/src/features/agent-chat'),
       }))
-      build.onLoad({ filter: /features[\\/]agents[\\/]index\.ts$/ }, () => ({ contents: "export { useAgentsStore } from './stores/agents'", loader: 'ts', resolveDir: path.resolve('client/src/features/agents') }))
+      build.onLoad({ filter: /features[\\/]agents[\\/]index\.ts$/ }, () => ({ contents: "export { useAgentsStore } from './stores/agents'; export const ensureAgentCli = async () => ({ installed: true, state: 'done' }); export const getAgentInstallMode = async () => 'ask'", loader: 'ts', resolveDir: path.resolve('client/src/features/agents') }))
       build.onLoad({ filter: /features[\\/]code[\\/]index\.ts$/ }, () => ({ contents: "export { gitApi, codeApi } from './api'", loader: 'ts', resolveDir: path.resolve('client/src/features/code') }))
       build.onLoad({ filter: /core[\\/]api[\\/]events\.ts$/ }, () => ({
         contents: 'export const onServerEvent = callback => global.subscribeTestEvent(callback); export const sendServerMessage = () => {}', loader: 'ts',

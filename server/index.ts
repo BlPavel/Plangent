@@ -30,7 +30,8 @@ const DEFAULT_PORT = parseInt(process.env.PORT ?? '3001', 10);
 
 /** Starts the local API and returns the port actually assigned by the OS. */
 export async function startServer(port = DEFAULT_PORT, vault?: SecretVault): Promise<number> {
-  if (process.platform === 'darwin') process.env.PATH = agentCliPath(process.env.PATH);
+  // App-managed CLIs live outside the system prefix; make them discoverable on every platform.
+  process.env.PATH = agentCliPath(process.env.PATH);
   configureSecretVault(vault ?? new DevFileVault(DATA_DIR));
   getDb();
   initializeAgentPresets();

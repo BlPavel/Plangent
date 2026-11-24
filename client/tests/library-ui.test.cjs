@@ -24,7 +24,7 @@ const compiled = (async () => {
     plugins: [{ name: 'vue-test', setup(build) {
       // Scope tests exercise the real library component, store, API, and event subscription.
       build.onLoad({ filter: /features[\\/]agents[\\/]index\.ts$/ }, () => ({
-        contents: 'export const useAgentsStore = () => ({ agents: [], load: async () => {} })', loader: 'ts',
+        contents: 'export const useAgentsStore = () => ({ agents: [], load: async () => {} }); export const ensureAgentCli = async () => ({ installed: true, state: "done" }); export const getAgentInstallMode = async () => "ask"', loader: 'ts',
       }))
       build.onLoad({ filter: /features[\\/]projects[\\/]index\.ts$/ }, () => ({
         contents: 'export const AvailabilityField = { render: () => null }; export const useProjectsStore = () => ({ projects: [], load: async () => {}, byId: () => undefined })', loader: 'ts',

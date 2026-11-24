@@ -36,6 +36,8 @@ async function component(file) {
       build.onLoad({ filter: /.*/, namespace: 'mock' }, () => ({ contents: `
         export const ChatComposer = { setup(_, { expose }) { expose({ content: () => [], clear: () => {} }); return () => null; } };
         export const useAgentsStore = () => ({ agents: [{id: 'agent', name: 'Test Agent'}] });
+        export const ensureAgentCli = async () => ({ installed: true, state: 'done' });
+        export const getAgentInstallMode = async () => 'ask';
         export const useChatStore = () => ({ sessions: globalThis.reviewTestSessions ?? [{id: 'session', agent_id: 'agent', model: 'saved-model', metadata: {reasoningEffort: 'high'}}],
           agentOptions: { agent: {} }, fetchAgentOptions: async () => {} });
         export const modelAndEffort = () => ({models: [{value:'saved-model',label:'Saved model'}], efforts:[{value:'high',label:'High'}]});

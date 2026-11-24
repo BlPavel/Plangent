@@ -24,7 +24,7 @@ test('Code review UI previews both ranges, starts read-only review, shows empty 
     '@shared/ui/AppButton.vue': { default: Button }, '@shared/ui/AppSelect.vue': { default: Select }, '@shared/ui/BranchSelect.vue': { default: Select },
     '@shared/markdown': { MessageMarkdown: { props: ['text'], setup: props => () => h('div', props.text) } },
     '@features/agent-chat': { ReviewAgentBar: Picker, UsageMeter: { setup: () => () => h('i') }, useChatStore: () => chats, statusLabel: status => status },
-    '@features/agents': { useAgentsStore: () => ({ agents: [{ id: 'reviewer', name: 'Ревьюер' }] }) },
+    '@features/agents': { useAgentsStore: () => ({ agents: [{ id: 'reviewer', name: 'Ревьюер' }] }), ensureAgentCli: async () => ({ installed: true, state: 'done' }), getAgentInstallMode: async () => 'ask' },
     '@features/branch-review': { branchReviewEndpoints: { getProjectsByProjectIdBranchReviewSkills: async () => [{ id: 'skill', title: 'Skill' }] } },
     '../stores/context': { useCodeContext: () => code, useGitContext: () => git },
     '../api': { codeEndpoints: {

@@ -126,7 +126,7 @@ test('code review list keeps answered items visible and closed-only filter overr
   const load = loader({
     '../stores/code': { useCodeStore: () => code },
     '../stores/review-agent': { useReviewAgentStore: () => ({ permissions: [] }) },
-    '@features/agents': { useAgentsStore: () => ({ agents: [] }), permissionPolicy: () => ({}) },
+    '@features/agents': { useAgentsStore: () => ({ agents: [] }), permissionPolicy: () => ({}), ensureAgentCli: async () => ({ installed: true, state: 'done' }), getAgentInstallMode: async () => 'ask' },
     '@features/agent-chat': { ChatView: empty, ReviewAgentBar: empty, UsageMeter: empty, statusLabel: () => '' },
     '@core/stores/app': { useAppStore: () => ({}) },
     './AgentReview.vue': { default: empty }, './RecentReviews.vue': { default: empty },

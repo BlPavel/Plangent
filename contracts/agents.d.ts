@@ -22,6 +22,21 @@ export interface LayoutProfile {
         global: string;
     };
 }
+/** Whether the CLI an agent launches is present; `installable` means Plangent knows an npm source for it. */
+export interface AgentCliStatus {
+    command: string;
+    bin: string;
+    installed: boolean;
+    installable: boolean;
+    package: string | null;
+    state: "idle" | "installing" | "done" | "error";
+    error?: string;
+}
+export interface AgentCliInstall {
+    package: string;
+    command: string;
+    bin: string;
+}
 export interface Agent {
     id: string;
     name: string;
@@ -242,6 +257,8 @@ export interface AgentsEndpoints {
         "cached"?: string;
         "refresh"?: string;
     }, "json", never>;
+    "GET /api/agents/:id/cli": Endpoint<"GET /api/agents/:id/cli", never, C.AgentCliStatus, Record<string, never>, "json", never>;
+    "POST /api/agents/:id/cli/install": Endpoint<"POST /api/agents/:id/cli/install", never, C.AgentCliStatus, Record<string, never>, "json", never>;
     "POST /api/agents": Endpoint<"POST /api/agents", AgentsPOSTBody, C.Agent, Record<string, never>, "json", never>;
     "PATCH /api/agents/:id": Endpoint<"PATCH /api/agents/:id", AgentsPATCHIdBody, C.Agent, Record<string, never>, "json", never>;
     "POST /api/agents/:id/update": Endpoint<"POST /api/agents/:id/update", never, AgentsPOSTIdUpdateResponse, Record<string, never>, "json", never>;

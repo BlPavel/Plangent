@@ -13,6 +13,10 @@
     <div v-if="tab === 'connections'" class="tab-body"><ConnectionsSettings :fix="typeof route.query.fix === 'string' ? route.query.fix : undefined" /></div>
     <!-- Agents -->
     <div v-show="tab === 'agents'" class="tab-body">
+      <div class="install-policy">
+        <span class="install-policy-title" title="Недостающий CLI скачивается в данные Plangent. Авторизация выполняется вручную.">Установка CLI агентов</span>
+        <AppSelect :model-value="installMode" :options="INSTALL_MODES" size="sm" :popup-max-width="230" @update:model-value="setInstallMode" />
+      </div>
       <div class="agent-list">
         <AppEmptyState v-if="!agentsStore.agents.length" >
           Нет агентов. Добавьте первого.
@@ -21,6 +25,8 @@
           <template #title>
             {{ a.name }}
             <AppBadge v-if="checking.has(a.id)" tone="info">Проверка…</AppBadge>
+            <AppBadge v-else-if="needsInstall(a)" tone="warning">Не установлен</AppBadge>
+            <AppBadge v-else-if="cliUnavailable(a)" tone="danger">CLI не найден</AppBadge>
             <AppBadge v-else-if="report(a.id)" :tone="report(a.id)?.ok ? 'success' : 'danger'">
               {{ report(a.id)?.ok ? 'Проверка пройдена' : 'Ошибка проверки' }}
             </AppBadge>
@@ -36,6 +42,8 @@
                 <div v-if="report(a.id)!.capabilities" class="agent-detail"><dt>MCP</dt><dd>{{ report(a.id)!.capabilities!.mcpHttp ? 'HTTP' : 'Через stdio-мост' }}</dd></div>
               </template>
               <div v-else-if="report(a.id)" class="agent-detail agent-detail-wide"><dt>Ошибка запуска</dt><dd class="bad">{{ report(a.id)!.error }}</dd></div>
+              <div v-if="cliUnavailable(a)" class="agent-detail agent-detail-wide"><dt>CLI</dt><dd class="bad">Не найден. Установите его вручную.</dd></div>
+              <div v-if="manualInstall(a)" class="agent-detail agent-detail-wide"><dt>Установка</dt><dd>Установите вручную: <code>npm install -g {{ manualInstall(a)!.package }}</code></dd></div>
               <div v-if="a.model" class="agent-detail"><dt>Модель</dt><dd>{{ a.model }}</dd></div>
               <div v-if="a.reasoning_effort" class="agent-detail"><dt>Рассуждения</dt><dd>{{ a.reasoning_effort }}</dd></div>
               <div v-if="a.layout_profile?.main" class="agent-detail agent-detail-wide"><dt>Инструкции</dt><dd>{{ a.layout_profile.main.file }}</dd></div>
@@ -47,10 +55,20 @@
                   {{ checking.has(a.id) ? 'Проверка…' : 'Проверить' }}
                 </AppButton>
                 <AppButton
-                  v-if="canUpdate(a)"
+                  v-if="needsInstall(a)"
                   variant="update"
                   size="sm"
-                  :disabled="updatingAgentId === a.id"
+                  :disabled="!!installingId || !!updatingAgentId"
+                  title="Скачать CLI агента в данные Plangent"
+                  @click="install(a)"
+                >
+                  {{ installingId === a.id ? 'Установка…' : 'Установить' }}
+                </AppButton>
+                <AppButton
+                  v-else-if="canUpdate(a)"
+                  variant="update"
+                  size="sm"
+                  :disabled="updatingAgentId === a.id || !!installingId"
                   title="Обновить CLI агента и ACP-адаптер до последней версии"
                   @click="updateAgent(a)"
                 >
@@ -201,7 +219,7 @@
 <script setup lang="ts">
 import { LIBRARY_SECTIONS } from '../../../../../common/library-registry'
 import AppEmptyState from '@shared/ui/AppEmptyState.vue'
-import { agentsEndpoints } from '@features/agents'
+import { agentsEndpoints, ensureAgentCli, agentAuthHint, getAgentInstallMode, saveAgentInstallMode, type AgentInstallMode, DEFAULT_AGENT_INSTALL_MODE } from '@features/agents'
 import AgentProxySettings from '../components/AgentProxySettings.vue'
 import { AppBadge, AppSwitch } from '@shared/ui'
 
@@ -210,7 +228,7 @@ import { useRoute } from 'vue-router'
 import { useAppStore } from '@core/stores/app'
 import { useAgentsStore } from '@features/agents'
 import { useChatStore, modelAndEffort } from '@features/agent-chat'
-import type { Agent, AgentPreset, LayoutProfile } from '@contracts'
+import type { Agent, AgentCliStatus, AgentPreset, LayoutProfile } from '@contracts'
 import AppModal from '@shared/ui/AppModal.vue'
 import FormField from '@shared/ui/FormField.vue'
 import AppSelect from '@shared/ui/AppSelect.vue'
@@ -274,6 +292,14 @@ watch(() => route.query.tab, t => { if (t === 'connections' || t === 'proxy') ta
 
 const presets = ref<Record<string, AgentPreset>>({})
 const loadingPresets = ref(true)
+const cli = ref<Record<string, AgentCliStatus>>({})
+const installingId = ref('')
+const installMode = ref<AgentInstallMode>(DEFAULT_AGENT_INSTALL_MODE)
+const INSTALL_MODES = [
+  { value: 'ask', label: 'Спрашивать', description: 'Предлагать установку при первом запуске' },
+  { value: 'auto', label: 'Автоматически', description: 'Устанавливать без вопроса' },
+  { value: 'never', label: 'Никогда', description: 'Только ручная установка' },
+]
 const showAgentModal = ref(false)
 const editAgent = ref<Agent | null>(null)
 const proxySaving = ref(new Set<string>())
@@ -312,10 +338,44 @@ function report(agentId: string): Report | null {
 }
 async function check(a: Agent, refresh = true) {
   checking.value.add(a.id)
-  try { await chatStore.fetchAgentOptions(a.id, refresh) }
-  finally { checking.value.delete(a.id) }
+  try {
+    // A user-visible check may install a missing CLI first; a silent one only reads what is already cached.
+    if (refresh) cli.value[a.id] = await ensureAgentCli(a.id, { onState: s => { cli.value[a.id] = s } })
+    await chatStore.fetchAgentOptions(a.id, refresh)
+  } catch (e) {
+    if (refresh) appStore.toast(`${a.name}: ${e instanceof Error ? e.message : String(e)}`, 'error')
+    return
+  } finally { checking.value.delete(a.id) }
   const r = report(a.id)
   if (refresh && r) appStore.toast(r.ok ? `${a.name}: агент отвечает` : `${a.name}: ${r.error}`, r.ok ? 'success' : 'error')
+}
+
+async function loadCli(a: Agent) {
+  try { cli.value[a.id] = await agentsEndpoints.getAgentsByIdCli({ params: { id: a.id } }) } catch { /* status is advisory */ }
+}
+const needsInstall = (a: Agent) => !!cli.value[a.id] && !cli.value[a.id].installed && cli.value[a.id].installable && installMode.value !== 'never'
+const cliUnavailable = (a: Agent) => !!cli.value[a.id] && !cli.value[a.id].installed && !cli.value[a.id].installable
+const manualInstall = (a: Agent) => installMode.value === 'never' && cli.value[a.id] && !cli.value[a.id].installed && cli.value[a.id].installable ? cli.value[a.id] : null
+
+async function install(a: Agent) {
+  if (installingId.value) return
+  installingId.value = a.id
+  try {
+    const status = await ensureAgentCli(a.id, { confirm: false, onState: s => { cli.value[a.id] = s } })
+    cli.value[a.id] = status
+    delete chatStore.agentOptions[a.id]
+    const hint = agentAuthHint(a)
+    appStore.toast(`${a.name}: CLI установлен${hint ? `. Войдите: ${hint}` : ''}`, 'success')
+    await check(a, false)
+  } catch (e) { appStore.toast(`${a.name}: ${e instanceof Error ? e.message : String(e)}`, 'error') }
+  finally { installingId.value = '' }
+}
+
+async function setInstallMode(value: string) {
+  const mode: AgentInstallMode = value === 'auto' || value === 'never' ? value : 'ask'
+  installMode.value = mode
+  try { await saveAgentInstallMode(mode) }
+  catch (e) { appStore.toast(String(e), 'error') }
 }
 const defaults = computed(() => modelAndEffort(editAgent.value ? chatStore.agentOptions[editAgent.value.id] : null))
 
@@ -414,7 +474,8 @@ const updatingAgentId = ref<string | null>(null)
 
 // Same shape the server looks for: an adapter package pinned to an exact version.
 const PINNED_PACKAGE = /^(?:@[\w.-]+\/)?[\w.-]+@\d+\.\d+\.\d+(?:-[\w.]+)?$/
-const canUpdate = (a: Agent) => !!a.update_command.trim() || a.acp_args.some(arg => PINNED_PACKAGE.test(arg))
+const canUpdate = (a: Agent) => (installMode.value !== 'never' || cli.value[a.id]?.installed !== false)
+  && (!!a.update_command.trim() || a.acp_args.some(arg => PINNED_PACKAGE.test(arg)))
 
 
 
@@ -422,20 +483,21 @@ async function updateAgent(agent: Agent) {
   if (!canUpdate(agent)) return
   updatingAgentId.value = agent.id
   try {
-    const { cli, adapter } = await agentsEndpoints.postAgentsByIdUpdate({ params: { id: agent.id } })
+    const { cli: cliResult, adapter } = await agentsEndpoints.postAgentsByIdUpdate({ params: { id: agent.id } })
     const adapterBumped = adapter?.ok && adapter.from !== adapter.to
     if (adapterBumped) {
       await agentsStore.load()
       // Ask the new adapter version what it offers now (models, reasoning levels).
       await chatStore.fetchAgentOptions(agent.id, true)
     }
+    await loadCli(agent)
     const parts: string[] = []
     if (adapter) parts.push(!adapter.ok ? `адаптер не обновлён — ${adapter.error}` : adapterBumped ? `адаптер ${adapter.from} → ${adapter.to}` : 'адаптер уже актуален')
-    if (cli) parts.push(cli.ok ? 'CLI обновлён' : `CLI не обновлён — ${cli.error}`)
+    if (cliResult) parts.push(cliResult.ok ? 'CLI обновлён' : `CLI не обновлён — ${cliResult.error}`)
     const models = adapterBumped ? report(agent.id) : null
     if (models?.ok) parts.push(`моделей: ${models.models}`)
     else if (models) parts.push(`агент не запускается: ${models.error}`)
-    const failed = adapter?.ok === false || cli?.ok === false || models?.ok === false
+    const failed = adapter?.ok === false || cliResult?.ok === false || models?.ok === false
     appStore.toast(`${agent.name}: ${parts.join(', ')}`, failed ? 'error' : 'success')
   } catch (e: unknown) {
     appStore.toast(`${agent.name}: ${String(e)}`, 'error')
@@ -449,6 +511,11 @@ watch(() => agentsStore.agents.map(a => a.id), ids => {
   for (const id of ids) if (!chatStore.agentOptions[id]) void chatStore.fetchAgentOptions(id, 'cached')
 }, { immediate: true })
 
+// Whether each agent's CLI is present; this does not start the agent.
+watch(() => agentsStore.agents, agents => {
+  for (const agent of agents) if (!cli.value[agent.id]) void loadCli(agent)
+}, { immediate: true })
+
 async function loadPresets() {
   loadingPresets.value = true
   try { presets.value = await agentsEndpoints.getAgentsPresets({ params: {  } }) }
@@ -459,6 +526,7 @@ async function loadPresets() {
 onMounted(() => {
   void agentsStore.load()
   void loadPresets()
+  void getAgentInstallMode(true).then(mode => { installMode.value = mode })
 })
 </script>
 
@@ -488,6 +556,8 @@ onMounted(() => {
 .plan-template-tab { min-height: 0; overflow: hidden; }
 
 .agent-list { display: flex; flex-direction: column; gap: var(--sp-3); }
+.install-policy { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); padding: 7px 12px; margin-bottom: var(--sp-3); border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg2); }
+.install-policy-title { font-size: var(--fs-sm); font-weight: 600; color: var(--text-muted); white-space: nowrap; }
 .agent-details { display: flex; flex-direction: column; gap: var(--sp-3); min-width: 0; }
 .agent-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--sp-3); border-top: 1px solid var(--border); padding-top: var(--sp-3); }
 .agent-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: var(--sp-2); margin-left: auto; }

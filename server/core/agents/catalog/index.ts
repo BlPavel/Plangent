@@ -2,17 +2,14 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import { Agent } from '../../../models';
 import { clearAcpOptions } from './acp-options';
-import { agentPresets } from './presets';
 import { installAgentCli } from '../../../infrastructure/acp/cli-install';
+import { managedNpmSpec, forgetAgentCliState } from './cli';
+import { resolvedAgentEnv } from '../sessions/env';
 
 const execAsync = promisify(exec);
 
-// Match the saved preset commands, including Claude's existing npm update command.
-const presetCliPackages = new Map(Object.values(agentPresets).flatMap(({ update_command }) => {
-  const match = /^npm (?:install|update) -g (@[\w.-]+\/[\w.-]+)(?:@latest)?$/.exec(update_command);
-  return match ? [[update_command, `${match[1]}@latest`] as const] : [];
-}));
-
+export { agentCliStatus, installAgentCliForAgent, forgetAgentCliState, AgentCliMissingError, agentInstallPlan, isCommandAvailable, launchCommandFor, managedNpmSpec } from './cli';
+export type { AgentCliStatus, AgentInstallPlan } from './cli';
 export { listAgents, getAgent, createAgent } from '../../../infrastructure/db/repositories/agents/catalog';
 export type { AgentInput } from '../../../infrastructure/db/repositories/agents/catalog';
 import { getAgent, updateAgent as persistAgent } from '../../../infrastructure/db/repositories/agents/catalog';
@@ -20,7 +17,10 @@ export function updateAgent(id: string, data: Partial<Omit<Agent, 'id' | 'create
   const current = getAgent(id);
   const updated = persistAgent(id, data);
   const connection = (a: Agent) => JSON.stringify([a.acp_command, a.acp_args, a.env, a.use_proxy]);
+  const install = (a: Agent) => JSON.stringify([a.acp_command, a.acp_args, a.command, a.update_command]);
   if (current && updated && connection(current) !== connection(updated)) clearAcpOptions(id);
+  // A changed install source invalidates the old failure/state.
+  if (current && updated && install(current) !== install(updated)) forgetAgentCliState(id);
   return updated;
 }
 export interface AgentUpdateResult {
@@ -77,9 +77,10 @@ export async function updateAgentCli(id: string): Promise<AgentUpdateResult> {
   const adapter = await updateAdapter(agent);
   let cli: AgentUpdateResult['cli'] = null;
   if (agent.update_command.trim()) {
-    const spec = process.platform === 'darwin' ? presetCliPackages.get(agent.update_command.trim()) : undefined;
+    const spec = managedNpmSpec(agent.update_command);
     try {
-      const output = spec ? await installAgentCli(spec) : await run(agent.update_command, 300_000);
+      // A plain npm install goes into Plangent's data folder on every platform; custom commands still run as written.
+      const output = spec ? await installAgentCli(spec, await resolvedAgentEnv(agent)) : await run(agent.update_command, 300_000);
       if (spec) clearAcpOptions(id);
       cli = { ok: true, output };
     }

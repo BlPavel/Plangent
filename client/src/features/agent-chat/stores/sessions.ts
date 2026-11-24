@@ -7,7 +7,11 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { platform } from '@core/platform'
 import type { AgentOptionsSource } from '../utils/agent-options'
+import type { AgentCliInstall } from '@contracts'
 import { useChatDraftsStore } from './drafts'
+
+/** An options probe that failed; `agent_cli_missing` carries what the UI may offer to install. */
+export interface AgentOptionsError { error: string; code?: string; install?: AgentCliInstall | null }
 
 
 
@@ -118,7 +122,7 @@ export const useChatStore = defineStore('agent-chat', () => {
   }
   // Models/modes/reasoning levels an agent offers, as it reported them (first fetch may take a few seconds).
   // `refresh` starts the agent again; 'cached' only reads what is already known and never starts it.
-  const agentOptions = ref<Record<string, AgentOptionsSource | { error: string }>>({})
+  const agentOptions = ref<Record<string, AgentOptionsSource | AgentOptionsError>>({})
   const optionJobs = new Map<string, Promise<void>>()
   function fetchAgentOptions(agentId: string, refresh: boolean | 'cached' = false) {
     if (!agentId) return Promise.resolve()
@@ -126,7 +130,14 @@ export const useChatStore = defineStore('agent-chat', () => {
     const query = refresh === 'cached' ? '?cached=1' : refresh ? '?refresh=1' : ''
     const job = agentsApi.options({ params: { id: agentId }, query: Object.fromEntries(new URLSearchParams(query)) })
       .then(value => { if (value) agentOptions.value[agentId] = value })
-      .catch(e => { agentOptions.value[agentId] = { error: e instanceof Error ? e.message : String(e) } })
+      .catch((e: unknown) => {
+        const failure = e as { message?: string; code?: string; install?: AgentCliInstall | null }
+        agentOptions.value[agentId] = {
+          error: e instanceof Error ? e.message : String(e),
+          ...(failure?.code ? { code: failure.code } : {}),
+          ...(failure?.install ? { install: failure.install } : {}),
+        }
+      })
       .finally(() => optionJobs.delete(agentId))
     optionJobs.set(agentId, job)
     return job

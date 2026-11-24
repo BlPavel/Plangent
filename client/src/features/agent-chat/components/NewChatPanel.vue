@@ -16,7 +16,7 @@
         </div>
         <p v-if="text" class="new-chat-hint">{{ text }}</p>
       </template>
-      <ChatComposer v-if="!compact" :draft-key="draftKey!" :initial-text="initialText" :commands="availableCommands" :project-id="projectId" :workspace-id="workspaceId" :placeholder="placeholder" :disabled="!agentId || busy" @send="start" @error="localError = $event">
+      <ChatComposer v-if="!compact" :draft-key="draftKey!" :initial-text="initialText" :commands="availableCommands" :project-id="projectId" :workspace-id="workspaceId" :placeholder="placeholder" :disabled="!agentId || busy || starting" @send="start" @error="localError = $event">
         <template v-if="git" #tools>
           <AppButton type="button" variant="subtle" size="xs" :pressed="gitForTurn" title="Разрешить Git-действия на один ход" @click="gitForTurn = !gitForTurn">Git</AppButton>
         </template>
@@ -24,12 +24,14 @@
       </ChatComposer>
       <AgentSettingsBar :policy="fixedPolicy ?? policy" :selects="resolvedSelects" :locked="!!fixedPolicy" @policy="policy = $event" @change="pick">
         <span v-if="optionsState === 'loading'" class="options-note">Загружаю модели агента…</span>
+        <span v-else-if="installRequired && installMode === 'never'" class="options-note">Агент не установлен · установите вручную<template v-if="installRequired.install?.package">: <code>npm install -g {{ installRequired.install.package }}</code></template></span>
+        <span v-else-if="installRequired" class="options-note">Агент не установлен · <AppButton variant="link" size="xs" :disabled="installing" @click="installAgent">{{ installing ? 'Установка…' : 'Установить' }}</AppButton></span>
         <span v-else-if="optionsState" class="options-note" :title="optionsState">Не удалось получить настройки агента · <AppButton variant="link" size="xs" @click="retry">повторить</AppButton></span>
       </AgentSettingsBar>
       <!-- Compact: no message to write, the first message is `initialText` as is. -->
       <div v-if="compact" class="new-chat-foot">
         <UsageMeter v-if="agentId" :agent-id="agentId" />
-        <AppButton class="new-chat-send" variant="blue" size="sm" :disabled="!agentId || busy" @click="start([{ type: 'text', text: initialText ?? '' }])">{{ busy ? 'Отправка…' : sendLabel || 'Начать' }}</AppButton>
+        <AppButton class="new-chat-send" variant="blue" size="sm" :disabled="!agentId || busy || starting" @click="start([{ type: 'text', text: initialText ?? '' }])">{{ starting ? 'Подготовка…' : busy ? 'Отправка…' : sendLabel || 'Начать' }}</AppButton>
       </div>
       <div v-if="error || localError" class="new-chat-error">{{ error || localError }}</div>
     </div>
@@ -38,7 +40,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import { useAgentsStore, permissionPolicy } from '@features/agents'
+import { ensureAgentCli, useAgentsStore, permissionPolicy } from '@features/agents'
 import AppSelect from '@shared/ui/AppSelect.vue'
 import AppButton from '@shared/ui/AppButton.vue'
 import ChatComposer, { type ContentBlock } from './ChatComposer.vue'
@@ -91,7 +93,13 @@ const emit = defineEmits<{ start: [request: NewChatRequest, gitForTurn: boolean]
 const gitForTurn = ref(false)
 const agents = useAgentsStore()
 const agentId = ref(''), policy = ref(props.defaultPolicy || 'ask'), localError = ref('')
-const { resolvedSelects, commands, state: optionsState, launch, pick, retry } = useAgentLaunchOptions(agentId, () => ({ agentId: props.defaultAgentId, model: props.defaultModel, effort: props.defaultEffort }))
+const { resolvedSelects, commands, state: optionsState, installRequired, installMode, installing, install, launch, pick, retry } = useAgentLaunchOptions(agentId, () => ({ agentId: props.defaultAgentId, model: props.defaultModel, effort: props.defaultEffort }))
+const starting = ref(false)
+async function installAgent() {
+  localError.value = ''
+  try { await install() }
+  catch (e) { localError.value = e instanceof Error ? e.message : String(e) }
+}
 
 const availableCommands = computed(() => mergeCommands(commands?.value ?? [], props.interview
   ? [{ name: 'interview', description: 'Уточнить решения небольшими раундами вопросов', source: 'plangent' }] : []))
@@ -104,8 +112,14 @@ watch(() => agents.agents.length, () => { if (!agentId.value) agentId.value = fa
 // The default may arrive late (settings are fetched); it replaces only a pick that is still the old default.
 watch(() => props.defaultAgentId, (_, old) => { if (!agentId.value || agentId.value === (old || agents.agents[0]?.id)) agentId.value = fallbackAgent() })
 
-function start(content: ContentBlock[]) {
+async function start(content: ContentBlock[]) {
   localError.value = ''
+  if (!agentId.value || starting.value) return
+  // Ask the CLI to install itself before the first turn, so the server never starts a half-configured agent.
+  starting.value = true
+  try { await ensureAgentCli(agentId.value) }
+  catch (e) { localError.value = e instanceof Error ? e.message : String(e); return }
+  finally { starting.value = false }
   emit('start', { agent_id: agentId.value, policy: permissionPolicy(props.fixedPolicy ?? policy.value), ...launch(), content }, !!props.git && gitForTurn.value)
 }
 </script>

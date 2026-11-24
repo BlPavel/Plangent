@@ -21,7 +21,8 @@ settingsRouterRoutes.json('POST /api/settings/agent-proxy/check', async (_req, r
 });
 
 // Free-form app-level values (e.g. the user's own "things to fix" notes), stored as text.
-const KEYS = new Set(['improvement-notes']);
+const KEYS = new Set(['improvement-notes', 'agent_cli_install']);
+const INSTALL_MODES = new Set(['ask', 'auto', 'never']);
 
 settingsRouterRoutes.json('GET /api/settings/:key', (req, res) => {
   if (!KEYS.has(req.params.key)) return res.status(404).json({ error: 'Unknown setting' });
@@ -32,6 +33,7 @@ settingsRouterRoutes.json('PUT /api/settings/:key', (req, res) => {
   if (!KEYS.has(req.params.key)) return res.status(404).json({ error: 'Unknown setting' });
   const value = req.body?.value;
   if (typeof value !== 'string') return res.status(400).json({ error: 'value must be a string' });
+  if (req.params.key === 'agent_cli_install' && !INSTALL_MODES.has(value)) return res.status(400).json({ error: 'Unknown install mode' });
   writeSetting(req.params.key, value);
   res.json({ ok: true });
 });

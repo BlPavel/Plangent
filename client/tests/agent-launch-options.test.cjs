@@ -88,7 +88,7 @@ function fixture(t, source) {
   const chat = reactive({ agentOptions: { first: source, second: source }, fetchAgentOptions() {} })
   const agents = { agents: [{ id: 'first', model: 'chosen-model', reasoning_effort: 'high' }] }
   const load = loader({
-    '@features/agents': { useAgentsStore: () => agents },
+    '@features/agents': { useAgentsStore: () => agents, ensureAgentCli: async () => ({ installed: true, state: 'done' }), getAgentInstallMode: async () => 'ask' },
     '../stores/sessions': { useChatStore: () => chat },
   })
   const agentId = ref('first'), scope = effectScope()

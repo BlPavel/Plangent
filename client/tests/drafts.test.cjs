@@ -15,7 +15,7 @@ const { parse, compileScript } = require('@vue/compiler-sfc')
 const root = path.resolve('client/src')
 const stub = 'export default { render: () => null }'
 const mockSources = {
-  '@features/agents': "export const useAgentsStore = () => ({ agents: [{ id: 'agent', name: 'Agent' }] }); export const permissionPolicy = () => 'ask'",
+  '@features/agents': "export const useAgentsStore = () => ({ agents: [{ id: 'agent', name: 'Agent' }] }); export const permissionPolicy = () => 'ask'; export const ensureAgentCli = async () => ({ installed: true, state: 'done' }); export const getAgentInstallMode = async () => 'ask'",
   '../composables/useAgentLaunchOptions': "import { ref } from 'vue'; export const useAgentLaunchOptions = () => ({ resolvedSelects: ref([]), state: ref(''), launch: () => ({}), pick() {}, retry() {} })",
   '../composables/useMentionFiles': "import { ref } from 'vue'; export const useMentionFiles = () => ({ files: ref([]), suggestions: ref([]), loading: ref(false), search() {}, clear() {} })",
   '@features/agent-chat': "import { ref } from 'vue'; export const SuggestMenu = { render: () => null }; export const useMentionFiles = () => ({ suggestions: ref([]), loading: ref(false), search() {}, clear() {} }); export const MessageMarkdown = { render: () => null }; export const NewChatPanel = { render: () => null }; export const useComposerReveal = () => {}",

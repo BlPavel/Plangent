@@ -1,5 +1,5 @@
 import { computed, ref, watch, type Ref } from 'vue'
-import { useAgentsStore } from '@features/agents'
+import { ensureAgentCli, getAgentInstallMode, useAgentsStore, type AgentInstallMode } from '@features/agents'
 import { agentSelects, type AgentSelect } from '../utils/agent-options'
 import { useChatStore } from '../stores/sessions'
 
@@ -16,6 +16,17 @@ export function useAgentLaunchOptions(agentId: Ref<string>, preset?: () => { age
   const selects = computed(() => (reported.value && !('error' in reported.value) ? agentSelects(reported.value) : []))
   /** '' — ready (or no agent), 'loading', else the error text. */
   const state = computed(() => (!agentId.value ? '' : !reported.value ? 'loading' : 'error' in reported.value ? reported.value.error : ''))
+  /** The probe failed because the CLI is absent; the panel can offer installation instead of only "повторить". */
+  const installRequired = computed(() => reported.value && 'error' in reported.value && reported.value.code === 'agent_cli_missing' ? reported.value : null)
+  const installMode = ref<AgentInstallMode>('ask')
+  void getAgentInstallMode().then(mode => { installMode.value = mode })
+  const installing = ref(false)
+  async function install() {
+    if (!agentId.value || installing.value) return
+    installing.value = true
+    try { await ensureAgentCli(agentId.value, { confirm: false }); await store.fetchAgentOptions(agentId.value, true) }
+    finally { installing.value = false }
+  }
   function choice(select: AgentSelect) {
     if (choices.value[select.configId]) return choices.value[select.configId]
     const offered = (v: string | undefined) => !!v && select.options.some(o => o.value === v)
@@ -51,5 +62,5 @@ export function useAgentLaunchOptions(agentId: Ref<string>, preset?: () => { age
   const pick = (select: AgentSelect, value: string) => { choices.value[select.configId] = value }
   const retry = () => store.fetchAgentOptions(agentId.value, true)
   const commands = computed(() => reported.value && !('error' in reported.value) ? reported.value.commands ?? [] : [])
-  return { resolvedSelects, commands, state, launch, pick, retry }
+  return { resolvedSelects, commands, state, installRequired, installMode, installing, install, launch, pick, retry }
 }

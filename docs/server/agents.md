@@ -51,13 +51,25 @@ their adapters are installed under `data/adapters/` (Claude smoke path: Windows)
 Transport tests cover HTTP/HTTPS, CA verification, authenticated SOCKS5, streaming,
 unavailable/auth-rejecting proxies, credential isolation and closing old tunnels.
 
-On macOS the saved preset update commands for Codex, Claude, Gemini and Qwen
-install the CLI with npm under `data/agent-cli` (inside Plangent's user data in
-the desktop build). Plangent puts that directory's `bin` first on its default
-PATH so subsequent launches use the updated CLI. Agent and project PATH
-overrides still apply. Custom update commands run as configured. Pinned ACP
-adapters are installed separately by version under `data/adapters`; other
-agent records and open sessions can continue using earlier versions.
+On every platform, the saved preset update commands for Codex, Claude, Gemini,
+Qwen and OpenCode install the CLI with npm under `data/agent-cli` (inside
+Plangent's user data in the desktop build). Plangent puts that directory's
+platform bin folders first on its default PATH (`bin` on POSIX, the prefix and
+its `bin` on Windows) so subsequent launches use the installed CLI. Agent and
+project PATH overrides still apply. Custom update commands run as configured.
+Pinned ACP adapters are installed separately by version under `data/adapters`;
+other agent records and open sessions can continue using earlier versions.
+
+A missing launch command does not have to be installed by hand. When the agent's
+`update_command` is a plain `npm install -g <package>`, the agent screen offers
+«Установить», and a new chat offers the same before its first turn. The app
+setting `agent_cli_install` controls the behaviour: `ask` (default) confirms
+first, `auto` installs immediately and `never` only shows the manual command.
+Installation uses `installAgentCli` without a shell, into `data/agent-cli`;
+arbitrary update commands are never run automatically. Missing Node/npm, or a
+preset without an npm source, is reported with the command to run manually.
+Installing does not authenticate the agent: subscription CLIs still need their
+own interactive login. After an install the cached ACP options are cleared.
 
 Agent presets use the shared `AgentPreset` contract. Optional `env` defaults
 are copied into the settings form when a preset is applied; credentials in
@@ -78,6 +90,19 @@ export as skills under `.qwen/skills` (global: `~/.qwen/skills`).
 References: [Qwen ACP setup](https://qwenlm.github.io/qwen-code-docs/en/users/integration-jetbrains/),
 [authentication](https://qwenlm.github.io/qwen-code-docs/en/users/configuration/auth/),
 [skills](https://qwenlm.github.io/qwen-code-docs/en/users/features/skills/).
+
+OpenCode uses its native stdio ACP mode, `opencode acp`. The `opencode` preset
+installs `@opencode/cli` (use `opencode-ai` for OpenCode 1.x). Install the CLI
+and run `opencode auth login` interactively before checking or launching the
+agent; provider credentials stay in `~/.local/share/opencode/auth.json` and are
+not copied into Plangent. Library instructions use `AGENTS.md` (global:
+`~/.config/opencode/AGENTS.md`); skills and commands export under
+`.opencode/skills` and `.opencode/commands` (global:
+`~/.config/opencode/skills`, `~/.config/opencode/commands`).
+References: [ACP](https://opencode.ai/docs/cli/acp/),
+[rules](https://opencode.ai/docs/rules/),
+[skills](https://opencode.ai/docs/skills/),
+[commands](https://opencode.ai/docs/commands/).
 
 GLM (Z.ai) and the Moonshot API Kimi preset use the same Claude ACP adapter. GLM uses
 `https://api.z.ai/api/anthropic` and a Z.ai GLM Coding Plan key. Its default,
